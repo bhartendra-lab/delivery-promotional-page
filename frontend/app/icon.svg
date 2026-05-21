@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <!-- Left stroke of the V (navy) -->
+  <path d="M16 18 L60 104 L74 80 L36 18 Z" fill="#0f2d5c"/>
+
+  <!-- Right stroke of the V transforming into an arrow (gold) -->
+  <path d="M60 104 L46 78 L88 18 L88 6 L104 6 L104 22 L74 22 Z" fill="#d4af63"/>
+
+  <!-- Camera shutter aperture in the bowl of the V -->
+  <circle cx="60" cy="56" r="18" fill="white"/>
+  <circle cx="60" cy="56" r="17" fill="none" stroke="#0f2d5c" stroke-width="1.4"/>
+
+  <!-- Six aperture blades (hexagonal) -->
+  <polygon points="60,56 71.45,49.5 77.62,58.73" fill="#d4af63" opacity="0.80" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+  <polygon points="60,56 77.62,58.73 71.45,68.5" fill="#d4af63" opacity="0.55" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+  <polygon points="60,56 71.45,68.5 60,74" fill="#d4af63" opacity="0.80" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+  <polygon points="60,56 60,74 48.55,68.5" fill="#d4af63" opacity="0.55" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+  <polygon points="60,56 48.55,68.5 42.38,58.73" fill="#d4af63" opacity="0.80" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+  <polygon points="60,56 42.38,58.73 48.55,49.5" fill="#d4af63" opacity="0.55" stroke="#0f2d5c" stroke-width="0.6" stroke-linejoin="round"/>
+
+  <!-- Center dot -->
+  <circle cx="60" cy="56" r="3.2" fill="#0f2d5c"/>
+</svg>
