@@ -1,0 +1,127 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+type Props = {
+  label?: string;
+  existingUrl?: string | null;
+  file: File | null;
+  onChange: (file: File | null) => void;
+};
+
+export function ImageUpload({
+  label = "Background image",
+  existingUrl,
+  file,
+  onChange,
+}: Props) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(existingUrl ?? null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    if (!file) {
+      setPreview(existingUrl ?? null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, existingUrl]);
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped && dropped.type.startsWith("image/")) {
+      onChange(dropped);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
+        {label}
+      </span>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
+          isDragging
+            ? "border-[var(--color-brand-gold)] bg-[var(--color-brand-gold-soft)]"
+            : "border-[var(--color-brand-outline)] bg-white hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]/30"
+        }`}
+      >
+        {preview ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={preview}
+              alt="Preview"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/60 via-transparent to-transparent p-3 opacity-0 transition-opacity hover:opacity-100">
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-[var(--color-brand-ink)]">
+                Click to replace
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-center text-[var(--color-brand-muted)]">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+              <UploadIcon />
+            </span>
+            <p className="text-sm font-medium text-[var(--color-brand-ink)]">
+              {isDragging ? "Drop to upload" : "Click or drag to upload"}
+            </p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              PNG · JPG · WEBP
+            </p>
+          </div>
+        )}
+      </div>
+
+      {preview && file && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange(null);
+            if (inputRef.current) inputRef.current.value = "";
+          }}
+          className="text-xs font-medium text-[var(--color-brand-danger)] hover:underline"
+        >
+          Remove
+        </button>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+      />
+    </div>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M12 16V4M7 9l5-5 5 5M4 18v1a2 2 0 002 2h12a2 2 0 002-2v-1"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
