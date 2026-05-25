@@ -63,7 +63,7 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]">
       <header className="sticky top-0 z-40 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <Logo size={52} />
+          <Logo size={80} />
 
           <div className="flex items-center gap-2">
             <a

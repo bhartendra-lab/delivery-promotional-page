@@ -85,7 +85,7 @@ function BrandPanel() {
       </div>
 
       <div className="relative dash-rise">
-        <Logo size={48} withWordmark onDark />
+        <Logo size={80} withWordmark onDark />
       </div>
 
       <div className="relative space-y-6 text-white">
@@ -213,7 +213,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
       <div className="w-full max-w-md dash-rise">
         {/* Mobile-only brand */}
         <div className="mb-10 flex flex-col items-center gap-3 lg:hidden">
-          <Logo size={48} withWordmark />
+          <Logo size={80} withWordmark />
         </div>
 
         <div className="rounded-2xl border border-[var(--color-brand-border)] bg-white p-8 shadow-[0_24px_60px_-30px_rgba(15,45,92,0.25)] sm:p-10">

@@ -45,7 +45,7 @@ function BrandPanel() {
 
       {/* Top: logo */}
       <div className="relative">
-        <Logo size={36} />
+        <Logo size={100} />
       </div>
 
       {/* Middle: tagline */}
@@ -119,7 +119,7 @@ function LoginForm() {
       <div className="w-full max-w-md dash-rise">
         {/* Mobile-only brand block */}
         <div className="mb-10 flex flex-col items-center gap-3 lg:hidden">
-          <Logo size={36} />
+          <Logo size={100} />
         </div>
 
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
