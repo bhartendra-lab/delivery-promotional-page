@@ -105,6 +105,15 @@ export type LoginResponse = {
   company: Company;
 };
 
+export type DlpUsage = {
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  service_type: string | null;
+  month_start: string;
+  status: "ok";
+};
+
 export type KvData = {
   client_name: string;
   event_type: EventType;

@@ -54,7 +54,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
         <button
           type="button"
           onClick={add}
-          className="brand-focus inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)] bg-white px-3 text-xs font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
+          className="brand-focus inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] px-3 text-xs font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
         >
           <PlusIcon />
           Add link
@@ -62,7 +62,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
       </div>
 
       {value.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[var(--color-brand-outline)] bg-white px-4 py-5 text-center text-sm text-[var(--color-brand-muted)]">
+        <p className="rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-4 py-5 text-center text-sm text-[var(--color-brand-muted)]">
           No delivery links yet — add your first gallery above.
         </p>
       )}
@@ -71,7 +71,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
         {value.map((row, i) => (
           <div
             key={i}
-            className="relative rounded-2xl border border-[var(--color-brand-border)] bg-white p-4 transition-colors hover:border-[var(--color-brand-outline)]"
+            className="relative rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-4 transition-colors hover:border-[var(--color-brand-outline)]"
           >
             <div className="mb-3 flex items-center gap-2">
               <span
@@ -124,7 +124,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
                 value={row.url}
                 onChange={(e) => update(i, { url: e.target.value })}
                 placeholder="https://…"
-                className="brand-focus h-11 w-full rounded-xl border border-[var(--color-brand-border)] bg-white px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+                className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
               />
             </label>
           </div>
@@ -154,7 +154,7 @@ function FieldSelect<T extends string>({
         <select
           value={value}
           onChange={(e) => onChange(e.target.value as T)}
-          className="brand-focus h-11 w-full appearance-none rounded-xl border border-[var(--color-brand-border)] bg-white px-3 pr-9 text-sm text-[var(--color-brand-ink)] outline-none"
+          className="brand-focus h-10 w-full appearance-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 pr-9 text-sm text-[var(--color-brand-ink)] outline-none"
         >
           {options.map((o) => (
             <option key={o} value={o}>

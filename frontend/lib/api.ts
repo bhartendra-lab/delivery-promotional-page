@@ -3,6 +3,7 @@ import type {
   Company,
   DeliveryLandingPage,
   DeliveryUrl,
+  DlpUsage,
   EventType,
   GetByIdResponse,
   ListResponse,
@@ -182,6 +183,10 @@ export function getDeliveryPageById(id: string) {
   return request<GetByIdResponse>(
     `/deliverables/get-delivery-landing-page-by-id/${encodeURIComponent(id)}`,
   );
+}
+
+export function getDlpUsage() {
+  return request<DlpUsage>("/deliverables/get-dlp-usage");
 }
 
 /**

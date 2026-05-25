@@ -10,7 +10,7 @@ const TONES: Record<EventType, { fg: string; bg: string }> = {
   Engagement: { fg: "#9d2466", bg: "#fce7f3" },
 };
 
-const FALLBACK = { fg: "#0f2d5c", bg: "#e8edf5" };
+const FALLBACK = { fg: "#2A2218", bg: "#EDE3D3" };
 
 export function EventBadge({ type }: { type: EventType }) {
   const tone = TONES[type] ?? FALLBACK;

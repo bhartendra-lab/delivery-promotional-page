@@ -54,8 +54,8 @@ export function ImageUpload({
         onClick={() => inputRef.current?.click()}
         className={`relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
           isDragging
-            ? "border-[var(--color-brand-gold)] bg-[var(--color-brand-gold-soft)]"
-            : "border-[var(--color-brand-outline)] bg-white hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]/30"
+            ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]"
+            : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] hover:border-[var(--color-brand-navy)]"
         }`}
       >
         {preview ? (

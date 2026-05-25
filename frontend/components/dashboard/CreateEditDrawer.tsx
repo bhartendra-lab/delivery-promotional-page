@@ -116,7 +116,7 @@ export function CreateEditDrawer({ open, target, onClose, onSaved }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="brand-focus h-11 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-navy-soft)]/50"
+              className="brand-focus h-10 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
             >
               Cancel
             </button>
@@ -124,7 +124,7 @@ export function CreateEditDrawer({ open, target, onClose, onSaved }: Props) {
               type="submit"
               form="delivery-form"
               disabled={submitting}
-              className="brand-focus group inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? (
                 <>
@@ -145,17 +145,17 @@ export function CreateEditDrawer({ open, target, onClose, onSaved }: Props) {
       <form id="delivery-form" onSubmit={handleSubmit} className="space-y-6">
         {/* Share URL banner (edit only) */}
         {isEdit && shareUrl && (
-          <div className="rounded-2xl border border-[var(--color-brand-gold)]/40 bg-[var(--color-brand-gold-soft)] p-4">
+          <div className="rounded-xl border border-[var(--color-brand-navy)]/30 bg-[var(--color-brand-navy-soft)] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-gold-deep)]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-navy)]">
                   Share with your client
                 </p>
                 <a
                   href={shareUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-1 block truncate text-sm font-medium text-[var(--color-brand-navy)] hover:underline"
+                  className="mt-1 block truncate text-sm font-medium text-[var(--color-brand-ink)] hover:underline"
                 >
                   {shareUrl}
                 </a>
@@ -163,7 +163,7 @@ export function CreateEditDrawer({ open, target, onClose, onSaved }: Props) {
               <button
                 type="button"
                 onClick={copyShare}
-                className="brand-focus inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
+                className="brand-focus inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 text-xs font-semibold text-white"
               >
                 {copied ? "✓ Copied" : "Copy"}
               </button>
@@ -243,13 +243,10 @@ export function CreateEditDrawer({ open, target, onClose, onSaved }: Props) {
 function SectionTitle({ index, title }: { index: number; title: string }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-[11px] font-bold text-white">
+      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-brand-navy)] text-[10px] font-bold text-white">
         {index}
       </span>
-      <h3
-        className="text-lg font-semibold text-[var(--color-brand-ink)]"
-        style={{ fontFamily: "var(--font-cormorant)" }}
-      >
+      <h3 className="text-base font-semibold text-[var(--color-brand-ink)]">
         {title}
       </h3>
       <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
@@ -280,7 +277,7 @@ function Field({
     <label className="block">
       <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
         {label}
-        {required && <span className="ml-1 text-[var(--color-brand-gold)]">*</span>}
+        {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
       </span>
       {textarea ? (
         <textarea
@@ -289,7 +286,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="brand-focus w-full rounded-xl border border-[var(--color-brand-border)] bg-white px-3 py-2.5 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+          className="brand-focus w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
         />
       ) : (
         <input
@@ -298,7 +295,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="brand-focus h-11 w-full rounded-xl border border-[var(--color-brand-border)] bg-white px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+          className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
         />
       )}
     </label>
@@ -325,7 +322,7 @@ function SelectField({
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="brand-focus h-11 w-full appearance-none rounded-xl border border-[var(--color-brand-border)] bg-white px-3 pr-9 text-sm text-[var(--color-brand-ink)] outline-none"
+          className="brand-focus h-10 w-full appearance-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 pr-9 text-sm text-[var(--color-brand-ink)] outline-none"
         >
           {options.map((o) => (
             <option key={o} value={o}>
