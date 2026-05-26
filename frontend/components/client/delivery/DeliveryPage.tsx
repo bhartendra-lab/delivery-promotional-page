@@ -2,7 +2,6 @@
 
 import type { ClientPageProps } from "@/app/(client)/c/[delivery_landing_page_id]/ClientPage";
 import { makeTokens } from "./tokens";
-import { useIsDesktop } from "./useIsDesktop";
 import { ClientHeader } from "./ClientHeader";
 import { ClientHero } from "./ClientHero";
 import { DesktopLeftPanel } from "./DesktopLeftPanel";
@@ -13,14 +12,23 @@ import { StudioSection } from "./StudioSection";
 import { ClientFooter } from "./ClientFooter";
 
 /**
- * Top-level delivery page. Same section sequence in both layouts:
+ * Top-level delivery page.
  *
- *     Hero → AccessSection → CustomMessageCard → ReviewSection →
- *     StudioSection → ClientFooter
+ * The page has two flows — desktop (sticky 32vw left panel + scrolling
+ * right column) and mobile (vertical stack) — but the section sequence
+ * is identical:
  *
- * Desktop hoists the Hero into a sticky 32vw left panel; the right column
- * starts at AccessSection and scrolls. Mobile stacks everything vertically
- * with the sticky header on top.
+ *   Hero → AccessSection → CustomMessageCard → ReviewSection →
+ *   StudioSection → ClientFooter
+ *
+ * Layout switching is done with CSS media queries (Tailwind's `min-[860px]`
+ * arbitrary breakpoint, matching the reference HTML's `useIsDesktop`
+ * threshold). Doing the switch in CSS rather than in JS keeps server and
+ * client render trees identical — no hydration mismatch, no flash from
+ * mobile-then-swap-to-desktop on hydration.
+ *
+ * The shared sections (Access, CustomMessage, Review, Studio, Footer)
+ * render exactly once; only the hero/header chrome varies between flows.
  */
 export function DeliveryPage(props: ClientPageProps) {
   const { data, template, onDeliveryClick, onReviewClick } = props;
@@ -31,92 +39,62 @@ export function DeliveryPage(props: ClientPageProps) {
     heroGradient: template.heroGradient,
   });
 
-  const isDesktop = useIsDesktop();
-
-  const rightColumn = (
-    <div className="mx-auto max-w-[480px]">
-      <div className="pt-3">
-        <AccessSection
-          data={data}
-          tokens={tokens}
-          onDeliveryClick={onDeliveryClick}
-        />
-        <CustomMessageCard
-          data={data}
-          tokens={tokens}
-          label={template.customMessageLabel}
-        />
-        <ReviewSection
-          data={data}
-          tokens={tokens}
-          template={template}
-          onReviewClick={onReviewClick}
-        />
-        <StudioSection data={data} tokens={tokens} template={template} />
-        <ClientFooter data={data} tokens={tokens} />
-      </div>
-    </div>
+  const sections = (
+    <>
+      <AccessSection
+        data={data}
+        tokens={tokens}
+        onDeliveryClick={onDeliveryClick}
+      />
+      <CustomMessageCard
+        data={data}
+        tokens={tokens}
+        label={template.customMessageLabel}
+      />
+      <ReviewSection
+        data={data}
+        tokens={tokens}
+        template={template}
+        onReviewClick={onReviewClick}
+      />
+      <StudioSection data={data} tokens={tokens} template={template} />
+      <ClientFooter data={data} tokens={tokens} />
+    </>
   );
-
-  if (isDesktop) {
-    return (
-      <div
-        className="flex h-screen overflow-hidden"
-        style={{
-          background: tokens.bg,
-          color: tokens.text,
-          fontFamily: "var(--font-plus-jakarta), sans-serif",
-        }}
-      >
-        <DesktopLeftPanel data={data} tokens={tokens} />
-        <div
-          className="w-px shrink-0"
-          style={{ background: "rgba(240,232,220,0.07)" }}
-          aria-hidden
-        />
-        <div
-          className="h-screen flex-1 overflow-y-auto"
-          style={{ background: tokens.bg }}
-        >
-          {rightColumn}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen min-[860px]:flex min-[860px]:h-screen min-[860px]:overflow-hidden"
       style={{
         background: tokens.bg,
         color: tokens.text,
         fontFamily: "var(--font-plus-jakarta), sans-serif",
       }}
     >
+      {/* Desktop: sticky 32vw left panel with hero hoisted in. */}
+      <div className="hidden min-[860px]:block">
+        <DesktopLeftPanel data={data} tokens={tokens} />
+      </div>
       <div
-        className="mx-auto min-h-screen max-w-[480px]"
-        style={{ background: tokens.bg }}
-      >
+        className="hidden w-px shrink-0 min-[860px]:block"
+        style={{ background: "rgba(240,232,220,0.07)" }}
+        aria-hidden
+      />
+
+      {/* Mobile: sticky header + full-width hero stacked above the
+          shared section column. */}
+      <div className="min-[860px]:hidden">
         <ClientHeader data={data} tokens={tokens} variant="sticky" />
         <ClientHero data={data} tokens={tokens} variant="mobile" />
-        <AccessSection
-          data={data}
-          tokens={tokens}
-          onDeliveryClick={onDeliveryClick}
-        />
-        <CustomMessageCard
-          data={data}
-          tokens={tokens}
-          label={template.customMessageLabel}
-        />
-        <ReviewSection
-          data={data}
-          tokens={tokens}
-          template={template}
-          onReviewClick={onReviewClick}
-        />
-        <StudioSection data={data} tokens={tokens} template={template} />
-        <ClientFooter data={data} tokens={tokens} />
+      </div>
+
+      {/* Shared right column (desktop scrolls, mobile continues the
+          stack). Same sections rendered once for both flows. */}
+      <div
+        className="min-[860px]:h-screen min-[860px]:flex-1 min-[860px]:overflow-y-auto"
+        style={{ background: tokens.bg }}
+      >
+        <div className="mx-auto max-w-[480px] pt-3">{sections}</div>
       </div>
     </div>
   );
