@@ -15,6 +15,7 @@ import { BirthdayTemplate } from "@/components/client/templates/BirthdayTemplate
 import { AnniversaryTemplate } from "@/components/client/templates/AnniversaryTemplate";
 import { PreWeddingTemplate } from "@/components/client/templates/PreWeddingTemplate";
 import { EngagementTemplate } from "@/components/client/templates/EngagementTemplate";
+import { CorporateTemplate } from "@/components/client/templates/CorporateTemplate";
 
 export type ClientPageProps = {
   id: string;
@@ -97,6 +98,8 @@ function pickTemplate(eventType: string) {
       return PreWeddingTemplate;
     case "Engagement":
       return EngagementTemplate;
+    case "Corporate":
+      return CorporateTemplate;
     default:
       return WeddingTemplate;
   }

@@ -114,6 +114,12 @@ export function EngagementTemplate({
               className="client-anim-fade-up mt-10 max-w-xl rounded-3xl bg-white/60 p-6 backdrop-blur sm:p-8"
               style={{ animationDelay: "1s" }}
             >
+              <p
+                className="mb-3 text-center text-[11px] font-semibold uppercase tracking-[0.35em]"
+                style={{ color: template.accentColor }}
+              >
+                {template.customMessageLabel}
+              </p>
               <CustomMessage data={data} className="text-center text-base sm:text-lg" />
             </div>
           )}

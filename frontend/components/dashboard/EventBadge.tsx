@@ -8,6 +8,7 @@ const TONES: Record<EventType, { fg: string; bg: string }> = {
   Anniversary: { fg: "#6a4c93", bg: "#f3e8ff" },
   "Pre-wedding": { fg: "#7c2d12", bg: "#fde8d3" },
   Engagement: { fg: "#9d2466", bg: "#fce7f3" },
+  Corporate: { fg: "#1a365d", bg: "#e0ecf7" },
 };
 
 const FALLBACK = { fg: "#2A2218", bg: "#EDE3D3" };
