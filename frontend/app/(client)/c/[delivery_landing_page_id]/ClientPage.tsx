@@ -8,7 +8,7 @@ import {
   type VisitorData,
 } from "@/lib/visitor";
 import { getEventTemplate } from "@/lib/event-templates";
-import { resolveStudioTheme, themeToCssVars } from "@/lib/studio-theme";
+import { resolveStudioTheme } from "@/lib/studio-theme";
 import type { KvData } from "@/lib/types";
 import { WeddingTemplate } from "@/components/client/templates/WeddingTemplate";
 import { BirthdayTemplate } from "@/components/client/templates/BirthdayTemplate";
@@ -71,36 +71,19 @@ export function ClientPage({ id, data }: Props) {
     onReviewClick,
   };
 
-  const Template = pickTemplate(data.event_type);
-
-  return (
-    <div
-      style={{
-        ...themeToCssVars(theme),
-        ["--color-accent" as string]: template.accentColor,
-      }}
-      className={template.pageBackground}
-    >
-      <Template {...shared} />
-    </div>
-  );
-}
-
-function pickTemplate(eventType: string) {
-  switch (eventType) {
-    case "Wedding":
-      return WeddingTemplate;
+  switch (data.event_type) {
     case "Birthday":
-      return BirthdayTemplate;
+      return <BirthdayTemplate {...shared} />;
     case "Anniversary":
-      return AnniversaryTemplate;
+      return <AnniversaryTemplate {...shared} />;
     case "Pre-wedding":
-      return PreWeddingTemplate;
+      return <PreWeddingTemplate {...shared} />;
     case "Engagement":
-      return EngagementTemplate;
+      return <EngagementTemplate {...shared} />;
     case "Corporate":
-      return CorporateTemplate;
+      return <CorporateTemplate {...shared} />;
+    case "Wedding":
     default:
-      return WeddingTemplate;
+      return <WeddingTemplate {...shared} />;
   }
 }
