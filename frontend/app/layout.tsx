@@ -54,6 +54,10 @@ const nunito = Nunito({
 export const metadata: Metadata = {
   title: "Delivery — Photography",
   description: "Branded delivery landing pages for photography studios.",
+  icons: {
+    icon: [{ url: "/vyavasth-icon.svg", type: "image/svg+xml" }],
+    shortcut: ["/vyavasth-icon.svg"],
+  },
 };
 
 export default function RootLayout({
