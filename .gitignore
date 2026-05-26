@@ -1,2 +1,5 @@
 .cursor/
 graphify-out/
+ai-tasks/
+CLAUDE.md
+.claude/
