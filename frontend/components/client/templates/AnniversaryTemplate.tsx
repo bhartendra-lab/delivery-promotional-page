@@ -119,10 +119,18 @@ export function AnniversaryTemplate({
             <RoseDivider className="my-6 sm:my-8" />
 
             {data.custom_message && (
-              <CustomMessage
-                data={data}
-                className="client-anim-fade-up text-base sm:text-lg"
-              />
+              <>
+                <p
+                  className="client-anim-fade-up mb-3 text-[11px] font-semibold uppercase tracking-[0.35em]"
+                  style={{ color: template.accentColor }}
+                >
+                  {template.customMessageLabel}
+                </p>
+                <CustomMessage
+                  data={data}
+                  className="client-anim-fade-up text-base sm:text-lg"
+                />
+              </>
             )}
           </div>
         </div>

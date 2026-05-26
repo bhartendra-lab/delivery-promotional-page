@@ -111,6 +111,12 @@ export function WeddingTemplate({
           className={`relative px-6 py-20 sm:py-28 ${template.pageBackground}`}
         >
           <div className="relative mx-auto max-w-2xl text-center">
+            <p
+              className="mb-6 text-[11px] font-semibold uppercase tracking-[0.35em]"
+              style={{ color: template.accentColor }}
+            >
+              {template.customMessageLabel}
+            </p>
             <Quote className="mx-auto mb-6 h-10 w-10 text-[#c9a76a]" />
             <CustomMessage
               data={data}

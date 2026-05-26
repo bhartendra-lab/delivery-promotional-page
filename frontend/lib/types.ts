@@ -3,7 +3,8 @@ export type EventType =
   | "Birthday"
   | "Anniversary"
   | "Pre-wedding"
-  | "Engagement";
+  | "Engagement"
+  | "Corporate";
 
 export const EVENT_TYPES: EventType[] = [
   "Wedding",
@@ -11,6 +12,7 @@ export const EVENT_TYPES: EventType[] = [
   "Anniversary",
   "Pre-wedding",
   "Engagement",
+  "Corporate",
 ];
 
 export type ContentType = "Images" | "Videos" | "Images & Videos";

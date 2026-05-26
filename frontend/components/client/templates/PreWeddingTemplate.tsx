@@ -102,7 +102,7 @@ export function PreWeddingTemplate({
               className="block text-[11px] font-semibold uppercase tracking-[0.4em]"
               style={{ color: template.accentColor }}
             >
-              The story
+              {template.customMessageLabel}
             </span>
             <div
               className="my-4 h-[3px] w-12"
