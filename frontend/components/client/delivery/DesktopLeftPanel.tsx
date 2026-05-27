@@ -36,7 +36,9 @@ export function DesktopLeftPanel({ data, tokens }: Props) {
     <div
       className="relative shrink-0 overflow-hidden"
       style={{
-        width: "clamp(420px, 32vw, 480px)",
+        // Wider than the reference HTML's `clamp(420px, 32vw, 480px)` so
+        // the hero photo gets more breathing room on wide desktop monitors.
+        width: "clamp(460px, 42vw, 640px)",
         position: "sticky",
         top: 0,
         height: "100vh",

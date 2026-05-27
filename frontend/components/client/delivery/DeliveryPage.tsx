@@ -65,6 +65,13 @@ export function DeliveryPage(props: ClientPageProps) {
   return (
     <div
       className="min-h-screen min-[860px]:flex min-[860px]:h-screen min-[860px]:overflow-hidden"
+      // Diagnostic attributes — exposed so we can verify in DevTools that the
+      // event_type from KV is actually reaching the render. Cheap to keep,
+      // useful for QA. Drop these once the dashboard→KV pipeline is trusted.
+      data-event-type={data.event_type}
+      data-template={template.themeName}
+      data-theme={template.theme}
+      data-accent={template.accentColor}
       style={{
         background: tokens.bg,
         color: tokens.text,

@@ -33,7 +33,7 @@ function LoginShell() {
 
 function BrandPanel() {
   return (
-    <aside className="relative hidden overflow-hidden lg:col-span-2 lg:flex lg:flex-col lg:justify-between lg:px-10 lg:py-12 bg-[#FDF7ED]">
+    <aside className="relative hidden overflow-hidden lg:col-span-2 lg:flex lg:flex-col lg:justify-between lg:px-10 lg:py-12 bg-[#FAFAF8]">
       {/* Subtle terracotta arc decoration */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <svg viewBox="0 0 500 700" className="absolute -right-20 top-0 h-full opacity-[0.06]" fill="none">

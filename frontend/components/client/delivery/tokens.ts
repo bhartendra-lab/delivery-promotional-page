@@ -65,7 +65,7 @@ export function makeTokens(input: TokenInput): Tokens {
 
   return {
     theme,
-    bg: dark ? "#0D0B09" : "#F5EDE0",
+    bg: dark ? "#0D0B09" : "#FAFAF8",
     bgCard: dark ? "#1A1612" : "#EDE3D3",
     bgRaised: dark ? "#231D18" : "#E3D8C8",
     accent,

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #FDF7ED;
+  --background: #FAFAF8;
   --foreground: #2A2218;
 
   /* Studio theme defaults (overridden inline by client page) */
@@ -30,7 +30,7 @@
 
   /* Surfaces */
   --color-brand-surface: #EDE3D3;
-  --color-brand-bg: #FDF7ED;
+  --color-brand-bg: #FAFAF8;
 
   /* Borders */
   --color-brand-border: #DDD4C4;
