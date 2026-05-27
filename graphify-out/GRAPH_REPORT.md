@@ -1,12 +1,12 @@
-# Graph Report - /Users/abhishekagarwal/Documents/delivery-promotional-page  (2026-05-26)
+# Graph Report - /Users/abhishekagarwal/Documents/delivery-promotional-page  (2026-05-27)
 
 ## Corpus Check
-- 52 files · ~37,850 words
+- 54 files · ~42,577 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 126 nodes · 111 edges · 43 communities detected
-- Extraction: 84% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 18 edges (avg confidence: 0.8)
+- 140 nodes · 124 edges · 43 communities detected
+- Extraction: 85% EXTRACTED · 15% INFERRED · 0% AMBIGUOUS · INFERRED: 18 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -61,10 +61,10 @@
 4. `createDeliveryPage()` - 4 edges
 5. `updateDeliveryPage()` - 4 edges
 6. `GET()` - 3 edges
-7. `ClientLandingPage()` - 3 edges
-8. `captureClientSignals()` - 3 edges
-9. `captureVisitorData()` - 3 edges
-10. `updateCompanyDetails()` - 3 edges
+7. `ClientPage()` - 3 edges
+8. `ClientLandingPage()` - 3 edges
+9. `resolveStudioTheme()` - 3 edges
+10. `captureClientSignals()` - 3 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `request()` --calls--> `clearToken()`  [INFERRED]
@@ -81,28 +81,28 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.12
-Nodes (7): blankState(), handleSubmit(), copy(), buildShareUrl(), formatEventDate(), fromDateInputValue(), toDateInputValue()
+Cohesion: 0.2
+Nodes (15): ApiError, buildFormData(), checkResetLink(), createDeliveryPage(), getCompanyDetails(), getDeliveryPageById(), getDlpUsage(), listDeliveryPages() (+7 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.23
-Nodes (14): ApiError, buildFormData(), checkResetLink(), createDeliveryPage(), getCompanyDetails(), getDeliveryPageById(), getDlpUsage(), listDeliveryPages() (+6 more)
-
-### Community 2 - "Community 2"
 Cohesion: 0.2
 Nodes (7): readKvData(), NotFound(), ClientLandingPage(), GET(), captureClientSignals(), captureGeoData(), captureVisitorData()
 
+### Community 2 - "Community 2"
+Cohesion: 0.17
+Nodes (6): blankState(), copy(), buildShareUrl(), formatEventDate(), fromDateInputValue(), toDateInputValue()
+
 ### Community 3 - "Community 3"
+Cohesion: 0.17
+Nodes (0): 
+
+### Community 4 - "Community 4"
 Cohesion: 0.2
 Nodes (6): clearToken(), getToken(), isAuthenticated(), setCompany(), setToken(), handleSubmit()
 
-### Community 4 - "Community 4"
-Cohesion: 0.4
-Nodes (0): 
-
 ### Community 5 - "Community 5"
-Cohesion: 0.67
-Nodes (3): trackEvent(), onDeliveryClick(), onReviewClick()
+Cohesion: 0.29
+Nodes (4): ClientPage(), getEventTemplate(), resolveStudioTheme(), seedFromString()
 
 ### Community 6 - "Community 6"
 Cohesion: 0.5
@@ -110,7 +110,7 @@ Nodes (0):
 
 ### Community 7 - "Community 7"
 Cohesion: 0.67
-Nodes (2): resolveStudioTheme(), seedFromString()
+Nodes (2): share(), showToast()
 
 ### Community 8 - "Community 8"
 Cohesion: 0.67
@@ -277,47 +277,47 @@ Nodes (0):
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 20`** (2 nodes): `PageCard()`, `PageCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 21`** (2 nodes): `WhatsAppCTA.tsx`, `digitsOnly()`
+- **Thin community `Community 21`** (2 nodes): `handleStar()`, `ReviewSection.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 22`** (2 nodes): `PreWeddingDecor()`, `PreWeddingDecor.tsx`
+- **Thin community `Community 22`** (2 nodes): `ClientFooter()`, `ClientFooter.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 23`** (2 nodes): `getEventTemplate()`, `event-templates.ts`
+- **Thin community `Community 23`** (2 nodes): `CustomMessageCard()`, `CustomMessageCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 24`** (1 nodes): `open-next.config.ts`
+- **Thin community `Community 24`** (2 nodes): `WeddingTemplate.tsx`, `WeddingTemplate()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 25`** (1 nodes): `postcss.config.mjs`
+- **Thin community `Community 25`** (2 nodes): `PreWeddingTemplate()`, `PreWeddingTemplate.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 26`** (1 nodes): `next-env.d.ts`
+- **Thin community `Community 26`** (2 nodes): `BirthdayTemplate()`, `BirthdayTemplate.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 27`** (1 nodes): `eslint.config.mjs`
+- **Thin community `Community 27`** (2 nodes): `EngagementTemplate()`, `EngagementTemplate.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 28`** (1 nodes): `next.config.ts`
+- **Thin community `Community 28`** (2 nodes): `CorporateTemplate()`, `CorporateTemplate.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 29`** (1 nodes): `Pagination.tsx`
+- **Thin community `Community 29`** (2 nodes): `AnniversaryTemplate()`, `AnniversaryTemplate.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 30`** (1 nodes): `DlpUsageCard.tsx`
+- **Thin community `Community 30`** (1 nodes): `open-next.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 31`** (1 nodes): `StudioFooter.tsx`
+- **Thin community `Community 31`** (1 nodes): `postcss.config.mjs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 32`** (1 nodes): `ReviewSpotlight.tsx`
+- **Thin community `Community 32`** (1 nodes): `next-env.d.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 33`** (1 nodes): `BirthdayDecor.tsx`
+- **Thin community `Community 33`** (1 nodes): `eslint.config.mjs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 34`** (1 nodes): `EngagementDecor.tsx`
+- **Thin community `Community 34`** (1 nodes): `next.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 35`** (1 nodes): `WeddingDecor.tsx`
+- **Thin community `Community 35`** (1 nodes): `Pagination.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 36`** (1 nodes): `AnniversaryDecor.tsx`
+- **Thin community `Community 36`** (1 nodes): `DlpUsageCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 37`** (1 nodes): `WeddingTemplate.tsx`
+- **Thin community `Community 37`** (1 nodes): `StudioSection.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 38`** (1 nodes): `PreWeddingTemplate.tsx`
+- **Thin community `Community 38`** (1 nodes): `DesktopLeftPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 39`** (1 nodes): `BirthdayTemplate.tsx`
+- **Thin community `Community 39`** (1 nodes): `ClientHero.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 40`** (1 nodes): `EngagementTemplate.tsx`
+- **Thin community `Community 40`** (1 nodes): `DeliveryPage.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 41`** (1 nodes): `AnniversaryTemplate.tsx`
+- **Thin community `Community 41`** (1 nodes): `ClientHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 42`** (1 nodes): `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -325,15 +325,15 @@ Nodes (0):
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `handleSubmit()` connect `Community 0` to `Community 1`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
-- **Why does `request()` connect `Community 1` to `Community 3`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Why does `request()` connect `Community 0` to `Community 4`?**
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
+- **Why does `handleSubmit()` connect `Community 0` to `Community 2`?**
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
+- **Why does `fromDateInputValue()` connect `Community 2` to `Community 0`?**
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `request()` (e.g. with `getToken()` and `clearToken()`) actually correct?**
   _`request()` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 4 inferred relationships involving `handleSubmit()` (e.g. with `updateCompanyDetails()` and `login()`) actually correct?**
   _`handleSubmit()` has 4 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 3 inferred relationships involving `handleSubmit()` (e.g. with `fromDateInputValue()` and `updateDeliveryPage()`) actually correct?**
   _`handleSubmit()` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.12 - nodes in this community are weakly interconnected._
