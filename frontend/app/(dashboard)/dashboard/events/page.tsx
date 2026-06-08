@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getAllBookings, getDlpUsage } from "@/lib/api";
-import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
-import { StatsBar } from "@/components/dashboard/StatsBar";
+import { getAllBookings } from "@/lib/api";
+import type { Booking, BookingsListResponse } from "@/lib/types";
 import { PagesTable } from "@/components/dashboard/PagesTable";
 import { PageCard } from "@/components/dashboard/PageCard";
 import { Pagination } from "@/components/ui/Pagination";
@@ -12,19 +11,15 @@ import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
 const PAGE_SIZE = 20;
 
-export default function DashboardHomePage() {
+export default function EventsListPage() {
   const router = useRouter();
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
-  const [dlpLoading, setDlpLoading] = useState(true);
-
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-
   const [modalOpen, setModalOpen] = useState(false);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,14 +30,20 @@ export default function DashboardHomePage() {
       setDebouncedSearch(search.trim());
       setPage(1);
     }, 300);
-    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
   }, [search]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await getAllBookings({ page, limit: PAGE_SIZE, search: debouncedSearch || undefined });
+      const res = await getAllBookings({
+        page,
+        limit: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+      });
       setData(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -51,93 +52,48 @@ export default function DashboardHomePage() {
     }
   }, [page, debouncedSearch]);
 
-  useEffect(() => { void reload(); }, [reload]);
-
   useEffect(() => {
-    setDlpLoading(true);
-    getDlpUsage()
-      .then(setDlpUsage)
-      .catch(() => setDlpUsage(null))
-      .finally(() => setDlpLoading(false));
-  }, []);
+    void reload();
+  }, [reload]);
 
-  // The bookings endpoint doesn't return a total count; allow paging forward
-  // while a full page comes back and back to page 1.
   const totalPages = useMemo(() => {
     if (!data) return 1;
     return data.bookings.length === PAGE_SIZE ? page + 1 : page;
   }, [data, page]);
 
-  // No aggregate tracking totals from the API — sum what's on this page.
-  const stats = useMemo(() => {
-    const rows = data?.bookings ?? [];
-    const visits = rows.reduce((s, b) => s + (b.trackings?.visit ?? 0), 0);
-    const deliveries = rows.reduce((s, b) => s + (b.trackings?.delivery ?? 0), 0);
-    const reviews = rows.reduce((s, b) => s + (b.trackings?.review ?? 0), 0);
-    return { visits, deliveries, reviews, total: visits + deliveries + reviews };
-  }, [data]);
+  const isEmpty = !loading && data && data.bookings.length === 0;
 
   function openEvent(row: Booking) {
     router.push(`/dashboard/events/${row._id}`);
   }
 
-  function openCreate() {
-    setModalOpen(true);
-  }
-
-  const isEmpty = !loading && data && data.bookings.length === 0;
-
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
-      {/* Limit exhausted disclaimer (Pre-Paid only) */}
-      {!dlpLoading && dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0 && (
-        <div
-          role="alert"
-          className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"
-        >
-          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            You&apos;ve used all your events for this plan. New events cannot be created until your plan is upgraded or renewed. Contact your account manager.
-          </span>
-        </div>
-      )}
-
-      {/* Page header */}
       <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-            Delivery Hub · Active
+            Events · All clients
           </p>
           <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
             Your events,<br className="hidden sm:block" /> in one place.
           </h1>
           <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
-            Branded links for every booking. Track who opens what, when.
+            Create a page per booking. Upload media, organise by folder, share with your client.
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
           <button
             type="button"
-            onClick={openCreate}
-            disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setModalOpen(true)}
+            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
             <PlusIcon />
             Add event
           </button>
-          <UsagePill usage={dlpUsage} loading={dlpLoading} />
         </div>
       </section>
 
-      {/* Stats */}
-      <StatsBar
-        visits={stats.visits}
-        deliveries={stats.deliveries}
-        reviews={stats.reviews}
-        total={stats.total}
-      />
-
-      {/* Search + count row */}
+      {/* Search */}
       <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
@@ -147,7 +103,7 @@ export default function DashboardHomePage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by client name…"
+            placeholder="Search events…"
             className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] pl-9 pr-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
           />
           {search && (
@@ -183,14 +139,14 @@ export default function DashboardHomePage() {
         </div>
       )}
 
-      {/* Content */}
       <section>
         {loading && !data ? (
           <TableSkeleton />
         ) : isEmpty ? (
-          <EmptyState onCreate={openCreate} disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0} />
+          <EmptyState onCreate={() => setModalOpen(true)} />
         ) : (
-          data && data.bookings.length > 0 && (
+          data &&
+          data.bookings.length > 0 && (
             <>
               <div className="hidden sm:block">
                 <PagesTable rows={data.bookings} onOpen={openEvent} />
@@ -206,7 +162,7 @@ export default function DashboardHomePage() {
       </section>
 
       {data && data.bookings.length > 0 && (
-        <Pagination current={page} totalPages={totalPages} onChange={(p) => setPage(p)} />
+        <Pagination current={page} totalPages={totalPages} onChange={setPage} />
       )}
 
       <AddEventModal open={modalOpen} onClose={() => setModalOpen(false)} />
@@ -214,23 +170,22 @@ export default function DashboardHomePage() {
   );
 }
 
-function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
+function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <PageIcon />
+        <CalendarIcon />
       </div>
       <div className="space-y-1">
         <p className="text-xl font-bold text-[var(--color-brand-ink)]">No events yet</p>
         <p className="max-w-sm text-sm text-[var(--color-brand-muted)]">
-          Create your first event in under a minute and share the link with your client.
+          Create your first event to start organising photos and sharing with clients.
         </p>
       </div>
       <button
         type="button"
         onClick={onCreate}
-        disabled={disabled}
-        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
         <PlusIcon />
         Create your first event
@@ -246,57 +201,6 @@ function TableSkeleton() {
         <div key={i} className="skeleton h-14 rounded-lg" style={{ animationDelay: `${i * 0.06}s` }} />
       ))}
     </div>
-  );
-}
-
-function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
-  if (loading) {
-    return <div className="skeleton h-5 w-24 rounded-full" />;
-  }
-  if (!usage) return null;
-
-  const isPrePaid = usage.service_type === "Pre-Paid";
-
-  if (isPrePaid) {
-    const remaining = usage.remaining ?? 0;
-    const isExhausted = remaining === 0;
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-        style={
-          isExhausted
-            ? { color: "var(--color-brand-danger)", background: "var(--color-brand-danger-soft)" }
-            : { color: "var(--color-brand-navy)", background: "var(--color-brand-navy-soft)" }
-        }
-      >
-        {isExhausted ? <WarnDot /> : <CountDot />}
-        {remaining} remaining
-      </span>
-    );
-  }
-
-  // Post-Paid: show current-month used count
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-      style={{ color: "var(--color-brand-muted)", background: "var(--color-brand-surface)" }}
-    >
-      <CountDot />
-      {usage.used} this month
-    </span>
-  );
-}
-
-function CountDot() {
-  return <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />;
-}
-
-function WarnDot() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -334,11 +238,13 @@ function AlertIcon({ className }: { className?: string }) {
   );
 }
 
-function PageIcon() {
+function CalendarIcon() {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M3 8h18M9 14h6M9 17h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="3.5" y1="10" x2="20.5" y2="10" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="8" y1="3" x2="8" y2="6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="16" y1="3" x2="16" y2="6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

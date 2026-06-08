@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { DeliveryLandingPageListItem, EventType } from "@/lib/types";
-import { formatEventDate, formatCreatedAt, buildShareUrl } from "./shared";
+import type { Booking, EventType } from "@/lib/types";
+import { formatCreatedAt, buildShareUrl } from "./shared";
 import { EventBadge } from "./EventBadge";
 
 type Props = {
-  rows: DeliveryLandingPageListItem[];
-  onEdit: (row: DeliveryLandingPageListItem) => void;
+  rows: Booking[];
+  onOpen: (row: Booking) => void;
 };
 
-export function PagesTable({ rows, onEdit }: Props) {
+export function PagesTable({ rows, onOpen }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   async function copy(id: string) {
@@ -29,7 +29,6 @@ export function PagesTable({ rows, onEdit }: Props) {
         <thead>
           <tr className="border-b border-[var(--color-brand-border)] text-left text-[11px] uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
             <th className="px-5 py-3 font-semibold">Client / Event</th>
-            <th className="px-5 py-3 font-semibold">Date</th>
             <th className="px-5 py-3 text-right font-semibold">Visits</th>
             <th className="px-5 py-3 text-right font-semibold">Galleries</th>
             <th className="px-5 py-3 text-right font-semibold">Reviews</th>
@@ -45,13 +44,12 @@ export function PagesTable({ rows, onEdit }: Props) {
               style={{ animation: `dash-rise 0.4s cubic-bezier(0.2,0.7,0.3,1) ${i * 0.03}s both` }}
             >
               <td className="px-5 py-4">
-                <p className="font-semibold text-[var(--color-brand-ink)]">{row.client_name}</p>
-                <div className="mt-0.5">
-                  <EventBadge type={row.event_type as EventType} />
-                </div>
-              </td>
-              <td className="px-5 py-4 text-[var(--color-brand-muted)]">
-                {formatEventDate(row.event_date)}
+                <p className="font-semibold text-[var(--color-brand-ink)]">{row.name}</p>
+                {row.event && (
+                  <div className="mt-0.5">
+                    <EventBadge type={row.event as EventType} />
+                  </div>
+                )}
               </td>
               <Metric value={row.trackings?.visit ?? 0} />
               <Metric value={row.trackings?.delivery ?? 0} />
@@ -68,8 +66,8 @@ export function PagesTable({ rows, onEdit }: Props) {
                       <><CopyIcon /><span className="hidden lg:inline">Copy link</span></>
                     )}
                   </ActionButton>
-                  <ActionButton primary onClick={() => onEdit(row)} aria-label="View and edit page" title="View and edit">
-                    <PencilIcon />
+                  <ActionButton primary onClick={() => onOpen(row)} aria-label="Open event" title="Open event">
+                    <ArrowIcon />
                     <span className="hidden lg:inline">Open</span>
                   </ActionButton>
                 </div>
@@ -129,10 +127,10 @@ function CheckIcon() {
   );
 }
 
-function PencilIcon() {
+function ArrowIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path d="M16 4l4 4-11 11H5v-4L16 4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

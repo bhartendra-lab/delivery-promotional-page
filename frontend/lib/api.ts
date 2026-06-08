@@ -1,12 +1,14 @@
-import { getToken, clearToken } from "./auth";
+import { getToken, clearToken, getCompany } from "./auth";
 import type {
+  Booking,
+  BookingDetailResponse,
+  BookingEventType,
+  BookingsListResponse,
   Company,
-  DeliveryLandingPage,
-  DeliveryUrl,
+  CreateBookingResponse,
+  CustomFolder,
   DlpUsage,
-  EventType,
-  GetByIdResponse,
-  ListResponse,
+  GetMediaResponse,
   LoginResponse,
   TrackingType,
 } from "./types";
@@ -121,50 +123,20 @@ export function login(email: string, password: string) {
   });
 }
 
-export type DeliveryFormInput = {
-  client_name?: string;
-  event_type?: EventType;
-  event_date?: number;
-  custom_message?: string;
-  delivery_urls?: DeliveryUrl[];
-  background_image?: File | null;
-};
-
-function buildFormData(input: DeliveryFormInput): FormData {
-  const fd = new FormData();
-  if (input.client_name !== undefined) fd.append("client_name", input.client_name);
-  if (input.event_type !== undefined) fd.append("event_type", input.event_type);
-  if (input.event_date !== undefined)
-    fd.append("event_date", String(input.event_date));
-  if (input.custom_message !== undefined)
-    fd.append("custom_message", input.custom_message);
-  if (input.delivery_urls !== undefined)
-    fd.append("delivery_urls", JSON.stringify(input.delivery_urls));
-  if (input.background_image) fd.append("background_image", input.background_image);
-  return fd;
+export function getDlpUsage() {
+  return request<DlpUsage>("/deliverables/get-dlp-usage");
 }
 
-export function createDeliveryPage(input: DeliveryFormInput) {
-  return request<{ deliveryLandingPage: DeliveryLandingPage }>(
-    "/deliverables/create-delivery-landing-page",
-    {
-      method: "POST",
-      body: buildFormData(input),
-    },
-  );
-}
+/* ── Bookings / events ─────────────────────────────────────────── */
 
-export function updateDeliveryPage(id: string, input: DeliveryFormInput) {
-  return request<{ deliveryLandingPage: DeliveryLandingPage }>(
-    `/deliverables/update-delivery-landing-page/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      body: buildFormData(input),
-    },
-  );
-}
+/**
+ * Service slug for the bookings endpoints. The backend requires one of
+ * "CRM" | "DH"; this app is the Delivery Hub, so we always send "DH".
+ */
+export const BOOKING_SERVICE = "DH";
 
-export function listDeliveryPages(params: {
+/** GET /bookings/get-all-bookings?page=&limit=&search=&service= */
+export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
@@ -173,20 +145,182 @@ export function listDeliveryPages(params: {
   if (params.page) sp.set("page", String(params.page));
   if (params.limit) sp.set("limit", String(params.limit));
   if (params.search) sp.set("search", params.search);
-  const qs = sp.toString();
-  return request<ListResponse>(
-    `/deliverables/get-all-delivery-landing-pages${qs ? `?${qs}` : ""}`,
+  sp.set("service", BOOKING_SERVICE);
+  return request<BookingsListResponse>(
+    `/bookings/get-all-bookings?${sp.toString()}`,
   );
 }
 
-export function getDeliveryPageById(id: string) {
-  return request<GetByIdResponse>(
-    `/deliverables/get-delivery-landing-page-by-id/${encodeURIComponent(id)}`,
+/** GET /bookings/get-booking-by-id/:booking_id/:service */
+export function getBookingById(bookingId: string, service: string = BOOKING_SERVICE) {
+  return request<BookingDetailResponse>(
+    `/bookings/get-booking-by-id/${encodeURIComponent(bookingId)}/${encodeURIComponent(service)}`,
   );
 }
 
-export function getDlpUsage() {
-  return request<DlpUsage>("/deliverables/get-dlp-usage");
+/** PUT /bookings/update-booking/:booking_id  — body: { event_name?, event_type? } */
+export function updateBooking(
+  bookingId: string,
+  body: { event_name?: string; event_type?: string },
+) {
+  return request<{ message?: string; booking: Booking | null }>(
+    `/bookings/update-booking/${encodeURIComponent(bookingId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function createBooking(body: {
+  event_name: string;
+  event_type: BookingEventType | string;
+}) {
+  // Always create under the Delivery Hub service so the booking's
+  // creation_source matches the "DH" filter used by getAllBookings/getBookingById.
+  return request<CreateBookingResponse>("/bookings/create-booking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, service: BOOKING_SERVICE }),
+  });
+}
+
+export function createCustomFolder(bookingId: string, name: string) {
+  return request<{ message: string; custom_folder_id: string }>(
+    `/deliverables/create-custom-folder/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export function updateCustomFolder(customFolderId: string, name: string) {
+  return request<{ message: string; customFolder: CustomFolder }>(
+    `/deliverables/update-custom-folder/${encodeURIComponent(customFolderId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+/**
+ * Batch metadata save. Backend persists ALL media for the event in one call.
+ * On failure, the caller (engine) keeps the in-memory results and offers a
+ * retry — the IndexedDB-backed state means a crash/refresh doesn't lose them.
+ */
+export type MediaMetadataItem = {
+  url: string;
+  type: "image" | "video";
+  custom_folder_id: string;
+  media_id: string;
+};
+export function createMediaBatch(bookingId: string, media_metadata: MediaMetadataItem[]) {
+  return request<{ message: string }>(
+    `/deliverables/create-media/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_metadata }),
+    },
+  );
+}
+
+/** Request a batch of presigned PUT URLs for direct browser → R2 upload. */
+// TODO(backend): remove custom_folder_id from R2 key path. We still send
+// custom_folder_id below because the backend uses it for DB association
+// (Media.custom_folder_ids), but it must no longer be a segment of the R2
+// object key — the storage path should be
+// vyavasth/companies/{company_id}/event-media/{booking_id}/{media_id}.jpeg
+export type PresignRequest = {
+  filename: string;
+  content_type?: string;
+  custom_folder_id: string;
+};
+export type PresignedUpload = {
+  key: string;
+  presigned_url: string;
+  public_url: string;
+  content_type: string;
+  filename: string;
+  custom_folder_id: string;
+};
+export function presignUploads(bookingId: string, files: PresignRequest[]) {
+  return request<{ uploads: PresignedUpload[] }>(
+    `/deliverables/presign-uploads/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files }),
+    },
+  );
+}
+
+export function getMedia(bookingId: string, customFolderId?: string) {
+  const qs = customFolderId
+    ? `?custom_folder_id=${encodeURIComponent(customFolderId)}`
+    : "";
+  return request<GetMediaResponse>(
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs}`,
+  );
+}
+
+/**
+ * PUT a blob to a presigned R2 URL. The presigned URL is short-lived and
+ * carries SigV4 auth in the querystring; the browser just executes the PUT
+ * and R2 stores the object.
+ *
+ * Throws `R2PutError` (with `.status`) for HTTP failures so the engine's
+ * retry classifier can tell retryable (5xx/network) from terminal (4xx).
+ */
+export class R2PutError extends Error {
+  status: number;
+  body?: string;
+  constructor(status: number, message: string, body?: string) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+export async function putBlobToPresignedUrl(
+  presignedUrl: string,
+  blob: Blob,
+  contentType: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  // ContentType MUST match what the URL was signed with — otherwise R2
+  // returns SignatureDoesNotMatch. The presign endpoint defaults to
+  // image/jpeg; if you change that there, change it here too.
+  const res = await fetch(presignedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: blob,
+    signal,
+  });
+  if (!res.ok) {
+    // Surface R2's XML error body — it's how we'll diagnose CORS /
+    // signature / bucket-policy issues during integration.
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new R2PutError(
+      res.status,
+      `R2 PUT failed: ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 240)}` : ""}`,
+      body,
+    );
+  }
+}
+
+/** Read the cached company id once — used for upload UI display only. */
+export function getCachedCompanyId(): string | null {
+  return getCompany()?._id ?? null;
 }
 
 /**

@@ -104,6 +104,14 @@ body {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@keyframes popup-pop {
+  0% { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes toast-rise {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 
 .dash-rise {
   animation: dash-rise 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
@@ -129,6 +137,12 @@ body {
 .drawer-fade {
   animation: drawer-fade 0.25s ease-out both;
 }
+.popup-pop {
+  animation: popup-pop 0.18s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.toast-rise {
+  animation: toast-rise 0.22s ease-out both;
+}
 
 .skeleton {
   background: linear-gradient(
@@ -149,3 +163,29 @@ body {
     0 0 0 3px rgba(194, 90, 58, 0.18),
     0 0 0 1px #C25A3A inset;
 }
+
+/* ---------------------------------------------------------------- */
+/* Upload loader animations                                         */
+/* ---------------------------------------------------------------- */
+
+@keyframes brand-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes brand-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+}
+@keyframes brand-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@keyframes brand-row-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.brand-spin    { animation: brand-spin 30s linear infinite; }
+.brand-pulse   { animation: brand-pulse 2.6s ease-in-out infinite; }
+.brand-blink   { animation: brand-blink 1.4s ease-in-out infinite; }
+.brand-row-spin { animation: brand-row-spin 0.9s linear infinite; }

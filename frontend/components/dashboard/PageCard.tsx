@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { DeliveryLandingPageListItem, EventType } from "@/lib/types";
-import { buildShareUrl, formatCreatedAt, formatEventDate } from "./shared";
+import type { Booking, EventType } from "@/lib/types";
+import { buildShareUrl, formatCreatedAt } from "./shared";
 import { EventBadge } from "./EventBadge";
 
 type Props = {
-  row: DeliveryLandingPageListItem;
-  onEdit: (row: DeliveryLandingPageListItem) => void;
+  row: Booking;
+  onOpen: (row: Booking) => void;
 };
 
-export function PageCard({ row, onEdit }: Props) {
+export function PageCard({ row, onOpen }: Props) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -28,13 +28,13 @@ export function PageCard({ row, onEdit }: Props) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-[var(--color-brand-ink)]">
-            {row.client_name}
+            {row.name}
           </h3>
           <p className="mt-0.5 text-xs text-[var(--color-brand-muted)]">
-            {formatEventDate(row.event_date)} · {formatCreatedAt(row.createdAt)}
+            Created {formatCreatedAt(row.createdAt)}
           </p>
         </div>
-        <EventBadge type={row.event_type as EventType} />
+        {row.event && <EventBadge type={row.event as EventType} />}
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -53,7 +53,7 @@ export function PageCard({ row, onEdit }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => onEdit(row)}
+          onClick={() => onOpen(row)}
           className="brand-focus inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
         >
           Open →
