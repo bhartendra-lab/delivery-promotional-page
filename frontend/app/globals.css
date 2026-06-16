@@ -189,3 +189,20 @@ body {
 .brand-pulse   { animation: brand-pulse 2.6s ease-in-out infinite; }
 .brand-blink   { animation: brand-blink 1.4s ease-in-out infinite; }
 .brand-row-spin { animation: brand-row-spin 0.9s linear infinite; }
+
+/* ---------------------------------------------------------------- */
+/* Publish (LivePill) pulse rings                                   */
+/* ---------------------------------------------------------------- */
+
+@keyframes livePillPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(194, 90, 58, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(194, 90, 58, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(194, 90, 58, 0); }
+}
+@keyframes livePillPulseAmber {
+  0%   { box-shadow: 0 0 0 0 rgba(180, 83, 9, 0.40); }
+  70%  { box-shadow: 0 0 0 8px rgba(180, 83, 9, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(180, 83, 9, 0); }
+}
+.live-pill-pulse       { animation: livePillPulse 2.2s ease-in-out infinite; }
+.live-pill-pulse-amber { animation: livePillPulseAmber 2.6s ease-in-out infinite; }

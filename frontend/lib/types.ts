@@ -15,6 +15,42 @@ export const EVENT_TYPES: EventType[] = [
   "Corporate",
 ];
 
+/**
+ * Gallery appearance style variants — must match the backend
+ * `delivery-landing-page` `style_variant` enum. Grouped by season skin for the
+ * Gallery Design tab (see `GalleryDesignTab`).
+ */
+export type StyleVariant =
+  | "Ivory & Rose"
+  | "Blush Minimal"
+  | "Marigold Bright"
+  | "Festive Bloom"
+  | "Maroon Velvet"
+  | "Fine-Art Warm"
+  | "Emerald Royal"
+  | "Charcoal Editorial";
+
+export const STYLE_VARIANTS: StyleVariant[] = [
+  "Ivory & Rose",
+  "Blush Minimal",
+  "Marigold Bright",
+  "Festive Bloom",
+  "Maroon Velvet",
+  "Fine-Art Warm",
+  "Emerald Royal",
+  "Charcoal Editorial",
+];
+
+/** Face-embedding job status carried on the booking. */
+export type EmbeddingStatus =
+  | "not_started"
+  | "in_progress"
+  | "completed"
+  | "failed";
+
+/** Gallery publish status (set "published" by the embedding job on completion). */
+export type GalleryPublishStatus = "unpublished" | "published";
+
 export type ContentType = "Images" | "Videos" | "Images & Videos";
 
 export const CONTENT_TYPES: ContentType[] = [
@@ -84,23 +120,6 @@ export type DlpUsage = {
 
 /* ── Events / bookings ─────────────────────────────────────────── */
 
-export type BookingEventType =
-  | "Wedding"
-  | "Mehendi"
-  | "Reception"
-  | "Sangeet"
-  | "Engagement"
-  | "Other";
-
-export const BOOKING_EVENT_TYPES: BookingEventType[] = [
-  "Wedding",
-  "Mehendi",
-  "Reception",
-  "Sangeet",
-  "Engagement",
-  "Other",
-];
-
 export type CustomFolder = {
   _id: string;
   name: string;
@@ -131,7 +150,7 @@ export type Booking = {
   /** Lead/client name — used for the event title display. */
   name: string;
   /** Event type (from the first linked event) — used for the badge. */
-  event?: BookingEventType | EventType | string;
+  event?: EventType | string;
   createdAt: string;
   /** Tracking counts for the linked delivery landing page (may be empty). */
   trackings?: TrackingCounts;
@@ -153,19 +172,45 @@ export type BookingsListResponse = {
 
 /**
  * Full booking detail from `GET /bookings/get-booking-by-id/:booking_id/:service`.
- * The document is joined with its lead (for `name`) and events (for type). The
- * direct `event_name` / `event_type` fields are read first when present.
+ *
+ * The backend flattens the join into a single object: `name` (the lead/event
+ * name), `event_type`, `event_date` (numeric epoch from the event's
+ * `start_date`), plus the delivery-landing-page fields (`background_image`,
+ * `custom_message`, `style_variant`, `include_company_branding`). Publish-state
+ * fields are read defensively — the projection may omit them, in which case the
+ * client falls back to its locally-persisted publish state.
  */
 export type BookingDetail = {
-  _id: string;
-  lead_id?: string;
-  creation_source?: string;
-  event_name?: string;
+  booking_id?: string;
+  /** Event/lead name. */
+  name?: string;
   event_type?: string;
+  /** Numeric epoch (ms). May come back `null` when unset. */
+  event_date?: number | null;
+  /** Current cover image (delivery-landing-page `background_image`). */
+  background_image?: string;
+  custom_message?: string;
+  style_variant?: string;
+  include_company_branding?: boolean;
+  /** Publish / activation state from the booking (read defensively). */
+  gallery_publish_status?: GalleryPublishStatus;
+  gallery_published_at?: number;
+  /** Note the backend field really is spelt with three Ls. */
+  galllery_republished_at?: number;
+  gallery_deactivated_at?: number;
+  /** Activation toggle — false = gallery temporarily deactivated. */
+  is_active?: boolean;
+  embedding_status?: EmbeddingStatus;
+  /** True when new media was uploaded since the last publish (needs republish). */
+  media_out_of_sync?: boolean;
+  unsynced_media_count?: number;
+
+  /** Legacy/optional fields kept for backwards-compatible reads. */
+  _id?: string;
+  event_name?: string;
   createdAt?: string;
   lead?: { _id: string; name: string };
   events?: Array<{ _id?: string; name?: string; event_type?: string }>;
-  delivery_landing_pages?: unknown;
 };
 
 export type BookingDetailResponse = {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBooking } from "@/lib/api";
-import { BOOKING_EVENT_TYPES, type BookingEventType } from "@/lib/types";
+import { EVENT_TYPES, type EventType } from "@/lib/types";
 
 type Props = {
   open: boolean;
@@ -13,7 +13,8 @@ type Props = {
 export function AddEventModal({ open, onClose }: Props) {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [eventType, setEventType] = useState<BookingEventType>("Wedding");
+  const [eventType, setEventType] = useState<EventType>("Wedding");
+  const [eventDate, setEventDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +22,7 @@ export function AddEventModal({ open, onClose }: Props) {
     if (!open) return;
     setName("");
     setEventType("Wedding");
+    setEventDate("");
     setError(null);
     setSubmitting(false);
     document.body.style.overflow = "hidden";
@@ -46,7 +48,13 @@ export function AddEventModal({ open, onClose }: Props) {
     setError(null);
     try {
       const trimmedName = name.trim();
-      const res = await createBooking({ event_name: trimmedName, event_type: eventType });
+      // Event date is optional — send a numeric epoch only when set, else omit.
+      const epoch = eventDate ? new Date(`${eventDate}T00:00:00`).getTime() : NaN;
+      const res = await createBooking({
+        event_name: trimmedName,
+        event_type: eventType,
+        ...(Number.isFinite(epoch) ? { event_date: epoch } : {}),
+      });
       // Canonical metadata is fetched from getBookingById on the event page; no
       // need to cache it here.
       onClose();
@@ -110,12 +118,12 @@ export function AddEventModal({ open, onClose }: Props) {
             />
           </div>
 
-          <div className="mb-6">
+          <div className="mb-5">
             <label className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">
               Event type <span className="ml-0.5 text-[var(--color-brand-navy)]">*</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {BOOKING_EVENT_TYPES.map((t) => {
+              {EVENT_TYPES.map((t) => {
                 const active = t === eventType;
                 return (
                   <button
@@ -139,6 +147,24 @@ export function AddEventModal({ open, onClose }: Props) {
                 );
               })}
             </div>
+          </div>
+
+          <div className="mb-6">
+            <label
+              htmlFor="add-event-date"
+              className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]"
+            >
+              Event date{" "}
+              <span className="font-medium text-[var(--color-brand-muted)]">(optional)</span>
+            </label>
+            <input
+              id="add-event-date"
+              type="date"
+              value={eventDate}
+              onChange={(e) => setEventDate(e.target.value)}
+              disabled={submitting}
+              className="brand-focus block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none"
+            />
           </div>
 
           {error && (

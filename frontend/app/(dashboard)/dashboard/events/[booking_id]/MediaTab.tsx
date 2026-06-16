@@ -1,159 +1,48 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  createCustomFolder,
-  getBookingById,
-  getMedia,
-  updateBooking,
-  updateCustomFolder,
-} from "@/lib/api";
-import { BOOKING_EVENT_TYPES, type BookingDetail, type CustomFolder, type MediaItem } from "@/lib/types";
+import { createCustomFolder, updateCustomFolder } from "@/lib/api";
+import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
 import { FoldersSidebar, type FolderRow } from "@/components/dashboard/FoldersSidebar";
-import {
-  usePageBreadcrumb,
-  usePageLock,
-} from "@/components/dashboard/ChromeContext";
 import { UploadModal } from "./UploadModal";
+import { UploadFailuresPanel } from "./UploadFailuresPanel";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
-import { useUploadEngine } from "./useUploadEngine";
+import { CoverBanner } from "./CoverBanner";
+import { useEvent } from "./EventContext";
 
 const ALL_MEDIA_ID = "__all__";
 
-type EventMeta = {
-  name: string;
-  type: string;
-  createdAt: string;
-};
+/**
+ * Media tab — the original event-page body (folders sidebar + cover + header +
+ * grid + upload flow). Shared data comes from `EventContext`; tab-local UI state
+ * (modals, active folder) stays here.
+ */
+export function MediaTab({ loading }: { loading: boolean }) {
+  const { bookingId: ctxBookingId, meta, media, folders, setFolders, engine, activeLocked, saveMeta, coverBusy, setCoverFromUrl, setCoverFromFile, deleteMediaIds, toast } =
+    useEvent();
 
-function normalizeMeta(b: BookingDetail): EventMeta {
-  return {
-    name: b.event_name ?? b.lead?.name ?? "Untitled event",
-    type: b.event_type ?? b.events?.[0]?.event_type ?? "Event",
-    createdAt: b.createdAt ?? new Date().toISOString(),
-  };
-}
-
-export function EventPageClient({ bookingId }: { bookingId: string }) {
-  const [meta, setMeta] = useState<EventMeta | null>(null);
-  const [media, setMedia] = useState<MediaItem[]>([]);
-  const [folders, setFolders] = useState<CustomFolder[]>([]);
   const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
   const [prePickerOpen, setPrePickerOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
-  const engine = useUploadEngine(bookingId);
+  const paused = engine.progress.paused;
+  const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
+  const hasUploadFailures =
+    !engineActive && (engine.failed.length > 0 || engine.progress.metadataSaveError !== null);
+  const state: "loading" | "uploading" | "populated" | "empty" = loading
+    ? "loading"
+    : engineActive
+    ? "uploading"
+    : media.length > 0
+    ? "populated"
+    : "empty";
 
-  // Canonical event metadata: hydrate from the localStorage cache first (offline
-  // resilience), then fetch the authoritative copy from the API. The cache is
-  // a fallback only — never the primary source.
-  useEffect(() => {
-    let alive = true;
-    try {
-      const raw = localStorage.getItem(`event_meta_${bookingId}`);
-      if (raw) setMeta(JSON.parse(raw) as EventMeta);
-    } catch {
-      /* ignore */
-    }
-    getBookingById(bookingId)
-      .then((res) => {
-        if (!alive) return;
-        const next = normalizeMeta(res.booking);
-        setMeta(next);
-        try {
-          localStorage.setItem(`event_meta_${bookingId}`, JSON.stringify(next));
-        } catch {
-          /* ignore */
-        }
-      })
-      .catch(() => {
-        /* keep whatever the cache gave us */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [bookingId]);
-
-  // Auto-dismiss the success toast.
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  // Fetch media + folders on mount + after uploads finish
-  const reload = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const res = await getMedia(bookingId);
-      setMedia(res.media ?? []);
-      setFolders(res.customFolders ?? []);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load event");
-    } finally {
-      setLoading(false);
-    }
-  }, [bookingId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  // After the engine finishes a run (upload + metadata save), pull canonical
-  // state. We watch the FALLING edge of "engineActive" so we don't double-fetch
-  // on initial mount (where the active flag starts false). Keying off the
-  // current `photosDone` would be unreliable — the engine briefly returns to
-  // zero state at the end of a successful save.
-  const wasEngineActiveRef = useRef(false);
-  useEffect(() => {
-    const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
-    if (wasEngineActiveRef.current && !isActive) {
-      void reload();
-    }
-    wasEngineActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload]);
-
-  // Live update: while uploading, prepend the latest media optimistically
-  // (the engine emits one URL+folder per success).
-  useEffect(() => {
-    engine.onMediaUploaded((url, customFolderId) => {
-      setMedia((prev) => [
-        {
-          _id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          url,
-          type: "image",
-          booking_id: bookingId,
-          custom_folder_ids: [customFolderId],
-          createdAt: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-    });
-    return () => engine.onMediaUploaded(null);
-  }, [engine, bookingId]);
-
-  // Lock + breadcrumb sync with chrome
-  usePageLock(engine.progress.isUploading || engine.progress.isSavingMetadata);
-  usePageBreadcrumb([
-    { label: "Events", href: "/dashboard/events" },
-    { label: meta?.name ?? "Event" },
-  ]);
-
-  // Derived: folder rows for the sidebar
   const folderRows: FolderRow[] = useMemo(() => {
     if (folders.length === 0) return [];
-    const allRow: FolderRow = {
-      id: ALL_MEDIA_ID,
-      label: "All Media",
-      count: media.length,
-      system: true,
-    };
+    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: media.length, system: true };
     const userRows: FolderRow[] = folders.map((f) => ({
       id: f._id,
       label: f.name,
@@ -173,59 +62,44 @@ export function EventPageClient({ bookingId }: { bookingId: string }) {
       : folders.find((f) => f._id === activeFolderId)?.name ?? "Folder";
   const activeIsSystem = activeFolderId === ALL_MEDIA_ID;
 
-  // State machine
-  const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
-  const state: "loading" | "uploading" | "populated" | "empty" = loading
-    ? "loading"
-    : engineActive
-    ? "uploading"
-    : media.length > 0
-    ? "populated"
-    : "empty";
-
-  // Folder rename
   const handleRename = useCallback(
     async (folderId: string, name: string) => {
       try {
         await updateCustomFolder(folderId, name);
         setFolders((prev) => prev.map((f) => (f._id === folderId ? { ...f, name } : f)));
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Could not rename folder");
+        toast(err instanceof Error ? err.message : "Could not rename folder");
       }
     },
-    [],
+    [setFolders, toast],
   );
 
-  const handleAddFolder = useCallback(
+  // Folder create needs the bookingId — read it from context.
+  const bookingId = ctxBookingId;
+
+  const addFolder = useCallback(
     async (name: string) => {
       try {
         const res = await createCustomFolder(bookingId, name);
-        const newFolder: CustomFolder = {
-          _id: res.custom_folder_id,
-          name,
-          booking_id: bookingId,
-          createdAt: new Date().toISOString(),
-        };
-        setFolders((prev) => [...prev, newFolder]);
+        setFolders((prev) => [
+          ...prev,
+          { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
+        ]);
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Could not create folder");
+        toast(err instanceof Error ? err.message : "Could not create folder");
       }
     },
-    [bookingId],
+    [bookingId, setFolders, toast],
   );
 
-  // "Upload more" — when All Media is active, ask which folder first; when a
-  // specific folder is active, go straight into single-folder upload (§6).
   const handleUploadMore = useCallback(() => {
-    if (activeFolderId === ALL_MEDIA_ID) {
-      setPrePickerOpen(true);
-    } else {
+    if (activeFolderId === ALL_MEDIA_ID) setPrePickerOpen(true);
+    else {
       setUploadTarget({ id: activeFolderId, name: activeFolderLabel });
       setUploadModalOpen(true);
     }
   }, [activeFolderId, activeFolderLabel]);
 
-  // Empty-state / bulk upload — full folder-structure parsing, no fixed target.
   const handleBulkUpload = useCallback(() => {
     setUploadTarget(null);
     setUploadModalOpen(true);
@@ -241,79 +115,49 @@ export function EventPageClient({ bookingId }: { bookingId: string }) {
     async (name: string) => {
       try {
         const res = await createCustomFolder(bookingId, name);
-        const newFolder: CustomFolder = {
-          _id: res.custom_folder_id,
-          name,
-          booking_id: bookingId,
-          createdAt: new Date().toISOString(),
-        };
-        setFolders((prev) => [...prev, newFolder]);
+        setFolders((prev) => [
+          ...prev,
+          { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
+        ]);
         setPrePickerOpen(false);
         setUploadTarget({ id: res.custom_folder_id, name });
         setUploadModalOpen(true);
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Could not create folder");
+        toast(err instanceof Error ? err.message : "Could not create folder");
       }
     },
-    [bookingId],
-  );
-
-  const handleSaveMeta = useCallback(
-    async (next: { name: string; type: string }) => {
-      const optimistic: EventMeta = {
-        name: next.name,
-        type: next.type,
-        createdAt: meta?.createdAt ?? new Date().toISOString(),
-      };
-      await updateBooking(bookingId, { event_name: next.name, event_type: next.type });
-      setMeta(optimistic);
-      try {
-        localStorage.setItem(`event_meta_${bookingId}`, JSON.stringify(optimistic));
-      } catch {
-        /* ignore */
-      }
-      setEditOpen(false);
-      setToast("Event details saved");
-    },
-    [bookingId, meta?.createdAt],
+    [bookingId, setFolders, toast],
   );
 
   return (
-    <div className="flex items-stretch">
+    <div className="flex min-h-0 flex-1 items-stretch">
       <FoldersSidebar
         folders={folderRows}
         activeFolderId={activeFolderId}
-        onSelect={engineActive ? () => {} : setActiveFolderId}
+        onSelect={activeLocked ? () => {} : setActiveFolderId}
         onRename={handleRename}
-        onAddFolder={folderRows.length > 0 ? handleAddFolder : undefined}
-        disabled={engineActive}
+        onAddFolder={folderRows.length > 0 ? addFolder : undefined}
+        disabled={activeLocked}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {engineActive && (
+        {activeLocked && (
           <div className="flex items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <WarnIcon size={14} />
             Upload in progress — please keep this tab open.
           </div>
         )}
 
-        {/* Persistent metadata-save retry banner — survives reload */}
-        {!engineActive && engine.progress.metadataSaveError && (
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-6 py-2 text-[12.5px] text-[var(--color-brand-danger)] sm:px-10">
-            <span>
-              All photos uploaded, but saving metadata failed: {engine.progress.metadataSaveError}
-            </span>
-            <button
-              type="button"
-              onClick={() => void engine.retryMetadataSave()}
-              className="brand-focus rounded-md border border-[var(--color-brand-danger)]/30 bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--color-brand-danger)]"
-            >
-              Retry save
-            </button>
-          </div>
+        {state === "populated" && (
+          <CoverBanner
+            coverUrl={meta.backgroundImage}
+            media={media}
+            busy={coverBusy}
+            disabled={activeLocked}
+            onSetFromUrl={setCoverFromUrl}
+            onSetFromFile={setCoverFromFile}
+          />
         )}
-
-        <CoverBanner filled={state === "populated" || state === "uploading"} />
 
         <EventHeader
           meta={meta}
@@ -322,24 +166,25 @@ export function EventPageClient({ bookingId }: { bookingId: string }) {
           uploadingTotal={engine.progress.photosTotal}
           uploadingFoldersCount={engine.progress.folders.length}
           state={state}
+          paused={paused}
           activeIsAllMedia={activeFolderId === ALL_MEDIA_ID}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
         />
 
-        {loadError && (
-          <div role="alert" className="mx-6 my-4 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-[13px] text-[var(--color-brand-danger)] sm:mx-10">
-            {loadError}
-          </div>
-        )}
-
         {state === "loading" && <LoadingBody />}
-        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} />}
+        {state === "empty" && !hasUploadFailures && <EmptyUploadCTA onUpload={handleBulkUpload} />}
         {state === "uploading" && (
           <UploadProgress
             progress={engine.progress}
+            onCancel={() => void engine.cancelUpload()}
+            onTogglePause={() => (paused ? engine.resume() : engine.pause())}
+          />
+        )}
+        {hasUploadFailures && (
+          <UploadFailuresPanel
             failed={engine.failed}
-            onCancel={engine.cancelUpload}
+            metadataSaveFailed={engine.progress.metadataSaveError !== null}
             onRetryFailed={handleBulkUpload}
             onRetryMetadata={() => void engine.retryMetadataSave()}
           />
@@ -351,10 +196,10 @@ export function EventPageClient({ bookingId }: { bookingId: string }) {
             count={filteredMedia.length}
             folderCount={folders.length}
             items={filteredMedia}
+            disabled={activeLocked}
+            onDeleteMany={deleteMediaIds}
             onRename={() => {
               if (!activeIsSystem) {
-                // Trigger rename in sidebar via simulating click — simplest:
-                // surface a small inline prompt here. Keep UI minimal.
                 const next = window.prompt("Rename folder", activeFolderLabel);
                 if (next && next.trim() && next.trim() !== activeFolderLabel) {
                   void handleRename(activeFolderId, next.trim());
@@ -400,58 +245,21 @@ export function EventPageClient({ bookingId }: { bookingId: string }) {
 
       {editOpen && (
         <EditMetaSheet
-          initialName={meta?.name ?? ""}
-          initialType={meta?.type ?? "Wedding"}
-          onSave={handleSaveMeta}
+          initialName={meta.name}
+          initialType={meta.type}
+          initialDate={meta.eventDate}
+          onSave={async (next) => {
+            await saveMeta(next);
+            setEditOpen(false);
+          }}
           onClose={() => setEditOpen(false)}
         />
       )}
-
-      {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4">
-          <div className="toast-rise pointer-events-auto inline-flex items-center gap-2 rounded-lg bg-[var(--color-brand-ink)] px-4 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(42,34,24,0.25)]">
-            <CheckIcon size={15} />
-            {toast}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-/* ── Sub-components ─────────────────────────────────────────────── */
-
-function CoverBanner({ filled }: { filled: boolean }) {
-  const height = filled ? 240 : 140;
-  return (
-    <div
-      className="relative w-full overflow-hidden"
-      style={{
-        height,
-        backgroundImage: filled
-          ? "repeating-linear-gradient(45deg, #C9AFA0 0 18px, #9E8475 18px 36px)"
-          : "repeating-linear-gradient(45deg, #ECE4D6 0 14px, #DDD4C4 14px 28px)",
-      }}
-    >
-      {filled && (
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(to bottom, rgba(42,34,24,0) 50%, rgba(42,34,24,0.35) 100%)" }}
-        />
-      )}
-      <div className="absolute right-6 top-4">
-        <button
-          type="button"
-          className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] backdrop-blur-sm hover:bg-white"
-          title="Cover photo upload coming soon"
-        >
-          <ImageIcon size={14} className="text-[var(--color-brand-muted)]" />
-          {filled ? "Change cover" : "Add cover photo"}
-        </button>
-      </div>
-    </div>
-  );
-}
+/* ── header ─────────────────────────────────────────────────────── */
 
 function EventHeader({
   meta,
@@ -460,59 +268,64 @@ function EventHeader({
   uploadingTotal,
   uploadingFoldersCount,
   state,
+  paused,
   activeIsAllMedia,
   onUploadMore,
   onEdit,
 }: {
-  meta: EventMeta | null;
+  meta: { name: string; type: string; eventDate: number | null };
   totalPhotos: number;
   folderCount: number;
   uploadingTotal: number;
   uploadingFoldersCount: number;
   state: "loading" | "uploading" | "populated" | "empty";
+  paused: boolean;
   activeIsAllMedia: boolean;
   onUploadMore: () => void;
   onEdit: () => void;
 }) {
-  const eventType = meta?.type ?? "Event";
-  const eventName = meta?.name ?? "Untitled event";
+  const dateLabel = meta.eventDate != null ? formatDate(meta.eventDate) : null;
 
   let subtitle = "No photos uploaded yet";
   if (state === "loading") subtitle = "Loading…";
-  else if (state === "uploading") {
-    subtitle = `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folders detected`;
-  } else if (state === "populated") {
+  else if (state === "uploading")
+    subtitle = paused
+      ? `Paused — ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"} detected`
+      : `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folders detected`;
+  else if (state === "populated")
     subtitle = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} across ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
-  }
 
   return (
-    <section className="flex flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] px-6 py-6 sm:flex-row sm:px-10">
+    <section className="flex flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
           <span className="rounded-sm bg-[var(--color-brand-navy-soft)] px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-navy)]">
-            {eventType}
+            {meta.type}
           </span>
-          {meta?.createdAt && (
-            <span className="text-[12.5px] text-[var(--color-brand-muted)]">
-              Created {formatDate(meta.createdAt)}
-            </span>
-          )}
+          {dateLabel && <span className="text-[12.5px] text-[var(--color-brand-muted)]">{dateLabel}</span>}
           {state === "uploading" && (
-            <span className="brand-blink inline-flex items-center gap-1.5 rounded-sm bg-[var(--color-brand-navy-soft)] px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-brand-navy)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand-navy)]" />
-              Uploading
+            <span
+              className="inline-flex items-center gap-1.5 rounded-sm px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.05em]"
+              style={{
+                background: paused ? "#F2F0EB" : "var(--color-brand-navy-soft)",
+                color: paused ? "var(--color-brand-muted)" : "var(--color-brand-navy)",
+              }}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${paused ? "" : "brand-blink"}`}
+                style={{ background: paused ? "var(--color-brand-muted)" : "var(--color-brand-navy)" }}
+              />
+              {paused ? "Paused" : "Uploading"}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-            {eventName}
-          </h1>
+          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">{meta.name}</h1>
           {state !== "loading" && (
             <button
               type="button"
               onClick={onEdit}
-              aria-label="Edit event name and type"
+              aria-label="Edit event details"
               title="Edit event details"
               className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
@@ -534,9 +347,7 @@ function EventHeader({
               Upload more
             </button>
             {activeIsAllMedia && (
-              <span className="text-[11px] text-[var(--color-brand-muted)]">
-                All Media — tap to choose folder first
-              </span>
+              <span className="text-[11px] text-[var(--color-brand-muted)]">All Media — tap to choose folder first</span>
             )}
           </>
         )}
@@ -551,9 +362,7 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
       <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
         <UploadIcon size={30} />
       </div>
-      <h3 className="text-[20px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-        Upload media to get started
-      </h3>
+      <h3 className="text-[20px] font-bold tracking-tight text-[var(--color-brand-ink)]">Upload media to get started</h3>
       <p className="max-w-[480px] text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
         Drop in a folder of photos. We&apos;ll preserve any subfolders so your gallery stays organised by Ceremony,
         Reception, Portraits and so on.
@@ -566,9 +375,7 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
         <UploadIcon size={16} />
         Upload media
       </button>
-      <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">
-        JPG · PNG · HEIC · WebP · no size limit
-      </div>
+      <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">JPG · PNG · HEIC · WebP · no size limit</div>
     </div>
   );
 }
@@ -579,6 +386,8 @@ function PopulatedBody({
   count,
   folderCount,
   items,
+  disabled,
+  onDeleteMany,
   onRename,
 }: {
   activeFolderLabel: string;
@@ -586,19 +395,22 @@ function PopulatedBody({
   count: number;
   folderCount: number;
   items: MediaItem[];
+  disabled: boolean;
+  onDeleteMany: (ids: string[]) => Promise<void>;
   onRename: () => void;
 }) {
   return (
     <section className="px-6 pb-12 pt-6 sm:px-10">
       <div className="mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-baseline">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          <h2 className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            {activeFolderLabel}
-          </h2>
+          <h2 className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">{activeFolderLabel}</h2>
           <span className="text-[12.5px] text-[var(--color-brand-muted)]">
             {count.toLocaleString("en-IN")} photo{count === 1 ? "" : "s"}
             {activeIsSystem && folderCount > 0 && (
-              <> · across {folderCount} folder{folderCount === 1 ? "" : "s"}</>
+              <>
+                {" "}
+                · across {folderCount} folder{folderCount === 1 ? "" : "s"}
+              </>
             )}
           </span>
         </div>
@@ -613,7 +425,7 @@ function PopulatedBody({
           </button>
         )}
       </div>
-      <MediaGrid items={items} />
+      <MediaGrid items={items} disabled={disabled} onDeleteMany={onDeleteMany} />
     </section>
   );
 }
@@ -623,32 +435,31 @@ function LoadingBody() {
     <div className="px-6 py-10 sm:px-10">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {Array.from({ length: 10 }).map((_, i) => (
-          <div
-            key={i}
-            className="skeleton aspect-square rounded"
-            style={{ animationDelay: `${i * 0.05}s` }}
-          />
+          <div key={i} className="skeleton aspect-square rounded" style={{ animationDelay: `${i * 0.05}s` }} />
         ))}
       </div>
     </div>
   );
 }
 
-/* ── §3 inline edit sheet (name + type) ────────────────────────── */
+/* ── edit sheet (name + type + date) ────────────────────────────── */
 
 function EditMetaSheet({
   initialName,
   initialType,
+  initialDate,
   onSave,
   onClose,
 }: {
   initialName: string;
   initialType: string;
-  onSave: (next: { name: string; type: string }) => Promise<void>;
+  initialDate: number | null;
+  onSave: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [type, setType] = useState(initialType);
+  const [date, setDate] = useState(initialDate != null ? toDateInput(initialDate) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLFormElement>(null);
@@ -692,7 +503,8 @@ function EditMetaSheet({
     setSaving(true);
     setError(null);
     try {
-      await onSave({ name: name.trim(), type });
+      const epoch = date ? new Date(`${date}T00:00:00`).getTime() : NaN;
+      await onSave({ name: name.trim(), type, eventDate: Number.isFinite(epoch) ? epoch : null });
     } catch (err) {
       setSaving(false);
       setError(err instanceof Error ? err.message : "Could not save changes");
@@ -744,8 +556,8 @@ function EditMetaSheet({
         />
 
         <span className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">Event type</span>
-        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Event type">
-          {BOOKING_EVENT_TYPES.map((t) => {
+        <div className="mb-4 grid grid-cols-3 gap-2" role="group" aria-label="Event type">
+          {EVENT_TYPES.map((t) => {
             const active = t === type;
             return (
               <button
@@ -767,8 +579,23 @@ function EditMetaSheet({
           })}
         </div>
 
+        <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]" htmlFor="edit-event-date">
+          Event date <span className="font-medium text-[var(--color-brand-muted)]">(optional)</span>
+        </label>
+        <input
+          id="edit-event-date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          disabled={saving}
+          className="brand-focus block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none"
+        />
+
         {error && (
-          <p role="alert" className="mt-4 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2 text-[12.5px] text-[var(--color-brand-danger)]">
+          <p
+            role="alert"
+            className="mt-4 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2 text-[12.5px] text-[var(--color-brand-danger)]"
+          >
             {error}
           </p>
         )}
@@ -802,7 +629,7 @@ function EditMetaSheet({
   );
 }
 
-/* ── §6 pre-upload folder picker (All Media) ───────────────────── */
+/* ── pre-upload folder picker ───────────────────────────────────── */
 
 function UploadFolderPicker({
   folders,
@@ -916,7 +743,21 @@ function UploadFolderPicker({
   );
 }
 
-/* ── tiny inline icons ─────────────────────────────────────────── */
+/* ── tiny icons + helpers ───────────────────────────────────────── */
+
+function formatDate(epoch: number): string {
+  const d = new Date(epoch);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function toDateInput(epoch: number): string {
+  const d = new Date(epoch);
+  if (isNaN(d.getTime())) return "";
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 
 function CheckIcon({ size }: { size: number }) {
   return (
@@ -953,16 +794,6 @@ function UploadIcon({ size }: { size: number }) {
   );
 }
 
-function ImageIcon({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <rect x="3" y="4" width="18" height="16" rx="1.5" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="M3 17l5-5 4 4 3-3 6 6" />
-    </svg>
-  );
-}
-
 function EditIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
@@ -980,10 +811,4 @@ function WarnIcon({ size }: { size: number }) {
       <circle cx="12" cy="17" r=".6" fill="currentColor" />
     </svg>
   );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }

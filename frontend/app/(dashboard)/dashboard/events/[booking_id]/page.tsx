@@ -1,4 +1,4 @@
-import { EventPageClient } from "./EventPageClient";
+import { EventWorkspace } from "./EventWorkspace";
 
 type PageProps = {
   params: Promise<{ booking_id: string }>;
@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function EventDetailPage({ params }: PageProps) {
   const { booking_id } = await params;
-  return <EventPageClient bookingId={booking_id} />;
+  return <EventWorkspace bookingId={booking_id} />;
 }

@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
 import type { EngineProgress } from "@/lib/r2-upload/types";
-import type { UploadRecord } from "@/lib/r2-upload/types";
 
 const RING_SIZE = 220;
 const RING_STROKE = 4;
@@ -11,21 +9,16 @@ const RING_CIRC = 2 * Math.PI * RING_R;
 
 export function UploadProgress({
   progress,
-  failed,
   onCancel,
-  onRetryFailed,
-  onRetryMetadata,
+  onTogglePause,
 }: {
   progress: EngineProgress;
-  failed: UploadRecord[];
   onCancel: () => void;
-  /** Opens the upload modal so the user can re-select the failed files. */
-  onRetryFailed: () => void;
-  /** Re-runs the batch create-media call. */
-  onRetryMetadata: () => void;
+  onTogglePause: () => void;
 }) {
   const dashOffset = RING_CIRC * (1 - progress.percent / 100);
-  const [showFailed, setShowFailed] = useState(false);
+  const paused = progress.paused;
+  const playState = paused ? "paused" : "running";
 
   return (
     <section className="px-6 pb-12 pt-10 sm:px-10">
@@ -61,9 +54,12 @@ export function UploadProgress({
               </svg>
               <div
                 className="brand-spin flex items-center justify-center"
-                style={{ width: RING_SIZE - 56, height: RING_SIZE - 56 }}
+                style={{ width: RING_SIZE - 56, height: RING_SIZE - 56, animationPlayState: playState }}
               >
-                <div className="brand-pulse flex h-full w-full items-center justify-center rounded-full">
+                <div
+                  className="brand-pulse flex h-full w-full items-center justify-center rounded-full"
+                  style={{ animationPlayState: playState }}
+                >
                   <img
                     src="/vyavasth-icon.svg"
                     alt=""
@@ -74,79 +70,41 @@ export function UploadProgress({
                 </div>
               </div>
               <div
-                className="absolute -bottom-2.5 -right-2.5 inline-flex h-14 w-14 items-center justify-center rounded-full border border-[var(--color-brand-border)] bg-white text-[17px] font-bold tabular-nums text-[var(--color-brand-navy)] shadow-[0_2px_8px_rgba(42,34,24,0.06)]"
+                className="absolute -bottom-2.5 -right-2.5 inline-flex h-14 w-14 items-center justify-center rounded-full border border-[var(--color-brand-border)] bg-white text-[17px] font-bold tabular-nums shadow-[0_2px_8px_rgba(42,34,24,0.06)]"
+                style={{ color: paused ? "var(--color-brand-muted)" : "var(--color-brand-navy)" }}
               >
                 {progress.percent}%
               </div>
             </div>
           </div>
           <h3 className="mt-6 text-[22px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-            {progress.isSavingMetadata
+            {paused
+              ? `Upload paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
+              : progress.isSavingMetadata
               ? "Saving photo metadata…"
               : `Uploading ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`}
           </h3>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-            <strong className="text-[var(--color-brand-ink)]">{progress.etaLabel}</strong>
-            {progress.speedLabel && <> · upload speed {progress.speedLabel}</>}
+            {paused ? (
+              <>
+                Transfer is on hold — the workspace is unlocked.{" "}
+                <strong className="text-[var(--color-brand-ink)]">Resume</strong> to continue.
+              </>
+            ) : (
+              <>
+                <strong className="text-[var(--color-brand-ink)]">{progress.etaLabel}</strong>
+                {progress.speedLabel && <> · upload speed {progress.speedLabel}</>}
+              </>
+            )}
           </p>
 
-          {/* Failed pill + expander */}
-          {(progress.photosFailed > 0 || failed.length > 0) && (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => setShowFailed((v) => !v)}
-                className="brand-focus inline-flex items-center gap-2 rounded-full bg-[var(--color-brand-danger-soft)] px-3 py-1 text-[12px] font-semibold text-[var(--color-brand-danger)]"
-              >
-                <FailIcon size={12} />
-                Failed ({Math.max(progress.photosFailed, failed.length)})
-                <CaretIcon size={10} open={showFailed} />
-              </button>
-              {showFailed && (
-                <div className="mx-auto mt-3 max-w-[520px] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white text-left">
-                  <ul className="max-h-48 overflow-y-auto divide-y divide-[var(--color-brand-border)]">
-                    {failed.slice(0, 50).map((f) => (
-                      <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-[var(--color-brand-ink)]">{f.filename}</div>
-                          {f.lastError && (
-                            <div className="truncate text-[var(--color-brand-muted)]">{f.lastError}</div>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                    {failed.length > 50 && (
-                      <li className="px-3 py-2 text-[12px] text-[var(--color-brand-muted)]">
-                        …and {failed.length - 50} more
-                      </li>
-                    )}
-                  </ul>
-                  <div className="border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={onRetryFailed}
-                      className="brand-focus inline-flex h-8 items-center rounded-md border border-[var(--color-brand-border)] bg-white px-3 text-[12px] font-semibold text-[var(--color-brand-ink)]"
-                    >
-                      Re-pick & retry
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {progress.metadataSaveError && (
-            <div className="mx-auto mt-4 max-w-[520px] rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2 text-left text-[12px] text-[var(--color-brand-danger)]">
-              <div className="font-semibold">Couldn&apos;t save metadata</div>
-              <div className="mt-1 break-all">{progress.metadataSaveError}</div>
-              <button
-                type="button"
-                onClick={onRetryMetadata}
-                className="brand-focus mt-2 inline-flex h-8 items-center rounded-md border border-[var(--color-brand-danger)]/30 bg-white px-3 text-[12px] font-semibold text-[var(--color-brand-danger)]"
-              >
-                Retry save
-              </button>
-            </div>
+          {/* Failures are listed in UploadFailuresPanel once the run finishes. */}
+          {progress.photosFailed > 0 && (
+            <p className="mx-auto mt-4 max-w-[520px] text-[12.5px] text-[var(--color-brand-danger)]">
+              {progress.photosFailed.toLocaleString("en-IN")} photo
+              {progress.photosFailed === 1 ? "" : "s"} couldn&apos;t be uploaded — you can retry
+              when the rest finish.
+            </p>
           )}
         </div>
 
@@ -171,6 +129,7 @@ export function UploadProgress({
                       style={{
                         border: "2px solid var(--color-brand-border)",
                         borderTopColor: "var(--color-brand-navy)",
+                        animationPlayState: playState,
                       }}
                     />
                   )}
@@ -200,18 +159,44 @@ export function UploadProgress({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-8 py-3.5">
+        <div className="flex flex-col items-start justify-between gap-3 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-8 py-3.5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            <ClockIcon size={15} />
-            <span>Keep this tab open. We&apos;ll let you know when it&apos;s done — feel free to grab some chai.</span>
+            {paused ? <LockIcon size={15} /> : <ClockIcon size={15} />}
+            <span>
+              {paused
+                ? "Make your changes, then resume — nothing transfers while paused."
+                : "Keep this tab open. We'll let you know when it's done — feel free to grab some chai."}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="brand-focus shrink-0 rounded-md px-2 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
-          >
-            Cancel upload
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+            >
+              Cancel upload
+            </button>
+            <button
+              type="button"
+              onClick={onTogglePause}
+              className="brand-focus inline-flex items-center gap-1.5 rounded-md border px-4 py-2 text-[12.5px] font-semibold"
+              style={
+                paused
+                  ? { background: "var(--color-brand-navy)", color: "#FFFFFF", borderColor: "var(--color-brand-navy)" }
+                  : { background: "#FFFFFF", color: "var(--color-brand-ink)", borderColor: "var(--color-brand-border)" }
+              }
+            >
+              {paused ? (
+                <>
+                  <PlayIcon size={14} /> Resume upload
+                </>
+              ) : (
+                <>
+                  <PauseIcon size={14} /> Pause upload
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -243,30 +228,29 @@ function ClockIcon({ size }: { size: number }) {
   );
 }
 
-function FailIcon({ size }: { size: number }) {
+function LockIcon({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-      <line x1="15" y1="9" x2="9" y2="15" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="1.6" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
     </svg>
   );
 }
 
-function CaretIcon({ size, open }: { size: number; open: boolean }) {
+function PauseIcon({ size }: { size: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 200ms" }}
-    >
-      <polyline points="6 9 12 15 18 9" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6.5" y="5" width="3.5" height="14" rx="1" />
+      <rect x="14" y="5" width="3.5" height="14" rx="1" />
     </svg>
   );
 }
+
+function PlayIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 5l12 7-12 7V5z" />
+    </svg>
+  );
+}
+

@@ -90,7 +90,7 @@ export function UploadModal({
     setFiles(merged);
     // Folder mode: a direct (loose-files) selection needs a folder name before
     // we can build a group — pop the "name this folder" sheet (§5d).
-    if (!single && directName === null && analyze(merged).kind === "direct") {
+    if (!single && directName === null && merged.every((f) => relParts(f).length <= 1)) {
       setNaming(true);
     }
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getCompanyDetails, updateCompanyDetails } from "@/lib/api";
+import { getCompanyDetails, updateCompanyDetails, type CompanyUpdateInput } from "@/lib/api";
 import { setCompany } from "@/lib/auth";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import type { Company } from "@/lib/types";
@@ -81,18 +81,34 @@ function CompanyForm({ initial, onSaved }: { initial: Company; onSaved: (c: Comp
     if (!name.trim()) return;
     setSaveState("saving");
     setErrorMsg(null);
+
+    // The update-company API now accepts partial payloads, so only send fields
+    // that actually changed (and the logo only if a new one was picked). This
+    // avoids needlessly re-writing every field + regenerating delivery-page KV.
+    const payload: CompanyUpdateInput = {};
+    const diff = (next: string, prev: string | undefined, key: keyof CompanyUpdateInput) => {
+      const trimmed = next.trim();
+      if (trimmed !== (prev ?? "")) (payload[key] as string) = trimmed;
+    };
+    diff(name, initial.name, "name");
+    diff(address, initial.address, "address");
+    diff(contactNumber, initial.contact_number, "contact_number");
+    diff(website, initial.website, "website");
+    diff(gmbLink, initial.gmb_link, "gmb_link");
+    diff(instagramLink, initial.instagram_link, "instagram_link");
+    diff(facebookLink, initial.facebook_link, "facebook_link");
+    diff(googlePlaceId, initial.google_place_id, "google_place_id");
+    if (logoFile) payload.logo = logoFile;
+
+    if (Object.keys(payload).length === 0) {
+      // Nothing changed — skip the round-trip.
+      setSaveState("saved");
+      savedTimerRef.current = setTimeout(() => setSaveState("idle"), 3000);
+      return;
+    }
+
     try {
-      const res = await updateCompanyDetails({
-        name: name.trim(),
-        address: address.trim(),
-        contact_number: contactNumber.trim(),
-        website: website.trim(),
-        gmb_link: gmbLink.trim(),
-        instagram_link: instagramLink.trim(),
-        facebook_link: facebookLink.trim(),
-        google_place_id: googlePlaceId.trim(),
-        logo: logoFile,
-      });
+      const res = await updateCompanyDetails(payload);
       onSaved(res.company);
       setLogoFile(null);
       setSaveState("saved");

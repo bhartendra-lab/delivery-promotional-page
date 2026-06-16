@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getCompany } from "@/lib/auth";
+import { useChrome } from "./ChromeContext";
+import { ActiveUploadsIndicator } from "./ActiveUploadsIndicator";
 
 export type Breadcrumb = {
   label: string;
@@ -12,6 +14,7 @@ export type Breadcrumb = {
 
 export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const pathname = usePathname();
+  const { topbarExtra } = useChrome();
   const [initials, setInitials] = useState("S");
   const [companyName, setCompanyName] = useState("Studio");
 
@@ -88,6 +91,10 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         ))}
       </div>
       <div className="flex items-center gap-2">
+        <ActiveUploadsIndicator />
+        {topbarExtra && (
+          <div className="mr-1 flex items-center">{topbarExtra}</div>
+        )}
         <button
           type="button"
           title="Notifications"

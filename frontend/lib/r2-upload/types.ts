@@ -63,12 +63,19 @@ export type EngineProgress = {
   speedLabel: string;
   etaLabel: string;
   folders: FolderProgress[];
-  /** Set when the final create-media batch save errored; user can retry. */
+  /** Set when a create-media chunk failed; user can retry. */
   metadataSaveError: string | null;
   /** Set true while the engine is actively running (compress + upload). */
   isUploading: boolean;
   /** Set true if there are uploaded-but-unsaved records that need finalising. */
   needsMetadataSave: boolean;
-  /** Set true while the final create-media batch call is in flight. */
+  /** Set true while a create-media chunk call is in flight. */
   isSavingMetadata: boolean;
+  /**
+   * Set true while the run is paused. The run stays "uploading" (`isUploading`
+   * remains true) but no new compress/presign/upload work is dispatched; the
+   * workspace unlocks so the Member can keep working. Resume picks up where it
+   * left off without re-compressing or re-uploading completed files.
+   */
+  paused: boolean;
 };

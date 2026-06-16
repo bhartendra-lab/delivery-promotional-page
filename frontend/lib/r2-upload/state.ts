@@ -76,7 +76,17 @@ export function makeRecordId(bookingId: string, fingerprint: string): string {
 }
 
 export async function putRecord(record: UploadRecord): Promise<void> {
-  await txn("readwrite", (store) => reqAsPromise(store.put(record)));
+  await putRecords([record]);
+}
+
+/** Write many records in a single IDB transaction (fast startup for large batches). */
+export async function putRecords(records: UploadRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  await txn("readwrite", async (store) => {
+    for (const record of records) {
+      await reqAsPromise(store.put(record));
+    }
+  });
 }
 
 export async function getRecord(id: string): Promise<UploadRecord | undefined> {
@@ -87,12 +97,29 @@ export async function updateRecord(
   id: string,
   patch: Partial<UploadRecord>,
 ): Promise<UploadRecord | null> {
+  const results = await updateRecords([{ id, patch }]);
+  return results[0] ?? null;
+}
+
+/** Apply many patches in one IDB transaction. Returns updated records (nulls skipped). */
+export async function updateRecords(
+  updates: Array<{ id: string; patch: Partial<UploadRecord> }>,
+): Promise<Array<UploadRecord | null>> {
+  if (updates.length === 0) return [];
   return txn("readwrite", async (store) => {
-    const existing = (await reqAsPromise(store.get(id) as IDBRequest<UploadRecord | undefined>)) ?? null;
-    if (!existing) return null;
-    const next: UploadRecord = { ...existing, ...patch, updatedAt: Date.now() };
-    await reqAsPromise(store.put(next));
-    return next;
+    const out: Array<UploadRecord | null> = [];
+    for (const { id, patch } of updates) {
+      const existing =
+        (await reqAsPromise(store.get(id) as IDBRequest<UploadRecord | undefined>)) ?? null;
+      if (!existing) {
+        out.push(null);
+        continue;
+      }
+      const next: UploadRecord = { ...existing, ...patch, updatedAt: Date.now() };
+      await reqAsPromise(store.put(next));
+      out.push(next);
+    }
+    return out;
   });
 }
 
@@ -118,6 +145,17 @@ export async function clearBooking(bookingId: string): Promise<void> {
     const idx = store.index("by_booking");
     const keys = await reqAsPromise(idx.getAllKeys(bookingId) as IDBRequest<IDBValidKey[]>);
     await Promise.all(keys.map((k) => reqAsPromise(store.delete(k))));
+  });
+}
+
+/** Remove only successfully-saved records; keep failed/uploaded rows for retry. */
+export async function clearSavedByBooking(bookingId: string): Promise<void> {
+  await txn("readwrite", async (store) => {
+    const idx = store.index("by_booking_status");
+    const saved = await reqAsPromise(
+      idx.getAll([bookingId, "saved"]) as IDBRequest<UploadRecord[]>,
+    );
+    await Promise.all(saved.map((r) => reqAsPromise(store.delete(r.id))));
   });
 }
 

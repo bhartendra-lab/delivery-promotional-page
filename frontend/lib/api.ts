@@ -1,15 +1,16 @@
 import { getToken, clearToken, getCompany } from "./auth";
 import type {
-  Booking,
+  BookingDetail,
   BookingDetailResponse,
-  BookingEventType,
   BookingsListResponse,
   Company,
   CreateBookingResponse,
   CustomFolder,
   DlpUsage,
+  EventType,
   GetMediaResponse,
   LoginResponse,
+  StyleVariant,
   TrackingType,
 } from "./types";
 
@@ -158,12 +159,26 @@ export function getBookingById(bookingId: string, service: string = BOOKING_SERV
   );
 }
 
-/** PUT /bookings/update-booking/:booking_id  — body: { event_name?, event_type? } */
-export function updateBooking(
-  bookingId: string,
-  body: { event_name?: string; event_type?: string },
-) {
-  return request<{ message?: string; booking: Booking | null }>(
+/**
+ * PUT /bookings/update-booking/:booking_id
+ *
+ * The backend updates the event row with `start_date: Number(event_date)`
+ * unconditionally, so callers that touch the landing-page fields (cover /
+ * gallery design) must also pass the *current* `event_type` and `event_date`
+ * to avoid clobbering them — see `EventWorkspace`'s `persistBooking` helper.
+ */
+export type UpdateBookingInput = {
+  event_name?: string;
+  event_type?: EventType | string;
+  /** Numeric epoch (ms). */
+  event_date?: number;
+  background_image?: string;
+  custom_message?: string;
+  style_variant?: StyleVariant | string;
+  include_company_branding?: boolean;
+};
+export function updateBooking(bookingId: string, body: UpdateBookingInput) {
+  return request<{ booking: BookingDetail }>(
     `/bookings/update-booking/${encodeURIComponent(bookingId)}`,
     {
       method: "PUT",
@@ -175,7 +190,9 @@ export function updateBooking(
 
 export function createBooking(body: {
   event_name: string;
-  event_type: BookingEventType | string;
+  event_type: EventType | string;
+  /** Optional numeric epoch (ms). Omit the field entirely when unset. */
+  event_date?: number;
 }) {
   // Always create under the Delivery Hub service so the booking's
   // creation_source matches the "DH" filter used by getAllBookings/getBookingById.
@@ -219,13 +236,23 @@ export type MediaMetadataItem = {
   custom_folder_id: string;
   media_id: string;
 };
-export function createMediaBatch(bookingId: string, media_metadata: MediaMetadataItem[]) {
+/**
+ * Persist a batch of media. When new media is uploaded to an already-published
+ * gallery, pass `media_out_of_sync: true` + `unsynced_media_count` (the size of
+ * this chunk) — the backend increments the booking's unsynced count and flags it
+ * so the workspace can prompt a Republish on return.
+ */
+export function createMediaBatch(
+  bookingId: string,
+  media_metadata: MediaMetadataItem[],
+  outOfSync?: { media_out_of_sync: boolean; unsynced_media_count: number },
+) {
   return request<{ message: string }>(
     `/deliverables/create-media/${encodeURIComponent(bookingId)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ media_metadata }),
+      body: JSON.stringify({ media_metadata, ...(outOfSync ?? {}) }),
     },
   );
 }
@@ -266,6 +293,52 @@ export function getMedia(bookingId: string, customFolderId?: string) {
     : "";
   return request<GetMediaResponse>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs}`,
+  );
+}
+
+/**
+ * DELETE /deliverables/delete-media — body `{ media_ids }`. Deletes the R2
+ * objects and the DB rows in one call. Used for both single-image delete
+ * (array of one) and multi-select delete. `media_ids` are Media `_id`s — never
+ * pass optimistic placeholder ids (e.g. `optimistic-*`).
+ */
+export function deleteMedia(mediaIds: string[]) {
+  return request<{ message: string }>("/deliverables/delete-media", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ media_ids: mediaIds }),
+  });
+}
+
+/**
+ * POST /deliverables/publish-gallery/:booking_id — kicks off the GPU-expensive
+ * face-embedding batch job and sets `embedding_status="in_progress"`. Publish
+ * actually flips `gallery_publish_status` to "published" only when the job
+ * finishes. Used for both Publish and Republish from the top-right LivePill.
+ */
+export function publishGallery(bookingId: string) {
+  return request<{ message: string }>(
+    `/deliverables/publish-gallery/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+/**
+ * POST /deliverables/update-gallery-activation-status/:booking_id — temporarily
+ * deactivate (is_active=false) or reactivate (is_active=true) a published
+ * gallery. Distinct from publish/republish: it does not re-run embeddings.
+ */
+export function updateGalleryActivationStatus(bookingId: string, isActive: boolean) {
+  return request<{ message: string }>(
+    `/deliverables/update-gallery-activation-status/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: isActive }),
+    },
   );
 }
 
