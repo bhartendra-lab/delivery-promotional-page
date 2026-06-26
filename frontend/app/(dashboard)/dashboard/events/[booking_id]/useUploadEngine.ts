@@ -168,6 +168,14 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       targetFolderId?: string;
       targetFolderName?: string;
     }) => {
+      console.log("[upload:start] plan", {
+        mode: targetFolderId ? "single-folder" : "grouped",
+        rawFileCount: files?.length ?? 0,
+        groups: groups?.map((g) => ({ name: g.name, count: g.files.length })),
+        targetFolderId,
+        targetFolderName,
+      });
+
       // Single-folder mode: every image goes to one already-created folder,
       // no subfolder parsing.
       if (targetFolderId) {
@@ -293,10 +301,28 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
 const RAW_EXTENSIONS =
   /\.(raw|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|dng|raf|3fr|kdc|mef|mrw|pef|ptx|r3d|rwl|srw|x3f|erf|fff|iiq)$/i;
 
+/** macOS AppleDouble sidecar files (`._foo.jpg`) and other dotfiles aren't real
+ *  images — they carry an image extension but no decodable pixel data. */
+function isJunkFile(name: string): boolean {
+  const base = name.split("/").pop() ?? name;
+  return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
+}
+
 function filterImages(files: File[]): File[] {
   return files.filter((f) => {
-    if (RAW_EXTENSIONS.test(f.name)) return false; // block RAW
-    return f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|gif|webp)$/i.test(f.name);
+    if (isJunkFile(f.name)) {
+      console.warn("[upload:filter] skipping macOS sidecar/dotfile", { name: f.name, type: f.type || "(no type)", sizeMB: (f.size / 1024 / 1024).toFixed(2) });
+      return false;
+    }
+    if (RAW_EXTENSIONS.test(f.name)) {
+      console.warn("[upload:filter] skipping RAW file", { name: f.name, type: f.type, sizeMB: (f.size / 1024 / 1024).toFixed(2) });
+      return false;
+    }
+    const keep = f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|gif|webp)$/i.test(f.name);
+    if (!keep) {
+      console.warn("[upload:filter] skipping non-image file", { name: f.name, type: f.type || "(no type)", sizeMB: (f.size / 1024 / 1024).toFixed(2) });
+    }
+    return keep;
   });
 }
 

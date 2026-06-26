@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { STYLE_VARIANTS, type StyleVariant } from "@/lib/types";
-import { IconArrowRight, IconCheck, IconInfo, IconLink, IconMobile, IconMonitor } from "./icons";
+import { IconArrowRight, IconCheck, IconInfo, IconLink, IconMobile, IconMonitor, IconX } from "./icons";
 
 /** Season grouping over the backend `style_variant` enum. */
 const SEASONS = ["Spring", "Summer", "Autumn", "Winter"] as const;
@@ -46,22 +46,27 @@ export function GalleryDesignTab({
   eventType,
   eventDateLabel,
   coverUrl,
+  coverPosition,
   initialStyleVariant,
   initialCustomMessage,
   initialIncludeBranding,
+  initialGuestTypes,
   onSave,
 }: {
   eventName: string;
   eventType: string;
   eventDateLabel: string | null;
   coverUrl?: string;
+  coverPosition?: string;
   initialStyleVariant?: string;
   initialCustomMessage?: string;
   initialIncludeBranding?: boolean;
+  initialGuestTypes?: string[];
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
     include_company_branding: boolean;
+    guest_types: string[];
   }) => Promise<void>;
 }) {
   const startVariant: StyleVariant =
@@ -73,6 +78,7 @@ export function GalleryDesignTab({
   const [season, setSeason] = useState<Season>(seasonOf(startVariant));
   const [message, setMessage] = useState(initialCustomMessage ?? "");
   const [branding, setBranding] = useState(initialIncludeBranding ?? true);
+  const [guestTypes, setGuestTypes] = useState<string[]>(initialGuestTypes ?? []);
   const [scope, setScope] = useState<"landing" | "gallery">("landing");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [saving, setSaving] = useState(false);
@@ -81,18 +87,31 @@ export function GalleryDesignTab({
   const theme = VARIANT_THEME[variant];
   const copyLabel = COPY_LABEL[eventType] ?? "Message to Guests";
 
+  // Trimmed, non-empty teams — what we actually save and compare for dirty.
+  const cleanGuestTypes = useMemo(() => guestTypes.map((t) => t.trim()).filter(Boolean), [guestTypes]);
+  const initialClean = useMemo(
+    () => (initialGuestTypes ?? []).map((t) => t.trim()).filter(Boolean),
+    [initialGuestTypes],
+  );
+
   const dirty = useMemo(
     () =>
       variant !== startVariant ||
       message !== (initialCustomMessage ?? "") ||
-      branding !== (initialIncludeBranding ?? true),
-    [variant, message, branding, startVariant, initialCustomMessage, initialIncludeBranding],
+      branding !== (initialIncludeBranding ?? true) ||
+      JSON.stringify(cleanGuestTypes) !== JSON.stringify(initialClean),
+    [variant, message, branding, cleanGuestTypes, initialClean, startVariant, initialCustomMessage, initialIncludeBranding],
   );
 
   async function save() {
     setSaving(true);
     try {
-      await onSave({ style_variant: variant, custom_message: message, include_company_branding: branding });
+      await onSave({
+        style_variant: variant,
+        custom_message: message,
+        include_company_branding: branding,
+        guest_types: cleanGuestTypes,
+      });
       setSavedTick(true);
       setTimeout(() => setSavedTick(false), 2000);
     } finally {
@@ -156,6 +175,49 @@ export function GalleryDesignTab({
               {message.length} / {MAX}
             </span>
           </div>
+        </SectionCard>
+
+        <SectionCard
+          overline="Guest Teams / Sub-types"
+          tip="Shown on the guest “Which team are you in?” screen after sign-in (e.g. Bride Team / Groom Team). Leave empty to skip that step entirely."
+        >
+          {guestTypes.length > 0 && (
+            <div className="mb-2 flex flex-col gap-2">
+              {guestTypes.map((t, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    value={t}
+                    onChange={(e) =>
+                      setGuestTypes((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))
+                    }
+                    placeholder="e.g. Bride Team"
+                    aria-label={`Team ${i + 1}`}
+                    className="brand-focus block min-w-0 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[13.5px] text-[var(--color-brand-ink)] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setGuestTypes((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label="Remove team"
+                    className="brand-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
+                  >
+                    <IconX size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setGuestTypes((prev) => [...prev, ""])}
+            className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
+          >
+            <PlusIcon size={14} /> Add team
+          </button>
+          {guestTypes.length === 0 && (
+            <p className="mt-2 text-[12px] text-[var(--color-brand-muted)]">
+              No teams — guests skip the team-selection step and go straight to the face scan.
+            </p>
+          )}
         </SectionCard>
 
         <SectionCard overline="Global Profile Injections" last>
@@ -254,6 +316,7 @@ export function GalleryDesignTab({
                   eventType={eventType}
                   eventDateLabel={eventDateLabel}
                   coverUrl={coverUrl}
+                  coverPosition={coverPosition}
                   message={message}
                   branding={branding}
                   scope={scope}
@@ -271,6 +334,7 @@ export function GalleryDesignTab({
                     eventType={eventType}
                     eventDateLabel={eventDateLabel}
                     coverUrl={coverUrl}
+                  coverPosition={coverPosition}
                     message={message}
                     branding={branding}
                     scope={scope}
@@ -294,6 +358,7 @@ function ClientPagePreview({
   eventType,
   eventDateLabel,
   coverUrl,
+  coverPosition,
   message,
   branding,
   scope,
@@ -304,13 +369,14 @@ function ClientPagePreview({
   eventType: string;
   eventDateLabel: string | null;
   coverUrl?: string;
+  coverPosition?: string;
   message: string;
   branding: boolean;
   scope: "landing" | "gallery";
   compact?: boolean;
 }) {
   const coverBg = coverUrl
-    ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+    ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: coverPosition || "center" }
     : { backgroundImage: `repeating-linear-gradient(40deg, ${theme.cover[0]} 0 22px, ${theme.cover[1]} 22px 44px)` };
 
   if (scope === "gallery") {
@@ -587,6 +653,15 @@ function IconChevron({ open }: { open: boolean }) {
       style={{ transform: open ? "rotate(180deg)" : "none" }}
     >
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function PlusIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   );
 }

@@ -1,172 +1,191 @@
 "use client";
 
 import { useState } from "react";
-import { IconArrowRight, IconCheck, IconCopy, IconInfo, IconLink, IconLock, IconMail, IconScanFace, IconShieldCheck, IconWhatsApp } from "./icons";
+import { IconCheck, IconCopy, IconInfo, IconLink, IconLock, IconMail, IconScanFace, IconShieldCheck, IconWhatsApp } from "./icons";
 
 /**
- * Tab 3 · Access & Sharing — two-audience console (Host full gallery + Guest
- * face-search). Recreated from `access-sharing-tab.jsx`.
+ * Tab 3 · Access & Sharing — one real shared link + one real family passcode.
  *
- * TODO(backend): real share-link + passcode generation isn't built yet. The
- * URLs and passcode below are deterministic placeholders derived from the
- * booking. Wire these to the delivery-landing-page routing pipeline (two URLs:
- * /k/<host> and /g/<guest>, family passcode) once the backend lands.
+ * The single `/event/<unique_identifier>` URL covers all photo access: every
+ * guest signs in and face-matches their own photos; the family passcode (shared
+ * separately) unlocks the complete gallery in-lounge. Backed by real data from
+ * the booking — no placeholders.
  */
 export function AccessSharingTab({
   eventName,
-  bookingId,
+  uniqueIdentifier,
+  familyPasscode,
+  onRegenerate,
 }: {
   eventName: string;
-  bookingId: string;
+  uniqueIdentifier?: string;
+  familyPasscode?: string;
+  /** Mint a fresh passcode server-side; resolves to the new code. */
+  onRegenerate: () => Promise<string>;
 }) {
-  const suffix = bookingId.slice(-4) || "0000";
-  const base = slug(eventName);
-  // TODO(backend): replace placeholders with real generated links + passcode.
-  const hostUrl = `https://vyavasth.in/k/${base}-${suffix}`;
-  const guestUrl = `https://vyavasth.in/g/${base}-guests-${suffix}`;
-  const passcode = stubPasscode(bookingId);
+  const base = (
+    process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "")
+  ).replace(/\/$/, "");
+  const shareUrl = uniqueIdentifier ? `${base}/event/${uniqueIdentifier}` : "";
 
-  const hostMsg = `Namaste! The full gallery for ${eventName} is ready to view and download.
+  const message = `Namaste! The photos from ${eventName} are ready. 🎉
 
-Open your private gallery: ${hostUrl}
-Family passcode: ${passcode}
-
-Please keep this passcode within the family.`;
-
-  const guestMsg = `You're invited to relive ${eventName}!
-
-Find every photo you appear in — just open the link and take one quick selfie. No login, no passcode:
-${guestUrl}`;
+Open the gallery, sign in with Google and take one quick selfie — you'll instantly see every photo you appear in:
+${shareUrl}`;
 
   return (
     <div className="flex-1 overflow-auto bg-[var(--color-brand-bg)]">
-      <div className="mx-auto max-w-[1240px] px-6 py-6 sm:px-8">
-        <div className="flex flex-col items-stretch gap-4 lg:flex-row">
-          {/* Host */}
-          <AudienceCard
-            tag="URL 1 · Host"
-            tagFg="var(--color-brand-navy)"
-            tagBg="var(--color-brand-navy-soft)"
-            Icon={IconLock}
-            accent="var(--color-brand-navy)"
-            accentTint="var(--color-brand-navy-soft)"
-            title="Host link — full gallery"
-            tip="For the couple and immediate family. Opens every folder with the family passcode — downloads enabled, plus a built-in face-search shortcut."
-          >
-            <Label>Host gallery link</Label>
-            <UrlField url={hostUrl} accent="var(--color-brand-navy)" />
+      <div className="mx-auto max-w-[720px] px-6 py-6 sm:px-8">
+        <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
+          <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
+            <span
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
+              style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
+            >
+              <IconScanFace size={19} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+                Guest gallery link
+                <Tip text="One link for everyone. Guests sign in and take a selfie to find their own photos. The family passcode unlocks the full gallery from inside the lounge." />
+              </h3>
+              <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+                Share this with the whole guest list — one link covers all photo access.
+              </p>
+            </div>
+          </div>
 
-            <div className="mt-3.5 flex items-end gap-3">
-              <div>
-                <Label tip="Auto-included in the Host message. Regenerating invalidates any passcode already shared.">
-                  Family passcode
-                </Label>
-                <div className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2">
-                  <IconLock size={14} className="text-[var(--color-brand-navy)]" />
-                  <span className="font-mono text-[17px] font-bold tabular-nums tracking-[0.2em] text-[var(--color-brand-ink)]">
-                    {passcode}
-                  </span>
+          <div className="flex flex-col p-4">
+            {shareUrl ? (
+              <>
+                <Label>Shared gallery URL</Label>
+                <UrlField url={shareUrl} />
+                <div className="mt-2.5 flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
+                  <IconShieldCheck size={15} className="shrink-0 text-[var(--color-brand-success)]" />
+                  <span>Each guest sees only the photos they appear in — until the passcode unlocks the rest.</span>
                 </div>
+
+                <Dispatch key={shareUrl} eventName={eventName} message={message} />
+              </>
+            ) : (
+              <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-3 text-[12.5px] text-[var(--color-brand-muted)]">
+                <IconInfo size={15} className="mt-px shrink-0" />
+                <span>The shared link appears here once the event is fully set up. Try reopening this event.</span>
               </div>
-              <button
-                type="button"
-                className="brand-focus inline-flex items-center gap-1.5 pb-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-                title="Regenerate (not wired yet)"
-              >
-                <IconArrowRight size={13} /> Regenerate
-              </button>
-            </div>
+            )}
+          </div>
+        </section>
 
-            <Dispatch audience="the Host" message={hostMsg} accent="var(--color-brand-navy)" />
-          </AudienceCard>
-
-          {/* Guest */}
-          <AudienceCard
-            tag="URL 2 · Guest"
-            tagFg="var(--color-brand-muted)"
-            tagBg="#F2F0EB"
-            Icon={IconScanFace}
-            accent="var(--color-brand-ink)"
-            accentTint="#F2F0EB"
-            title="Guest link — face photos only"
-            tip="For the wider guest list. A guest takes one selfie and sees only the photos they appear in — no passcode, no full-gallery access."
-          >
-            <Label tip="Guests land on “Find your photos”, take one selfie, and matched results unlock instantly.">
-              Guest face-search link
-            </Label>
-            <UrlField url={guestUrl} accent="var(--color-brand-muted)" />
-
-            <div className="mt-3.5 flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
-              <IconShieldCheck size={15} className="shrink-0 text-[var(--color-brand-success)]" />
-              <span>Selfie matched in-memory, never stored. No passcode required.</span>
-            </div>
-
-            <Dispatch audience="Guests" message={guestMsg} accent="var(--color-brand-ink)" />
-          </AudienceCard>
-        </div>
-
-        <p className="mt-4 text-[12px] text-[var(--color-brand-muted)]">
-          Links and passcode shown here are placeholders — real generation will be wired to the backend.
-        </p>
+        <PasscodeCard passcode={familyPasscode ?? ""} onRegenerate={onRegenerate} />
       </div>
     </div>
   );
 }
 
-function AudienceCard({
-  tag,
-  tagFg,
-  tagBg,
-  Icon,
-  title,
-  tip,
-  accent,
-  accentTint,
-  children,
+function PasscodeCard({
+  passcode,
+  onRegenerate,
 }: {
-  tag: string;
-  tagFg: string;
-  tagBg: string;
-  Icon: (p: { size?: number; style?: React.CSSProperties; className?: string }) => React.ReactElement;
-  title: string;
-  tip: string;
-  accent: string;
-  accentTint: string;
-  children: React.ReactNode;
+  passcode: string;
+  onRegenerate: () => Promise<string>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function regenerate() {
+    setBusy(true);
+    try {
+      // The parent owns the passcode and re-renders this card with the new prop.
+      await onRegenerate();
+      setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
+    <section className="mt-4 flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
       <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: accentTint, color: accent }}
+          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
         >
-          <Icon size={19} />
+          <IconLock size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.1em]"
-            style={{ color: tagFg, background: tagBg, padding: "2px 7px", borderRadius: 4 }}
-          >
-            {tag}
-          </span>
-          <h3 className="mt-1 flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            {title}
-            <Tip text={tip} />
+          <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+            Family passcode
+            <Tip text="Share this privately with the couple / immediate family only. Entered inside the lounge, it unlocks the complete gallery (all folders, every photo)." />
           </h3>
+          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+            Share separately — it unlocks the full gallery in-lounge.
+          </p>
         </div>
       </div>
-      <div className="flex flex-1 flex-col p-4">{children}</div>
+
+      <div className="flex flex-wrap items-center gap-3 p-4">
+        <div className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2">
+          <IconLock size={14} className="text-[var(--color-brand-navy)]" />
+          <span className="font-mono text-[17px] font-bold tabular-nums tracking-[0.2em] text-[var(--color-brand-ink)]">
+            {passcode || "——————"}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          disabled={!passcode}
+          onClick={() => {
+            void navigator.clipboard?.writeText(passcode);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          }}
+          className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
+        >
+          {copied ? <IconCheck size={14} className="text-[var(--color-brand-success)]" /> : <IconCopy size={14} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+
+        {!confirming ? (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
+          >
+            <RefreshIcon size={13} /> Regenerate
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
+            Regenerate? This invalidates the shared code.
+            <button
+              type="button"
+              disabled={busy}
+              onClick={regenerate}
+              className="brand-focus inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-navy)] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
+            >
+              {busy ? "Working…" : "Confirm"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+              className="brand-focus text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </span>
+        )}
+      </div>
     </section>
   );
 }
 
-function UrlField({ url, accent }: { url: string; accent: string }) {
+function UrlField({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-stretch overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
       <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5">
-        <IconLink size={14} className="shrink-0" style={{ color: accent }} />
+        <IconLink size={14} className="shrink-0 text-[var(--color-brand-navy)]" />
         <span className="truncate font-mono text-[12.5px] text-[var(--color-brand-ink)]">{url}</span>
       </div>
       <button
@@ -189,14 +208,21 @@ function UrlField({ url, accent }: { url: string; accent: string }) {
   );
 }
 
-function Dispatch({ audience, message, accent }: { audience: string; message: string; accent: string }) {
+function Dispatch({ eventName, message }: { eventName: string; message: string }) {
+  // Seeded once from `message`; the parent remounts this via `key` if the
+  // canonical message changes (e.g. the share URL resolves late).
   const [text, setText] = useState(message);
+
+  const openWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  const openEmail = () => {
+    const subject = `Your photos from ${eventName} are ready`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  };
+
   return (
     <div className="mt-4 border-t border-[#ECE5D8] pt-3.5">
       <div className="mb-1.5 flex items-center justify-between">
-        <Label tip={`This text is pre-loaded into WhatsApp / email when you dispatch to ${audience}.`}>
-          Message to {audience}
-        </Label>
+        <Label tip="This text is pre-loaded into WhatsApp / email when you dispatch it.">Message to guests</Label>
         <button
           type="button"
           onClick={() => setText(message)}
@@ -212,9 +238,9 @@ function Dispatch({ audience, message, accent }: { audience: string; message: st
         className="brand-focus block w-full resize-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 font-[inherit] text-[12.5px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
       />
       <div className="mt-3 flex items-center gap-2">
-        {/* TODO(backend): wire WhatsApp / Email dispatch to real share links. */}
         <button
           type="button"
+          onClick={openWhatsApp}
           className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px] font-semibold text-white"
           style={{ background: "#1FA855" }}
         >
@@ -222,8 +248,9 @@ function Dispatch({ audience, message, accent }: { audience: string; message: st
         </button>
         <button
           type="button"
+          onClick={openEmail}
           className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-semibold"
-          style={{ borderColor: accent, color: accent }}
+          style={{ borderColor: "var(--color-brand-navy)", color: "var(--color-brand-navy)" }}
         >
           <IconMail size={15} /> Email
         </button>
@@ -267,19 +294,13 @@ function Tip({ text }: { text: string }) {
   );
 }
 
-function slug(name: string): string {
+function RefreshIcon({ size = 13 }: { size?: number }) {
   return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 22) || "event"
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
   );
-}
-
-/** Deterministic 4-digit stub passcode (TODO: backend mints the real one). */
-function stubPasscode(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return String(1000 + (h % 9000));
 }

@@ -26,6 +26,10 @@ type Props = {
   /** True while an upload is actively running — the pill is shown but inert. */
   disabled?: boolean;
   unsyncedCount?: number;
+  /** True when the first publish is blocked (no cover photo yet). */
+  publishBlocked?: boolean;
+  /** Called when a blocked Publish is clicked (surface the reason). */
+  onPublishBlocked?: () => void;
   onPublish: () => Promise<void>;
   onRepublish: () => Promise<void>;
   onActivate: () => Promise<void>;
@@ -36,6 +40,8 @@ export function LivePill({
   state,
   disabled = false,
   unsyncedCount = 0,
+  publishBlocked = false,
+  onPublishBlocked,
   onPublish,
   onRepublish,
   onActivate,
@@ -127,6 +133,22 @@ export function LivePill({
 
   // ── Media ready, never published → pulsing Publish ────────────────────────
   if (state === "publish") {
+    // Blocked until a cover photo exists — greyed, no pulse, click explains why.
+    if (publishBlocked) {
+      return (
+        <div className="relative" onMouseEnter={() => setTip(true)} onMouseLeave={() => setTip(false)}>
+          <button
+            type="button"
+            onClick={() => onPublishBlocked?.()}
+            className="brand-focus inline-flex items-center gap-2 rounded-lg border border-[var(--color-brand-border)] bg-[#F2F0EB] px-4 py-1.5 text-[var(--color-brand-muted)]"
+          >
+            <IconBroadcast size={14} className="opacity-60" />
+            <span className="text-[13px] font-bold">Publish</span>
+          </button>
+          {tip && <Tooltip>Add a cover photo before publishing the gallery to guests.</Tooltip>}
+        </div>
+      );
+    }
     return (
       <>
         <button
@@ -142,21 +164,54 @@ export function LivePill({
     );
   }
 
-  // ── Published + new media → amber Republish ───────────────────────────────
+  // ── Published + new media → amber Republish with dropdown ───────────────
   if (state === "republish") {
     return (
       <>
-        <button
-          type="button"
-          onClick={() => setConfirming("republish")}
-          className="live-pill-pulse-amber brand-focus inline-flex items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[var(--color-brand-warning)]"
-        >
-          <IconWarning size={14} />
-          <span className="text-[13px] font-bold">Republish</span>
-          <span className="text-[11px] font-semibold text-[var(--color-brand-warning)]/60">
-            {unsyncedCount > 0 ? `${unsyncedCount.toLocaleString("en-IN")} new` : "new media"}
-          </span>
-        </button>
+        <div className="relative" ref={wrapRef}>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="live-pill-pulse-amber brand-focus inline-flex items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[var(--color-brand-warning)]"
+          >
+            <IconWarning size={14} />
+            <span className="text-[13px] font-bold">Republish</span>
+            <span className="text-[11px] font-semibold text-[var(--color-brand-warning)]/60">
+              {unsyncedCount > 0 ? `${unsyncedCount.toLocaleString("en-IN")} new` : "new media"}
+            </span>
+            <IconCaretDown size={13} className="ml-px opacity-70" />
+          </button>
+
+          {open && (
+            <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[266px] overflow-hidden rounded-[10px] border border-[var(--color-brand-border)] bg-white shadow-[0_8px_28px_rgba(42,34,24,0.14)]">
+              <div className="border-b border-[var(--color-brand-border)] px-3.5 pb-2 pt-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+                Gallery availability
+              </div>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setConfirming("republish"); }}
+                className="flex w-full items-start gap-2.5 px-3.5 py-3 text-left hover:bg-[var(--color-brand-bg)]"
+              >
+                <span className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-brand-warning)" }} />
+                <span className="flex-1">
+                  <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Republish</span>
+                  <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">Sync new media to the guest gallery</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setConfirming("deactivate"); }}
+                className="flex w-full items-start gap-2.5 px-3.5 py-3 text-left hover:bg-[var(--color-brand-bg)]"
+              >
+                <span className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-brand-danger)" }} />
+                <span className="flex-1">
+                  <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Deactivate</span>
+                  <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">Temporarily take the gallery offline</span>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
         {modal}
       </>
     );
@@ -220,7 +275,7 @@ const CONFIRM_COPY: Record<ConfirmAction, { title: string; description: string; 
   publish: {
     title: "Publish gallery?",
     description:
-      "This starts preparing the AI gallery (face recognition). It becomes live for guests once processing finishes — we’ll notify you then.",
+      "This starts preparing the AI gallery (face recognition). It becomes live for guests once processing finishes — we’ll notify you then. The event name and cover photo can’t be changed after publishing, so the shared link and cover stay stable.",
     warning: "Publishing re-computes image embeddings (GPU-intensive) and can take a little while.",
   },
   republish: {

@@ -20,7 +20,7 @@
 import imageCompression from "browser-image-compression";
 import piexif from "piexifjs";
 
-const MAX_DIM = 2048;
+const MAX_DIM = 2560;
 const QUALITY = 0.80;
 
 /** Default pool size: leave one core free for the main thread. */

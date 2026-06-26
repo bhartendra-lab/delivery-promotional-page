@@ -14,16 +14,47 @@ export function MediaGrid({
   items,
   disabled = false,
   onDeleteMany,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: {
   items: MediaItem[];
   disabled?: boolean;
   /** Delete the given Media ids (optimistic removal + reconcile lives upstream). */
   onDeleteMany?: (ids: string[]) => Promise<void>;
+  /** True while more pages exist for this view (drives the infinite-scroll sentinel). */
+  hasMore?: boolean;
+  /** True while the next page is loading (shows a spinner at the grid foot). */
+  loadingMore?: boolean;
+  /** Append the next page — fired when the sentinel scrolls into view. */
+  onLoadMore?: () => void;
 }) {
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ ids: string[]; fromLightbox: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Infinite scroll: observe a sentinel below the grid and pull the next page
+  // when it nears the viewport. `onLoadMore` is read through a ref so the
+  // observer doesn't re-subscribe on every render.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const onLoadMoreRef = useRef(onLoadMore);
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
+  useEffect(() => {
+    if (!hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) onLoadMoreRef.current?.();
+      },
+      { rootMargin: "600px 0px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore]);
 
   const liveIds = useMemo(() => new Set(items.map((m) => m._id)), [items]);
   const selectableIds = useMemo(() => items.filter(isPersisted).map((m) => m._id), [items]);
@@ -155,6 +186,15 @@ export function MediaGrid({
           );
         })}
       </div>
+
+      {hasMore && (
+        <div ref={sentinelRef} className="flex items-center justify-center py-8" aria-hidden>
+          <span className="inline-flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+            {loadingMore ? "Loading more photos…" : "Scroll to load more"}
+          </span>
+        </div>
+      )}
 
       {safeIndex != null && items.length > 0 && (
         <Lightbox

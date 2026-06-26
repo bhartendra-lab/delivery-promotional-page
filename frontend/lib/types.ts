@@ -189,9 +189,17 @@ export type BookingDetail = {
   event_date?: number | null;
   /** Current cover image (delivery-landing-page `background_image`). */
   background_image?: string;
+  /** Cover focal point as CSS object-position, e.g. "50% 35%". */
+  background_position?: string;
   custom_message?: string;
   style_variant?: string;
   include_company_branding?: boolean;
+  /** Public shared-link slug (delivery-landing-page `unique_identifier`). */
+  unique_identifier?: string;
+  /** Family passcode that unlocks the full gallery in-lounge. */
+  family_passcode?: string;
+  /** Guest teams / sub-types (delivery-landing-page `guest_types`). */
+  guest_types?: string[];
   /** Publish / activation state from the booking (read defensively). */
   gallery_publish_status?: GalleryPublishStatus;
   gallery_published_at?: number;
@@ -220,28 +228,78 @@ export type BookingDetailResponse = {
 export type GetMediaResponse = {
   media: MediaItem[];
   customFolders?: CustomFolder[];
+  /** Count of media in the requested view (active folder, or all). Drives "load more". */
+  total?: number;
+  /** Count of all media in the booking. Drives the header + "All Media" total. */
+  totalCount?: number;
+  /** Per-folder media membership counts, keyed by folder id. Drives the sidebar. */
+  folderCounts?: Record<string, number>;
 };
 
-export type KvData = {
-  client_name: string;
-  event_type: EventType;
-  event_date?: number;
+/* ── Guest-facing client gallery ───────────────────────────────── */
+
+/**
+ * Public event payload from
+ * `GET /deliverables/get-delivery-landing-page-by-unique-identifier/:unique_identifier`.
+ * Company branding fields render only when `include_company_branding === true`.
+ */
+export type DeliveryLandingPageData = {
+  delivery_landing_page_id: string;
+  booking_id: string;
+  company_id: string;
+  event_name?: string;
+  /** Numeric epoch (ms) — the event's start_date. May be null/absent. */
+  event_date?: number | null;
+  event_type?: string;
   custom_message?: string;
-  delivery_urls: DeliveryUrl[];
   background_image?: string;
+  /** CSS object-position for the cover focal point, e.g. "50% 35%". */
+  background_position?: string;
+  style_variant?: string;
+  include_company_branding?: boolean;
+  guest_types?: string[];
   company_name?: string;
-  company_google_place_id?: string;
+  company_logo?: string;
   company_address?: string;
   company_contact_number?: string;
-  company_logo?: string;
   company_website?: string;
   company_gmb_link?: string;
   company_instagram_link?: string;
   company_facebook_link?: string;
-  /** Optional, may be added by backend later. */
-  brand_colors?: {
-    primaryColor?: string;
-    secondaryColor?: string;
-    textOnPrimary?: string;
-  };
+  company_google_place_id?: string;
+  company_watermark_url?: string;
 };
+
+/** A media item as returned to guests by `get-media` (carries `media_id` + likes). */
+export type GuestMediaItem = {
+  _id: string;
+  media_id: string;
+  url: string;
+  type: "image" | "video";
+  custom_folder_ids: string[];
+  createdAt: string;
+  likes_count?: number;
+  /** True when the current guest has liked this photo (drives persisted hearts). */
+  liked_by_me?: boolean;
+};
+
+export type GuestMediaResponse = {
+  media: GuestMediaItem[];
+  customFolders?: CustomFolder[];
+  total?: number;
+  totalCount?: number;
+  folderCounts?: Record<string, number>;
+};
+
+/** The current guest's restorable session, from `get-guest-session`. */
+export type GuestSession = {
+  name?: string;
+  email?: string;
+  /** "host" once the family passcode has been entered; "guest" otherwise. */
+  guest_type: "guest" | "host";
+  guest_sub_type: string | null;
+  selfie_url: string | null;
+  has_selfie: boolean;
+  media_ids: string[];
+};
+

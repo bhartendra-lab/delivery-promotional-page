@@ -46,7 +46,6 @@ import {
 import { USER_FACING_UPLOAD_ERROR } from "./errors";
 import {
   clearBooking,
-  clearSavedByBooking,
   listByBooking,
   makeFingerprint,
   makeRecordId,
@@ -370,11 +369,18 @@ export class UploadEngineCore {
   private async processOneInput(input: UploadInput): Promise<void> {
     if (this.abort.signal.aborted) return;
     const recordId = makeRecordId(this.bookingId, makeFingerprint(input.file));
+    console.log("[upload:compress] start", {
+      file: input.file.name,
+      sizeMB: (input.file.size / 1024 / 1024).toFixed(2),
+      type: input.file.type || "(no type)",
+      folder: input.folderName,
+    });
     this.runningCompressors++;
     this.scheduleEmit();
     try {
       const blob = await this.compressorPool.run(input.file);
       if (this.abort.signal.aborted) return;
+      console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
       this.queueIdbUpdate(recordId, { status: "compressed" });
       const rec = this.records.get(recordId);
       if (rec) this.records.set(recordId, { ...rec, status: "compressed" });
@@ -382,7 +388,12 @@ export class UploadEngineCore {
       this.compressedQueue.push(recordId);
     } catch (err) {
       const reason = err instanceof Error ? err.message : "compression failed";
-      console.error("[upload] compression failed", input.file.name, err);
+      console.error("[upload:compress] failed", {
+        file: input.file.name,
+        sizeMB: (input.file.size / 1024 / 1024).toFixed(2),
+        type: input.file.type || "(no type)",
+        reason,
+      }, err);
       this.queueIdbUpdate(recordId, {
         status: "failed",
         lastError: `compression: ${reason}`,
@@ -472,7 +483,8 @@ export class UploadEngineCore {
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : "presign failed";
-      console.error("[upload] presign batch terminally failed", err);
+      const filenames = batchIds.map((id) => this.records.get(id)?.filename ?? id);
+      console.error("[upload:presign] terminal failure", { files: filenames, reason }, err);
       for (const id of batchIds) {
         this.queueIdbUpdate(id, { status: "failed", lastError: `presign: ${reason}` });
         const rec = this.records.get(id);
@@ -553,6 +565,7 @@ export class UploadEngineCore {
   }
 
   private async uploadOne(item: PresignedItem): Promise<void> {
+    const fileLabel = this.records.get(item.recordId)?.filename ?? item.recordId;
     let succeeded = false;
     try {
       await withRetry(
@@ -571,8 +584,8 @@ export class UploadEngineCore {
             err instanceof R2PutError ? classifyHttp(err.status) : classifyError(err),
           onAttemptError: (err, attempt, willRetry) => {
             console.warn(
-              `[upload] R2 PUT failed (attempt ${attempt + 1}/${MAX_ATTEMPTS}, willRetry=${willRetry})`,
-              err,
+              `[upload:put] failed (file=${fileLabel}, attempt ${attempt + 1}/${MAX_ATTEMPTS}, willRetry=${willRetry})`,
+              err instanceof R2PutError ? { status: err.status, message: err.message } : err,
             );
           },
         },
@@ -580,6 +593,12 @@ export class UploadEngineCore {
       succeeded = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "upload failed";
+      console.error("[upload:put] terminal failure", {
+        file: fileLabel,
+        blobSizeMB: (item.blob.size / 1024 / 1024).toFixed(2),
+        status: err instanceof R2PutError ? err.status : undefined,
+        error: msg,
+      }, err);
       this.queueIdbUpdate(item.recordId, {
         status: "failed",
         lastError: msg,
@@ -717,7 +736,11 @@ export class UploadEngineCore {
       for (const fn of this.metadataSavedListeners) fn(recs.length);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "metadata save failed";
-      console.error("[upload] metadata save terminal failure", err);
+      console.error("[upload:metadata] terminal failure", {
+        files: recs.map((r) => r.filename),
+        count: recs.length,
+        error: msg,
+      }, err);
       // Re-queue ids that are still awaiting metadata persistence.
       for (const id of ids) {
         if (this.records.get(id)?.status === "uploaded") {
@@ -744,15 +767,23 @@ export class UploadEngineCore {
       this.seedMetadataQueue();
     }
 
-    const hasUnsaved = Array.from(this.records.values()).some((r) => r.status === "uploaded");
-    if (!hasUnsaved) {
-      // Drop only saved rows — failed/uploaded records stay for the retry UI.
-      await clearSavedByBooking(this.bookingId);
-      for (const r of this.records.values()) {
-        if (r.status === "saved") this.records.delete(r.id);
-      }
-      this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null }, true);
+    const all = Array.from(this.records.values());
+
+    // Metadata still owes the backend for some uploaded rows (chunk failed or
+    // pending) — keep all state and let a later run / mount auto-resume finish it.
+    if (all.some((r) => r.status === "uploaded")) return;
+
+    // Only wipe the slate when the *entire* batch made it to the gallery. If
+    // anything is still pending/failed (cancelled, paused, or a transient error),
+    // we retain ALL records — including the saved ones — so re-selecting the same
+    // folder resumes only the unfinished files (saved ones are skipped by
+    // fingerprint in the compression loop) and never re-uploads what's already in.
+    const fullyComplete = all.length > 0 && all.every((r) => r.status === "saved");
+    if (fullyComplete) {
+      await clearBooking(this.bookingId);
+      this.records.clear();
     }
+    this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null }, true);
   }
 
   /* ── state mirroring ────────────────────────────────────────── */
@@ -853,7 +884,10 @@ export class UploadEngineCore {
     const uploaded = all.filter((r) => r.status === "uploaded" || r.status === "saved").length;
     const failed = all.filter((r) => r.status === "failed").length;
     const photosDone = uploaded;
-    const percent = photosTotal === 0 ? 0 : Math.min(100, Math.round((photosDone / photosTotal) * 100));
+    // Failed files count toward "resolved" for the ring so it completes cleanly —
+    // failures are no longer surfaced; they're retried silently on re-selection.
+    const resolved = uploaded + failed;
+    const percent = photosTotal === 0 ? 0 : Math.min(100, Math.round((resolved / photosTotal) * 100));
     const elapsed = Math.max(0.001, (Date.now() - this.startedAt) / 1000);
     const speedBps = this.startedAt > 0 ? this.bytesUploaded / elapsed : 0;
     const speedLabel = speedBps > 0 ? `${(speedBps / 1024 / 1024).toFixed(1)} MB/s` : "";
@@ -964,8 +998,17 @@ export async function ensureFolders(
 
   const created = await Promise.all(
     missing.map(async (name) => {
-      const res = await apiCreateCustomFolder(bookingId, name);
-      return { name, id: res.custom_folder_id };
+      try {
+        const res = await apiCreateCustomFolder(bookingId, name);
+        console.log("[upload:folder] created", { name, id: res.custom_folder_id });
+        return { name, id: res.custom_folder_id };
+      } catch (err) {
+        console.error("[upload:folder] failed to create folder", {
+          name,
+          error: err instanceof Error ? err.message : err,
+        }, err);
+        throw err;
+      }
     }),
   );
   for (const { name, id } of created) out.set(name, id);

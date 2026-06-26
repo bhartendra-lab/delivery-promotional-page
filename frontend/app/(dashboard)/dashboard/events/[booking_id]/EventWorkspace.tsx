@@ -6,6 +6,7 @@ import {
   getBookingById,
   getMedia,
   publishGallery,
+  regenerateFamilyPasscode,
   updateBooking,
   updateGalleryActivationStatus,
   type UpdateBookingInput,
@@ -20,7 +21,7 @@ import type {
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageLock, usePageTopbarExtra } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
-import { EventProvider, type EventMeta } from "./EventContext";
+import { EventProvider, ALL_MEDIA_ID, type EventMeta } from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
 import { LivePill, type LivePillState } from "./LivePill";
 import { PostUploadBanner, PostUploadInfoDialog } from "./PostUploadBanner";
@@ -35,6 +36,12 @@ type PublishInfo = {
   isActive: boolean;
   outOfSync: boolean;
   unsyncedCount: number;
+  /**
+   * True once the gallery has been published at least once (`gallery_published_at`
+   * set, or currently published). Survives later unpublish/deactivate/expire so
+   * the name + cover stay locked for the event's life.
+   */
+  hasBeenPublished: boolean;
 };
 
 const DEFAULT_PUB: PublishInfo = {
@@ -43,9 +50,13 @@ const DEFAULT_PUB: PublishInfo = {
   isActive: true,
   outOfSync: false,
   unsyncedCount: 0,
+  hasBeenPublished: false,
 };
 
 const POLL_MS = 20000;
+
+// Media grid loads one page on first paint and one more each scroll-to-end.
+const PAGE_SIZE = 100;
 
 function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
   const date = typeof b.event_date === "number" && Number.isFinite(b.event_date) ? b.event_date : null;
@@ -58,9 +69,13 @@ function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
     type: b.event_type ?? b.events?.[0]?.event_type ?? prev?.type ?? "Event",
     eventDate: date ?? prev?.eventDate ?? null,
     backgroundImage: bg,
+    backgroundPosition: b.background_position ?? prev?.backgroundPosition,
     customMessage: b.custom_message ?? prev?.customMessage,
     styleVariant: b.style_variant ?? prev?.styleVariant,
     includeBranding: b.include_company_branding ?? prev?.includeBranding,
+    uniqueIdentifier: b.unique_identifier ?? prev?.uniqueIdentifier,
+    familyPasscode: b.family_passcode ?? prev?.familyPasscode,
+    guestTypes: b.guest_types ?? prev?.guestTypes,
   };
 }
 
@@ -71,6 +86,8 @@ function normalizePublish(b: BookingDetail): PublishInfo {
     isActive: b.is_active !== false,
     outOfSync: b.media_out_of_sync === true,
     unsyncedCount: typeof b.unsynced_media_count === "number" ? b.unsynced_media_count : 0,
+    hasBeenPublished:
+      b.gallery_publish_status === "published" || typeof b.gallery_published_at === "number",
   };
 }
 
@@ -87,6 +104,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [meta, setMeta] = useState<EventMeta | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [folders, setFolders] = useState<CustomFolder[]>([]);
+  const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
+  const [totalCount, setTotalCount] = useState(0); // all media in the booking
+  const [totalForView, setTotalForView] = useState(0); // media in the active view
+  const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("media");
   const [pub, setPub] = useState<PublishInfo>(DEFAULT_PUB);
@@ -101,10 +123,17 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const metaRef = useRef<EventMeta | null>(meta);
   const pubRef = useRef(pub);
   const mediaRef = useRef(media);
+  const activeFolderIdRef = useRef(activeFolderId);
+  const totalForViewRef = useRef(totalForView);
+  const totalCountRef = useRef(totalCount);
+  const loadingMoreRef = useRef(false);
   useEffect(() => {
     metaRef.current = meta;
     pubRef.current = pub;
     mediaRef.current = media;
+    activeFolderIdRef.current = activeFolderId;
+    totalForViewRef.current = totalForView;
+    totalCountRef.current = totalCount;
   });
 
   const toast = useCallback((msg: string) => setToastMsg(msg), []);
@@ -116,23 +145,98 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── data load ──────────────────────────────────────────────── */
 
-  const reload = useCallback(async (): Promise<MediaItem[]> => {
-    try {
-      const res = await getMedia(bookingId);
-      const list = res.media ?? [];
-      setMedia(list);
-      setFolders(res.customFolders ?? []);
-      return list;
-    } catch {
-      return mediaRef.current;
-    } finally {
-      setLoading(false);
-    }
-  }, [bookingId]);
+  // Fetch one page of media for a view (ALL_MEDIA_ID → no folder filter).
+  const fetchPage = useCallback(
+    (folderId: string, skip: number, limit: number) =>
+      getMedia(bookingId, {
+        customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
+        skip,
+        limit,
+      }),
+    [bookingId],
+  );
 
+  // Load the first page of a view and apply its extras (folders + counts). The
+  // setState calls all run after the `await`, and the body is kept inline (no
+  // shared setState-only helper) so the lint pass can see that ordering. No
+  // synchronous loading flag, so a folder switch swaps in the new page when it
+  // arrives instead of blanking the grid to a skeleton.
+  const loadFirstPage = useCallback(
+    async (folderId: string, limit: number): Promise<MediaItem[]> => {
+      try {
+        const res = await fetchPage(folderId, 0, limit);
+        const list = res.media ?? [];
+        setMedia(list);
+        mediaRef.current = list;
+        if (res.customFolders) setFolders(res.customFolders);
+        if (res.folderCounts) setFolderCounts(res.folderCounts);
+        if (typeof res.totalCount === "number") {
+          setTotalCount(res.totalCount);
+          totalCountRef.current = res.totalCount;
+        }
+        const tv = typeof res.total === "number" ? res.total : list.length;
+        setTotalForView(tv);
+        totalForViewRef.current = tv;
+        return list;
+      } catch {
+        return mediaRef.current;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchPage],
+  );
+
+  // Fresh first-page load for a view (initial paint + folder switch).
+  const loadView = useCallback(
+    (folderId: string) => loadFirstPage(folderId, PAGE_SIZE),
+    [loadFirstPage],
+  );
+
+  // Refresh the active view in place — re-fetches from the start up to however
+  // many items are currently loaded, so counts stay correct after an
+  // upload/delete without collapsing the scroll back to a single page.
+  const reload = useCallback(
+    () => loadFirstPage(activeFolderIdRef.current, Math.max(PAGE_SIZE, mediaRef.current.length)),
+    [loadFirstPage],
+  );
+
+  // Append the next page for the active view (infinite scroll). Guarded so
+  // overlapping scroll events don't double-fetch the same slice.
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    if (mediaRef.current.length >= totalForViewRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await fetchPage(
+        activeFolderIdRef.current,
+        mediaRef.current.length,
+        PAGE_SIZE,
+      );
+      const more = res.media ?? [];
+      if (more.length > 0) {
+        setMedia((prev) => {
+          const seen = new Set(prev.map((m) => m._id));
+          return [...prev, ...more.filter((m) => !seen.has(m._id))];
+        });
+      }
+    } catch {
+      /* leave the list as-is; scrolling again retries */
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [fetchPage]);
+
+  const setActiveFolder = useCallback((folderId: string) => {
+    setActiveFolderId((prev) => (prev === folderId ? prev : folderId));
+  }, []);
+
+  // Initial paint + folder switches both load the first page for the view.
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    void loadView(activeFolderId);
+  }, [activeFolderId, loadView]);
 
   // Authoritative booking refresh: drives meta + publish/activation state.
   // Returns the fresh publish snapshot so callers can read it without waiting
@@ -269,12 +373,15 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         // *before* this upload; the fresh count comes from the refresh.
         const wasPublished = pubRef.current.status === "published";
         const fresh = await reloadBooking();
+        // `reload` just refreshed the booking-wide total; prefer it over the
+        // loaded-page length so the banner counts every uploaded photo.
+        const totalAll = totalCountRef.current;
         if (wasPublished) {
-          const added = (fresh?.unsyncedCount || 0) || list.length;
+          const added = (fresh?.unsyncedCount || 0) || totalAll || list.length;
           setBanner({ type: "republish", count: added });
           setInfoDialog(added);
-        } else if (list.length > 0) {
-          setBanner({ type: "publish", count: list.length });
+        } else if (totalAll > 0) {
+          setBanner({ type: "publish", count: totalAll });
         }
       })();
     }
@@ -285,7 +392,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
   const activeLocked = engineActive && !engine.progress.paused;
-  const mediaReady = media.length > 0;
+  const mediaReady = totalCount > 0;
+  const hasMore = media.length < totalForView;
   const pillState = computePillState(pub, mediaReady);
 
   // Lock the global chrome only while actively uploading (paused unlocks it).
@@ -315,8 +423,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const saveMeta = useCallback(
     async (next: { name: string; type: string; eventDate: number | null }) => {
+      // Once published, the event name is immutable — sending `event_name` would
+      // regenerate the unique_identifier and break the shared /event/<uid> URL.
+      const nameLocked = pubRef.current.hasBeenPublished;
       await persistBooking({
-        event_name: next.name,
+        ...(nameLocked ? {} : { event_name: next.name }),
         event_type: next.type,
         ...(next.eventDate != null ? { event_date: next.eventDate } : {}),
       });
@@ -325,13 +436,20 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking, toast],
   );
 
+  const doRegeneratePasscode = useCallback(async (): Promise<string> => {
+    const res = await regenerateFamilyPasscode(bookingId);
+    const code = res.family_passcode;
+    setMeta((prev) => (prev ? { ...prev, familyPasscode: code } : prev));
+    return code;
+  }, [bookingId]);
+
   const setCoverFromUrl = useCallback(
     async (url: string) => {
       setCoverBusy(true);
       try {
-        await persistBooking({ background_image: url });
+        await persistBooking({ background_image: url, background_position: "50% 50%" });
         // API response may not echo background_image, so patch meta directly.
-        setMeta((prev) => (prev ? { ...prev, backgroundImage: url } : prev));
+        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: "50% 50%" } : prev));
         toast("Cover photo updated");
       } finally {
         setCoverBusy(false);
@@ -346,9 +464,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       try {
         const keyFolderId = folders[0]?._id ?? mediaRef.current[0]?.custom_folder_ids?.[0] ?? "cover";
         const url = await engine.uploadCover(file, keyFolderId);
-        await persistBooking({ background_image: url });
+        // A new cover resets the focal point to center.
+        await persistBooking({ background_image: url, background_position: "50% 50%" });
         // API response may not echo background_image, so patch meta directly.
-        setMeta((prev) => (prev ? { ...prev, backgroundImage: url } : prev));
+        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: "50% 50%" } : prev));
         toast("Cover photo updated");
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not set cover");
@@ -357,6 +476,22 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       }
     },
     [engine, folders, persistBooking, toast],
+  );
+
+  const setCoverPosition = useCallback(
+    async (position: string) => {
+      setCoverBusy(true);
+      try {
+        await persistBooking({ background_position: position });
+        setMeta((prev) => (prev ? { ...prev, backgroundPosition: position } : prev));
+        toast("Cover position saved");
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not save cover position");
+      } finally {
+        setCoverBusy(false);
+      }
+    },
+    [persistBooking, toast],
   );
 
   const deleteMediaIds = useCallback(
@@ -430,19 +565,24 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   // The pill is inert for the whole run (incl. paused) — publishing a partial
   // gallery mid-upload would be wrong; it re-enables only once the run ends.
+  // A cover photo is required before the first publish (it's the hero guests
+  // see). Block the Publish CTA until one is set and explain why.
+  const coverMissing = !meta?.backgroundImage;
   const pillNode = useMemo(
     () => (
       <LivePill
         state={pillState}
         disabled={engineActive}
         unsyncedCount={pub.unsyncedCount}
+        publishBlocked={coverMissing}
+        onPublishBlocked={() => toast("Add a cover photo before publishing.")}
         onPublish={doPublish}
         onRepublish={doRepublish}
         onActivate={doActivate}
         onDeactivate={doDeactivate}
       />
     ),
-    [pillState, engineActive, pub.unsyncedCount, doPublish, doRepublish, doActivate, doDeactivate],
+    [pillState, engineActive, pub.unsyncedCount, coverMissing, toast, doPublish, doRepublish, doActivate, doDeactivate],
   );
   usePageTopbarExtra(pillNode);
 
@@ -457,7 +597,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const tabs = useMemo(
     () => [
-      { id: "media" as TabId, label: "Media", count: mediaReady ? media.length : null },
+      { id: "media" as TabId, label: "Media", count: mediaReady ? totalCount : null },
       {
         id: "gallery" as TabId,
         label: "Gallery Design",
@@ -476,7 +616,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             : "Available once the current upload finishes.",
       },
     ],
-    [mediaReady, media.length, galleryLocked, accessLocked, pub.status],
+    [mediaReady, totalCount, galleryLocked, accessLocked, pub.status],
   );
 
   const ctx = useMemo(
@@ -487,16 +627,27 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       folders,
       setFolders,
       reload,
+      activeFolderId,
+      setActiveFolder,
+      folderCounts,
+      totalCount,
+      totalForView,
+      hasMore,
+      loadingMore,
+      loadMore,
       engine,
       activeLocked,
+      publishedEver: pub.hasBeenPublished,
       saveMeta,
+      regenerateFamilyPasscode: doRegeneratePasscode,
       setCoverFromUrl,
       setCoverFromFile,
+      setCoverPosition,
       coverBusy,
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, engine, activeLocked, saveMeta, setCoverFromUrl, setCoverFromFile, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -517,16 +668,31 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             eventType={ctx.meta.type}
             eventDateLabel={eventDateLabel}
             coverUrl={ctx.meta.backgroundImage}
+            coverPosition={ctx.meta.backgroundPosition}
             initialStyleVariant={ctx.meta.styleVariant}
             initialCustomMessage={ctx.meta.customMessage}
             initialIncludeBranding={ctx.meta.includeBranding}
+            initialGuestTypes={ctx.meta.guestTypes}
             onSave={async (vals) => {
-              await persistBooking(vals);
+              // Pass through current event_type/date (never event_name) so the
+              // landing-page save can't churn the shared URL or clobber the event.
+              await persistBooking({
+                ...vals,
+                event_type: ctx.meta.type,
+                ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
+              });
               toast("Gallery design saved");
             }}
           />
         )}
-        {effectiveTab === "access" && <AccessSharingTab eventName={ctx.meta.name} bookingId={bookingId} />}
+        {effectiveTab === "access" && (
+          <AccessSharingTab
+            eventName={ctx.meta.name}
+            uniqueIdentifier={ctx.meta.uniqueIdentifier}
+            familyPasscode={ctx.meta.familyPasscode}
+            onRegenerate={doRegeneratePasscode}
+          />
+        )}
       </div>
 
       {infoDialog != null && (

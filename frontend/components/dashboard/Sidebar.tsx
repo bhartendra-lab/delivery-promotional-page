@@ -65,21 +65,21 @@ export function Sidebar({
     >
       {/* Logo + collapse toggle */}
       <div
-        className={`flex items-center border-b border-[var(--color-brand-border)] ${
-          collapsed ? "justify-center px-3 py-5" : "justify-between px-4 py-4"
+        className={`relative flex items-center border-b border-[var(--color-brand-border)] ${
+          collapsed ? "justify-center px-3 py-5" : "px-4 py-4"
         }`}
         style={{ minHeight: 64 }}
       >
         {collapsed ? (
-          <img src="/vyavasth-icon.svg" alt="Vyavasth" height={26} />
+          <img src="/vyavasth-icon.svg" alt="Vyavasth" height={22} />
         ) : (
           <>
-            <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={26} />
+            <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={22} />
             <button
               type="button"
               onClick={() => setCollapsed(true)}
               title="Collapse sidebar"
-              className="brand-focus inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              className="brand-focus absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
               <IconSidebar size={15} />
             </button>

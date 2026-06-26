@@ -6,6 +6,7 @@ import type {
   Company,
   CreateBookingResponse,
   CustomFolder,
+  DeliveryLandingPageData,
   DlpUsage,
   EventType,
   GetMediaResponse,
@@ -173,9 +174,17 @@ export type UpdateBookingInput = {
   /** Numeric epoch (ms). */
   event_date?: number;
   background_image?: string;
+  /** Cover focal point as CSS object-position, e.g. "50% 35%". */
+  background_position?: string;
   custom_message?: string;
   style_variant?: StyleVariant | string;
   include_company_branding?: boolean;
+  /**
+   * Guest teams / sub-types. Persisted onto the delivery-landing-page (the API
+   * name is misleading). The backend ignores empty arrays, so this can add or
+   * change teams but cannot clear them to `[]`.
+   */
+  guest_types?: string[];
 };
 export function updateBooking(bookingId: string, body: UpdateBookingInput) {
   return request<{ booking: BookingDetail }>(
@@ -266,7 +275,7 @@ export function createMediaBatch(
 export type PresignRequest = {
   filename: string;
   content_type?: string;
-  custom_folder_id: string;
+  custom_folder_id?: string;
 };
 export type PresignedUpload = {
   key: string;
@@ -287,12 +296,24 @@ export function presignUploads(bookingId: string, files: PresignRequest[]) {
   );
 }
 
-export function getMedia(bookingId: string, customFolderId?: string) {
-  const qs = customFolderId
-    ? `?custom_folder_id=${encodeURIComponent(customFolderId)}`
-    : "";
+/**
+ * GET /deliverables/get-media/:booking_id — paginated, newest-first. The grid
+ * loads `limit` items per page (default 100 server-side) and requests the next
+ * page with `skip` as the user scrolls to the end. The first page (skip 0) also
+ * returns `customFolders`, `total`, `totalCount` and `folderCounts`; later pages
+ * return only `media`.
+ */
+export function getMedia(
+  bookingId: string,
+  opts?: { customFolderId?: string; skip?: number; limit?: number },
+) {
+  const params = new URLSearchParams();
+  if (opts?.customFolderId) params.set("custom_folder_id", opts.customFolderId);
+  if (opts?.skip != null) params.set("skip", String(opts.skip));
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  const qs = params.toString();
   return request<GetMediaResponse>(
-    `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs}`,
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
   );
 }
 
@@ -338,6 +359,21 @@ export function updateGalleryActivationStatus(bookingId: string, isActive: boole
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: isActive }),
+    },
+  );
+}
+
+/**
+ * POST /deliverables/regenerate-family-passcode/:booking_id — mints a fresh
+ * 6-digit family passcode for the event's delivery-landing-page and returns it.
+ * Regenerating invalidates any passcode already shared with the family.
+ */
+export function regenerateFamilyPasscode(bookingId: string) {
+  return request<{ message: string; family_passcode: string }>(
+    `/deliverables/regenerate-family-passcode/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
     },
   );
 }
@@ -394,6 +430,34 @@ export async function putBlobToPresignedUrl(
 /** Read the cached company id once — used for upload UI display only. */
 export function getCachedCompanyId(): string | null {
   return getCompany()?._id ?? null;
+}
+
+/* ── Guest-facing client gallery ───────────────────────────────── */
+
+/**
+ * GET /deliverables/get-delivery-landing-page-by-unique-identifier/:unique_identifier
+ * Public (no auth) — the guest gallery's first data fetch. A 400 means the slug
+ * doesn't resolve → render not-found.
+ */
+export function getDeliveryLandingPageByUniqueIdentifier(uniqueIdentifier: string) {
+  return request<{ deliveryLandingPage: DeliveryLandingPageData }>(
+    `/deliverables/get-delivery-landing-page-by-unique-identifier/${encodeURIComponent(uniqueIdentifier)}`,
+    { auth: false },
+  );
+}
+
+/**
+ * POST /auth/google/guest-refresh — silently re-mint a guest JWT from an expired
+ * one. Returns the fresh token; rejects (401) when refresh isn't possible, so
+ * the caller falls back to the full Google sign-in.
+ */
+export function refreshGuestToken(token: string) {
+  return request<{ token: string }>("/auth/google/guest-refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+    auth: false,
+  });
 }
 
 /**

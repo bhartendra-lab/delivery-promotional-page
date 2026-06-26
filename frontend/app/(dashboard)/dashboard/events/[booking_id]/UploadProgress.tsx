@@ -97,15 +97,6 @@ export function UploadProgress({
               </>
             )}
           </p>
-
-          {/* Failures are listed in UploadFailuresPanel once the run finishes. */}
-          {progress.photosFailed > 0 && (
-            <p className="mx-auto mt-4 max-w-[520px] text-[12.5px] text-[var(--color-brand-danger)]">
-              {progress.photosFailed.toLocaleString("en-IN")} photo
-              {progress.photosFailed === 1 ? "" : "s"} couldn&apos;t be uploaded — you can retry
-              when the rest finish.
-            </p>
-          )}
         </div>
 
         {/* Per-folder progress */}
@@ -114,8 +105,11 @@ export function UploadProgress({
             Folder progress
           </div>
           {progress.folders.map((f, i) => {
-            const done = f.done >= f.count && f.count > 0;
-            const pct = f.count === 0 ? 0 : Math.round((f.done / f.count) * 100);
+            // Count failed files as "resolved" too — they'll be retried silently on
+            // the next folder re-selection, so the folder shouldn't spin forever.
+            const resolved = f.done + f.failed;
+            const done = resolved >= f.count && f.count > 0;
+            const pct = f.count === 0 ? 0 : Math.round((resolved / f.count) * 100);
             return (
               <div key={`${f.name}-${i}`} className="border-b border-[var(--color-brand-border)] py-3.5 last:border-b-0">
                 <div className="mb-2 flex items-center gap-3">

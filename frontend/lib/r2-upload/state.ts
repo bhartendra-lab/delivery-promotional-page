@@ -148,17 +148,6 @@ export async function clearBooking(bookingId: string): Promise<void> {
   });
 }
 
-/** Remove only successfully-saved records; keep failed/uploaded rows for retry. */
-export async function clearSavedByBooking(bookingId: string): Promise<void> {
-  await txn("readwrite", async (store) => {
-    const idx = store.index("by_booking_status");
-    const saved = await reqAsPromise(
-      idx.getAll([bookingId, "saved"]) as IDBRequest<UploadRecord[]>,
-    );
-    await Promise.all(saved.map((r) => reqAsPromise(store.delete(r.id))));
-  });
-}
-
 /** Best-effort: if IDB is unavailable (private mode, Safari quirks), fall back. */
 export async function safeListByBooking(bookingId: string): Promise<UploadRecord[]> {
   try {

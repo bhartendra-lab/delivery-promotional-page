@@ -39,6 +39,10 @@ export function UploadModal({
   const [directName, setDirectName] = useState<string | null>(null);
   const [naming, setNaming] = useState(false);
   const [mixedOpen, setMixedOpen] = useState(false);
+  // Root folder name (parts[0]) of the FIRST folder picked this session. The
+  // first folder is parsed with first-level subfolder grouping; any folders
+  // added afterwards are flattened under their own name (see analyze()).
+  const [firstRoot, setFirstRoot] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,6 +56,7 @@ export function UploadModal({
     setDirectName(null);
     setNaming(false);
     setMixedOpen(false);
+    setFirstRoot(null);
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
@@ -79,7 +84,7 @@ export function UploadModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, mixedOpen, naming, onClose]);
 
-  const analysis = useMemo<Analysis>(() => analyze(files), [files]);
+  const analysis = useMemo<Analysis>(() => analyze(files, firstRoot), [files, firstRoot]);
 
   if (!open) return null;
 
@@ -88,6 +93,12 @@ export function UploadModal({
     if (filtered.length === 0) return;
     const merged = [...files, ...filtered];
     setFiles(merged);
+    // Remember the first folder selection's root so analyze() applies first-level
+    // subfolder grouping to it and flattens any folders added later.
+    if (!single && firstRoot === null) {
+      const root = filtered.map(relParts).find((p) => p.length >= 2)?.[0];
+      if (root) setFirstRoot(root);
+    }
     // Folder mode: a direct (loose-files) selection needs a folder name before
     // we can build a group — pop the "name this folder" sheet (§5d).
     if (!single && directName === null && merged.every((f) => relParts(f).length <= 1)) {
@@ -231,22 +242,26 @@ export function UploadModal({
         )}
 
         {/* Body */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[280px_1fr]">
-          {/* Left: how-it-works illustration (hidden on mobile per the brief) */}
-          <div className="hidden flex-col border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-6 sm:flex">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-              How it works
+        <div className={`grid min-h-0 flex-1 grid-cols-1 overflow-hidden ${single ? "" : "sm:grid-cols-[280px_1fr]"}`}>
+          {/* Left: how-it-works illustration — only on the first (folder) upload.
+              "Upload more" goes to a single folder, where the subfolder guide isn't
+              relevant, so it's hidden there. (Also hidden on mobile per the brief.) */}
+          {!single && (
+            <div className="hidden flex-col border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-6 sm:flex">
+              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+                How it works
+              </div>
+              <UploadIllustration />
+              <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+                <strong>One-shot upload.</strong> Drop a folder that already has your subfolders inside it (e.g.{" "}
+                <i>Ceremony</i>, <i>Reception</i>, <i>Portraits</i>) and we&apos;ll create matching folders on the
+                event page.
+              </p>
+              <div className="mt-2.5 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+                You can rename folders after upload — they show up in the folders sidebar.
+              </div>
             </div>
-            <UploadIllustration />
-            <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
-              <strong>One-shot upload.</strong> Drop a folder that already has your subfolders inside it (e.g.{" "}
-              <i>Ceremony</i>, <i>Reception</i>, <i>Portraits</i>) and we&apos;ll create matching folders on the event
-              page.
-            </p>
-            <div className="mt-2.5 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
-              You can rename folders after upload — they show up in the folders sidebar.
-            </div>
-          </div>
+          )}
 
           {/* Right: drop zone OR content panel */}
           <div className="flex min-h-0 flex-col overflow-y-auto px-7 py-6">
@@ -659,8 +674,16 @@ function PopupShell({
 const RAW_EXTENSIONS =
   /\.(raw|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|dng|raf|3fr|kdc|mef|mrw|pef|ptx|r3d|rwl|srw|x3f|erf|fff|iiq)$/i;
 
+/** macOS AppleDouble sidecar files (`._foo.jpg`) and other dotfiles aren't real
+ *  images — they carry an image extension but no decodable pixel data. */
+function isJunkFile(name: string): boolean {
+  const base = name.split("/").pop() ?? name;
+  return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
+}
+
 function filterImages(files: File[]): File[] {
   return files.filter((f) => {
+    if (isJunkFile(f.name)) return false; // macOS AppleDouble / dotfiles
     if (RAW_EXTENSIONS.test(f.name)) return false; // block RAW
     return f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|gif|webp)$/i.test(f.name);
   });
@@ -672,7 +695,7 @@ function defaultFolderName(): string {
   return `Photos – ${d.getDate()} ${mon} ${d.getFullYear()}`;
 }
 
-function analyze(files: File[]): Analysis {
+function analyze(files: File[], firstRoot: string | null): Analysis {
   if (files.length === 0) {
     return { kind: "grouped", folderName: "", subGroups: [], looseFiles: [] };
   }
@@ -699,11 +722,18 @@ function analyze(files: File[]): Analysis {
 
   const groups = new Map<string, File[]>();
   for (const [parent, pfiles] of byParent) {
+    // Only the FIRST folder picked this session gets first-level subfolder
+    // grouping. Folders added afterwards are flattened under their own name.
+    if (parent !== firstRoot) {
+      mergeFiles(groups, parent, pfiles);
+      continue;
+    }
     const hasSub = pfiles.some((f) => relParts(f).length >= 3);
     if (!hasSub) {
       // Flat folder → the folder itself is one group (§5b).
       mergeFiles(groups, parent, pfiles);
     } else {
+      // Roll every nested descendant up into its first-level subfolder (parts[1]).
       for (const f of pfiles) {
         const parts = relParts(f);
         if (parts.length >= 3) mergeFiles(groups, parts[1], [f]);

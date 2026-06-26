@@ -5,13 +5,10 @@ import { createCustomFolder, updateCustomFolder } from "@/lib/api";
 import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
 import { FoldersSidebar, type FolderRow } from "@/components/dashboard/FoldersSidebar";
 import { UploadModal } from "./UploadModal";
-import { UploadFailuresPanel } from "./UploadFailuresPanel";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
-import { useEvent } from "./EventContext";
-
-const ALL_MEDIA_ID = "__all__";
+import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 
 /**
  * Media tab — the original event-page body (folders sidebar + cover + header +
@@ -19,10 +16,32 @@ const ALL_MEDIA_ID = "__all__";
  * (modals, active folder) stays here.
  */
 export function MediaTab({ loading }: { loading: boolean }) {
-  const { bookingId: ctxBookingId, meta, media, folders, setFolders, engine, activeLocked, saveMeta, coverBusy, setCoverFromUrl, setCoverFromFile, deleteMediaIds, toast } =
-    useEvent();
+  const {
+    bookingId: ctxBookingId,
+    meta,
+    media,
+    folders,
+    setFolders,
+    activeFolderId,
+    setActiveFolder,
+    folderCounts,
+    totalCount,
+    totalForView,
+    hasMore,
+    loadingMore,
+    loadMore,
+    engine,
+    activeLocked,
+    publishedEver,
+    saveMeta,
+    coverBusy,
+    setCoverFromUrl,
+    setCoverFromFile,
+    setCoverPosition,
+    deleteMediaIds,
+    toast,
+  } = useEvent();
 
-  const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
   const [prePickerOpen, setPrePickerOpen] = useState(false);
@@ -30,31 +49,27 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   const paused = engine.progress.paused;
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
-  const hasUploadFailures =
-    !engineActive && (engine.failed.length > 0 || engine.progress.metadataSaveError !== null);
+  // "populated" vs "empty" is event-level (does the booking have any media),
+  // not view-level — an empty folder still shows the populated chrome with an
+  // empty grid, mirroring the prior behaviour.
   const state: "loading" | "uploading" | "populated" | "empty" = loading
     ? "loading"
     : engineActive
     ? "uploading"
-    : media.length > 0
+    : totalCount > 0
     ? "populated"
     : "empty";
 
   const folderRows: FolderRow[] = useMemo(() => {
     if (folders.length === 0) return [];
-    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: media.length, system: true };
+    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: totalCount, system: true };
     const userRows: FolderRow[] = folders.map((f) => ({
       id: f._id,
       label: f.name,
-      count: media.filter((m) => m.custom_folder_ids?.includes(f._id)).length,
+      count: folderCounts[f._id] ?? 0,
     }));
     return [allRow, ...userRows];
-  }, [folders, media]);
-
-  const filteredMedia = useMemo(() => {
-    if (activeFolderId === ALL_MEDIA_ID) return media;
-    return media.filter((m) => m.custom_folder_ids?.includes(activeFolderId));
-  }, [media, activeFolderId]);
+  }, [folders, totalCount, folderCounts]);
 
   const activeFolderLabel =
     activeFolderId === ALL_MEDIA_ID
@@ -134,7 +149,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
       <FoldersSidebar
         folders={folderRows}
         activeFolderId={activeFolderId}
-        onSelect={activeLocked ? () => {} : setActiveFolderId}
+        onSelect={activeLocked ? () => {} : setActiveFolder}
         onRename={handleRename}
         onAddFolder={folderRows.length > 0 ? addFolder : undefined}
         disabled={activeLocked}
@@ -151,17 +166,20 @@ export function MediaTab({ loading }: { loading: boolean }) {
         {state === "populated" && (
           <CoverBanner
             coverUrl={meta.backgroundImage}
+            coverPosition={meta.backgroundPosition}
             media={media}
             busy={coverBusy}
             disabled={activeLocked}
+            lockReason={publishedEver ? "Locked after publishing to keep the shared link stable." : null}
             onSetFromUrl={setCoverFromUrl}
             onSetFromFile={setCoverFromFile}
+            onSavePosition={setCoverPosition}
           />
         )}
 
         <EventHeader
           meta={meta}
-          totalPhotos={media.length}
+          totalPhotos={totalCount}
           folderCount={folders.length}
           uploadingTotal={engine.progress.photosTotal}
           uploadingFoldersCount={engine.progress.folders.length}
@@ -173,7 +191,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         />
 
         {state === "loading" && <LoadingBody />}
-        {state === "empty" && !hasUploadFailures && <EmptyUploadCTA onUpload={handleBulkUpload} />}
+        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} />}
         {state === "uploading" && (
           <UploadProgress
             progress={engine.progress}
@@ -181,21 +199,16 @@ export function MediaTab({ loading }: { loading: boolean }) {
             onTogglePause={() => (paused ? engine.resume() : engine.pause())}
           />
         )}
-        {hasUploadFailures && (
-          <UploadFailuresPanel
-            failed={engine.failed}
-            metadataSaveFailed={engine.progress.metadataSaveError !== null}
-            onRetryFailed={handleBulkUpload}
-            onRetryMetadata={() => void engine.retryMetadataSave()}
-          />
-        )}
         {state === "populated" && (
           <PopulatedBody
             activeFolderLabel={activeFolderLabel}
             activeIsSystem={activeIsSystem}
-            count={filteredMedia.length}
+            count={totalForView}
             folderCount={folders.length}
-            items={filteredMedia}
+            items={media}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
             disabled={activeLocked}
             onDeleteMany={deleteMediaIds}
             onRename={() => {
@@ -248,6 +261,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           initialName={meta.name}
           initialType={meta.type}
           initialDate={meta.eventDate}
+          nameLocked={publishedEver}
           onSave={async (next) => {
             await saveMeta(next);
             setEditOpen(false);
@@ -386,6 +400,9 @@ function PopulatedBody({
   count,
   folderCount,
   items,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   disabled,
   onDeleteMany,
   onRename,
@@ -395,6 +412,9 @@ function PopulatedBody({
   count: number;
   folderCount: number;
   items: MediaItem[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   disabled: boolean;
   onDeleteMany: (ids: string[]) => Promise<void>;
   onRename: () => void;
@@ -425,7 +445,14 @@ function PopulatedBody({
           </button>
         )}
       </div>
-      <MediaGrid items={items} disabled={disabled} onDeleteMany={onDeleteMany} />
+      <MediaGrid
+        items={items}
+        disabled={disabled}
+        onDeleteMany={onDeleteMany}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+      />
     </section>
   );
 }
@@ -448,12 +475,15 @@ function EditMetaSheet({
   initialName,
   initialType,
   initialDate,
+  nameLocked = false,
   onSave,
   onClose,
 }: {
   initialName: string;
   initialType: string;
   initialDate: number | null;
+  /** True once published — name is immutable to keep the shared link stable. */
+  nameLocked?: boolean;
   onSave: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
   onClose: () => void;
 }) {
@@ -543,17 +573,29 @@ function EditMetaSheet({
           </button>
         </div>
 
-        <label className="mb-1.5 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]" htmlFor="edit-event-name">
+        <label className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)]" htmlFor="edit-event-name">
           Event name
+          {nameLocked && (
+            <span className="inline-flex items-center gap-1 rounded-sm bg-[#F2F0EB] px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-muted)]">
+              Locked
+            </span>
+          )}
         </label>
         <input
           id="edit-event-name"
           ref={nameRef}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          disabled={saving}
-          className="brand-focus mb-4 block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none"
+          disabled={saving || nameLocked}
+          title={nameLocked ? "Locked after publishing to keep the shared link stable." : undefined}
+          className="brand-focus block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--color-brand-bg)] disabled:text-[var(--color-brand-muted)]"
         />
+        {nameLocked && (
+          <p className="mt-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
+            Locked after publishing so the shared gallery link stays stable.
+          </p>
+        )}
+        <div className="mb-4" />
 
         <span className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">Event type</span>
         <div className="mb-4 grid grid-cols-3 gap-2" role="group" aria-label="Event type">
