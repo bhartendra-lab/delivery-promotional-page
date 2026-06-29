@@ -5,11 +5,9 @@ import { EventExperience } from "./EventExperience";
 /** Public site origin — used to resolve relative OG asset URLs to absolute. */
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "https://deliver.vyavasth.in";
 
-/** Collapse whitespace and cap length so link previews stay tidy. */
-function clamp(text: string, max: number): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
-}
+/** Shared link-preview blurb — explains the face-scan gallery flow. */
+const LINK_PREVIEW_DESCRIPTION =
+  "Upload your selfie and our AI will find all your photos from this event.";
 
 /**
  * Server-rendered link-preview metadata for shared gallery URLs.
@@ -34,11 +32,7 @@ export async function generateMetadata({
     const eventName = event.event_name?.trim() || "Your Gallery";
 
     const title = studio ? `${eventName} · ${studio}` : eventName;
-    const description = event.custom_message?.trim()
-      ? clamp(event.custom_message, 200)
-      : studio
-        ? `Your photos from ${eventName}, delivered by ${studio}.`
-        : `View and download your photos from ${eventName}.`;
+    const description = LINK_PREVIEW_DESCRIPTION;
 
     const imageUrl = event.background_image || (branded ? event.company_logo : undefined) || undefined;
     const ogImages = imageUrl ? [{ url: imageUrl, alt: title }] : undefined;
@@ -66,7 +60,7 @@ export async function generateMetadata({
     // Bad slug or backend hiccup — fall back to neutral, non-leaky defaults.
     return {
       title: "Your Gallery",
-      description: "View and download your event photos.",
+      description: LINK_PREVIEW_DESCRIPTION,
     };
   }
 }

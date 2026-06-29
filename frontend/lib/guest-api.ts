@@ -172,3 +172,28 @@ export function verifyFamilyPasscode(uid: string, deliveryLandingPageId: string,
     body: JSON.stringify({ delivery_landing_page_id: deliveryLandingPageId, passcode }),
   });
 }
+
+/* ── full-gallery zip ────────────────────────────────────────────────────── */
+
+/**
+ * Mark the full-gallery ZIP as downloaded (analytics; also refreshes its expiry
+ * server-side). Fire-and-forget — the caller must never let a failure here block
+ * the actual download. The backend keys on `booking_id`, not the landing-page id.
+ */
+export function markZipAsDownloaded(uid: string, bookingId: string) {
+  return guestFetch<{ message: string }>(uid, "/deliverables/mark-zip-as-downloaded", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ booking_id: bookingId }),
+  });
+}
+
+/** Ask the backend to (re)generate the full-gallery ZIP; the guest is emailed
+ *  when it's ready. Fire-and-forget. */
+export function requestZipGeneration(uid: string, bookingId: string) {
+  return guestFetch<{ message: string }>(uid, "/deliverables/request-zip-generation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ booking_id: bookingId }),
+  });
+}

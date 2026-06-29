@@ -268,6 +268,14 @@ export type DeliveryLandingPageData = {
   company_facebook_link?: string;
   company_google_place_id?: string;
   company_watermark_url?: string;
+  /** Full-gallery ZIP download URL (host-only). Null/absent until generated. */
+  zip_url?: string | null;
+  /**
+   * ZIP state. Backend enum: "not_generated" | "generated" | "downloaded" | "expired".
+   * Read open-endedly: "generated"/"downloaded" (and the spec alias "ready") are
+   * downloadable, "expired" offers a re-request, anything else shows nothing.
+   */
+  zip_status?: string;
 };
 
 /** A media item as returned to guests by `get-media` (carries `media_id` + likes). */

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
 import { presignGuestUploads, searchSelfie, validateSelfie } from "@/lib/guest-api";
-import { compressWithExif } from "@/lib/r2-upload/compressor";
+import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 
@@ -36,11 +36,14 @@ export function ScanFlow({
   const [matchedIds, setMatchedIds] = useState<string[]>([]);
   const [selfieUrl, setSelfieUrl] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
+  // Camera permission gate: a blocking pop-up shown over the camera screen when
+  // the live camera can't start. Camera access is strictly required to proceed.
+  const [camGate, setCamGate] = useState<CamGate>(null);
+  const [camAttempt, setCamAttempt] = useState(0);
   const matchCount = matchedIds.length;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Smoothly climb the displayed percentage toward the current stage target.
   useEffect(() => {
@@ -51,26 +54,46 @@ export function ScanFlow({
   }, [target]);
 
   // Live camera while on the camera phase; stop tracks when leaving / unmounting.
+  // Re-runs on each retry (camAttempt) so the gate's "try again" can re-request.
   useEffect(() => {
     if (phase !== "camera") return;
     let cancelled = false;
     let stream: MediaStream | null = null;
+
+    const fail = (reason: CameraFailReason, err?: unknown) => {
+      if (cancelled) return;
+      const name = err instanceof Error ? err.name : undefined;
+      // Raise the blocking permission pop-up — there is no way past it but to
+      // grant camera access (or switch browsers, for the unsupported case).
+      setCamGate(reason === "unsupported" ? { kind: "unsupported" } : { kind: "blocked", reason, name });
+      // If this bug appears again, report it — covers the Realme/ColorOS case
+      // where the permission prompt is suppressed and the camera never starts.
+      void reportCameraFailure(reason, err, { event: uniqueIdentifier, booking: bookingId });
+    };
+
     (async () => {
+      // getUserMedia only exists in a secure context; it's undefined on plain
+      // HTTP and in stripped-down in-app webviews (Instagram / WhatsApp browser).
+      if (!navigator.mediaDevices?.getUserMedia) {
+        fail("unsupported");
+        return;
+      }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        // Race a timeout so a suppressed/disabled permission prompt that never
+        // resolves can't trap the guest on a black screen (the reported bug).
+        stream = await getUserMediaWithTimeout({ video: { facingMode: "user" }, audio: false }, 12_000);
         if (cancelled) {
           stream.getTracks().forEach((tr) => tr.stop());
           return;
         }
         streamRef.current = stream;
+        setCamGate(null); // camera is live — dismiss any pop-up from a prior try
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => {});
         }
-      } catch {
-        if (cancelled) return;
-        setErrorMsg("We couldn’t access your camera. Allow camera access and retake, or choose a photo instead.");
-        setPhase("error");
+      } catch (err) {
+        fail(err instanceof Error && err.name === "TimeoutError" ? "timeout" : "denied", err);
       }
     })();
     return () => {
@@ -78,7 +101,7 @@ export function ScanFlow({
       if (stream) stream.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
     };
-  }, [phase]);
+  }, [phase, camAttempt, uniqueIdentifier, bookingId]);
 
   function resetProgress() {
     setPct(0);
@@ -144,16 +167,6 @@ export function ScanFlow({
       "image/jpeg",
       0.8,
     );
-  }
-
-  async function onPickFile(file: File) {
-    try {
-      const blob = await compressWithExif(file);
-      await runPipeline(blob, URL.createObjectURL(blob));
-    } catch {
-      setErrorMsg("That photo couldn’t be processed. Try another, or use the camera.");
-      setPhase("error");
-    }
   }
 
   /* ── views ──────────────────────────────────────────────────────────── */
@@ -242,9 +255,9 @@ export function ScanFlow({
           >
             <ScanIcon size={18} /> Capture selfie
           </button>
-          <FilePicker fileRef={fileRef} onPick={onPickFile} />
         </div>
         <PoweredBy />
+        {camGate && <PermissionGate gate={camGate} onRetry={() => setCamAttempt((n) => n + 1)} />}
       </Shell>
     );
   }
@@ -364,11 +377,113 @@ export function ScanFlow({
         >
           <ScanIcon size={18} /> Retake
         </button>
-        <FilePicker fileRef={fileRef} onPick={onPickFile} />
       </div>
       <PoweredBy />
     </Shell>
   );
+}
+
+/* ── camera access ──────────────────────────────────────────────────────── */
+
+type CameraFailReason = "unsupported" | "timeout" | "denied";
+
+/** State of the blocking camera pop-up. `null` = camera is (or may be) live. */
+type CamGate =
+  | null
+  | { kind: "blocked"; reason: CameraFailReason; name?: string }
+  | { kind: "unsupported" };
+
+/**
+ * getUserMedia that rejects with a `TimeoutError` if it neither resolves nor
+ * rejects within `ms`. Some Android browsers (Realme/ColorOS Chrome) leave the
+ * promise pending when the permission prompt is suppressed — without this the
+ * guest is stuck on a black camera with a no-op capture button. A stream that
+ * arrives after the timeout is stopped so the camera indicator goes back off.
+ */
+function getUserMediaWithTimeout(constraints: MediaStreamConstraints, ms: number): Promise<MediaStream> {
+  return new Promise<MediaStream>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const e = new Error("getUserMedia timed out");
+      e.name = "TimeoutError";
+      reject(e);
+    }, ms);
+    navigator.mediaDevices.getUserMedia(constraints).then(
+      (s) => {
+        if (settled) {
+          s.getTracks().forEach((tr) => tr.stop());
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(s);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/** Content for the camera pop-up: a title, supporting body, and (optionally)
+ *  numbered steps to re-enable camera access. */
+function gateContent(gate: Exclude<CamGate, null>): { title: string; body: string; steps?: string[] } {
+  if (gate.kind === "unsupported") {
+    return {
+      title: "Open in a different browser",
+      body: "This page can’t reach the camera here — it may be running inside another app’s in-app browser. Open the link in Chrome (Android) or Safari (iPhone) to continue.",
+    };
+  }
+  const enableSteps = [
+    "Tap the lock or ⋮ icon in your browser’s address bar.",
+    "Open Permissions / Site settings and allow Camera.",
+    "Come back here and tap “Enable camera & try again”.",
+  ];
+  if (gate.name === "NotReadableError" || gate.name === "AbortError") {
+    return {
+      title: "Your camera is busy",
+      body: "Another app is using the camera. Close any open camera or video-call apps, then try again.",
+    };
+  }
+  if (gate.name === "NotFoundError" || gate.name === "OverconstrainedError") {
+    return {
+      title: "No camera found",
+      body: "We couldn’t find a usable camera on this device. A working front camera is required to verify your face.",
+    };
+  }
+  // denied / NotAllowedError / SecurityError / timeout (prompt likely suppressed)
+  return {
+    title: "Camera access needed",
+    body:
+      gate.reason === "timeout"
+        ? "Your camera didn’t respond — the permission prompt may be blocked for this site."
+        : "Verifying your face needs camera access, and it’s currently blocked.",
+    steps: enableSteps,
+  };
+}
+
+/** Read the camera permission state (best-effort) and report the failure. */
+async function reportCameraFailure(reason: CameraFailReason, err: unknown, ids: { event: string; booking: string }) {
+  let permission: string | undefined;
+  try {
+    const status = await navigator.permissions?.query({ name: "camera" as PermissionName });
+    permission = status?.state;
+  } catch {
+    /* Permissions API not available (e.g. Firefox/Safari camera query) */
+  }
+  void reportBug(`Face scan — camera unavailable (${reason})`, {
+    Event: ids.event,
+    Booking: ids.booking,
+    "Camera permission": permission,
+    "Error name": err instanceof Error ? err.name : undefined,
+    "Error message": err instanceof Error ? err.message : err ? String(err) : undefined,
+    "mediaDevices present": typeof navigator !== "undefined" ? String(!!navigator.mediaDevices) : undefined,
+  });
 }
 
 /** Dig a human-readable reason out of the worker's (possibly nested) error body. */
@@ -449,31 +564,97 @@ function PoweredBy() {
   );
 }
 
-function FilePicker({ fileRef, onPick }: { fileRef: React.RefObject<HTMLInputElement | null>; onPick: (f: File) => void }) {
+/**
+ * Blocking permission pop-up shown over the camera screen. Camera access is
+ * strictly required: the only way forward is to grant it and tap "try again"
+ * (or, for an unsupported browser, switch browsers). There is intentionally no
+ * dismiss / bypass.
+ */
+function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRetry: () => void }) {
   const { theme: t } = useEventTheme();
+  const [copied, setCopied] = useState(false);
+  const unsupported = gate.kind === "unsupported";
+  const { title, body, steps } = gateContent(gate);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard?.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the user can still copy from the address bar */
+    }
+  };
+
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        className="w-full cursor-pointer py-2 text-center text-[13px] font-bold"
-        style={{ color: t.muted }}
+    <div
+      className="absolute inset-0 z-50 flex items-end justify-center sm:items-center"
+      style={{ background: "rgba(20,14,9,0.55)", backdropFilter: "blur(2px)" }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="fx-rise m-3 w-full max-w-[400px] rounded-3xl p-6"
+        style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
       >
-        Use a photo instead
-      </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        capture="user"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (f) onPick(f);
-        }}
-      />
-    </>
+        <div
+          className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+          style={{ background: t.errorSoft, color: t.error }}
+        >
+          {unsupported ? <BrowserIcon size={30} /> : <CameraOffIcon size={30} />}
+        </div>
+        <h2 className="text-center text-[19px] font-extrabold tracking-[-0.02em]" style={{ color: t.text }}>
+          {title}
+        </h2>
+        <p className="mt-2 text-center text-[13.5px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+          {body}
+        </p>
+        {steps && (
+          <ol className="mt-4 flex flex-col gap-2.5">
+            {steps.map((s, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-[13px] font-semibold leading-[1.4]" style={{ color: t.text }}>
+                <span
+                  className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold"
+                  style={{ background: t.accentWash, color: t.brand }}
+                >
+                  {i + 1}
+                </span>
+                {s}
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="mt-5 flex flex-col gap-2">
+          {unsupported ? (
+            <button
+              type="button"
+              onClick={copyLink}
+              className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+              style={{ background: t.brand, color: t.onBrand }}
+            >
+              <CopyIcon size={16} /> {copied ? "Link copied!" : "Copy link"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+              style={{ background: t.brand, color: t.onBrand }}
+            >
+              <ScanIcon size={16} /> Enable camera &amp; try again
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRetry}
+            className="w-full cursor-pointer py-2 text-center text-[12.5px] font-bold"
+            style={{ color: t.muted }}
+          >
+            {unsupported ? "I’ve switched browsers — try again" : "Try again"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -508,6 +689,30 @@ function ScanIcon({ size = 18 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2" />
       <path d="M9 10h.01M15 10h.01M9.5 14.5a3.5 3.5 0 0 0 5 0" />
+    </svg>
+  );
+}
+function CameraOffIcon({ size = 30 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 16H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1m3-2h4l2 2h2a2 2 0 0 1 2 2v6m-7-2.5a2.5 2.5 0 0 0 3 3" />
+      <path d="M2 2l20 20" />
+    </svg>
+  );
+}
+function BrowserIcon({ size = 30 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18M7 6.5h.01M10 6.5h.01" />
+    </svg>
+  );
+}
+function CopyIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   );
 }
