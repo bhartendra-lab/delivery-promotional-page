@@ -1,7 +1,7 @@
-# Graph Report - /Users/abhishekagarwal/Documents/delivery-promotional-page  (2026-06-26)
+# Graph Report - /Users/abhishekagarwal/Documents/delivery-promotional-page  (2026-06-28)
 
 ## Corpus Check
-- 80 files · ~104,962 words
+- 80 files · ~107,531 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
