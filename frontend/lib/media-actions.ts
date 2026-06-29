@@ -19,6 +19,9 @@ function proxyUrl(url: string, name: string): string {
   return `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
 }
 
+/** Public R2 host the download proxy is allowed to stream (see /api/download). */
+const R2_PUBLIC = process.env.NEXT_PUBLIC_CF_R2_PUBLIC_URL ?? "";
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Download one photo via the same-origin proxy (forces a real download). */
@@ -27,6 +30,24 @@ export function downloadImage(url: string, filename?: string): void {
   const a = document.createElement("a");
   a.href = proxyUrl(url, name);
   a.download = name; // same-origin → respected
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
+ * Download the full-gallery ZIP. R2-hosted objects go through the same-origin
+ * proxy so the download is forced (matches `downloadImage`); any other host
+ * (e.g. a presigned URL the proxy would reject as off-origin) falls back to a
+ * direct attachment link.
+ */
+export function downloadZip(url: string, filename = "gallery.zip"): void {
+  const base = filename.replace(/\.zip$/i, "").replace(/[\\/:*?"<>|\r\n]+/g, " ").trim() || "gallery";
+  const name = `${base}.zip`;
+  const a = document.createElement("a");
+  a.href = R2_PUBLIC && url.startsWith(R2_PUBLIC) ? proxyUrl(url, name) : url;
+  a.download = name; // same-origin (proxy) → respected; cross-origin → best effort
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();

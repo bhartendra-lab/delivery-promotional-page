@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { GuestAuthError, getGuestMedia, likePhoto, unlikePhoto } from "@/lib/guest-api";
-import { downloadMany } from "@/lib/media-actions";
+import { GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, unlikePhoto } from "@/lib/guest-api";
+import { downloadMany, downloadZip } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
@@ -31,6 +31,15 @@ export function LoungeGallery({
   const branding = event.include_company_branding === true;
   const unlocked = session.guest_type === "host";
 
+  // Full-gallery ZIP — host-only. The backend marks a fresh zip "generated" and a
+  // previously-fetched one "downloaded" (both still downloadable); "ready" is the
+  // build-spec alias. "expired" offers a re-request; anything else shows nothing.
+  const zipStatus = event.zip_status;
+  const zipUrl = event.zip_url;
+  const zipReady =
+    unlocked && !!zipUrl && (zipStatus === "generated" || zipStatus === "downloaded" || zipStatus === "ready");
+  const zipExpired = unlocked && zipStatus === "expired";
+
   const [view, setView] = useState<"home" | "gallery">("home");
   const [tab, setTab] = useState<"mine" | "all">("mine");
   const [folder, setFolder] = useState<string>(ALL);
@@ -53,6 +62,7 @@ export function LoungeGallery({
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [passcodeOpen, setPasscodeOpen] = useState(false);
+  const [zipRequestOpen, setZipRequestOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const effTab: "mine" | "all" = unlocked ? tab : "mine";
@@ -207,6 +217,26 @@ export function LoungeGallery({
     exitSelect();
   }
 
+  // Download the whole gallery as a ZIP. The download fires first/independently so
+  // a tracking failure can never deprive the guest of their photos.
+  const downloadAllZip = useCallback(() => {
+    if (!zipUrl) return;
+    setToast("Preparing your download…");
+    downloadZip(zipUrl, `${event.event_name || "gallery"}.zip`);
+    markZipAsDownloaded(uniqueIdentifier, bookingId).catch((e) =>
+      console.warn("[markZipAsDownloaded] failed", e),
+    );
+    window.setTimeout(() => setToast("Download started"), 700);
+  }, [zipUrl, event.event_name, uniqueIdentifier, bookingId]);
+
+  // Expired ZIP → fire a (re)generation request and confirm via the info dialog.
+  const requestZip = useCallback(() => {
+    requestZipGeneration(uniqueIdentifier, bookingId).catch((e) =>
+      console.warn("[requestZipGeneration] failed", e),
+    );
+    setZipRequestOpen(true);
+  }, [uniqueIdentifier, bookingId]);
+
   function gotoGallery(nextTab: "mine" | "all") {
     setTab(nextTab);
     setFolder(ALL);
@@ -245,6 +275,8 @@ export function LoungeGallery({
           matchCount={session.media_ids.length}
           guestName={session.name}
           homeThumbs={homeThumbs}
+          zipReady={zipReady}
+          onDownloadAll={downloadAllZip}
           onSeeMine={() => gotoGallery("mine")}
           onSeeAll={() => gotoGallery("all")}
           onUnlock={() => setPasscodeOpen(true)}
@@ -285,6 +317,10 @@ export function LoungeGallery({
           onEnterSelectWith={enterSelectWith}
           onOpen={(i) => setViewerIndex(i)}
           onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
+          zipReady={zipReady}
+          zipExpired={zipExpired}
+          onDownloadAll={downloadAllZip}
+          onRequestZip={requestZip}
         />
       )}
       </div>
@@ -345,6 +381,9 @@ export function LoungeGallery({
         />
       )}
 
+      {/* zip re-request confirmation */}
+      {zipRequestOpen && <ZipRequestDialog t={t} onClose={() => setZipRequestOpen(false)} />}
+
       {/* toast */}
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-[150px] z-50 flex justify-center px-5 lg:bottom-8">
@@ -369,6 +408,8 @@ function LoungeHome({
   matchCount,
   guestName,
   homeThumbs,
+  zipReady,
+  onDownloadAll,
   onSeeMine,
   onSeeAll,
   onUnlock,
@@ -380,6 +421,8 @@ function LoungeHome({
   matchCount: number;
   guestName?: string;
   homeThumbs: GuestMediaItem[];
+  zipReady: boolean;
+  onDownloadAll: () => void;
   onSeeMine: () => void;
   onSeeAll: () => void;
   onUnlock: () => void;
@@ -496,6 +539,24 @@ function LoungeHome({
                 <ChevronIcon size={18} dir="right" color={t.muted} />
               </button>
             )}
+
+            {/* download all photos (zip) — host-only, primary/premium action */}
+            {unlocked && zipReady && (
+              <button
+                type="button"
+                onClick={onDownloadAll}
+                className="lounge-rise lounge-card flex cursor-pointer items-center gap-3.5 rounded-2xl p-4 text-left transition-transform active:scale-[0.99]"
+                style={{ background: `linear-gradient(100deg, ${t.brand}, ${t.brandDeep})`, color: t.onBrand, boxShadow: t.shadow, animationDelay: "0.14s" }}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "rgba(255,255,255,0.18)", color: t.onBrand }}>
+                  <DownloadIcon size={19} />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-[14px] font-extrabold">Download all photos</span>
+                  <span className="mt-0.5 block text-[11.5px] font-semibold" style={{ opacity: 0.82 }}>Save the complete gallery as a zip</span>
+                </span>
+              </button>
+            )}
           </div>
 
           {/* RIGHT — studio branding */}
@@ -593,8 +654,12 @@ function GalleryView(props: {
   onEnterSelectWith: (i: GuestMediaItem) => void;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
+  zipReady: boolean;
+  zipExpired: boolean;
+  onDownloadAll: () => void;
+  onRequestZip: () => void;
 }) {
-  const { t, unlocked, tab, setTab, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, totalForView, likedView, selectMode, selected, liked } = props;
+  const { t, unlocked, tab, setTab, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, totalForView, likedView, selectMode, selected, liked, zipReady, zipExpired } = props;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -606,7 +671,7 @@ function GalleryView(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="fx-rise mx-auto w-full max-w-[760px] px-4 pt-4">
+      <div className="fx-rise relative z-20 mx-auto w-full max-w-[760px] px-4 pt-4">
         <div className="flex items-center gap-3">
           <h1 className="flex-1 text-[18px] font-extrabold" style={{ color: t.text }}>{title}</h1>
         </div>
@@ -650,18 +715,39 @@ function GalleryView(props: {
         )}
 
         {/* count + select */}
-        <div className="mt-3 flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[11.5px] font-bold" style={{ color: t.muted }}>
             {selectMode ? `${selected.size} selected` : countLabel}
           </span>
-          <button
-            type="button"
-            onClick={props.onToggleSelectMode}
-            className="cursor-pointer rounded-full px-3.5 py-1.5 text-[12px] font-extrabold"
-            style={{ background: selectMode ? t.brand : t.card, color: selectMode ? t.onBrand : t.text, boxShadow: selectMode ? "none" : t.shadowSm }}
-          >
-            {selectMode ? "Cancel" : "Select"}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* download all (zip) — host-only, primary action */}
+            {!selectMode && zipReady && (
+              <button
+                type="button"
+                onClick={props.onDownloadAll}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-extrabold transition-transform active:scale-95"
+                style={{ background: t.brand, color: t.onBrand }}
+              >
+                <DownloadIcon size={14} />
+                Download all
+              </button>
+            )}
+            {/* expired zip → re-request lives in the overflow menu */}
+            {!selectMode && zipExpired && (
+              <OverflowMenu
+                t={t}
+                items={[{ label: "Request a zip download", icon: <DownloadIcon size={15} />, onClick: props.onRequestZip }]}
+              />
+            )}
+            <button
+              type="button"
+              onClick={props.onToggleSelectMode}
+              className="cursor-pointer rounded-full px-3.5 py-1.5 text-[12px] font-extrabold"
+              style={{ background: selectMode ? t.brand : t.card, color: selectMode ? t.onBrand : t.text, boxShadow: selectMode ? "none" : t.shadowSm }}
+            >
+              {selectMode ? "Cancel" : "Select"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -921,6 +1007,110 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
   );
 }
 
+/* ── zip: overflow menu + request dialog ────────────────────────────────── */
+
+/** Small accessible "⋯" menu: opens a popover, closes on outside-click + Escape. */
+function OverflowMenu({ t, items }: { t: Theme; items: { label: string; icon?: React.ReactNode; onClick: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full transition-colors"
+        style={{ background: open ? t.brand : t.card, color: open ? t.onBrand : t.text, boxShadow: open ? "none" : t.shadowSm }}
+      >
+        <MoreIcon size={16} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="popup-pop absolute right-0 top-[calc(100%+8px)] z-50 min-w-[210px] overflow-hidden rounded-2xl p-1.5"
+          style={{ background: t.card, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
+        >
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                it.onClick();
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-extrabold transition-colors hover:bg-black/[0.04]"
+              style={{ color: t.text }}
+            >
+              {it.icon}
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Informational confirmation shown after re-requesting an expired zip. */
+function ZipRequestDialog({ t, onClose }: { t: Theme; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="dash-fade fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: "rgba(31,26,14,0.55)" }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Request received"
+        className="popup-pop w-full max-w-[400px] rounded-3xl p-7 text-center sm:p-8"
+        style={{ background: t.card, fontFamily: t.font, boxShadow: t.shadow }}
+      >
+        <span className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.successSoft, color: t.success }}>
+          <CheckIcon size={26} />
+        </span>
+        <div className="text-[19px] font-extrabold" style={{ color: t.text }}>Request received</div>
+        <p className="mx-auto mt-2 max-w-[300px] text-[13px] font-semibold leading-relaxed" style={{ color: t.muted }}>
+          Your download is being prepared. We’ll notify you by email once your zip is ready.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-6 w-full cursor-pointer rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+          style={{ background: t.brand, color: t.onBrand }}
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── helpers + icons ────────────────────────────────────────────────────── */
 
 function formatDate(epoch?: number | null): string | null {
@@ -980,6 +1170,22 @@ function ChevronIcon({ size = 18, dir, color = "currentColor" }: { size?: number
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === "left" ? "rotate(180deg)" : undefined }}>
       <polyline points="9 6 15 12 9 18" />
+    </svg>
+  );
+}
+function DownloadIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
+    </svg>
+  );
+}
+function MoreIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
     </svg>
   );
 }
