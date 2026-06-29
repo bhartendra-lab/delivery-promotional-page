@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { clearToken, clearCompany, getCompany } from "@/lib/auth";
-import type { Company } from "@/lib/types";
+import type { Company, DlpUsage } from "@/lib/types";
+import { useChrome } from "./ChromeContext";
 
 const SIDEBAR_W_EXPANDED = 240;
 const SIDEBAR_W_COLLAPSED = 88;
@@ -29,6 +30,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { dlpUsage, dlpLoading } = useChrome();
   const [company, setCompany] = useState<Company | null>(null);
 
   useEffect(() => {
@@ -63,23 +65,46 @@ export function Sidebar({
         transition: "width 200ms ease",
       }}
     >
-      {/* Logo + collapse toggle */}
+      {/* Logo + collapse toggle.
+          Expanded: the toggle gets its own fixed slot (shrink-0) and the
+          wordmark lives in a min-w-0 box, so the logo can never grow into the
+          toggle — no overlap at any width.
+          Collapsed: the toggle cross-fades in over the icon on hover/focus. */}
       <div
-        className={`relative flex items-center border-b border-[var(--color-brand-border)] ${
-          collapsed ? "justify-center px-3 py-5" : "px-4 py-4"
+        className={`group flex items-center ${
+          collapsed ? "relative justify-center px-3 py-4" : "justify-between gap-2 px-4 py-4"
         }`}
         style={{ minHeight: 64 }}
       >
         {collapsed ? (
-          <img src="/vyavasth-icon.svg" alt="Vyavasth" height={22} />
+          <>
+            <img
+              src="/vyavasth-icon.svg"
+              alt="Vyavasth"
+              height={22}
+              className="transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+            />
+            <button
+              type="button"
+              onClick={() => setCollapsed(false)}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+              className="brand-focus absolute inset-0 m-auto flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] opacity-0 transition-opacity duration-150 hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+            >
+              <IconSidebar size={16} />
+            </button>
+          </>
         ) : (
           <>
-            <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={22} />
+            <span className="flex min-w-0 flex-1 items-center overflow-hidden">
+              <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={22} />
+            </span>
             <button
               type="button"
               onClick={() => setCollapsed(true)}
               title="Collapse sidebar"
-              className="brand-focus absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              aria-label="Collapse sidebar"
+              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
               <IconSidebar size={15} />
             </button>
@@ -87,33 +112,8 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Search */}
-      <div className={collapsed ? "px-2.5 pb-1 pt-3" : "px-3.5 pb-1 pt-3"}>
-        {collapsed ? (
-          <button
-            type="button"
-            title="Search"
-            className="brand-focus flex w-full items-center justify-center rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-2.5 text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
-          >
-            <IconSearch size={16} />
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-2.5 py-1.5">
-            <IconSearch size={14} className="text-[var(--color-brand-muted)]" />
-            <input
-              type="search"
-              placeholder="Search…"
-              className="min-w-0 flex-1 bg-transparent text-[12.5px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/80"
-            />
-            <span className="rounded-sm border border-[var(--color-brand-border)] px-1 py-0.5 font-mono text-[10px] text-[#B5ADA4]">
-              ⌘K
-            </span>
-          </div>
-        )}
-      </div>
-
       {/* Nav items */}
-      <nav className="flex-1 pt-3.5">
+      <nav className="flex-1 pt-3">
         {NAV_ITEMS.map((item) => {
           const active = item.id === activeId;
           const Icon = item.Icon;
@@ -154,32 +154,11 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Footer: storage + settings */}
+      {/* Footer: events meter + settings */}
       <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2.5 py-3" : "px-3.5 py-3"}`}>
-        {!collapsed && (
-          <div className="mb-1.5 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5">
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Storage</span>
-              <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">342 / 500 GB</span>
-            </div>
-            <div className="h-1 overflow-hidden rounded-full bg-[#F2F0EB]">
-              <div
-                className="h-full rounded-full bg-[var(--color-brand-navy)]"
-                style={{ width: "68%" }}
-              />
-            </div>
-          </div>
-        )}
+        {!collapsed && <EventsMeter usage={dlpUsage} loading={dlpLoading} />}
         {collapsed ? (
           <div className="flex flex-col gap-1.5">
-            <button
-              type="button"
-              onClick={() => setCollapsed(false)}
-              title="Expand sidebar"
-              className="brand-focus w-full rounded-md border border-[var(--color-brand-border)] py-2.5 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-            >
-              <IconSidebar size={18} className="mx-auto" />
-            </button>
             <Link
               href="/dashboard/settings"
               onClick={attemptNav}
@@ -255,6 +234,64 @@ export function useSidebarCollapsed(): [boolean, (next: boolean) => void] {
   return [collapsed, setCollapsed];
 }
 
+/**
+ * Live events meter (replaces the old hardcoded storage block). Driven by the
+ * shared `getDlpUsage` value from ChromeContext.
+ *  - Pre-Paid → "{used} / {limit}" with a progress bar (danger when ≤2 left).
+ *  - Post-Paid → "{used}" + "this month", no bar.
+ *  - null / Monthly / One-Time / no data → "{used ?? 0}", no bar.
+ *  - Loading → skeleton; fetch error (no usage) → hidden.
+ */
+function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
+  if (loading) {
+    return <div className="skeleton mb-1.5 h-[58px] rounded-md" />;
+  }
+  // Fetch error → hide the meter entirely (don't crash).
+  if (!usage) return null;
+
+  const used = usage.used ?? 0;
+
+  // Pre-Paid: value "{used} / {limit}" + progress bar.
+  if (usage.service_type === "Pre-Paid" && typeof usage.limit === "number") {
+    const limit = usage.limit;
+    const remaining = usage.remaining ?? Math.max(limit - used, 0);
+    const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+    const low = remaining <= 2;
+    return (
+      <div className="mb-1.5 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Events</span>
+          <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">
+            {used} / {limit}
+          </span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-[#F2F0EB]">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${pct}%`,
+              background: low ? "var(--color-brand-danger)" : "var(--color-brand-navy)",
+            }}
+          />
+        </div>
+        <p className="mt-1 text-[10.5px] text-[var(--color-brand-muted)]">{remaining} left</p>
+      </div>
+    );
+  }
+
+  // Post-Paid → "this month" caption; everything else → bare count. No bar.
+  const caption = usage.service_type === "Post-Paid" ? "this month" : null;
+  return (
+    <div className="mb-1.5 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Events</span>
+        <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">{used}</span>
+      </div>
+      {caption && <p className="mt-1 text-[10.5px] text-[var(--color-brand-muted)]">{caption}</p>}
+    </div>
+  );
+}
+
 /* ── Phosphor-style icons ───────────────────────────────────────── */
 
 function IconHome({ size = 18, className }: { size?: number; className?: string }) {
@@ -272,15 +309,6 @@ function IconCalendar({ size = 18, className }: { size?: number; className?: str
       <line x1="3.5" y1="9.5" x2="20.5" y2="9.5" />
       <line x1="8" y1="3" x2="8" y2="6" />
       <line x1="16" y1="3" x2="16" y2="6" />
-    </svg>
-  );
-}
-
-function IconSearch({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="11" cy="11" r="7" />
-      <line x1="16" y1="16" x2="21" y2="21" />
     </svg>
   );
 }

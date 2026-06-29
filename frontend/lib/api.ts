@@ -142,11 +142,13 @@ export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
+  status?: "active" | "inactive" | "expired" | "all";
 }) {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
   if (params.limit) sp.set("limit", String(params.limit));
   if (params.search) sp.set("search", params.search);
+  if (params.status) sp.set("status", params.status);
   sp.set("service", BOOKING_SERVICE);
   return request<BookingsListResponse>(
     `/bookings/get-all-bookings?${sp.toString()}`,

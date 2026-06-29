@@ -8,6 +8,8 @@ import { BrandLoader } from "@/components/event/BrandLoader";
 import { EventNotFound } from "@/components/event/EventNotFound";
 import { EventThemeProvider } from "@/components/event/EventThemeContext";
 import { EventFlow } from "@/components/event/EventFlow";
+import { PolicyProvider } from "@/components/event/policy/PolicyContext";
+import { PolicyOverlay } from "@/components/event/policy/PolicyOverlay";
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
@@ -55,7 +57,10 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
   const theme = resolveTheme(event.style_variant);
   return (
     <EventThemeProvider value={{ theme, event, uniqueIdentifier }}>
-      <EventFlow />
+      <PolicyProvider>
+        <EventFlow />
+        <PolicyOverlay />
+      </PolicyProvider>
     </EventThemeProvider>
   );
 }

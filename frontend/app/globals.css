@@ -43,6 +43,7 @@ button:disabled {
 
   /* Surfaces */
   --color-brand-surface: #EDE3D3;
+  --color-brand-surface-raised: #FFFFFF; /* white card fill (event cards) */
   --color-brand-bg: #FAFAF8;
 
   /* Borders */

@@ -6,6 +6,12 @@ type Props = {
   label: string;
   value: number;
   hint?: string;
+  /**
+   * Richer mockup sublabel (e.g. "Indore · Jaipur +4"). Optional and, when
+   * present, replaces `hint`. Not populated yet — needs the backend aggregates
+   * endpoint (see StatsBar TODO).
+   */
+  subLabel?: string;
   /** Unused — kept for API compatibility */
   icon?: React.ReactNode;
   /** Unused — kept for API compatibility */
@@ -13,19 +19,20 @@ type Props = {
   delta?: { value: number; label: string } | null;
 };
 
-export function StatCard({ label, value, hint, delta }: Props) {
+export function StatCard({ label, value, hint, subLabel, delta }: Props) {
   const display = useCountUp(value);
+  const sub = subLabel ?? hint;
 
   return (
-    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-4">
+    <div>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
         {label}
       </p>
       <p className="mt-1.5 text-3xl font-bold tabular-nums text-[var(--color-brand-ink)]">
         {display.toLocaleString()}
       </p>
-      {hint && (
-        <p className="mt-0.5 text-xs text-[var(--color-brand-muted)]">{hint}</p>
+      {sub && (
+        <p className="mt-1 text-xs text-[var(--color-brand-muted)]">{sub}</p>
       )}
       {delta && (
         <p className="mt-1 text-xs">
