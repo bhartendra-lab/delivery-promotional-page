@@ -78,7 +78,7 @@ export type EventContextValue = {
   coverBusy: boolean;
   /** Delete media by id (optimistic removal + reconcile + cover refresh). */
   deleteMediaIds: (ids: string[]) => Promise<void>;
-  toast: (msg: string) => void;
+  toast: (msg: string, type?: "success" | "error") => void;
 };
 
 const Ctx = createContext<EventContextValue | null>(null);

@@ -93,10 +93,10 @@ export function EventFlow() {
     return (
       <ScanFlow
         guestName={session?.name}
-        onComplete={(mediaIds, selfieUrl) => {
-          setSession((s) =>
-            s ? { ...s, has_selfie: true, selfie_url: selfieUrl, media_ids: mediaIds } : s,
-          );
+        onComplete={(selfieUrl) => {
+          // Matched media_ids were cached in the session by ScanFlow; the lounge
+          // reads them from there. We only mirror the selfie into session state.
+          setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl } : s));
           setStep("lounge");
         }}
       />

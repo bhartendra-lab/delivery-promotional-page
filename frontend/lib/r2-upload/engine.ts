@@ -34,8 +34,10 @@ import {
   R2PutError,
 } from "@/lib/api";
 import type { MediaMetadataItem } from "@/lib/api";
+import type { WatermarkPreset } from "@/lib/types";
 
 import { CompressorPool } from "./compressor";
+import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
 import {
   classifyError,
@@ -96,6 +98,15 @@ export class UploadEngineCore {
    * publish status; applies to all flushes incl. resume/cancel drains.
    */
   private outOfSync = false;
+  /**
+   * The studio's default watermark preset, applied to every compressed photo.
+   * Null = no watermark. The heavy work (fetch + decode the mark) is deferred
+   * to `prepareWatermark`, run once per upload before compression starts.
+   */
+  private watermarkPreset: WatermarkPreset | null = null;
+  private watermarkRenderer: WatermarkRenderer | null = null;
+  /** Identity (preset id + geometry) the cached renderer was built for. */
+  private watermarkRendererKey: string | null = null;
   private listeners = new Set<ChangeListener>();
   private urlListeners = new Set<UrlListener>();
   private metadataSavedListeners = new Set<MetadataSavedListener>();
@@ -186,6 +197,9 @@ export class UploadEngineCore {
     this.seedMetadataQueue();
     this.scheduleEmit({ isUploading: true, paused: false, metadataSaveError: null }, true);
 
+    // Fetch + decode the studio's default watermark once for the whole run.
+    await this.prepareWatermark();
+
     try {
       // Start the parallel loops (metadata flusher runs alongside upload).
       const compressLoop = this.runCompressionLoop();
@@ -262,6 +276,15 @@ export class UploadEngineCore {
   }
 
   /**
+   * Set the studio's default watermark preset (or null to disable). Cheap —
+   * stores the preset only; the mark is fetched + decoded lazily, once per run,
+   * by `prepareWatermark`. Passing a preset without an `image_url` disables it.
+   */
+  setWatermark(preset: WatermarkPreset | null): void {
+    this.watermarkPreset = preset && preset.image_url ? preset : null;
+  }
+
+  /**
    * Persist metadata for uploaded-but-unsaved rows (resume after interrupt,
    * tab close, or a failed chunk). Safe to call repeatedly — saved rows are
    * skipped.
@@ -295,7 +318,8 @@ export class UploadEngineCore {
       lastError: undefined,
       updatedAt: Date.now(),
     });
-    // Single-file re-run.
+    // Single-file re-run — ensure the watermark is ready (run() isn't involved).
+    await this.prepareWatermark();
     await this.processOneInput({ file, customFolderId: rec.customFolderId, folderName: rec.folderName });
     await this.flushIdb();
     this.seedMetadataQueue();
@@ -328,6 +352,46 @@ export class UploadEngineCore {
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.scheduleEmit({}, true);
+  }
+
+  /* ── watermark ──────────────────────────────────────────────── */
+
+  /**
+   * Build (once) the renderer for the active preset, fetching + decoding the
+   * mark a single time for the whole run. Cached by preset id + geometry so
+   * resumes/retries reuse the decoded bitmap. A failure here disables
+   * watermarking for the run rather than aborting it — photos still upload.
+   */
+  private async prepareWatermark(): Promise<void> {
+    const preset = this.watermarkPreset;
+    if (!preset || !preset.image_url) {
+      this.disposeWatermark();
+      return;
+    }
+    const key = `${preset._id}:${preset.image_url}:${preset.position}:${preset.size}:${preset.opacity}`;
+    if (this.watermarkRenderer && this.watermarkRendererKey === key) return;
+
+    this.disposeWatermark();
+    try {
+      this.watermarkRenderer = await WatermarkRenderer.create(
+        { position: preset.position, opacity: preset.opacity, size: preset.size },
+        preset.image_url,
+      );
+      this.watermarkRendererKey = key;
+    } catch (err) {
+      console.error(
+        "[upload:watermark] could not load default preset; uploading without watermark",
+        err,
+      );
+      this.watermarkRenderer = null;
+      this.watermarkRendererKey = null;
+    }
+  }
+
+  private disposeWatermark(): void {
+    this.watermarkRenderer?.dispose();
+    this.watermarkRenderer = null;
+    this.watermarkRendererKey = null;
   }
 
   /* ── pipeline loops ─────────────────────────────────────────── */
@@ -378,7 +442,7 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const blob = await this.compressorPool.run(input.file);
+      const blob = await this.compressorPool.run(input.file, this.watermarkRenderer);
       if (this.abort.signal.aborted) return;
       console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
       this.queueIdbUpdate(recordId, { status: "compressed" });

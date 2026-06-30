@@ -24,7 +24,19 @@ export const WATERMARK_POSITIONS: WatermarkPosition[] = [
 
 // Neutral mid-tone sample "photo" so watermark opacity/placement reads clearly.
 const SAMPLE_BG = "linear-gradient(135deg, #6b7280 0%, #9ca3af 45%, #d1d5db 100%)";
-const EDGE_MARGIN = "5%";
+
+// This preview is calibrated to the exact frame the renderer bakes onto: the
+// compressor caps every photo's long edge at 2560px (REFERENCE_W), so a 3:2
+// landscape export is 2560×1707. The watermark width is `size`% of width in
+// both preview and renderer, so the size set here is what gets rendered. The
+// edge gap is a fixed 7px in the renderer (lib/r2-upload/watermark.ts); we
+// express it here as the matching fraction of the 2560×1707 reference, so the
+// preview's gap equals the baked gap. Keep EDGE_MARGIN_PX in sync with the renderer.
+const REFERENCE_W = 2560;
+const REFERENCE_H = Math.round((REFERENCE_W * 2) / 3); // 3:2 landscape → 1707
+const EDGE_MARGIN_PX = 0;
+const EDGE_MARGIN_H = `${(EDGE_MARGIN_PX / REFERENCE_W) * 100}%`; // ≈ 0.27%
+const EDGE_MARGIN_V = `${(EDGE_MARGIN_PX / REFERENCE_H) * 100}%`; // ≈ 0.41%
 
 /** Absolute-position style for the watermark box given anchor/size/opacity. */
 export function watermarkBoxStyle(
@@ -40,15 +52,15 @@ export function watermarkBoxStyle(
   };
   const transforms: string[] = [];
 
-  if (v === "top") style.top = EDGE_MARGIN;
-  else if (v === "bottom") style.bottom = EDGE_MARGIN;
+  if (v === "top") style.top = EDGE_MARGIN_V;
+  else if (v === "bottom") style.bottom = EDGE_MARGIN_V;
   else {
     style.top = "50%";
     transforms.push("translateY(-50%)");
   }
 
-  if (h === "left") style.left = EDGE_MARGIN;
-  else if (h === "right") style.right = EDGE_MARGIN;
+  if (h === "left") style.left = EDGE_MARGIN_H;
+  else if (h === "right") style.right = EDGE_MARGIN_H;
   else {
     style.left = "50%";
     transforms.push("translateX(-50%)");

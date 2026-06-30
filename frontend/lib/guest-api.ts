@@ -108,8 +108,11 @@ export function validateSelfie(uid: string, body: { selfie_id: string; selfie_ur
   });
 }
 
-/** Search the gallery for the guest's face; returns + persists matched media_ids
- *  (idempotent — returns the stored set if already searched). */
+/**
+ * Search the gallery for the guest's face; returns the matched media_ids. The
+ * backend does not persist them — the caller caches the result for the session
+ * (see `setCachedMediaIds`) and re-runs this on a fresh tab / rescan.
+ */
 export function searchSelfie(uid: string, body: { selfie_id: string; booking_id: string }) {
   return guestFetch<{ message: string; data: string[] }>(uid, "/deliverables/search-selfie", {
     method: "POST",
@@ -151,11 +154,18 @@ export type GuestMediaQuery = {
 
 /**
  * Paginated gallery media for guests. `mine` → My Photos (matched set); without
- * it a host (passcode-unlocked) gets All Photos. The backend enforces the gate,
- * so non-host guests always receive only their matched photos. First page also
- * returns customFolders + counts.
+ * it a host (passcode-unlocked) gets All Photos. The matched set is no longer
+ * stored server-side, so the caller passes the session-cached `mediaIds`; the
+ * backend restricts non-host guests (and any `mine` request) to that set and
+ * ignores it for a host browsing All. POST (not GET) so the array rides in the
+ * body. First page also returns customFolders + counts.
  */
-export function getGuestMedia(uid: string, bookingId: string, q: GuestMediaQuery = {}) {
+export function getGuestMedia(
+  uid: string,
+  bookingId: string,
+  q: GuestMediaQuery = {},
+  mediaIds: string[] = [],
+) {
   const params = new URLSearchParams();
   if (q.mine) params.set("mine", "true");
   if (q.onlyLiked) params.set("only_liked", "true");
@@ -166,6 +176,11 @@ export function getGuestMedia(uid: string, bookingId: string, q: GuestMediaQuery
   return guestFetch<GuestMediaResponse>(
     uid,
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: mediaIds }),
+    },
   );
 }
 

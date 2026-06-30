@@ -36,6 +36,48 @@ export function setGuestToken(uid: string, token: string): void {
 export function clearGuestToken(uid: string): void {
   if (typeof localStorage === "undefined") return;
   localStorage.removeItem(keyFor(uid));
+  // Drop the matched-photos cache too, so a different guest signing in on this
+  // tab can never inherit the previous guest's matched set.
+  clearCachedMediaIds(uid);
+}
+
+/* ── matched media_ids — per-session cache ──────────────────────────────────
+ *
+ * The guest's matched photos (the `search-selfie` result) are deliberately not
+ * stored server-side. They live here in `sessionStorage`, keyed per event, so
+ * they survive a reload / in-app navigation within the same tab but are cleared
+ * when the tab closes — which is exactly when we want `search-selfie` to run
+ * again. A rescan overwrites the cached set.
+ */
+const MEDIA_PREFIX = "vy_guest_media_";
+const mediaKeyFor = (uid: string) => `${MEDIA_PREFIX}${uid}`;
+
+/** Returns the cached matched media_ids, or `null` when nothing is cached yet
+ *  (cache miss → the caller should run `search-selfie`). */
+export function getCachedMediaIds(uid: string): string[] | null {
+  if (typeof sessionStorage === "undefined") return null;
+  const raw = sessionStorage.getItem(mediaKeyFor(uid));
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedMediaIds(uid: string, ids: string[]): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(mediaKeyFor(uid), JSON.stringify(ids));
+  } catch {
+    /* sessionStorage full / unavailable — fall back to an in-memory miss */
+  }
+}
+
+export function clearCachedMediaIds(uid: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.removeItem(mediaKeyFor(uid));
 }
 
 /** Decode a JWT payload (no signature check — display/expiry use only). */

@@ -83,7 +83,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         await updateCustomFolder(folderId, name);
         setFolders((prev) => prev.map((f) => (f._id === folderId ? { ...f, name } : f)));
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not rename folder");
+        toast(err instanceof Error ? err.message : "Could not rename folder", "error");
       }
     },
     [setFolders, toast],
@@ -101,7 +101,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
         ]);
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not create folder");
+        toast(err instanceof Error ? err.message : "Could not create folder", "error");
       }
     },
     [bookingId, setFolders, toast],
@@ -138,7 +138,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         setUploadTarget({ id: res.custom_folder_id, name });
         setUploadModalOpen(true);
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not create folder");
+        toast(err instanceof Error ? err.message : "Could not create folder", "error");
       }
     },
     [bookingId, setFolders, toast],

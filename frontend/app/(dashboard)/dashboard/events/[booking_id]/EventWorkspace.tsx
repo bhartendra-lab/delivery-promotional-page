@@ -115,7 +115,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [banner, setBanner] = useState<{ type: "publish" | "republish"; count: number } | null>(null);
   const [infoDialog, setInfoDialog] = useState<number | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const engine = useUploadEngine(bookingId);
 
@@ -136,7 +136,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     totalCountRef.current = totalCount;
   });
 
-  const toast = useCallback((msg: string) => setToastMsg(msg), []);
+  const toast = useCallback(
+    (msg: string, type: "success" | "error" = "success") => setToastMsg({ message: msg, type }),
+    [],
+  );
   useEffect(() => {
     if (!toastMsg) return;
     const t = setTimeout(() => setToastMsg(null), 3200);
@@ -286,7 +289,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     if (prev === "in_progress" && pub.embedding === "completed" && pub.status === "published") {
       toast("Your AI gallery is now live for guests.");
     } else if (prev === "in_progress" && pub.embedding === "failed") {
-      toast("Publishing failed — please try again from the top-right button.");
+      toast("Publishing failed — please try again from the top-right button.", "error");
     }
     prevEmbeddingRef.current = pub.embedding;
   }, [pub.embedding, pub.status, toast]);
@@ -470,7 +473,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: "50% 50%" } : prev));
         toast("Cover photo updated");
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not set cover");
+        toast(err instanceof Error ? err.message : "Could not set cover", "error");
       } finally {
         setCoverBusy(false);
       }
@@ -486,7 +489,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         setMeta((prev) => (prev ? { ...prev, backgroundPosition: position } : prev));
         toast("Cover position saved");
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not save cover position");
+        toast(err instanceof Error ? err.message : "Could not save cover position", "error");
       } finally {
         setCoverBusy(false);
       }
@@ -510,7 +513,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         toast(`${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} deleted`);
       } catch (err) {
         setMedia(prev); // restore on failure
-        toast(err instanceof Error ? err.message : "Could not delete — try again");
+        toast(err instanceof Error ? err.message : "Could not delete — try again", "error");
       }
     },
     [persistBooking, reload, toast],
@@ -525,7 +528,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setBanner(null);
       toast("Publishing started — the AI gallery is getting ready. We'll notify you once it's live.");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not start publishing");
+      toast(err instanceof Error ? err.message : "Could not start publishing", "error");
     }
   }, [bookingId, reloadBooking, toast]);
 
@@ -537,7 +540,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setInfoDialog(null);
       toast("Republishing started — we'll notify you once the new photos are live.");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not start republishing");
+      toast(err instanceof Error ? err.message : "Could not start republishing", "error");
     }
   }, [bookingId, reloadBooking, toast]);
 
@@ -547,7 +550,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       await reloadBooking();
       toast("Gallery deactivated — guests can't open the link until you reactivate.");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not deactivate");
+      toast(err instanceof Error ? err.message : "Could not deactivate", "error");
     }
   }, [bookingId, reloadBooking, toast]);
 
@@ -557,7 +560,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       await reloadBooking();
       toast("Gallery reactivated — it's live for guests again.");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not reactivate");
+      toast(err instanceof Error ? err.message : "Could not reactivate", "error");
     }
   }, [bookingId, reloadBooking, toast]);
 
@@ -575,7 +578,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         disabled={engineActive}
         unsyncedCount={pub.unsyncedCount}
         publishBlocked={coverMissing}
-        onPublishBlocked={() => toast("Add a cover photo before publishing.")}
+        onPublishBlocked={() => toast("Add a cover photo before publishing.", "error")}
         onPublish={doPublish}
         onRepublish={doRepublish}
         onActivate={doActivate}
@@ -700,9 +703,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       )}
 
       {toastMsg && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[230] flex justify-center px-4">
-          <div className="toast-rise pointer-events-auto inline-flex items-center gap-2 rounded-lg bg-[var(--color-brand-ink)] px-4 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(42,34,24,0.25)]">
-            {toastMsg}
+        <div className="pointer-events-none fixed inset-x-0 top-6 z-[230] flex justify-center px-4">
+          <div
+            className={`toast-rise pointer-events-auto inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(42,34,24,0.18)] ${
+              toastMsg.type === "error" ? "bg-[var(--color-brand-danger)]" : "bg-[var(--color-brand-success)]"
+            }`}
+          >
+            {toastMsg.message}
           </div>
         </div>
       )}

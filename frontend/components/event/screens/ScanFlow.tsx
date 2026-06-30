@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
 import { presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
+import { setCachedMediaIds } from "@/lib/guest-auth";
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
@@ -22,8 +23,9 @@ export function ScanFlow({
   onComplete,
 }: {
   guestName?: string;
-  /** Called with the matched media_ids + selfie url once the scan succeeds. */
-  onComplete: (mediaIds: string[], selfieUrl: string) => void;
+  /** Called with the selfie url once the scan succeeds. The matched media_ids
+   *  are cached in the session here (see `setCachedMediaIds`), not passed up. */
+  onComplete: (selfieUrl: string) => void;
 }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
   const { openPolicy } = usePolicy();
@@ -133,6 +135,9 @@ export function ScanFlow({
       setStatus("Matching faces…");
       const res = await searchSelfie(uniqueIdentifier, { selfie_id: selfieId, booking_id: bookingId });
       const ids = res.data || [];
+      // Cache the matched set for this tab session — the lounge reads it instead
+      // of re-running the search, and a rescan overwrites it here.
+      setCachedMediaIds(uniqueIdentifier, ids);
 
       setTarget(100);
       setStatus("Match complete");
@@ -377,7 +382,7 @@ export function ScanFlow({
         <div className="flex flex-col gap-2 px-7 pb-2">
           <button
             type="button"
-            onClick={() => onComplete(matchedIds, selfieUrl)}
+            onClick={() => onComplete(selfieUrl)}
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{ background: t.brand, color: t.onBrand }}
           >

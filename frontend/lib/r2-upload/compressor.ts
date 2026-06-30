@@ -19,6 +19,7 @@
 
 import imageCompression from "browser-image-compression";
 import piexif from "piexifjs";
+import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
 const QUALITY = 0.80;
@@ -44,10 +45,10 @@ export class CompressorPool {
   }
 
   /** Run a compression task, waiting if all slots are busy. */
-  async run(file: File): Promise<Blob> {
+  async run(file: File, watermark?: WatermarkRenderer | null): Promise<Blob> {
     await this.acquire();
     try {
-      return await compressWithExif(file);
+      return await compressWithExif(file, watermark);
     } finally {
       this.release();
     }
@@ -75,7 +76,10 @@ export class CompressorPool {
 
 /* ── compression core ─────────────────────────────────────────────── */
 
-export async function compressWithExif(file: File): Promise<Blob> {
+export async function compressWithExif(
+  file: File,
+  watermark?: WatermarkRenderer | null,
+): Promise<Blob> {
   // Read source EXIF before compression destroys it.
   // Only meaningful for JPEG sources (PNG/HEIC don't have EXIF in the same way).
   const sourceIsJpeg = file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
@@ -97,7 +101,7 @@ export async function compressWithExif(file: File): Promise<Blob> {
     }
   }
 
-  const compressedBlob = await imageCompression(file, {
+  let compressedBlob: Blob = await imageCompression(file, {
     // No maxSizeMB — preserve visible quality over size targets.
     maxWidthOrHeight: MAX_DIM,
     useWebWorker: true,
@@ -106,6 +110,18 @@ export async function compressWithExif(file: File): Promise<Blob> {
     // alwaysKeepResolution doesn't exist, but skipping downscale for small
     // sources is already the library's default behaviour.
   });
+
+  // Stamp the studio's default watermark before EXIF is re-injected. The mark
+  // is composited on the already-downscaled image (orientation baked in by the
+  // compressor above), so canvas coordinates map 1:1 to the final pixels.
+  // A watermark failure must never fail the upload — ship the unmarked photo.
+  if (watermark) {
+    try {
+      compressedBlob = await watermark.apply(compressedBlob);
+    } catch (err) {
+      console.error("[upload:watermark] compositing failed; uploading without watermark", err);
+    }
+  }
 
   if (!preservedExifBytes) {
     // No EXIF to re-inject; return as-is.

@@ -6,6 +6,7 @@ import { resolveTheme } from "@/lib/client-theme";
 import type { DeliveryLandingPageData } from "@/lib/types";
 import { BrandLoader } from "@/components/event/BrandLoader";
 import { EventNotFound } from "@/components/event/EventNotFound";
+import { GalleryUnavailable } from "@/components/event/GalleryUnavailable";
 import { EventThemeProvider } from "@/components/event/EventThemeContext";
 import { EventFlow } from "@/components/event/EventFlow";
 import { PolicyProvider } from "@/components/event/policy/PolicyContext";
@@ -53,6 +54,8 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
   if (status === "loading") return <BrandLoader />;
   if (status === "notfound") return <EventNotFound />;
   if (status === "error" || !event) return <LoadError onRetry={retry} />;
+  if (event.is_active === false) return <GalleryUnavailable event={event} reason="deactivated" />;
+  if (event.gallery_publish_status === "expired") return <GalleryUnavailable event={event} reason="expired" />;
 
   const theme = resolveTheme(event.style_variant);
   return (

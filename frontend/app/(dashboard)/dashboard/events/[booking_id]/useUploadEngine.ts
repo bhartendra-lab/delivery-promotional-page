@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getWatermarkPresets } from "@/lib/api";
 import { ensureFolders, listResumableRecords } from "@/lib/r2-upload/engine";
 import { getUploadEngine } from "@/lib/r2-upload/registry";
 import type { EngineProgress, UploadInput, UploadRecord } from "@/lib/r2-upload/types";
@@ -84,6 +85,27 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       metadataSavedListenerRef.current?.(count);
     });
     return () => unsub();
+  }, [engine]);
+
+  // Load the company's default watermark preset once and hand it to the engine,
+  // so every compressed photo gets the studio's mark baked in before upload.
+  // `engine` is a stable per-booking instance, so this runs once per booking.
+  useEffect(() => {
+    let alive = true;
+    getWatermarkPresets()
+      .then((res) => {
+        if (!alive) return;
+        const def = res.presets.find((p) => p.is_default && p.image_url) ?? null;
+        engine.setWatermark(def);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        console.warn("[upload:watermark] failed to load presets; uploading without watermark", err);
+        engine.setWatermark(null);
+      });
+    return () => {
+      alive = false;
+    };
   }, [engine]);
 
   // On mount: if a prior run left uploaded-but-unsaved rows in IDB (tab close,

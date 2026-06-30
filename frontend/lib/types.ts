@@ -338,6 +338,10 @@ export type DeliveryLandingPageData = {
   company_social_links?: SocialLinks;
   company_google_place_id?: string;
   company_watermark_url?: string;
+  /** Activation toggle from the booking — false = studio has temporarily paused the gallery. */
+  is_active?: boolean;
+  /** Publish state from the booking — "expired" means the gallery's access window has closed. */
+  gallery_publish_status?: GalleryPublishStatus;
   /** Full-gallery ZIP download URL (host-only). Null/absent until generated. */
   zip_url?: string | null;
   /**
@@ -378,6 +382,12 @@ export type GuestSession = {
   guest_sub_type: string | null;
   selfie_url: string | null;
   has_selfie: boolean;
-  media_ids: string[];
+  /**
+   * The validated selfie id. Combined with the event's booking_id it lets the
+   * client re-run `search-selfie` on a returning visit when the per-session
+   * matched-photos cache is empty. Matched media_ids themselves are not stored
+   * server-side — they live in `sessionStorage` (see `getCachedMediaIds`).
+   */
+  selfie_id: string | null;
 };
 

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, unlikePhoto } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, searchSelfie, unlikePhoto } from "@/lib/guest-api";
+import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { downloadMany, downloadZip } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
@@ -75,6 +76,43 @@ export function LoungeGallery({
   const effTab: "mine" | "all" = unlocked ? tab : "mine";
   const loadingMoreRef = useRef(false);
 
+  // The guest's matched media_ids drive "My Photos" and the match count. They're
+  // not stored server-side: seed from the per-session cache (a fresh scan / prior
+  // visit in this tab fills it), and `null` means "not resolved yet" — the effect
+  // below runs search-selfie once to populate it. Closing the tab clears the
+  // cache, so reopening re-runs the search.
+  const [mediaIds, setMediaIds] = useState<string[] | null>(() => getCachedMediaIds(uniqueIdentifier));
+
+  useEffect(() => {
+    if (mediaIds !== null) return; // cache hit (or already resolved) — nothing to do
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve(); // defer — no synchronous setState in the effect body
+      if (cancelled) return;
+      if (!session.selfie_id) {
+        setMediaIds([]); // no selfie to search with → empty matched set
+        return;
+      }
+      try {
+        const res = await searchSelfie(uniqueIdentifier, {
+          selfie_id: session.selfie_id,
+          booking_id: bookingId,
+        });
+        if (cancelled) return;
+        const ids = res.data ?? [];
+        setCachedMediaIds(uniqueIdentifier, ids);
+        setMediaIds(ids);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof GuestAuthError) onReauth();
+        else setMediaIds([]); // fail closed to "no matches"; the grid shows empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaIds, uniqueIdentifier, bookingId, session.selfie_id, onReauth]);
+
   // Seed the liked set from the server's per-photo liked_by_me flag so hearts
   // persist across reloads (additive — optimistic toggles still win in-session).
   const seedLikes = useCallback((media: GuestMediaItem[]) => {
@@ -91,8 +129,11 @@ export function LoungeGallery({
     });
   }, []);
 
-  // Load the first page whenever the view (tab/folder/liked) changes.
+  // Load the first page whenever the view (tab/folder/liked) changes. Waits for
+  // the matched set to resolve first — the backend restricts non-host guests to
+  // those ids, so firing before they're known would return an empty gallery.
   useEffect(() => {
+    if (mediaIds === null) return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -106,7 +147,7 @@ export function LoungeGallery({
           customFolderId: likedView || folder === ALL ? undefined : folder,
           skip: 0,
           limit: PAGE,
-        });
+        }, mediaIds);
         if (cancelled) return;
         const media = res.media ?? [];
         setItems(media);
@@ -129,7 +170,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes]);
+  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || items.length >= totalForView) return;
@@ -142,7 +183,7 @@ export function LoungeGallery({
         customFolderId: likedView || folder === ALL ? undefined : folder,
         skip: items.length,
         limit: PAGE,
-      });
+      }, mediaIds ?? []);
       const more = res.media ?? [];
       if (more.length) {
         seedLikes(more);
@@ -157,7 +198,7 @@ export function LoungeGallery({
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, items.length, totalForView, seedLikes]);
+  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, items.length, totalForView, seedLikes, mediaIds]);
 
   useEffect(() => {
     if (!toast) return;
@@ -292,7 +333,7 @@ export function LoungeGallery({
           event={event}
           branding={branding}
           unlocked={unlocked}
-          matchCount={session.media_ids.length}
+          matchCount={mediaIds?.length ?? 0}
           guestName={session.name}
           selfieUrl={session.selfie_url}
           onOpenProfile={() => setProfileOpen(true)}
