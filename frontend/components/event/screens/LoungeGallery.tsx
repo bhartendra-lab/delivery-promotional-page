@@ -9,6 +9,7 @@ import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
+import { ProfileSheet } from "./lounge/ProfileSheet";
 
 const PAGE = 60;
 const ALL = "__all__";
@@ -22,10 +23,14 @@ export function LoungeGallery({
   session,
   onSessionChange,
   onReauth,
+  onRescan,
+  onSignOut,
 }: {
   session: GuestSession;
   onSessionChange: (patch: Partial<GuestSession>) => void;
   onReauth: () => void;
+  onRescan: () => void;
+  onSignOut: () => void;
 }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
   const bookingId = event.booking_id;
@@ -63,6 +68,7 @@ export function LoungeGallery({
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [passcodeOpen, setPasscodeOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [zipRequestOpen, setZipRequestOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -265,7 +271,7 @@ export function LoungeGallery({
 
   return (
     <div className="relative flex h-[100dvh] overflow-hidden" style={{ background: t.bg, fontFamily: t.font, color: t.text }}>
-      <SideRail t={t} event={event} guestName={session.name} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
+      <SideRail t={t} event={event} guestName={session.name} selfieUrl={session.selfie_url} onOpenProfile={() => setProfileOpen(true)} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
       <div className="flex min-h-0 flex-1 flex-col">
       {view === "home" ? (
         <LoungeHome
@@ -275,6 +281,8 @@ export function LoungeGallery({
           unlocked={unlocked}
           matchCount={session.media_ids.length}
           guestName={session.name}
+          selfieUrl={session.selfie_url}
+          onOpenProfile={() => setProfileOpen(true)}
           homeThumbs={homeThumbs}
           zipReady={zipReady}
           onDownloadAll={downloadAllZip}
@@ -382,6 +390,20 @@ export function LoungeGallery({
         />
       )}
 
+      {/* profile / DP */}
+      {profileOpen && (
+        <ProfileSheet
+          name={session.name}
+          selfieUrl={session.selfie_url}
+          onClose={() => setProfileOpen(false)}
+          onRescan={() => {
+            setProfileOpen(false);
+            onRescan();
+          }}
+          onSignOut={onSignOut}
+        />
+      )}
+
       {/* zip re-request confirmation */}
       {zipRequestOpen && <ZipRequestDialog t={t} onClose={() => setZipRequestOpen(false)} />}
 
@@ -408,6 +430,8 @@ function LoungeHome({
   unlocked,
   matchCount,
   guestName,
+  selfieUrl,
+  onOpenProfile,
   homeThumbs,
   zipReady,
   onDownloadAll,
@@ -421,6 +445,8 @@ function LoungeHome({
   unlocked: boolean;
   matchCount: number;
   guestName?: string;
+  selfieUrl: string | null;
+  onOpenProfile: () => void;
   homeThumbs: GuestMediaItem[];
   zipReady: boolean;
   onDownloadAll: () => void;
@@ -453,9 +479,20 @@ function LoungeHome({
             <span />
           )}
           {guestName && (
-            <span className="flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-extrabold text-white" style={{ background: t.brand }}>
-              {(guestName[0] ?? "·").toUpperCase()}
-            </span>
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              aria-label="Your profile"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-[12px] font-extrabold text-white transition-transform active:scale-95"
+              style={{ background: t.brand }}
+            >
+              {selfieUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                (guestName[0] ?? "·").toUpperCase()
+              )}
+            </button>
           )}
         </div>
         <div className="relative mt-8 hero-text">
@@ -483,11 +520,22 @@ function LoungeHome({
             {/* match card — see my photos */}
             <div className="lounge-rise lounge-card flex flex-col gap-3.5 rounded-3xl p-4" style={{ background: t.card, boxShadow: t.shadow, animationDelay: "0.05s" }}>
               <div className="flex items-center gap-3">
-                <span className="relative flex h-11 w-11 items-center justify-center rounded-full text-[14px] font-extrabold" style={{ background: t.ring, padding: 3 }}>
-                  <span className="flex h-full w-full items-center justify-center rounded-full" style={{ background: t.card, color: t.brand }}>
-                    {(guestName?.[0] ?? "·").toUpperCase()}
+                <button
+                  type="button"
+                  onClick={onOpenProfile}
+                  aria-label="Your profile"
+                  className="relative flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-[14px] font-extrabold transition-transform active:scale-95"
+                  style={{ background: t.ring, padding: 3 }}
+                >
+                  <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: t.card, color: t.brand }}>
+                    {selfieUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      (guestName?.[0] ?? "·").toUpperCase()
+                    )}
                   </span>
-                </span>
+                </button>
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] font-extrabold" style={{ color: t.text }}>
                     {matchCount > 0 ? `Found you in ${matchCount} photo${matchCount === 1 ? "" : "s"}` : "No matches yet"}
@@ -566,9 +614,10 @@ function LoungeHome({
               <div className="lounge-rise lounge-card flex flex-col gap-3.5 rounded-2xl p-4 pl-3.5" style={{ background: t.card, boxShadow: t.shadowSm, borderLeft: `4px solid ${t.brand}`, animationDelay: "0.12s" }}>
                 <div className="flex items-center gap-3">
                   <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl" style={{ background: t.ink, color: t.brand }}>
-                    {event.company_logo ? (
+                    {event.company_logo_light || event.company_logo ? (
+                      // Avatar sits on a dark chip (t.ink), so prefer the light logo.
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={event.company_logo} alt="" className="h-full w-full object-cover" />
+                      <img src={event.company_logo_light || event.company_logo} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-[13px] font-extrabold">{initials(event.company_name ?? "")}</span>
                     )}
@@ -635,9 +684,14 @@ function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
 }
 
 function SocialRow({ event, t }: { event: ReturnType<typeof useEventTheme>["event"]; t: Theme }) {
+  const sl = event.company_social_links ?? {};
   const links = [
-    event.company_instagram_link && { label: "Instagram", url: ensureHttp(event.company_instagram_link) },
-    event.company_facebook_link && { label: "Facebook", url: ensureHttp(event.company_facebook_link) },
+    (sl.instagram ?? event.company_instagram_link) && { label: "Instagram", url: ensureHttp(sl.instagram ?? event.company_instagram_link ?? "") },
+    (sl.facebook ?? event.company_facebook_link) && { label: "Facebook", url: ensureHttp(sl.facebook ?? event.company_facebook_link ?? "") },
+    sl.youtube && { label: "YouTube", url: ensureHttp(sl.youtube) },
+    sl.vimeo && { label: "Vimeo", url: ensureHttp(sl.vimeo) },
+    sl.linkedin && { label: "LinkedIn", url: ensureHttp(sl.linkedin) },
+    sl.x && { label: "X", url: ensureHttp(sl.x) },
   ].filter(Boolean) as { label: string; url: string }[];
   if (links.length === 0) return null;
   return (
@@ -922,6 +976,8 @@ function SideRail({
   t,
   event,
   guestName,
+  selfieUrl,
+  onOpenProfile,
   active,
   onHome,
   onGallery,
@@ -930,6 +986,8 @@ function SideRail({
   t: Theme;
   event: ReturnType<typeof useEventTheme>["event"];
   guestName?: string;
+  selfieUrl: string | null;
+  onOpenProfile: () => void;
   active: "home" | "gallery" | "liked";
   onHome: () => void;
   onGallery: () => void;
@@ -977,12 +1035,22 @@ function SideRail({
         })}
       </nav>
       {guestName && (
-        <div className="mt-auto flex items-center gap-2.5 border-t pt-5" style={{ borderColor: t.border }}>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold text-white" style={{ background: t.brand }}>
-            {(guestName[0] ?? "·").toUpperCase()}
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          className="mt-auto flex cursor-pointer items-center gap-2.5 border-t pt-5 text-left transition-opacity hover:opacity-80"
+          style={{ borderColor: t.border }}
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[13px] font-extrabold text-white" style={{ background: t.brand }}>
+            {selfieUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              (guestName[0] ?? "·").toUpperCase()
+            )}
           </span>
           <span className="min-w-0 truncate text-[13px] font-bold" style={{ color: t.text }}>{guestName}</span>
-        </div>
+        </button>
       )}
       <PolicyFooter t={t} className={`${guestName ? "mt-4" : "mt-auto"} justify-start pt-4`} />
     </aside>
