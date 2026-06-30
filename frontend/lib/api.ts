@@ -129,27 +129,33 @@ function watermarkFormData(input: WatermarkPresetInput): FormData {
 }
 
 export function getWatermarkPresets() {
-  return request<{ presets: WatermarkPreset[] }>("/watermarks");
+  return request<{ presets: WatermarkPreset[] }>("/deliverables/get-watermark-presets");
 }
 
 export function createWatermarkPreset(input: WatermarkPresetInput) {
-  return request<{ preset: WatermarkPreset }>("/watermarks", {
+  return request<{ preset: WatermarkPreset }>("/deliverables/create-watermark-preset", {
     method: "POST",
     body: watermarkFormData(input),
   });
 }
 
 export function updateWatermarkPreset(id: string, input: WatermarkPresetInput) {
-  return request<{ preset: WatermarkPreset }>(`/watermarks/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: watermarkFormData(input),
-  });
+  return request<{ preset: WatermarkPreset }>(
+    `/deliverables/update-watermark-preset/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: watermarkFormData(input),
+    },
+  );
 }
 
 export function deleteWatermarkPreset(id: string) {
-  return request<{ message: string }>(`/watermarks/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+  return request<{ message: string }>(
+    `/deliverables/delete-watermark-preset/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function checkResetLink(userId: string) {
