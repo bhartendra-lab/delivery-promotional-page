@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCompany } from "@/lib/auth";
+import { useCompany } from "@/lib/useCompany";
 import { useChrome } from "./ChromeContext";
 import { ActiveUploadsIndicator } from "./ActiveUploadsIndicator";
 

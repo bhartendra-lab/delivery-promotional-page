@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from "react";
 import type { Company } from "./types";
 
 const TOKEN_KEY = "dlp_token";
@@ -51,8 +50,10 @@ export function clearCompany(): void {
 }
 
 /* ── reactive company store (SSR-safe, cross-tab) ──────────────────────
- * Lets the Topbar/Sidebar read the cached company during render via
- * useSyncExternalStore — no setState-in-effect, no hydration mismatch.
+ * Backs the `useCompany` hook (in lib/useCompany.ts) so the Topbar/Sidebar can
+ * read the cached company during render via useSyncExternalStore — no
+ * setState-in-effect, no hydration mismatch. The store primitives live here
+ * (no React import) so this module stays server-safe for lib/api.ts.
  */
 const companyListeners = new Set<() => void>();
 let companyCache: { raw: string | null; value: Company | null } = {
@@ -64,7 +65,7 @@ function emitCompanyChange() {
   for (const listener of companyListeners) listener();
 }
 
-function subscribeCompany(onChange: () => void): () => void {
+export function subscribeCompany(onChange: () => void): () => void {
   companyListeners.add(onChange);
   // `storage` covers cross-tab writes; same-tab writes notify via emitCompanyChange.
   if (typeof window !== "undefined") window.addEventListener("storage", onChange);
@@ -79,7 +80,7 @@ function subscribeCompany(onChange: () => void): () => void {
  * unchanged. Required — returning a fresh object each call would make
  * useSyncExternalStore re-render on every read.
  */
-function getCompanySnapshot(): Company | null {
+export function getCompanySnapshot(): Company | null {
   const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(COMPANY_KEY);
   if (raw === companyCache.raw) return companyCache.value;
   let value: Company | null = null;
@@ -90,9 +91,4 @@ function getCompanySnapshot(): Company | null {
   }
   companyCache = { raw, value };
   return value;
-}
-
-/** Reactive, SSR-safe read of the cached company (server snapshot is null). */
-export function useCompany(): Company | null {
-  return useSyncExternalStore(subscribeCompany, getCompanySnapshot, () => null);
 }

@@ -3,7 +3,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { clearToken, clearCompany, useCompany } from "@/lib/auth";
+import { clearToken, clearCompany } from "@/lib/auth";
+import { useCompany } from "@/lib/useCompany";
 import type { DlpUsage } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
 
