@@ -1,35 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listDeliveryPages, getDeliveryPageById, getDlpUsage } from "@/lib/api";
-import type {
-  DeliveryLandingPage,
-  DeliveryLandingPageListItem,
-  DlpUsage,
-  ListResponse,
-} from "@/lib/types";
+import { useRouter } from "next/navigation";
+import { getAllBookings } from "@/lib/api";
+import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
 import { StatsBar } from "@/components/dashboard/StatsBar";
-import { PagesTable } from "@/components/dashboard/PagesTable";
-import { PageCard } from "@/components/dashboard/PageCard";
+import { EventCard } from "@/components/dashboard/EventCard";
+import { useChrome } from "@/components/dashboard/ChromeContext";
 import { Pagination } from "@/components/ui/Pagination";
-import { CreateEditDrawer } from "@/components/dashboard/CreateEditDrawer";
+import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
 const PAGE_SIZE = 20;
 
 export default function DashboardHomePage() {
-  const [data, setData] = useState<ListResponse | null>(null);
+  const router = useRouter();
+  // Events meter / usage shared via ChromeContext — single fetch for the whole
+  // dashboard (Sidebar meter + header pill read the same value).
+  const { dlpUsage, dlpLoading, locked } = useChrome();
+  const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
-  const [dlpLoading, setDlpLoading] = useState(true);
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<DeliveryLandingPage | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -46,7 +42,14 @@ export default function DashboardHomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listDeliveryPages({ page, limit: PAGE_SIZE, search: debouncedSearch || undefined });
+      // Published-only is filtered server-side so pagination reflects the
+      // filtered set (the page only ever holds one paginated page).
+      const res = await getAllBookings({
+        page,
+        limit: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        status: "published",
+      });
       setData(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -57,39 +60,36 @@ export default function DashboardHomePage() {
 
   useEffect(() => { void reload(); }, [reload]);
 
-  useEffect(() => {
-    setDlpLoading(true);
-    getDlpUsage()
-      .then(setDlpUsage)
-      .catch(() => setDlpUsage(null))
-      .finally(() => setDlpLoading(false));
-  }, []);
-
+  // The bookings endpoint doesn't return a total count; allow paging forward
+  // while a full page comes back and back to page 1.
   const totalPages = useMemo(() => {
     if (!data) return 1;
-    return Math.max(1, Math.ceil(data.totalPages / PAGE_SIZE));
+    return data.bookings.length === PAGE_SIZE ? page + 1 : page;
+  }, [data, page]);
+
+  // No aggregate tracking totals from the API — sum what's on this page.
+  // `total` is the visible event count (the ≤20 rows on this page), not a sum
+  // of trackings. True company-wide totals need a backend aggregate endpoint.
+  const stats = useMemo(() => {
+    const rows = data?.bookings ?? [];
+    const visits = rows.reduce((s, b) => s + (b.trackings?.visit ?? 0), 0);
+    const contacts = rows.reduce((s, b) => s + (b.trackings?.contact ?? 0), 0);
+    const reviews = rows.reduce((s, b) => s + (b.trackings?.review ?? 0), 0);
+    return { visits, contacts, reviews, total: rows.length };
   }, [data]);
 
-  async function openEdit(row: DeliveryLandingPageListItem) {
-    try {
-      const res = await getDeliveryPageById(row._id);
-      res.deliveryLandingPage.background_image = `${res.deliveryLandingPage.background_image}?v=${Date.now()}`;
-      setEditTarget(res.deliveryLandingPage);
-      setDrawerOpen(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load page");
-    }
+  function openEvent(row: Booking) {
+    router.push(`/dashboard/events/${row._id}`);
   }
 
   function openCreate() {
-    setEditTarget(null);
-    setDrawerOpen(true);
+    setModalOpen(true);
   }
 
-  const isEmpty = !loading && data && data.deliveryLandingPages.length === 0;
+  const isEmpty = !loading && data && data.bookings.length === 0;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
       {/* Limit exhausted disclaimer (Pre-Paid only) */}
       {!dlpLoading && dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0 && (
         <div
@@ -98,7 +98,7 @@ export default function DashboardHomePage() {
         >
           <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            You&apos;ve used all your delivery pages for this plan. New pages cannot be created until your plan is upgraded or renewed. Contact your account manager.
+            You&apos;ve used all your events for this plan. New events cannot be created until your plan is upgraded or renewed. Contact your account manager.
           </span>
         </div>
       )}
@@ -107,10 +107,10 @@ export default function DashboardHomePage() {
       <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-            Delivery Hub · Active
+            Delivery Hub · Published
           </p>
           <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
-            Your delivery pages,<br className="hidden sm:block" /> in one place.
+            Your events,<br className="hidden sm:block" /> in one place.
           </h1>
           <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
             Branded links for every booking. Track who opens what, when.
@@ -124,7 +124,7 @@ export default function DashboardHomePage() {
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PlusIcon />
-            New delivery page
+            Add event
           </button>
           <UsagePill usage={dlpUsage} loading={dlpLoading} />
         </div>
@@ -132,10 +132,10 @@ export default function DashboardHomePage() {
 
       {/* Stats */}
       <StatsBar
-        visits={data?.visitTrackings ?? 0}
-        deliveries={data?.deliveryTrackings ?? 0}
-        reviews={data?.reviewTrackings ?? 0}
-        total={data?.totalTrackings ?? 0}
+        visits={stats.visits}
+        contacts={stats.contacts}
+        reviews={stats.reviews}
+        total={stats.total}
       />
 
       {/* Search + count row */}
@@ -167,11 +167,9 @@ export default function DashboardHomePage() {
           <p className="text-xs text-[var(--color-brand-muted)]">
             Showing{" "}
             <span className="font-semibold text-[var(--color-brand-ink)]">
-              {data.deliveryLandingPages.length}
+              {data.bookings.length}
             </span>{" "}
-            of{" "}
-            <span className="font-semibold text-[var(--color-brand-ink)]">{data.totalPages}</span>{" "}
-            {data.totalPages === 1 ? "page" : "pages"}
+            {data.bookings.length === 1 ? "event" : "events"}
           </p>
         )}
       </section>
@@ -189,35 +187,25 @@ export default function DashboardHomePage() {
       {/* Content */}
       <section>
         {loading && !data ? (
-          <TableSkeleton />
+          <CardGridSkeleton />
         ) : isEmpty ? (
           <EmptyState onCreate={openCreate} disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0} />
         ) : (
-          data && data.deliveryLandingPages.length > 0 && (
-            <>
-              <div className="hidden sm:block">
-                <PagesTable rows={data.deliveryLandingPages} onEdit={openEdit} />
-              </div>
-              <div className="space-y-2 sm:hidden">
-                {data.deliveryLandingPages.map((row) => (
-                  <PageCard key={row._id} row={row} onEdit={openEdit} />
-                ))}
-              </div>
-            </>
+          data && data.bookings.length > 0 && (
+            <div className="dash-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {data.bookings.map((row) => (
+                <EventCard key={row._id} row={row} onOpen={openEvent} locked={locked} />
+              ))}
+            </div>
           )
         )}
       </section>
 
-      {data && data.deliveryLandingPages.length > 0 && (
+      {data && data.bookings.length > 0 && (
         <Pagination current={page} totalPages={totalPages} onChange={(p) => setPage(p)} />
       )}
 
-      <CreateEditDrawer
-        open={drawerOpen}
-        target={editTarget}
-        onClose={() => { setDrawerOpen(false); setEditTarget(null); }}
-        onSaved={() => { setDrawerOpen(false); setEditTarget(null); void reload(); }}
-      />
+      <AddEventModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 }
@@ -229,9 +217,9 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
         <PageIcon />
       </div>
       <div className="space-y-1">
-        <p className="text-xl font-bold text-[var(--color-brand-ink)]">No delivery pages yet</p>
+        <p className="text-xl font-bold text-[var(--color-brand-ink)]">No events yet</p>
         <p className="max-w-sm text-sm text-[var(--color-brand-muted)]">
-          Create your first branded delivery page in under a minute and share it with your client.
+          Create your first event in under a minute and share the link with your client.
         </p>
       </div>
       <button
@@ -241,17 +229,36 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
         className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <PlusIcon />
-        Create your first page
+        Create your first event
       </button>
     </div>
   );
 }
 
-function TableSkeleton() {
+function CardGridSkeleton() {
   return (
-    <div className="space-y-2">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="skeleton h-14 rounded-lg" style={{ animationDelay: `${i * 0.06}s` }} />
+        <div
+          key={i}
+          className="overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]"
+          style={{ animationDelay: `${i * 0.06}s` }}
+        >
+          <div className="skeleton aspect-[16/9] w-full rounded-none" />
+          <div className="space-y-3 p-4">
+            <div className="skeleton h-4 w-2/3 rounded" />
+            <div className="skeleton h-3 w-1/2 rounded" />
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <div className="skeleton h-10 w-24 rounded-lg" />
+              <div className="skeleton h-10 flex-1 rounded-lg" />
+            </div>
+          </div>
+        </div>
       ))}
     </div>
   );

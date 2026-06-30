@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delivery-promotional-page-dev",
+  "account_id": "dfdab1b96c7a2ebf50e3834b2f52db10",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-06-08",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets",
+  },
+
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "delivery-promotional-page-dev",
+    },
+  ],
+
+  "vars": {
+    "CF_ACCOUNT_ID": "dfdab1b96c7a2ebf50e3834b2f52db10",
+    "CF_KV_NAMESPACE_ID": "5e207665abf34238911929051e181426",
+    "CF_R2_ENDPOINT": "https://dfdab1b96c7a2ebf50e3834b2f52db10.r2.cloudflarestorage.com",
+  },
+
+  "observability": {
+    "enabled": true,
+  },
+}

@@ -1,14 +1,22 @@
-import { getToken, clearToken } from "./auth";
+import { getToken, clearToken, getCompany } from "./auth";
 import type {
+  BookingDetail,
+  BookingDetailResponse,
+  BookingsListResponse,
   Company,
-  DeliveryLandingPage,
-  DeliveryUrl,
+  CreateBookingResponse,
+  CustomFolder,
+  DeliveryLandingPageData,
   DlpUsage,
   EventType,
-  GetByIdResponse,
-  ListResponse,
+  GalleryPublishStatus,
+  SocialLinks,
+  GetMediaResponse,
   LoginResponse,
+  StyleVariant,
   TrackingType,
+  WatermarkPreset,
+  WatermarkPosition,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -35,6 +43,11 @@ async function request<T>(
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
+    // The API stamps a weak ETag on every response (Express default) but sends no
+    // Cache-Control, so the browser revalidates and the server replies 304 with an
+    // empty body — which this helper can't parse, leaving the UI without data.
+    // `no-store` skips the conditional cache so we always get a full 200 body.
+    cache: "no-store",
     ...rest,
     headers: finalHeaders,
   });
@@ -72,12 +85,13 @@ export type CompanyUpdateInput = {
   name?: string;
   address?: string;
   contact_number?: string;
+  business_email?: string;
   website?: string;
   gmb_link?: string;
-  instagram_link?: string;
-  facebook_link?: string;
+  social_links?: SocialLinks;
   google_place_id?: string;
   logo?: File | null;
+  logo_light?: File | null;
 };
 
 export function updateCompanyDetails(input: CompanyUpdateInput) {
@@ -85,16 +99,69 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   if (input.name !== undefined) fd.append("name", input.name);
   if (input.address !== undefined) fd.append("address", input.address);
   if (input.contact_number !== undefined) fd.append("contact_number", input.contact_number);
+  if (input.business_email !== undefined) fd.append("business_email", input.business_email);
   if (input.website !== undefined) fd.append("website", input.website);
   if (input.gmb_link !== undefined) fd.append("gmb_link", input.gmb_link);
-  if (input.instagram_link !== undefined) fd.append("instagram_link", input.instagram_link);
-  if (input.facebook_link !== undefined) fd.append("facebook_link", input.facebook_link);
+  if (input.social_links !== undefined) fd.append("social_links", JSON.stringify(input.social_links));
   if (input.google_place_id !== undefined) fd.append("google_place_id", input.google_place_id);
   if (input.logo) fd.append("logo", input.logo);
+  if (input.logo_light) fd.append("logo_light", input.logo_light);
   return request<{ company: Company }>("/onboarding/update-company-details", {
     method: "PUT",
     body: fd,
   });
+}
+
+/* ── watermark presets ─────────────────────────────────────────── */
+
+export type WatermarkPresetInput = {
+  image?: File | null;
+  name?: string;
+  opacity?: number;
+  position?: WatermarkPosition;
+  size?: number;
+  is_default?: boolean;
+};
+
+function watermarkFormData(input: WatermarkPresetInput): FormData {
+  const fd = new FormData();
+  if (input.image) fd.append("image", input.image);
+  if (input.name !== undefined) fd.append("name", input.name);
+  if (input.opacity !== undefined) fd.append("opacity", String(input.opacity));
+  if (input.position !== undefined) fd.append("position", input.position);
+  if (input.size !== undefined) fd.append("size", String(input.size));
+  if (input.is_default !== undefined) fd.append("is_default", String(input.is_default));
+  return fd;
+}
+
+export function getWatermarkPresets() {
+  return request<{ presets: WatermarkPreset[] }>("/deliverables/get-watermark-presets");
+}
+
+export function createWatermarkPreset(input: WatermarkPresetInput) {
+  return request<{ preset: WatermarkPreset }>("/deliverables/create-watermark-preset", {
+    method: "POST",
+    body: watermarkFormData(input),
+  });
+}
+
+export function updateWatermarkPreset(id: string, input: WatermarkPresetInput) {
+  return request<{ preset: WatermarkPreset }>(
+    `/deliverables/update-watermark-preset/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: watermarkFormData(input),
+    },
+  );
+}
+
+export function deleteWatermarkPreset(id: string) {
+  return request<{ message: string }>(
+    `/deliverables/delete-watermark-preset/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function checkResetLink(userId: string) {
@@ -121,72 +188,341 @@ export function login(email: string, password: string) {
   });
 }
 
-export type DeliveryFormInput = {
-  client_name?: string;
-  event_type?: EventType;
-  event_date?: number;
-  custom_message?: string;
-  delivery_urls?: DeliveryUrl[];
-  background_image?: File | null;
-};
-
-function buildFormData(input: DeliveryFormInput): FormData {
-  const fd = new FormData();
-  if (input.client_name !== undefined) fd.append("client_name", input.client_name);
-  if (input.event_type !== undefined) fd.append("event_type", input.event_type);
-  if (input.event_date !== undefined)
-    fd.append("event_date", String(input.event_date));
-  if (input.custom_message !== undefined)
-    fd.append("custom_message", input.custom_message);
-  if (input.delivery_urls !== undefined)
-    fd.append("delivery_urls", JSON.stringify(input.delivery_urls));
-  if (input.background_image) fd.append("background_image", input.background_image);
-  return fd;
+export function getDlpUsage() {
+  return request<DlpUsage>("/deliverables/get-dlp-usage");
 }
 
-export function createDeliveryPage(input: DeliveryFormInput) {
-  return request<{ deliveryLandingPage: DeliveryLandingPage }>(
-    "/deliverables/create-delivery-landing-page",
-    {
-      method: "POST",
-      body: buildFormData(input),
-    },
-  );
-}
+/* ── Bookings / events ─────────────────────────────────────────── */
 
-export function updateDeliveryPage(id: string, input: DeliveryFormInput) {
-  return request<{ deliveryLandingPage: DeliveryLandingPage }>(
-    `/deliverables/update-delivery-landing-page/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      body: buildFormData(input),
-    },
-  );
-}
+/**
+ * Service slug for the bookings endpoints. The backend requires one of
+ * "CRM" | "DH"; this app is the Delivery Hub, so we always send "DH".
+ */
+export const BOOKING_SERVICE = "DH";
 
-export function listDeliveryPages(params: {
+/** GET /bookings/get-all-bookings?page=&limit=&search=&service= */
+export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
+  status?: GalleryPublishStatus | "all";
 }) {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
   if (params.limit) sp.set("limit", String(params.limit));
   if (params.search) sp.set("search", params.search);
-  const qs = sp.toString();
-  return request<ListResponse>(
-    `/deliverables/get-all-delivery-landing-pages${qs ? `?${qs}` : ""}`,
+  if (params.status) sp.set("status", params.status);
+  sp.set("service", BOOKING_SERVICE);
+  return request<BookingsListResponse>(
+    `/bookings/get-all-bookings?${sp.toString()}`,
   );
 }
 
-export function getDeliveryPageById(id: string) {
-  return request<GetByIdResponse>(
-    `/deliverables/get-delivery-landing-page-by-id/${encodeURIComponent(id)}`,
+/** GET /bookings/get-booking-by-id/:booking_id/:service */
+export function getBookingById(bookingId: string, service: string = BOOKING_SERVICE) {
+  return request<BookingDetailResponse>(
+    `/bookings/get-booking-by-id/${encodeURIComponent(bookingId)}/${encodeURIComponent(service)}`,
   );
 }
 
-export function getDlpUsage() {
-  return request<DlpUsage>("/deliverables/get-dlp-usage");
+/**
+ * PUT /bookings/update-booking/:booking_id
+ *
+ * The backend updates the event row with `start_date: Number(event_date)`
+ * unconditionally, so callers that touch the landing-page fields (cover /
+ * gallery design) must also pass the *current* `event_type` and `event_date`
+ * to avoid clobbering them — see `EventWorkspace`'s `persistBooking` helper.
+ */
+export type UpdateBookingInput = {
+  event_name?: string;
+  event_type?: EventType | string;
+  /** Numeric epoch (ms). */
+  event_date?: number;
+  background_image?: string;
+  /** Cover focal point as CSS object-position, e.g. "50% 35%". */
+  background_position?: string;
+  custom_message?: string;
+  style_variant?: StyleVariant | string;
+  include_company_branding?: boolean;
+  /**
+   * Guest teams / sub-types. Persisted onto the delivery-landing-page (the API
+   * name is misleading). The backend ignores empty arrays, so this can add or
+   * change teams but cannot clear them to `[]`.
+   */
+  guest_types?: string[];
+};
+export function updateBooking(bookingId: string, body: UpdateBookingInput) {
+  return request<{ booking: BookingDetail }>(
+    `/bookings/update-booking/${encodeURIComponent(bookingId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function createBooking(body: {
+  event_name: string;
+  event_type: EventType | string;
+  /** Optional numeric epoch (ms). Omit the field entirely when unset. */
+  event_date?: number;
+}) {
+  // Always create under the Delivery Hub service so the booking's
+  // creation_source matches the "DH" filter used by getAllBookings/getBookingById.
+  return request<CreateBookingResponse>("/bookings/create-booking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, service: BOOKING_SERVICE }),
+  });
+}
+
+export function createCustomFolder(bookingId: string, name: string) {
+  return request<{ message: string; custom_folder_id: string }>(
+    `/deliverables/create-custom-folder/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export function updateCustomFolder(customFolderId: string, name: string) {
+  return request<{ message: string; customFolder: CustomFolder }>(
+    `/deliverables/update-custom-folder/${encodeURIComponent(customFolderId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+/**
+ * Batch metadata save. Backend persists ALL media for the event in one call.
+ * On failure, the caller (engine) keeps the in-memory results and offers a
+ * retry — the IndexedDB-backed state means a crash/refresh doesn't lose them.
+ */
+export type MediaMetadataItem = {
+  url: string;
+  type: "image" | "video";
+  custom_folder_id: string;
+  media_id: string;
+};
+/**
+ * Persist a batch of media. When new media is uploaded to an already-published
+ * gallery, pass `media_out_of_sync: true` + `unsynced_media_count` (the size of
+ * this chunk) — the backend increments the booking's unsynced count and flags it
+ * so the workspace can prompt a Republish on return.
+ */
+export function createMediaBatch(
+  bookingId: string,
+  media_metadata: MediaMetadataItem[],
+  outOfSync?: { media_out_of_sync: boolean; unsynced_media_count: number },
+) {
+  return request<{ message: string }>(
+    `/deliverables/create-media/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_metadata, ...(outOfSync ?? {}) }),
+    },
+  );
+}
+
+/** Request a batch of presigned PUT URLs for direct browser → R2 upload. */
+// TODO(backend): remove custom_folder_id from R2 key path. We still send
+// custom_folder_id below because the backend uses it for DB association
+// (Media.custom_folder_ids), but it must no longer be a segment of the R2
+// object key — the storage path should be
+// vyavasth/companies/{company_id}/event-media/{booking_id}/{media_id}.jpeg
+export type PresignRequest = {
+  filename: string;
+  content_type?: string;
+  custom_folder_id?: string;
+};
+export type PresignedUpload = {
+  key: string;
+  presigned_url: string;
+  public_url: string;
+  content_type: string;
+  filename: string;
+  custom_folder_id: string;
+};
+export function presignUploads(bookingId: string, files: PresignRequest[]) {
+  return request<{ uploads: PresignedUpload[] }>(
+    `/deliverables/presign-uploads/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files }),
+    },
+  );
+}
+
+/**
+ * GET /deliverables/get-media/:booking_id — paginated, newest-first. The grid
+ * loads `limit` items per page (default 100 server-side) and requests the next
+ * page with `skip` as the user scrolls to the end. The first page (skip 0) also
+ * returns `customFolders`, `total`, `totalCount` and `folderCounts`; later pages
+ * return only `media`.
+ */
+export function getMedia(
+  bookingId: string,
+  opts?: { customFolderId?: string; skip?: number; limit?: number },
+) {
+  const params = new URLSearchParams();
+  if (opts?.customFolderId) params.set("custom_folder_id", opts.customFolderId);
+  if (opts?.skip != null) params.set("skip", String(opts.skip));
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return request<GetMediaResponse>(
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/**
+ * DELETE /deliverables/delete-media — body `{ media_ids }`. Deletes the R2
+ * objects and the DB rows in one call. Used for both single-image delete
+ * (array of one) and multi-select delete. `media_ids` are Media `_id`s — never
+ * pass optimistic placeholder ids (e.g. `optimistic-*`).
+ */
+export function deleteMedia(mediaIds: string[]) {
+  return request<{ message: string }>("/deliverables/delete-media", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ media_ids: mediaIds }),
+  });
+}
+
+/**
+ * POST /deliverables/publish-gallery/:booking_id — kicks off the GPU-expensive
+ * face-embedding batch job and sets `embedding_status="in_progress"`. Publish
+ * actually flips `gallery_publish_status` to "published" only when the job
+ * finishes. Used for both Publish and Republish from the top-right LivePill.
+ */
+export function publishGallery(bookingId: string) {
+  return request<{ message: string }>(
+    `/deliverables/publish-gallery/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+/**
+ * POST /deliverables/update-gallery-activation-status/:booking_id — temporarily
+ * deactivate (is_active=false) or reactivate (is_active=true) a published
+ * gallery. Distinct from publish/republish: it does not re-run embeddings.
+ */
+export function updateGalleryActivationStatus(bookingId: string, isActive: boolean) {
+  return request<{ message: string }>(
+    `/deliverables/update-gallery-activation-status/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: isActive }),
+    },
+  );
+}
+
+/**
+ * POST /deliverables/regenerate-family-passcode/:booking_id — mints a fresh
+ * 6-digit family passcode for the event's delivery-landing-page and returns it.
+ * Regenerating invalidates any passcode already shared with the family.
+ */
+export function regenerateFamilyPasscode(bookingId: string) {
+  return request<{ message: string; family_passcode: string }>(
+    `/deliverables/regenerate-family-passcode/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+/**
+ * PUT a blob to a presigned R2 URL. The presigned URL is short-lived and
+ * carries SigV4 auth in the querystring; the browser just executes the PUT
+ * and R2 stores the object.
+ *
+ * Throws `R2PutError` (with `.status`) for HTTP failures so the engine's
+ * retry classifier can tell retryable (5xx/network) from terminal (4xx).
+ */
+export class R2PutError extends Error {
+  status: number;
+  body?: string;
+  constructor(status: number, message: string, body?: string) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+export async function putBlobToPresignedUrl(
+  presignedUrl: string,
+  blob: Blob,
+  contentType: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  // ContentType MUST match what the URL was signed with — otherwise R2
+  // returns SignatureDoesNotMatch. The presign endpoint defaults to
+  // image/jpeg; if you change that there, change it here too.
+  const res = await fetch(presignedUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: blob,
+    signal,
+  });
+  if (!res.ok) {
+    // Surface R2's XML error body — it's how we'll diagnose CORS /
+    // signature / bucket-policy issues during integration.
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new R2PutError(
+      res.status,
+      `R2 PUT failed: ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 240)}` : ""}`,
+      body,
+    );
+  }
+}
+
+/** Read the cached company id once — used for upload UI display only. */
+export function getCachedCompanyId(): string | null {
+  return getCompany()?._id ?? null;
+}
+
+/* ── Guest-facing client gallery ───────────────────────────────── */
+
+/**
+ * GET /deliverables/get-delivery-landing-page-by-unique-identifier/:unique_identifier
+ * Public (no auth) — the guest gallery's first data fetch. A 400 means the slug
+ * doesn't resolve → render not-found.
+ */
+export function getDeliveryLandingPageByUniqueIdentifier(uniqueIdentifier: string) {
+  return request<{ deliveryLandingPage: DeliveryLandingPageData }>(
+    `/deliverables/get-delivery-landing-page-by-unique-identifier/${encodeURIComponent(uniqueIdentifier)}`,
+    { auth: false },
+  );
+}
+
+/**
+ * POST /auth/google/guest-refresh — silently re-mint a guest JWT from an expired
+ * one. Returns the fresh token; rejects (401) when refresh isn't possible, so
+ * the caller falls back to the full Google sign-in.
+ */
+export function refreshGuestToken(token: string) {
+  return request<{ token: string }>("/auth/google/guest-refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+    auth: false,
+  });
 }
 
 /**

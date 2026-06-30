@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* Modern browsers no longer default <button> to a pointer cursor; restore it
+   for all interactive controls so hovers feel clickable. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label[for],
+summary,
+a[href] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 :root {
   --background: #FAFAF8;
   --foreground: #2A2218;
@@ -30,6 +43,7 @@
 
   /* Surfaces */
   --color-brand-surface: #EDE3D3;
+  --color-brand-surface-raised: #FFFFFF; /* white card fill (event cards) */
   --color-brand-bg: #FAFAF8;
 
   /* Borders */
@@ -104,6 +118,14 @@ body {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@keyframes popup-pop {
+  0% { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes toast-rise {
+  0% { opacity: 0; transform: translateY(-12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 
 .dash-rise {
   animation: dash-rise 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
@@ -129,6 +151,12 @@ body {
 .drawer-fade {
   animation: drawer-fade 0.25s ease-out both;
 }
+.popup-pop {
+  animation: popup-pop 0.18s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.toast-rise {
+  animation: toast-rise 0.22s ease-out both;
+}
 
 .skeleton {
   background: linear-gradient(
@@ -149,3 +177,199 @@ body {
     0 0 0 3px rgba(194, 90, 58, 0.18),
     0 0 0 1px #C25A3A inset;
 }
+
+/* ---------------------------------------------------------------- */
+/* Upload loader animations                                         */
+/* ---------------------------------------------------------------- */
+
+@keyframes brand-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes brand-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+}
+@keyframes brand-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@keyframes brand-row-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.brand-spin    { animation: brand-spin 30s linear infinite; }
+.brand-pulse   { animation: brand-pulse 2.6s ease-in-out infinite; }
+.brand-blink   { animation: brand-blink 1.4s ease-in-out infinite; }
+.brand-row-spin { animation: brand-row-spin 0.9s linear infinite; }
+
+/* ---------------------------------------------------------------- */
+/* Publish (LivePill) pulse rings                                   */
+/* ---------------------------------------------------------------- */
+
+@keyframes livePillPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(194, 90, 58, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(194, 90, 58, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(194, 90, 58, 0); }
+}
+@keyframes livePillPulseAmber {
+  0%   { box-shadow: 0 0 0 0 rgba(180, 83, 9, 0.40); }
+  70%  { box-shadow: 0 0 0 8px rgba(180, 83, 9, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(180, 83, 9, 0); }
+}
+.live-pill-pulse       { animation: livePillPulse 2.2s ease-in-out infinite; }
+.live-pill-pulse-amber { animation: livePillPulseAmber 2.6s ease-in-out infinite; }
+
+/* ---------------------------------------------------------------- */
+/* Guest face-scan laser sweep                                      */
+/* ---------------------------------------------------------------- */
+
+@keyframes scanLaser {
+  0%   { transform: translateY(0);     opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateY(300px); opacity: 0; }
+}
+.scan-laser { animation: scanLaser 1.9s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .scan-laser { animation: none; opacity: 0.6; }
+}
+
+/* ---------------------------------------------------------------- */
+/* Passcode — shake on wrong entry                                  */
+/* ---------------------------------------------------------------- */
+
+@keyframes guestShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+.guest-shake { animation: guestShake 0.5s ease-in-out; }
+
+/* ---------------------------------------------------------------- */
+/* Client gallery — lounge + grid polish                            */
+/* ---------------------------------------------------------------- */
+
+@keyframes lounge-rise {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes tile-in {
+  0%   { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes hero-kenburns {
+  0%   { transform: scale(1); }
+  100% { transform: scale(1.09); }
+}
+@keyframes hero-text {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes cta-shine {
+  0%   { transform: translateX(-160%) skewX(-12deg); }
+  100% { transform: translateX(320%) skewX(-12deg); }
+}
+
+.lounge-rise   { animation: lounge-rise 0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.tile-in       { animation: tile-in 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.hero-kenburns { animation: hero-kenburns 16s ease-in-out infinite alternate; }
+.hero-text     { animation: hero-text 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+/* Card hover lift — pairs with the inline box-shadow tokens. */
+.lounge-card { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.28s ease; }
+.lounge-card:hover { transform: translateY(-3px); }
+
+/* Primary CTA sheen — sweeps once on hover. */
+.cta-shine { position: relative; overflow: hidden; }
+.cta-shine::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 36%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: translateX(-160%) skewX(-12deg);
+  pointer-events: none;
+}
+.cta-shine:hover::after { animation: cta-shine 0.85s ease; }
+
+/* ---------------------------------------------------------------- */
+/* Guest flow — shared motion language (loader → login → scan →      */
+/* team → lounge). Additive polish; layout/structure unchanged.     */
+/* ---------------------------------------------------------------- */
+
+@keyframes fx-rise {
+  0%   { opacity: 0; transform: translateY(18px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes fx-blur-in {
+  0%   { opacity: 0; transform: translateY(10px); filter: blur(8px); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes fx-pop {
+  0%   { opacity: 0; transform: scale(0.8); }
+  60%  { transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes fx-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
+}
+@keyframes fx-ring-ping {
+  0%        { transform: scale(0.82); opacity: 0.55; }
+  80%, 100% { transform: scale(1.75); opacity: 0; }
+}
+@keyframes fx-glow-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.06); }
+}
+@keyframes fx-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fx-aurora-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(8%, 6%) scale(1.12); }
+  100% { transform: translate(-4%, 3%) scale(1.05); }
+}
+@keyframes fx-aurora-2 {
+  0%   { transform: translate(0, 0) scale(1.05); }
+  50%  { transform: translate(-7%, -5%) scale(1); }
+  100% { transform: translate(5%, -3%) scale(1.1); }
+}
+@keyframes fx-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1; transform: translateY(-2px); }
+}
+
+.fx-rise       { animation: fx-rise 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.fx-blur-in    { animation: fx-blur-in 0.75s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.fx-pop        { animation: fx-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.fx-float      { animation: fx-float 4.5s ease-in-out infinite; }
+.fx-glow-pulse { animation: fx-glow-pulse 3.4s ease-in-out infinite; }
+.fx-spin-slow  { animation: fx-spin 14s linear infinite; }
+
+/* Expanding halo — place absolutely behind a badge/avatar. */
+.fx-ring-ping  { animation: fx-ring-ping 2.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+/* Staggered entrance for a list/column of direct children. */
+.fx-stagger > * { animation: fx-rise 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.fx-stagger > *:nth-child(1) { animation-delay: 0.06s; }
+.fx-stagger > *:nth-child(2) { animation-delay: 0.13s; }
+.fx-stagger > *:nth-child(3) { animation-delay: 0.20s; }
+.fx-stagger > *:nth-child(4) { animation-delay: 0.27s; }
+.fx-stagger > *:nth-child(5) { animation-delay: 0.34s; }
+.fx-stagger > *:nth-child(6) { animation-delay: 0.41s; }
+.fx-stagger > *:nth-child(7) { animation-delay: 0.48s; }
+.fx-stagger > *:nth-child(8) { animation-delay: 0.55s; }
+
+/* Ambient drifting blobs (themed inline). */
+.fx-aurora-1 { animation: fx-aurora-1 22s ease-in-out infinite alternate; }
+.fx-aurora-2 { animation: fx-aurora-2 26s ease-in-out infinite alternate; }
+
+/* Processing "…" dots. */
+.fx-dots > span { animation: fx-dot 1.4s ease-in-out infinite; }
+.fx-dots > span:nth-child(2) { animation-delay: 0.18s; }
+.fx-dots > span:nth-child(3) { animation-delay: 0.36s; }

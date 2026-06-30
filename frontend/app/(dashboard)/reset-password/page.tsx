@@ -4,7 +4,6 @@ import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { checkResetLink, resetPassword } from "@/lib/api";
 import { setToken } from "@/lib/auth";
-import { Logo } from "@/components/ui/Logo";
 
 export default function ResetPasswordPage() {
   return (
@@ -85,7 +84,7 @@ function BrandPanel() {
       </div>
 
       <div className="relative dash-rise">
-        <Logo size={80} withWordmark onDark />
+        <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={80} style={{ filter: "brightness(0) invert(1)" }} />
       </div>
 
       <div className="relative space-y-6 text-white">
@@ -213,7 +212,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
       <div className="w-full max-w-md dash-rise">
         {/* Mobile-only brand */}
         <div className="mb-10 flex flex-col items-center gap-3 lg:hidden">
-          <Logo size={80} withWordmark />
+          <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={80} />
         </div>
 
         <div className="rounded-2xl border border-[var(--color-brand-border)] bg-white p-8 shadow-[0_24px_60px_-30px_rgba(15,45,92,0.25)] sm:p-10">
