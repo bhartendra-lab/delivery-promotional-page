@@ -114,6 +114,12 @@ export function EventFlow() {
         setSession(null);
         setStep("login");
       }}
+      onRescan={() => setStep("scan")}
+      onSignOut={() => {
+        clearGuestToken(uniqueIdentifier);
+        setSession(null);
+        setStep("login");
+      }}
     />
   );
 }

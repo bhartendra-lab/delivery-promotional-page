@@ -1,11 +1,11 @@
 # Graph Report - /Users/abhishekagarwal/Documents/delivery-promotional-page  (2026-06-30)
 
 ## Corpus Check
-- 91 files · ~152,409 words
+- 92 files · ~153,290 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 425 nodes · 619 edges · 68 communities detected
+- 427 nodes · 620 edges · 69 communities detected
 - Extraction: 84% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 102 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -78,6 +78,7 @@
 - [[_COMMUNITY_Community 65|Community 65]]
 - [[_COMMUNITY_Community 66|Community 66]]
 - [[_COMMUNITY_Community 67|Community 67]]
+- [[_COMMUNITY_Community 68|Community 68]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `UploadEngineCore` - 40 edges
@@ -106,8 +107,8 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.09
-Nodes (12): formatEta(), sleep(), UploadEngineCore, backoffMs(), sleep(), withRetry(), GET(), safeName() (+4 more)
+Cohesion: 0.11
+Nodes (11): sleep(), UploadEngineCore, backoffMs(), sleep(), withRetry(), GET(), safeName(), makeFingerprint() (+3 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.07
@@ -134,16 +135,16 @@ Cohesion: 0.16
 Nodes (10): getCachedCompanyId(), clearCompany(), clearToken(), emitCompanyChange(), getCompany(), getToken(), isAuthenticated(), setCompany() (+2 more)
 
 ### Community 7 - "Community 7"
+Cohesion: 0.19
+Nodes (11): formatEta(), listResumableRecords(), clearBooking(), getRecord(), listByBooking(), listByBookingAndStatus(), openDb(), putRecord() (+3 more)
+
+### Community 8 - "Community 8"
 Cohesion: 0.17
 Nodes (6): OnlinePresencePage(), StudioIdentityPage(), StudioLogoPage(), useSectionSave(), useSettings(), changed()
 
-### Community 8 - "Community 8"
+### Community 9 - "Community 9"
 Cohesion: 0.26
 Nodes (5): blobToDataUrl(), CompressorPool, compressWithExif(), dataUrlToBlob(), fileToDataUrl()
-
-### Community 9 - "Community 9"
-Cohesion: 0.29
-Nodes (10): listResumableRecords(), clearBooking(), getRecord(), listByBooking(), listByBookingAndStatus(), openDb(), putRecord(), putRecords() (+2 more)
 
 ### Community 10 - "Community 10"
 Cohesion: 0.25
@@ -377,6 +378,10 @@ Nodes (0):
 Cohesion: 1.0
 Nodes (0): 
 
+### Community 68 - "Community 68"
+Cohesion: 1.0
+Nodes (0): 
+
 ## Knowledge Gaps
 - **Thin community `Community 28`** (2 nodes): `RootLayout()`, `layout.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -424,50 +429,52 @@ Nodes (0):
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 50`** (2 nodes): `signIn()`, `LoginScreen.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 51`** (2 nodes): `PolicyProvider()`, `PolicyContext.tsx`
+- **Thin community `Community 51`** (2 nodes): `onKey()`, `ProfileSheet.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 52`** (2 nodes): `onKey()`, `PolicyOverlay.tsx`
+- **Thin community `Community 52`** (2 nodes): `PolicyProvider()`, `PolicyContext.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 53`** (1 nodes): `open-next.config.ts`
+- **Thin community `Community 53`** (2 nodes): `onKey()`, `PolicyOverlay.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 54`** (1 nodes): `postcss.config.mjs`
+- **Thin community `Community 54`** (1 nodes): `open-next.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 55`** (1 nodes): `next-env.d.ts`
+- **Thin community `Community 55`** (1 nodes): `postcss.config.mjs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 56`** (1 nodes): `eslint.config.mjs`
+- **Thin community `Community 56`** (1 nodes): `next-env.d.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 57`** (1 nodes): `next.config.ts`
+- **Thin community `Community 57`** (1 nodes): `eslint.config.mjs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 58`** (1 nodes): `UploadProgress.tsx`
+- **Thin community `Community 58`** (1 nodes): `next.config.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 59`** (1 nodes): `EventTabStrip.tsx`
+- **Thin community `Community 59`** (1 nodes): `UploadProgress.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 60`** (1 nodes): `Pagination.tsx`
+- **Thin community `Community 60`** (1 nodes): `EventTabStrip.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 61`** (1 nodes): `DlpUsageCard.tsx`
+- **Thin community `Community 61`** (1 nodes): `Pagination.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 62`** (1 nodes): `Topbar.tsx`
+- **Thin community `Community 62`** (1 nodes): `DlpUsageCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 63`** (1 nodes): `AmbientBackdrop.tsx`
+- **Thin community `Community 63`** (1 nodes): `Topbar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 64`** (1 nodes): `types.ts`
+- **Thin community `Community 64`** (1 nodes): `AmbientBackdrop.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 65`** (1 nodes): `piexif-shim.d.ts`
+- **Thin community `Community 65`** (1 nodes): `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 66`** (1 nodes): `errors.ts`
+- **Thin community `Community 66`** (1 nodes): `piexif-shim.d.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 67`** (1 nodes): `types.ts`
+- **Thin community `Community 67`** (1 nodes): `errors.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 68`** (1 nodes): `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `UploadEngineCore` connect `Community 0` to `Community 3`?**
-  _High betweenness centrality (0.089) - this node is a cross-community bridge._
+- **Why does `UploadEngineCore` connect `Community 0` to `Community 3`, `Community 7`?**
+  _High betweenness centrality (0.088) - this node is a cross-community bridge._
 - **Why does `remove()` connect `Community 4` to `Community 3`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
 - **Why does `add()` connect `Community 3` to `Community 0`?**
-  _High betweenness centrality (0.058) - this node is a cross-community bridge._
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `request()` (e.g. with `getToken()` and `clearToken()`) actually correct?**
   _`request()` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 17 inferred relationships involving `GET()` (e.g. with `groupByFirstSubfolder()` and `reportBug()`) actually correct?**
@@ -475,4 +482,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **Are the 3 inferred relationships involving `guestFetch()` (e.g. with `ensureGuestToken()` and `.run()`) actually correct?**
   _`guestFetch()` has 3 INFERRED edges - model-reasoned connections that need verification._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.09 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11 - nodes in this community are weakly interconnected._

@@ -208,7 +208,7 @@ export function ScanFlow({
           >
             <Checkbox checked={agreed} />
             <span className="text-[12.5px] font-semibold leading-[1.45]" style={{ color: t.text }}>
-              I agree to let Vyavasth scan my selfie to match my face to these photos.
+              I agree to let Vyavasth use my selfie to match my face to these photos and keep it on my gallery profile.
             </span>
           </button>
 
@@ -327,7 +327,7 @@ export function ScanFlow({
         </div>
         <div className="flex items-center justify-center gap-2 px-7 pb-2" style={{ color: t.faint }}>
           <LockIcon size={13} />
-          <span className="text-center text-[12px] font-semibold">Your selfie is used only to match faces, then discarded.</span>
+          <span className="text-center text-[12px] font-semibold">Your selfie is saved to your gallery profile to match your photos — rescan anytime.</span>
         </div>
         <PoweredBy />
       </Shell>
