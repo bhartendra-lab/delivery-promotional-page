@@ -9,10 +9,13 @@ import type {
   DeliveryLandingPageData,
   DlpUsage,
   EventType,
+  SocialLinks,
   GetMediaResponse,
   LoginResponse,
   StyleVariant,
   TrackingType,
+  WatermarkPreset,
+  WatermarkPosition,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -76,12 +79,13 @@ export type CompanyUpdateInput = {
   name?: string;
   address?: string;
   contact_number?: string;
+  business_email?: string;
   website?: string;
   gmb_link?: string;
-  instagram_link?: string;
-  facebook_link?: string;
+  social_links?: SocialLinks;
   google_place_id?: string;
   logo?: File | null;
+  logo_light?: File | null;
 };
 
 export function updateCompanyDetails(input: CompanyUpdateInput) {
@@ -89,15 +93,62 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   if (input.name !== undefined) fd.append("name", input.name);
   if (input.address !== undefined) fd.append("address", input.address);
   if (input.contact_number !== undefined) fd.append("contact_number", input.contact_number);
+  if (input.business_email !== undefined) fd.append("business_email", input.business_email);
   if (input.website !== undefined) fd.append("website", input.website);
   if (input.gmb_link !== undefined) fd.append("gmb_link", input.gmb_link);
-  if (input.instagram_link !== undefined) fd.append("instagram_link", input.instagram_link);
-  if (input.facebook_link !== undefined) fd.append("facebook_link", input.facebook_link);
+  if (input.social_links !== undefined) fd.append("social_links", JSON.stringify(input.social_links));
   if (input.google_place_id !== undefined) fd.append("google_place_id", input.google_place_id);
   if (input.logo) fd.append("logo", input.logo);
+  if (input.logo_light) fd.append("logo_light", input.logo_light);
   return request<{ company: Company }>("/onboarding/update-company-details", {
     method: "PUT",
     body: fd,
+  });
+}
+
+/* ── watermark presets ─────────────────────────────────────────── */
+
+export type WatermarkPresetInput = {
+  image?: File | null;
+  name?: string;
+  opacity?: number;
+  position?: WatermarkPosition;
+  size?: number;
+  is_default?: boolean;
+};
+
+function watermarkFormData(input: WatermarkPresetInput): FormData {
+  const fd = new FormData();
+  if (input.image) fd.append("image", input.image);
+  if (input.name !== undefined) fd.append("name", input.name);
+  if (input.opacity !== undefined) fd.append("opacity", String(input.opacity));
+  if (input.position !== undefined) fd.append("position", input.position);
+  if (input.size !== undefined) fd.append("size", String(input.size));
+  if (input.is_default !== undefined) fd.append("is_default", String(input.is_default));
+  return fd;
+}
+
+export function getWatermarkPresets() {
+  return request<{ presets: WatermarkPreset[] }>("/watermarks");
+}
+
+export function createWatermarkPreset(input: WatermarkPresetInput) {
+  return request<{ preset: WatermarkPreset }>("/watermarks", {
+    method: "POST",
+    body: watermarkFormData(input),
+  });
+}
+
+export function updateWatermarkPreset(id: string, input: WatermarkPresetInput) {
+  return request<{ preset: WatermarkPreset }>(`/watermarks/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: watermarkFormData(input),
+  });
+}
+
+export function deleteWatermarkPreset(id: string) {
+  return request<{ message: string }>(`/watermarks/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 

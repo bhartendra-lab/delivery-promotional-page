@@ -566,9 +566,10 @@ function LoungeHome({
               <div className="lounge-rise lounge-card flex flex-col gap-3.5 rounded-2xl p-4 pl-3.5" style={{ background: t.card, boxShadow: t.shadowSm, borderLeft: `4px solid ${t.brand}`, animationDelay: "0.12s" }}>
                 <div className="flex items-center gap-3">
                   <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl" style={{ background: t.ink, color: t.brand }}>
-                    {event.company_logo ? (
+                    {event.company_logo_light || event.company_logo ? (
+                      // Avatar sits on a dark chip (t.ink), so prefer the light logo.
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={event.company_logo} alt="" className="h-full w-full object-cover" />
+                      <img src={event.company_logo_light || event.company_logo} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-[13px] font-extrabold">{initials(event.company_name ?? "")}</span>
                     )}
@@ -635,9 +636,14 @@ function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
 }
 
 function SocialRow({ event, t }: { event: ReturnType<typeof useEventTheme>["event"]; t: Theme }) {
+  const sl = event.company_social_links ?? {};
   const links = [
-    event.company_instagram_link && { label: "Instagram", url: ensureHttp(event.company_instagram_link) },
-    event.company_facebook_link && { label: "Facebook", url: ensureHttp(event.company_facebook_link) },
+    (sl.instagram ?? event.company_instagram_link) && { label: "Instagram", url: ensureHttp(sl.instagram ?? event.company_instagram_link ?? "") },
+    (sl.facebook ?? event.company_facebook_link) && { label: "Facebook", url: ensureHttp(sl.facebook ?? event.company_facebook_link ?? "") },
+    sl.youtube && { label: "YouTube", url: ensureHttp(sl.youtube) },
+    sl.vimeo && { label: "Vimeo", url: ensureHttp(sl.vimeo) },
+    sl.linkedin && { label: "LinkedIn", url: ensureHttp(sl.linkedin) },
+    sl.x && { label: "X", url: ensureHttp(sl.x) },
   ].filter(Boolean) as { label: string; url: string }[];
   if (links.length === 0) return null;
   return (

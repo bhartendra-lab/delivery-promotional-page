@@ -83,10 +83,9 @@ function deriveBreadcrumb(pathname: string): Breadcrumb {
     return items;
   }
   if (pathname.startsWith("/dashboard/settings")) {
-    return [
-      { label: "Dashboard", href: "/dashboard" },
-      { label: "Settings" },
-    ];
+    // The settings layout overrides this via usePageBreadcrumb (adding the
+    // active section); this is just the pre-hydration fallback.
+    return [{ label: "Settings" }];
   }
   return [{ label: "Dashboard", href: "/dashboard" }];
 }

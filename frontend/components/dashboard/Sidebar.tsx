@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { clearToken, clearCompany, getCompany } from "@/lib/auth";
-import type { Company, DlpUsage } from "@/lib/types";
+import { clearToken, clearCompany, useCompany } from "@/lib/auth";
+import type { DlpUsage } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
 
 const SIDEBAR_W_EXPANDED = 240;
 const SIDEBAR_W_COLLAPSED = 88;
 const LS_COLLAPSED = "sidebar_collapsed";
+const COLLAPSE_EVENT = "sidebar:collapsed-change";
 
 type NavItem = { id: string; label: string; href: string; Icon: React.FC<{ size?: number; className?: string }> };
 
@@ -31,11 +32,7 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const { dlpUsage, dlpLoading } = useChrome();
-  const [company, setCompany] = useState<Company | null>(null);
-
-  useEffect(() => {
-    setCompany(getCompany());
-  }, []);
+  const company = useCompany();
 
   const activeId =
     NAV_ITEMS.slice()
@@ -210,26 +207,35 @@ export function Sidebar({
   );
 }
 
+function getCollapsedSnapshot(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(LS_COLLAPSED) === "1";
+}
+
+function subscribeCollapsed(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  // `storage` covers other tabs; the custom event covers same-tab toggles.
+  window.addEventListener("storage", onChange);
+  window.addEventListener(COLLAPSE_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(COLLAPSE_EVENT, onChange);
+  };
+}
+
 export function useSidebarCollapsed(): [boolean, (next: boolean) => void] {
-  const [collapsed, setCollapsedState] = useState(false);
+  // Read straight from the store (server snapshot is `false`) so the value is
+  // correct during render rather than corrected by an effect after paint.
+  const collapsed = useSyncExternalStore(subscribeCollapsed, getCollapsedSnapshot, () => false);
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(LS_COLLAPSED);
-      if (stored === "1") setCollapsedState(true);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const setCollapsed = (next: boolean) => {
-    setCollapsedState(next);
+  const setCollapsed = useCallback((next: boolean) => {
     try {
       localStorage.setItem(LS_COLLAPSED, next ? "1" : "0");
     } catch {
       // ignore
     }
-  };
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(COLLAPSE_EVENT));
+  }, []);
 
   return [collapsed, setCollapsed];
 }

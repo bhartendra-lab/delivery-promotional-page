@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { getCompany } from "@/lib/auth";
+import { useCompany } from "@/lib/auth";
 import { useChrome } from "./ChromeContext";
 import { ActiveUploadsIndicator } from "./ActiveUploadsIndicator";
 
@@ -15,17 +14,12 @@ export type Breadcrumb = {
 export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const pathname = usePathname();
   const { topbarExtra } = useChrome();
-  const [initials, setInitials] = useState("S");
-  const [companyName, setCompanyName] = useState("Studio");
-
-  useEffect(() => {
-    const c = getCompany();
-    if (!c) return;
-    setCompanyName(c.name ?? "Studio");
-    const first = c.name?.[0]?.toUpperCase() ?? "S";
-    const second = c.name?.split(" ")[1]?.[0]?.toUpperCase() ?? "";
-    setInitials(first + second);
-  }, []);
+  const company = useCompany();
+  const companyName = company?.name ?? "Studio";
+  const initials = (
+    (company?.name?.[0]?.toUpperCase() ?? "S") +
+    (company?.name?.split(" ")[1]?.[0]?.toUpperCase() ?? "")
+  ).slice(0, 2);
 
   const dashActive = pathname === "/dashboard";
   const eventsActive = pathname.startsWith("/dashboard/events");
@@ -66,7 +60,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && <IconCaretRight size={12} />}
             {crumb.href ? (
-              <a
+              <Link
                 href={crumb.href}
                 className={
                   i === breadcrumb.length - 1
@@ -75,7 +69,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
                 }
               >
                 {crumb.label}
-              </a>
+              </Link>
             ) : (
               <span
                 className={
@@ -118,7 +112,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         <span className="mx-1 h-[18px] w-px bg-[var(--color-brand-border)]" aria-hidden />
         <div className="flex items-center gap-2 p-1">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-brand-ink)] text-[11px] font-bold text-white">
-            {initials.slice(0, 2)}
+            {initials}
           </span>
           <span className="hidden text-[13px] font-semibold text-[var(--color-brand-ink)] sm:inline">
             {companyName}

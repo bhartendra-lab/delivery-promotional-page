@@ -91,16 +91,57 @@ export type TrackingCounts = {
   review?: number;
 };
 
+export type SocialLinks = {
+  instagram?: string;
+  facebook?: string;
+  youtube?: string;
+  vimeo?: string;
+  linkedin?: string;
+  x?: string;
+};
+
+export type WatermarkPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "middle-left"
+  | "center"
+  | "middle-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export type WatermarkPreset = {
+  _id: string;
+  company_id: string;
+  name?: string;
+  image_url?: string;
+  /** Opacity percentage (0–100). */
+  opacity: number;
+  position: WatermarkPosition;
+  /** Width as a percentage of the media's width (1–100). */
+  size: number;
+  is_default: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Company = {
   _id: string;
   name: string;
   address?: string;
   contact_number?: string;
+  business_email?: string;
+  /** Default (dark) logo, shown on light surfaces. */
   logo?: string;
+  /** Optional light logo, shown on dark surfaces; falls back to `logo`. */
+  logo_light?: string;
   website?: string;
   gmb_link?: string;
+  /** Legacy single-platform fields; superseded by `social_links`. */
   instagram_link?: string;
   facebook_link?: string;
+  social_links?: SocialLinks;
   google_place_id?: string;
   createdAt: string;
   updatedAt: string;
@@ -281,12 +322,14 @@ export type DeliveryLandingPageData = {
   guest_types?: string[];
   company_name?: string;
   company_logo?: string;
+  company_logo_light?: string;
   company_address?: string;
   company_contact_number?: string;
   company_website?: string;
   company_gmb_link?: string;
   company_instagram_link?: string;
   company_facebook_link?: string;
+  company_social_links?: SocialLinks;
   company_google_place_id?: string;
   company_watermark_url?: string;
   /** Full-gallery ZIP download URL (host-only). Null/absent until generated. */
