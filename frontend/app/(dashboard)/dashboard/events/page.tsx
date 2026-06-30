@@ -4,12 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse } from "@/lib/types";
-import { PagesTable } from "@/components/dashboard/PagesTable";
-import { PageCard } from "@/components/dashboard/PageCard";
+import { EventCard } from "@/components/dashboard/EventCard";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
 const PAGE_SIZE = 20;
+
+/** Status filter chips → `status` query param. Defaults to all clients. */
+const STATUS_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "expired", label: "Expired" },
+] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
 
 export default function EventsListPage() {
   const router = useRouter();
@@ -20,6 +27,7 @@ export default function EventsListPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [modalOpen, setModalOpen] = useState(false);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,6 +51,7 @@ export default function EventsListPage() {
         page,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
+        status,
       });
       setData(res);
     } catch (err) {
@@ -50,7 +59,12 @@ export default function EventsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, status]);
+
+  function selectStatus(next: StatusFilter) {
+    setStatus(next);
+    setPage(1);
+  }
 
   useEffect(() => {
     void reload();
@@ -118,15 +132,38 @@ export default function EventsListPage() {
           )}
         </div>
 
-        {data && (
-          <p className="text-xs text-[var(--color-brand-muted)]">
-            Showing{" "}
-            <span className="font-semibold text-[var(--color-brand-ink)]">
-              {data.bookings.length}
-            </span>{" "}
-            {data.bookings.length === 1 ? "event" : "events"}
-          </p>
-        )}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {STATUS_FILTERS.map((f) => {
+              const selected = status === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => selectStatus(f.id)}
+                  aria-pressed={selected}
+                  className={`brand-focus h-8 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                    selected
+                      ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                      : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {data && (
+            <p className="shrink-0 text-xs text-[var(--color-brand-muted)]">
+              Showing{" "}
+              <span className="font-semibold text-[var(--color-brand-ink)]">
+                {data.bookings.length}
+              </span>{" "}
+              {data.bookings.length === 1 ? "event" : "events"}
+            </p>
+          )}
+        </div>
       </section>
 
       {error && (
@@ -141,22 +178,17 @@ export default function EventsListPage() {
 
       <section>
         {loading && !data ? (
-          <TableSkeleton />
+          <CardGridSkeleton />
         ) : isEmpty ? (
           <EmptyState onCreate={() => setModalOpen(true)} />
         ) : (
           data &&
           data.bookings.length > 0 && (
-            <>
-              <div className="hidden sm:block">
-                <PagesTable rows={data.bookings} onOpen={openEvent} />
-              </div>
-              <div className="space-y-2 sm:hidden">
-                {data.bookings.map((row) => (
-                  <PageCard key={row._id} row={row} onOpen={openEvent} />
-                ))}
-              </div>
-            </>
+            <div className="dash-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {data.bookings.map((row) => (
+                <EventCard key={row._id} row={row} onOpen={openEvent} />
+              ))}
+            </div>
           )
         )}
       </section>
@@ -194,11 +226,30 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function TableSkeleton() {
+function CardGridSkeleton() {
   return (
-    <div className="space-y-2">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="skeleton h-14 rounded-lg" style={{ animationDelay: `${i * 0.06}s` }} />
+        <div
+          key={i}
+          className="overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]"
+          style={{ animationDelay: `${i * 0.06}s` }}
+        >
+          <div className="skeleton aspect-[16/9] w-full rounded-none" />
+          <div className="space-y-3 p-4">
+            <div className="skeleton h-4 w-2/3 rounded" />
+            <div className="skeleton h-3 w-1/2 rounded" />
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <div className="skeleton h-10 w-24 rounded-lg" />
+              <div className="skeleton h-10 flex-1 rounded-lg" />
+            </div>
+          </div>
+        </div>
       ))}
     </div>
   );

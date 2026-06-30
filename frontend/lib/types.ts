@@ -48,8 +48,11 @@ export type EmbeddingStatus =
   | "completed"
   | "failed";
 
-/** Gallery publish status (set "published" by the embedding job on completion). */
-export type GalleryPublishStatus = "unpublished" | "published";
+/**
+ * Gallery publish status. "published" is set by the embedding job on
+ * completion; "expired" is set by the cleanup job after the 90-day window.
+ */
+export type GalleryPublishStatus = "unpublished" | "published" | "expired";
 
 export type ContentType = "Images" | "Videos" | "Images & Videos";
 
@@ -154,6 +157,24 @@ export type Booking = {
   createdAt: string;
   /** Tracking counts for the linked delivery landing page (may be empty). */
   trackings?: TrackingCounts;
+  /**
+   * Per-row fields projected by `getAllBookings` for the event cards. All
+   * optional so responses from an older backend (before the projection
+   * expansion) still type-check and degrade gracefully.
+   */
+  /** Event start date — unix seconds, may be null. */
+  event_date?: number | null;
+  /** Event city (from the linked event), may be absent. */
+  location?: string;
+  /** Whether the gallery is still active (not manually deactivated). */
+  is_active?: boolean;
+  gallery_publish_status?: GalleryPublishStatus;
+  /** Number of indexed faces in the gallery. */
+  total_faces?: number;
+  /** R2 cover image URL from the delivery landing page. */
+  background_image?: string;
+  /** Public slug for the delivery landing page. */
+  unique_identifier?: string;
 };
 
 /**

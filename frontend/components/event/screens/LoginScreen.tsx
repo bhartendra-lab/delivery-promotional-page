@@ -2,6 +2,7 @@
 
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
+import { usePolicy } from "../policy/PolicyContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -12,6 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
  */
 export function LoginScreen({ authError = false }: { authError?: boolean }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
+  const { openPolicy } = usePolicy();
   const studio = event.include_company_branding ? event.company_name : undefined;
   const eventName = event.event_name || "this event";
 
@@ -115,8 +117,14 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
 
           <p className="mb-7 mt-5 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
             By continuing you agree to our{" "}
-            <span className="underline underline-offset-2" style={{ color: t.muted }}>Terms</span> &amp;{" "}
-            <span className="underline underline-offset-2" style={{ color: t.muted }}>Privacy Policy</span>.
+            <button type="button" onClick={() => openPolicy("terms")} className="underline underline-offset-2" style={{ color: t.muted }}>
+              Terms
+            </button>{" "}
+            &amp;{" "}
+            <button type="button" onClick={() => openPolicy("privacy")} className="underline underline-offset-2" style={{ color: t.muted }}>
+              Privacy Policy
+            </button>
+            .
           </p>
         </div>
       </div>

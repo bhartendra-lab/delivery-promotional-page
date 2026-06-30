@@ -6,6 +6,7 @@ import { SIGNAL } from "@/lib/client-theme";
 import { GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, unlikePhoto } from "@/lib/guest-api";
 import { downloadMany, downloadZip } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
+import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 
@@ -603,7 +604,32 @@ function LoungeHome({
             </button>
           </div>
         )}
+
+        <PolicyFooter t={t} className="pt-8" />
       </div>
+    </div>
+  );
+}
+
+function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
+  const { openPolicy } = usePolicy();
+  const linkCls = "cursor-pointer underline-offset-2 hover:underline";
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11.5px] font-bold ${className}`}
+      style={{ color: t.faint }}
+    >
+      <button type="button" onClick={() => openPolicy("terms")} className={linkCls}>
+        Terms
+      </button>
+      <span aria-hidden>·</span>
+      <button type="button" onClick={() => openPolicy("privacy")} className={linkCls}>
+        Privacy
+      </button>
+      <span aria-hidden>·</span>
+      <button type="button" onClick={() => openPolicy("cookies")} className={linkCls}>
+        Cookies
+      </button>
     </div>
   );
 }
@@ -958,6 +984,7 @@ function SideRail({
           <span className="min-w-0 truncate text-[13px] font-bold" style={{ color: t.text }}>{guestName}</span>
         </div>
       )}
+      <PolicyFooter t={t} className={`${guestName ? "mt-4" : "mt-auto"} justify-start pt-4`} />
     </aside>
   );
 }

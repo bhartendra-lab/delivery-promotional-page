@@ -6,6 +6,7 @@ import { presignGuestUploads, searchSelfie, validateSelfie } from "@/lib/guest-a
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
+import { usePolicy } from "../policy/PolicyContext";
 
 type Phase = "intro" | "camera" | "processing" | "matched" | "error";
 
@@ -25,6 +26,7 @@ export function ScanFlow({
   onComplete: (mediaIds: string[], selfieUrl: string) => void;
 }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
+  const { openPolicy } = usePolicy();
   const bookingId = event.booking_id;
 
   const [phase, setPhase] = useState<Phase>("intro");
@@ -209,6 +211,24 @@ export function ScanFlow({
               I agree to let Vyavasth scan my selfie to match my face to these photos.
             </span>
           </button>
+
+          {/* Consent moment: the three policies, inline + underlined. */}
+          <p className="px-1 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
+            By continuing you agree to our{" "}
+            <button type="button" onClick={() => openPolicy("terms")} className="underline underline-offset-2" style={{ color: t.muted }}>
+              Terms of Service
+            </button>
+            ,{" "}
+            <button type="button" onClick={() => openPolicy("privacy")} className="underline underline-offset-2" style={{ color: t.muted }}>
+              Privacy Policy
+            </button>{" "}
+            &amp;{" "}
+            <button type="button" onClick={() => openPolicy("cookies")} className="underline underline-offset-2" style={{ color: t.muted }}>
+              Cookies
+            </button>
+            .
+          </p>
+
           <button
             type="button"
             onClick={() => agreed && setPhase("camera")}
@@ -224,6 +244,17 @@ export function ScanFlow({
           </button>
           <div className="text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
             Verifying your face is required to view your photos.
+          </div>
+
+          {/* Accuracy note (not an age gate): face matching is less reliable for children. */}
+          <div className="flex items-start justify-center gap-1.5 px-1" style={{ color: t.faint }}>
+            <span className="mt-px flex-none">
+              <InfoIcon size={13} />
+            </span>
+            <span className="text-[11px] font-semibold leading-[1.4]" style={{ color: t.faint }}>
+              Face recognition is trained predominantly on adult faces and is therefore less reliable
+              at identifying children.
+            </span>
           </div>
         </div>
         <PoweredBy />
@@ -744,6 +775,14 @@ function LockIcon({ size = 13 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <rect x="5" y="11" width="14" height="10" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+function InfoIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
     </svg>
   );
 }

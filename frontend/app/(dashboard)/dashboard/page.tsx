@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getAllBookings, getDlpUsage } from "@/lib/api";
+import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
 import { StatsBar } from "@/components/dashboard/StatsBar";
-import { PagesTable } from "@/components/dashboard/PagesTable";
-import { PageCard } from "@/components/dashboard/PageCard";
+import { EventCard } from "@/components/dashboard/EventCard";
+import { useChrome } from "@/components/dashboard/ChromeContext";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
@@ -14,12 +14,12 @@ const PAGE_SIZE = 20;
 
 export default function DashboardHomePage() {
   const router = useRouter();
+  // Events meter / usage shared via ChromeContext — single fetch for the whole
+  // dashboard (Sidebar meter + header pill read the same value).
+  const { dlpUsage, dlpLoading, locked } = useChrome();
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
-  const [dlpLoading, setDlpLoading] = useState(true);
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -42,7 +42,14 @@ export default function DashboardHomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await getAllBookings({ page, limit: PAGE_SIZE, search: debouncedSearch || undefined });
+      // Active-only is filtered server-side so pagination reflects the
+      // filtered set (the page only ever holds one paginated page).
+      const res = await getAllBookings({
+        page,
+        limit: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        status: "active",
+      });
       setData(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -53,14 +60,6 @@ export default function DashboardHomePage() {
 
   useEffect(() => { void reload(); }, [reload]);
 
-  useEffect(() => {
-    setDlpLoading(true);
-    getDlpUsage()
-      .then(setDlpUsage)
-      .catch(() => setDlpUsage(null))
-      .finally(() => setDlpLoading(false));
-  }, []);
-
   // The bookings endpoint doesn't return a total count; allow paging forward
   // while a full page comes back and back to page 1.
   const totalPages = useMemo(() => {
@@ -69,12 +68,14 @@ export default function DashboardHomePage() {
   }, [data, page]);
 
   // No aggregate tracking totals from the API — sum what's on this page.
+  // `total` is the visible event count (the ≤20 rows on this page), not a sum
+  // of trackings. True company-wide totals need a backend aggregate endpoint.
   const stats = useMemo(() => {
     const rows = data?.bookings ?? [];
     const visits = rows.reduce((s, b) => s + (b.trackings?.visit ?? 0), 0);
     const deliveries = rows.reduce((s, b) => s + (b.trackings?.delivery ?? 0), 0);
     const reviews = rows.reduce((s, b) => s + (b.trackings?.review ?? 0), 0);
-    return { visits, deliveries, reviews, total: visits + deliveries + reviews };
+    return { visits, deliveries, reviews, total: rows.length };
   }, [data]);
 
   function openEvent(row: Booking) {
@@ -186,21 +187,16 @@ export default function DashboardHomePage() {
       {/* Content */}
       <section>
         {loading && !data ? (
-          <TableSkeleton />
+          <CardGridSkeleton />
         ) : isEmpty ? (
           <EmptyState onCreate={openCreate} disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0} />
         ) : (
           data && data.bookings.length > 0 && (
-            <>
-              <div className="hidden sm:block">
-                <PagesTable rows={data.bookings} onOpen={openEvent} />
-              </div>
-              <div className="space-y-2 sm:hidden">
-                {data.bookings.map((row) => (
-                  <PageCard key={row._id} row={row} onOpen={openEvent} />
-                ))}
-              </div>
-            </>
+            <div className="dash-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {data.bookings.map((row) => (
+                <EventCard key={row._id} row={row} onOpen={openEvent} locked={locked} />
+              ))}
+            </div>
           )
         )}
       </section>
@@ -239,11 +235,30 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
   );
 }
 
-function TableSkeleton() {
+function CardGridSkeleton() {
   return (
-    <div className="space-y-2">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="skeleton h-14 rounded-lg" style={{ animationDelay: `${i * 0.06}s` }} />
+        <div
+          key={i}
+          className="overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]"
+          style={{ animationDelay: `${i * 0.06}s` }}
+        >
+          <div className="skeleton aspect-[16/9] w-full rounded-none" />
+          <div className="space-y-3 p-4">
+            <div className="skeleton h-4 w-2/3 rounded" />
+            <div className="skeleton h-3 w-1/2 rounded" />
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+              <div className="skeleton h-8 rounded" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <div className="skeleton h-10 w-24 rounded-lg" />
+              <div className="skeleton h-10 flex-1 rounded-lg" />
+            </div>
+          </div>
+        </div>
       ))}
     </div>
   );
