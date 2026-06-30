@@ -2,6 +2,13 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
+/**
+ * Version of the guest-facing policy/consent text currently shown. Recorded with
+ * every consent event so an old consent can be tied back to the exact wording the
+ * guest agreed to. Bump this whenever the Terms / Privacy / consent copy changes.
+ */
+export const POLICY_VERSION = "v1.0";
+
 /** Which guest-facing policy document the overlay is showing. */
 export type PolicyView = "terms" | "privacy" | "cookies";
 

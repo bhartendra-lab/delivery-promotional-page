@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Booking, EventType } from "@/lib/types";
+import type { Booking, EventType, GalleryPublishStatus } from "@/lib/types";
 import { buildShareUrl, formatEventDate } from "./shared";
 import { EventBadge } from "./EventBadge";
 
@@ -81,6 +81,7 @@ export function EventCard({ row, onOpen, locked = false }: Props) {
                 "linear-gradient(to bottom, rgba(42,34,24,0) 45%, rgba(42,34,24,0.4) 100%)",
             }}
           />
+          <StatusPill status={row.gallery_publish_status} />
           {caption && (
             <span className="absolute bottom-2 left-3 font-mono text-[11px] text-white/90">
               {caption}
@@ -105,7 +106,7 @@ export function EventCard({ row, onOpen, locked = false }: Props) {
 
           <div className="mt-4 grid grid-cols-3 gap-2">
             <Metric label="Visits" value={row.trackings?.visit ?? 0} />
-            <Metric label="Galleries" value={row.trackings?.delivery ?? 0} />
+            <Metric label="Contacts" value={row.trackings?.contact ?? 0} />
             <Metric label="Reviews" value={row.trackings?.review ?? 0} />
           </div>
         </div>
@@ -139,6 +140,24 @@ export function EventCard({ row, onOpen, locked = false }: Props) {
         </button>
       </div>
     </article>
+  );
+}
+
+/** Gallery publish state shown as a small pill on the cover. */
+const PUBLISH_STATUS: Record<GalleryPublishStatus, { label: string; dot: string }> = {
+  published: { label: "Live", dot: "var(--color-brand-success)" },
+  unpublished: { label: "Draft", dot: "var(--color-brand-warning)" },
+  expired: { label: "Expired", dot: "var(--color-brand-muted)" },
+};
+
+function StatusPill({ status }: { status?: GalleryPublishStatus }) {
+  if (!status || !(status in PUBLISH_STATUS)) return null;
+  const { label, dot } = PUBLISH_STATUS[status];
+  return (
+    <span className="absolute left-3 top-2.5 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} aria-hidden />
+      {label}
+    </span>
   );
 }
 

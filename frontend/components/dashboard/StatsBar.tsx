@@ -2,12 +2,12 @@ import { StatCard } from "@/components/ui/StatCard";
 
 type Props = {
   visits: number;
-  deliveries: number;
+  contacts: number;
   reviews: number;
   total: number;
 };
 
-export function StatsBar({ visits, deliveries, reviews, total }: Props) {
+export function StatsBar({ visits, contacts, reviews, total }: Props) {
   // TODO(backend): dashboard aggregates endpoint.
   // The values below only sum the visible ≤20-row page (the list endpoint
   // returns one paginated page, not company-wide totals). The richer mockup
@@ -22,10 +22,10 @@ export function StatsBar({ visits, deliveries, reviews, total }: Props) {
     subLabel?: string;
     delta?: { value: number; label: string } | null;
   }[] = [
-    { label: "Total events", value: total, hint: "On this page" },
-    { label: "Page visits", value: visits, hint: "Unique page opens" },
-    { label: "Gallery opens", value: deliveries, hint: "Delivery link clicks" },
-    { label: "Google reviews", value: reviews, hint: "Review taps" },
+    { label: "Total Live Events", value: total, hint: "" },
+    { label: "Guest visits", value: visits, hint: "Guests who opened the gallery" },
+    { label: "Studio contacts", value: contacts, hint: "Guests who tapped Contact us" },
+    { label: "Google reviews", value: reviews, hint: "Guests who tapped Leave a review" },
   ];
 
   return (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, unlikePhoto } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, unlikePhoto } from "@/lib/guest-api";
 import { downloadMany, downloadZip } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
@@ -244,6 +244,19 @@ export function LoungeGallery({
     setZipRequestOpen(true);
   }, [uniqueIdentifier, bookingId]);
 
+  // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
+  // link's navigation (both CTAs open an external page in a new tab).
+  const onReviewClick = useCallback(() => {
+    catchGuestBehavior(uniqueIdentifier, { review_button_clicked: true }).catch((e) =>
+      console.warn("[catchGuestBehavior] review failed", e),
+    );
+  }, [uniqueIdentifier]);
+  const onContactClick = useCallback(() => {
+    catchGuestBehavior(uniqueIdentifier, { contact_button_clicked: true }).catch((e) =>
+      console.warn("[catchGuestBehavior] contact failed", e),
+    );
+  }, [uniqueIdentifier]);
+
   function gotoGallery(nextTab: "mine" | "all") {
     setTab(nextTab);
     setFolder(ALL);
@@ -289,6 +302,8 @@ export function LoungeGallery({
           onSeeMine={() => gotoGallery("mine")}
           onSeeAll={() => gotoGallery("all")}
           onUnlock={() => setPasscodeOpen(true)}
+          onReviewClick={onReviewClick}
+          onContactClick={onContactClick}
         />
       ) : (
         <GalleryView
@@ -438,6 +453,8 @@ function LoungeHome({
   onSeeMine,
   onSeeAll,
   onUnlock,
+  onReviewClick,
+  onContactClick,
 }: {
   t: Theme;
   event: ReturnType<typeof useEventTheme>["event"];
@@ -453,6 +470,8 @@ function LoungeHome({
   onSeeMine: () => void;
   onSeeAll: () => void;
   onUnlock: () => void;
+  onReviewClick: () => void;
+  onContactClick: () => void;
 }) {
   const date = formatDate(event.event_date);
   const heroBg = event.background_image
@@ -629,12 +648,12 @@ function LoungeHome({
                 </div>
                 <div className="flex flex-col gap-2">
                   {reviewUrl && (
-                    <a href={reviewUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center rounded-full py-3 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
+                    <a href={reviewUrl} target="_blank" rel="noopener noreferrer" onClick={onReviewClick} className="flex items-center justify-center rounded-full py-3 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
                       Leave us a Google review ↗
                     </a>
                   )}
                   {contactUrl && (
-                    <a href={contactUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center rounded-full py-2.5 text-[13px] font-extrabold" style={{ border: `1.5px solid ${t.border}`, color: t.text }}>
+                    <a href={contactUrl} target="_blank" rel="noopener noreferrer" onClick={onContactClick} className="flex items-center justify-center rounded-full py-2.5 text-[13px] font-extrabold" style={{ border: `1.5px solid ${t.border}`, color: t.text }}>
                       Contact us
                     </a>
                   )}

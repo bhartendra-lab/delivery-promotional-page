@@ -37,7 +37,10 @@ async function guestFetch<T>(uid: string, path: string, init: RequestInit = {}):
   const run = (tok: string) => {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${tok}`);
-    return fetch(`${API_BASE}${path}`, { ...init, headers });
+    // `no-store`: the API sends a weak ETag with no Cache-Control, so the browser
+    // revalidates and gets a bodyless 304 that this helper can't parse. Skip the
+    // conditional cache so we always receive a full 200 body.
+    return fetch(`${API_BASE}${path}`, { cache: "no-store", ...init, headers });
   };
 
   let res = await run(token);
@@ -109,6 +112,25 @@ export function validateSelfie(uid: string, body: { selfie_id: string; selfie_ur
  *  (idempotent — returns the stored set if already searched). */
 export function searchSelfie(uid: string, body: { selfie_id: string; booking_id: string }) {
   return guestFetch<{ message: string; data: string[] }>(uid, "/deliverables/search-selfie", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Record the guest's explicit consent to selfie / face processing — written to
+ * the backend consent_logs audit trail (DPDP). Called the moment the guest ticks
+ * the consent box and taps "Scan my face". The backend derives the principal and
+ * booking from the guest token; we only send what the guest actually saw
+ * (policy_version). Treat as fire-and-forget at the call site — never block the
+ * scan on it.
+ */
+export function recordConsent(
+  uid: string,
+  body: { policy_version: string; purpose?: string; consent_method?: string },
+) {
+  return guestFetch<{ message: string }>(uid, "/auth/record-consent", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -195,5 +217,24 @@ export function requestZipGeneration(uid: string, bookingId: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ booking_id: bookingId }),
+  });
+}
+
+/* ── lounge engagement ──────────────────────────────────────────────────── */
+
+/**
+ * Record that the guest engaged with a studio CTA on the lounge — clicking the
+ * "Leave a review" or "Contact us" button. The backend keys on the guest id from
+ * the token, so only the clicked flag is sent. Fire-and-forget analytics: the
+ * caller must never let a failure block the link's navigation.
+ */
+export function catchGuestBehavior(
+  uid: string,
+  behavior: { review_button_clicked?: boolean; contact_button_clicked?: boolean },
+) {
+  return guestFetch<{ message: string }>(uid, "/deliverables/catch-guest-behavior", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(behavior),
   });
 }

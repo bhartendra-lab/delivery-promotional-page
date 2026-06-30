@@ -13,7 +13,8 @@ const PAGE_SIZE = 20;
 /** Status filter chips → `status` query param. Defaults to all clients. */
 const STATUS_FILTERS = [
   { id: "all", label: "All" },
-  { id: "active", label: "Active" },
+  { id: "published", label: "Live" },
+  { id: "unpublished", label: "Draft" },
   { id: "expired", label: "Expired" },
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
@@ -76,6 +77,19 @@ export default function EventsListPage() {
   }, [data, page]);
 
   const isEmpty = !loading && data && data.bookings.length === 0;
+
+  // A filter/search is narrowing the list — an empty result here means "nothing
+  // matched", not "no events exist". Only the truly-unfiltered empty list should
+  // show the create-your-first-event call to action.
+  const filtersActive = status !== "all" || debouncedSearch.length > 0;
+  const activeStatusLabel =
+    status !== "all" ? STATUS_FILTERS.find((f) => f.id === status)?.label : undefined;
+
+  function clearFilters() {
+    setStatus("all");
+    setSearch("");
+    setPage(1);
+  }
 
   function openEvent(row: Booking) {
     router.push(`/dashboard/events/${row._id}`);
@@ -180,7 +194,15 @@ export default function EventsListPage() {
         {loading && !data ? (
           <CardGridSkeleton />
         ) : isEmpty ? (
-          <EmptyState onCreate={() => setModalOpen(true)} />
+          filtersActive ? (
+            <NoResults
+              statusLabel={activeStatusLabel}
+              hasSearch={debouncedSearch.length > 0}
+              onClear={clearFilters}
+            />
+          ) : (
+            <EmptyState onCreate={() => setModalOpen(true)} />
+          )
         ) : (
           data &&
           data.bookings.length > 0 && (
@@ -221,6 +243,39 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       >
         <PlusIcon />
         Create your first event
+      </button>
+    </div>
+  );
+}
+
+function NoResults({
+  statusLabel,
+  hasSearch,
+  onClear,
+}: {
+  statusLabel?: string;
+  hasSearch: boolean;
+  onClear: () => void;
+}) {
+  const title = statusLabel ? `No ${statusLabel.toLowerCase()} events` : "No matching events";
+  const description = hasSearch
+    ? "No events match your search and filters. Try adjusting them."
+    : "No events match this filter. Try a different status.";
+  return (
+    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
+        <NoResultsIcon />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xl font-bold text-[var(--color-brand-ink)]">{title}</p>
+        <p className="max-w-sm text-sm text-[var(--color-brand-muted)]">{description}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onClear}
+        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      >
+        Clear filters
       </button>
     </div>
   );
@@ -285,6 +340,16 @@ function AlertIcon({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" fill="none" className={className}>
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
       <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NoResultsIcon() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M20 20l-4.5-4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M8 10.5h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

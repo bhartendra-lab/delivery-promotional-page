@@ -42,13 +42,13 @@ export default function DashboardHomePage() {
     setLoading(true);
     setError(null);
     try {
-      // Active-only is filtered server-side so pagination reflects the
+      // Published-only is filtered server-side so pagination reflects the
       // filtered set (the page only ever holds one paginated page).
       const res = await getAllBookings({
         page,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
-        status: "active",
+        status: "published",
       });
       setData(res);
     } catch (err) {
@@ -73,9 +73,9 @@ export default function DashboardHomePage() {
   const stats = useMemo(() => {
     const rows = data?.bookings ?? [];
     const visits = rows.reduce((s, b) => s + (b.trackings?.visit ?? 0), 0);
-    const deliveries = rows.reduce((s, b) => s + (b.trackings?.delivery ?? 0), 0);
+    const contacts = rows.reduce((s, b) => s + (b.trackings?.contact ?? 0), 0);
     const reviews = rows.reduce((s, b) => s + (b.trackings?.review ?? 0), 0);
-    return { visits, deliveries, reviews, total: rows.length };
+    return { visits, contacts, reviews, total: rows.length };
   }, [data]);
 
   function openEvent(row: Booking) {
@@ -107,7 +107,7 @@ export default function DashboardHomePage() {
       <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-            Delivery Hub · Active
+            Delivery Hub · Published
           </p>
           <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
             Your events,<br className="hidden sm:block" /> in one place.
@@ -133,7 +133,7 @@ export default function DashboardHomePage() {
       {/* Stats */}
       <StatsBar
         visits={stats.visits}
-        deliveries={stats.deliveries}
+        contacts={stats.contacts}
         reviews={stats.reviews}
         total={stats.total}
       />

@@ -85,10 +85,16 @@ export type DeliveryUrl = {
 
 export type TrackingType = "visit" | "delivery" | "review";
 
+/**
+ * Guest-derived engagement counts for a booking's gallery (from `getAllBookings`).
+ *   visit   — guests who visited the gallery (one per guest)
+ *   review  — guests who tapped "Leave a review" (review_button_clicked)
+ *   contact — guests who tapped "Contact us"     (contact_button_clicked)
+ */
 export type TrackingCounts = {
   visit?: number;
-  delivery?: number;
   review?: number;
+  contact?: number;
 };
 
 export type SocialLinks = {

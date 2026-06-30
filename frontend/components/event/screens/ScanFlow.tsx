@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
-import { presignGuestUploads, searchSelfie, validateSelfie } from "@/lib/guest-api";
+import { presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
-import { usePolicy } from "../policy/PolicyContext";
+import { POLICY_VERSION, usePolicy } from "../policy/PolicyContext";
 
 type Phase = "intro" | "camera" | "processing" | "matched" | "error";
 
@@ -171,6 +171,24 @@ export function ScanFlow({
     );
   }
 
+  /**
+   * Guest ticked the consent box and tapped "Scan my face". Persist the consent
+   * to the audit trail, then advance to the camera. Fire-and-forget: the tick
+   * itself is the consent — this records the proof — so a logging failure must
+   * never block the scan (we report it instead).
+   */
+  function startScan() {
+    if (!agreed) return;
+    void recordConsent(uniqueIdentifier, { policy_version: POLICY_VERSION }).catch((err) => {
+      void reportBug("Face scan — consent log failed", {
+        Event: uniqueIdentifier,
+        Booking: bookingId,
+        "Error message": err instanceof Error ? err.message : String(err),
+      });
+    });
+    setPhase("camera");
+  }
+
   /* ── views ──────────────────────────────────────────────────────────── */
 
   if (phase === "intro") {
@@ -231,7 +249,7 @@ export function ScanFlow({
 
           <button
             type="button"
-            onClick={() => agreed && setPhase("camera")}
+            onClick={startScan}
             disabled={!agreed}
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{

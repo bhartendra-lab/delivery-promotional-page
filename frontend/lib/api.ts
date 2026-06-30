@@ -9,6 +9,7 @@ import type {
   DeliveryLandingPageData,
   DlpUsage,
   EventType,
+  GalleryPublishStatus,
   SocialLinks,
   GetMediaResponse,
   LoginResponse,
@@ -42,6 +43,11 @@ async function request<T>(
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
+    // The API stamps a weak ETag on every response (Express default) but sends no
+    // Cache-Control, so the browser revalidates and the server replies 304 with an
+    // empty body — which this helper can't parse, leaving the UI without data.
+    // `no-store` skips the conditional cache so we always get a full 200 body.
+    cache: "no-store",
     ...rest,
     headers: finalHeaders,
   });
@@ -199,7 +205,7 @@ export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
-  status?: "active" | "inactive" | "expired" | "all";
+  status?: GalleryPublishStatus | "all";
 }) {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
