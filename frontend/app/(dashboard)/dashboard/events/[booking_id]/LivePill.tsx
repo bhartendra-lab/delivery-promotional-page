@@ -123,7 +123,7 @@ export function LivePill({
     return (
       <div className="relative" onMouseEnter={() => setTip(true)} onMouseLeave={() => setTip(false)}>
         <span className="inline-flex items-center gap-2 rounded-full border border-[var(--color-brand-border)] bg-white py-1.5 pl-3 pr-3.5">
-          <span className="h-3 w-3 animate-spin rounded-full border-[2px] border-[var(--color-brand-navy)]/30 border-t-[var(--color-brand-navy)]" />
+          <IconClock size={12} className="text-[var(--color-brand-navy)]" />
           <span className="text-[13px] font-semibold text-[var(--color-brand-ink)]">Publishing…</span>
         </span>
         {tip && <Tooltip>The AI gallery is getting ready — we’ll notify you once it’s live for guests.</Tooltip>}
@@ -305,6 +305,15 @@ const DISABLED_WORD: Record<LivePillState, string> = {
   republish: "Published",
   deactivated: "Deactivated",
 };
+
+function IconClock({ size = 12, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  );
+}
 
 function Tooltip({ children }: { children: React.ReactNode }) {
   return (

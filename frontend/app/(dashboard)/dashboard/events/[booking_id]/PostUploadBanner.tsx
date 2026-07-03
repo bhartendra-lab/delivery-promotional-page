@@ -47,7 +47,7 @@ export function PostUploadBanner({
         </strong>
         <span className="text-[var(--color-brand-muted)]">
           {isRepublish
-            ? " — guests won’t see the new media until you republish from the top-right button."
+            ? "Guests won’t see the new media until you republish from the top-right button."
             : " — click Publish (top-right) to make this gallery live for your guests."}
         </span>
       </div>
