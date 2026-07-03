@@ -383,6 +383,19 @@ export function getMedia(
 }
 
 /**
+ * GET /deliverables/get-media/:booking_id?ids_only=true — returns just the
+ * `media_id`s of every media already saved for the booking (no pagination,
+ * likes, or folder counts). The upload engine calls this before a run to skip
+ * files that are already in the gallery when a folder is re-selected after a
+ * cancelled/interrupted upload.
+ */
+export function getUploadedMediaIds(bookingId: string): Promise<string[]> {
+  return request<{ media_ids: string[] }>(
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}?ids_only=true`,
+  ).then((res) => res.media_ids ?? []);
+}
+
+/**
  * DELETE /deliverables/delete-media — body `{ media_ids }`. Deletes the R2
  * objects and the DB rows in one call. Used for both single-image delete
  * (array of one) and multi-select delete. `media_ids` are Media `_id`s — never

@@ -45,6 +45,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
   const [prePickerOpen, setPrePickerOpen] = useState(false);
+  // Folder-only upload (the "Create new folder" path): opens the first-time
+  // folder flow with the subfolder guide, minus the "Or select photos" option.
+  const [folderOnly, setFolderOnly] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
   const paused = engine.progress.paused;
@@ -110,39 +113,44 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const handleUploadMore = useCallback(() => {
     if (activeFolderId === ALL_MEDIA_ID) setPrePickerOpen(true);
     else {
+      // A specific folder tab is open — upload straight into it (single mode).
       setUploadTarget({ id: activeFolderId, name: activeFolderLabel });
+      setFolderOnly(false);
       setUploadModalOpen(true);
     }
   }, [activeFolderId, activeFolderLabel]);
 
   const handleBulkUpload = useCallback(() => {
     setUploadTarget(null);
+    setFolderOnly(false);
     setUploadModalOpen(true);
   }, []);
 
+  // Pick an existing folder from the pre-picker → upload into it (single mode).
   const pickExistingTarget = useCallback((folder: { id: string; name: string }) => {
     setPrePickerOpen(false);
     setUploadTarget({ id: folder.id, name: folder.name });
+    setFolderOnly(false);
     setUploadModalOpen(true);
   }, []);
 
-  const pickNewTarget = useCallback(
-    async (name: string) => {
-      try {
-        const res = await createCustomFolder(bookingId, name);
-        setFolders((prev) => [
-          ...prev,
-          { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
-        ]);
-        setPrePickerOpen(false);
-        setUploadTarget({ id: res.custom_folder_id, name });
-        setUploadModalOpen(true);
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Could not create folder", "error");
-      }
-    },
-    [bookingId, setFolders, toast],
-  );
+  // "Create new folder" from the pre-picker → open the first-time folder flow
+  // (folder-only). Folders are created/reused by subfolder name at upload time
+  // via `ensureFolders`, so no folder is created here.
+  const openCreateNewFolderUpload = useCallback(() => {
+    setPrePickerOpen(false);
+    setUploadTarget(null);
+    setFolderOnly(true);
+    setUploadModalOpen(true);
+  }, []);
+
+  // "Change" from the upload modal's "Uploading to" banner → reopen the picker.
+  const changeFolder = useCallback(() => {
+    setUploadModalOpen(false);
+    setUploadTarget(null);
+    setFolderOnly(false);
+    setPrePickerOpen(true);
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 items-stretch">
@@ -228,9 +236,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
         onClose={() => {
           setUploadModalOpen(false);
           setUploadTarget(null);
+          setFolderOnly(false);
         }}
         targetFolderId={uploadTarget?.id}
         targetFolderName={uploadTarget?.name}
+        folderOnly={folderOnly}
+        onChangeFolder={changeFolder}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -251,7 +262,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         <UploadFolderPicker
           folders={folders}
           onPickExisting={pickExistingTarget}
-          onCreate={pickNewTarget}
+          onCreateNew={openCreateNewFolderUpload}
           onClose={() => setPrePickerOpen(false)}
         />
       )}
@@ -676,17 +687,14 @@ function EditMetaSheet({
 function UploadFolderPicker({
   folders,
   onPickExisting,
-  onCreate,
+  onCreateNew,
   onClose,
 }: {
   folders: CustomFolder[];
   onPickExisting: (folder: { id: string; name: string }) => void;
-  onCreate: (name: string) => void;
+  onCreateNew: () => void;
   onClose: () => void;
 }) {
-  const [newName, setNewName] = useState("");
-  const [creating, setCreating] = useState(false);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -694,6 +702,8 @@ function UploadFolderPicker({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const hasFolders = folders.length > 0;
 
   return (
     <div
@@ -711,7 +721,7 @@ function UploadFolderPicker({
       <div className="dash-rise relative max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--color-brand-border)] bg-white p-5 shadow-[0_-8px_40px_rgba(42,34,24,0.18)] sm:w-full sm:max-w-[460px] sm:rounded-2xl sm:p-6 sm:shadow-[0_18px_50px_rgba(42,34,24,0.18)]">
         <div className="mb-1 flex items-start justify-between gap-4">
           <h3 id="pick-folder-title" className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Upload to which folder?
+            Select Existing Folder
           </h3>
           <button
             type="button"
@@ -726,60 +736,43 @@ function UploadFolderPicker({
           Photos will go straight into the folder you pick — no subfolder sorting.
         </p>
 
-        {folders.length > 0 && (
-          <div className="mb-4">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-              Existing folder
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {folders.map((f) => (
-                <button
-                  key={f._id}
-                  type="button"
-                  onClick={() => onPickExisting({ id: f._id, name: f.name })}
-                  className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
-                >
-                  <FolderMiniIcon size={13} />
-                  {f.name}
-                </button>
-              ))}
-            </div>
+        {hasFolders ? (
+          <div className="flex flex-wrap gap-2">
+            {folders.map((f) => (
+              <button
+                key={f._id}
+                type="button"
+                onClick={() => onPickExisting({ id: f._id, name: f.name })}
+                className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
+              >
+                <FolderMiniIcon size={13} />
+                {f.name}
+              </button>
+            ))}
           </div>
+        ) : (
+          <p className="text-[12.5px] text-[var(--color-brand-muted)]">
+            No folders yet — upload a new one below.
+          </p>
         )}
 
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-            New folder
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newName.trim() && !creating) {
-                  e.preventDefault();
-                  setCreating(true);
-                  onCreate(newName.trim());
-                }
-              }}
-              placeholder="e.g. Reception"
-              aria-label="New folder name"
-              disabled={creating}
-              className="brand-focus h-10 min-w-0 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[13.5px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
-            />
-            <button
-              type="button"
-              disabled={!newName.trim() || creating}
-              onClick={() => {
-                setCreating(true);
-                onCreate(newName.trim());
-              }}
-              className="brand-focus inline-flex h-10 shrink-0 items-center rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Create &amp; upload
-            </button>
-          </div>
+        {/* Or ── divider */}
+        <div className="my-4 flex items-center gap-3">
+          <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+          <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+            Or
+          </span>
+          <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
         </div>
+
+        <button
+          type="button"
+          onClick={onCreateNew}
+          className="brand-focus inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
+        >
+          <UploadIcon size={16} />
+          Upload new folder
+        </button>
       </div>
     </div>
   );

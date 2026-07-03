@@ -29,6 +29,7 @@
 import {
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
+  getUploadedMediaIds,
   presignUploads,
   putBlobToPresignedUrl,
   R2PutError,
@@ -68,8 +69,17 @@ import type {
 const PRESIGN_BATCH_SIZE = 50;
 /** Concurrent presign HTTP requests (each batch is independent). */
 const PRESIGN_CONCURRENCY = 3;
-/** Don't hold more than N compressed-but-not-uploaded blobs in memory. */
-const COMPRESSED_QUEUE_HIGH_WATER = 32;
+/**
+ * End-to-end backpressure cap. `compressedBlobs` holds every compressed blob
+ * not yet uploaded (queued to presign, presigned, or in-flight); gating new
+ * compressions on this (plus the ones currently compressing) bounds peak memory
+ * to roughly this many blobs and — critically — keeps presigned URLs from being
+ * minted far ahead of upload (they expire in 15 min). Compression is throttled
+ * to roughly the upload rate, which is what makes 7k-image events safe.
+ */
+const MAX_OUTSTANDING_BLOBS = 128;
+/** Poll interval while the compressor is held back by the cap above. */
+const BACKPRESSURE_POLL_MS = 60;
 /** Flush create-media once this many uploads have completed (also max per request). */
 const METADATA_CHUNK_SIZE = 200;
 /** Coalesce per-file IDB writes during the hot path. */
@@ -89,6 +99,14 @@ export class UploadEngineCore {
   private readonly compressorPool: CompressorPool;
   private readonly aimd = new AimdController();
   private abort = new AbortController();
+  /**
+   * Completion barrier for the active run. `cancel()` awaits this so the run's
+   * `finally` (which flushes IDB + saves create-media for bytes already on R2)
+   * fully settles before we wipe persisted state — otherwise a cancel could
+   * orphan just-uploaded objects by clearing their records mid-drain.
+   */
+  private runDone: Promise<void> = Promise.resolve();
+  private resolveRunDone: (() => void) | null = null;
   /** Real pause flag — gates dispatch of new compress/presign/upload work. */
   private paused = false;
   /**
@@ -172,6 +190,11 @@ export class UploadEngineCore {
   /** Begin (or resume) processing the given inputs. */
   async run(inputs: UploadInput[]): Promise<void> {
     if (this.state.isUploading) return;
+    // Arm the completion barrier before any `await` so a concurrent `cancel()`
+    // waits for this run's `finally` rather than racing it.
+    this.runDone = new Promise<void>((resolve) => {
+      this.resolveRunDone = resolve;
+    });
     this.abort = new AbortController();
     this.paused = false;
     this.inputs = inputs;
@@ -180,10 +203,19 @@ export class UploadEngineCore {
     this.bytesUploaded = 0;
     this.runningCompressors = 0;
     this.runningUploaders = 0;
+    this.runningPresigns = 0;
     this.compressionFinished = false;
     this.presignFinished = false;
     this.metadataPendingIds = [];
     this.metadataSaveChain = Promise.resolve();
+    // The engine (and its AIMD controller) is reused per booking; clear any
+    // in-flight slot count and stale pipeline queues a prior (e.g. cancelled)
+    // run may have left behind, so this run starts from a clean slate and can
+    // actually dispatch uploads.
+    this.aimd.resetActive();
+    this.compressedQueue = [];
+    this.presignedQueue = [];
+    this.compressedBlobs.clear();
 
     // Fresh run: drop the in-memory mirror from any previous successful run
     // so progress counters start at zero. (We deliberately do NOT clear after
@@ -193,7 +225,11 @@ export class UploadEngineCore {
 
     // Seed in-memory mirror from any existing IDB records (resume support).
     await this.hydrateRecords();
-    await this.upsertPendingRecords(inputs);
+    // Ask the backend which media_ids are already saved for this booking, so a
+    // folder re-selected after a cancelled/interrupted run skips what's already
+    // in the gallery — the durable source of truth, since cancel wipes IDB.
+    const alreadyUploaded = await this.fetchUploadedMediaIds();
+    await this.upsertPendingRecords(inputs, alreadyUploaded);
     this.seedMetadataQueue();
     this.scheduleEmit({ isUploading: true, paused: false, metadataSaveError: null }, true);
 
@@ -222,27 +258,38 @@ export class UploadEngineCore {
       await this.flushIdb();
       this.paused = false;
       this.scheduleEmit({ isUploading: false, paused: false }, true);
+      // Release any `cancel()` waiting on this run — metadata is now persisted.
+      this.resolveRunDone?.();
+      this.resolveRunDone = null;
     }
   }
 
   /**
-   * Cancel an in-progress run. Stops new work, then flushes create-media for
-   * anything already on R2 before leaving the active state.
+   * Cancel an in-progress run. Stops new work and lets the run settle (its
+   * `finally` flushes create-media for anything already on R2), then wipes all
+   * persisted + in-memory state. Unlike `pause`, a cancelled run leaves nothing
+   * behind — re-selecting the folder starts clean and re-checks the backend for
+   * what's already uploaded, skipping those silently.
    */
   async cancel(): Promise<void> {
+    const wasRunning = this.state.isUploading;
     this.paused = false;
     this.abort.abort();
-    await this.flushIdb();
-    await this.drainAllMetadata();
-    await this.flushIdb();
+    // Wait for the active run's `finally` to persist metadata for bytes already
+    // on R2 before wiping — otherwise we'd orphan those objects.
+    if (wasRunning) await this.runDone;
+    await this.wipeAll();
     this.scheduleEmit({ isUploading: false, paused: false }, true);
   }
 
   /**
    * Pause an in-progress run. New compression/presign/upload work stops being
-   * dispatched; chunks already in flight are left to settle and their state is
-   * persisted to IndexedDB. The run stays `isUploading` so the page still shows
-   * the upload card — the workspace is unlocked via the `paused` flag instead.
+   * dispatched; PUTs already in flight are left to settle. Once they have, the
+   * metadata flush loop persists a partial create-media batch for everything
+   * already on R2 (see `runMetadataFlushLoop`), so the DB reflects the pause
+   * point without waiting for a full 200-chunk. The run stays `isUploading` so
+   * the page still shows the upload card — the workspace is unlocked via the
+   * `paused` flag instead.
    */
   pause(): void {
     if (this.paused || !this.state.isUploading) return;
@@ -346,12 +393,22 @@ export class UploadEngineCore {
 
   /** Wipe persisted state for this booking (call after manual abandon). */
   async resetPersisted(): Promise<void> {
+    await this.wipeAll();
+    this.scheduleEmit({}, true);
+  }
+
+  /**
+   * Clear this booking's IndexedDB records and reset all in-memory pipeline
+   * state. Shared by `cancel()` and `resetPersisted()`. Does not emit — callers
+   * emit the state transition they want afterwards.
+   */
+  private async wipeAll(): Promise<void> {
     await clearBooking(this.bookingId);
     this.records.clear();
     this.compressedBlobs.clear();
     this.compressedQueue = [];
     this.presignedQueue = [];
-    this.scheduleEmit({}, true);
+    this.metadataPendingIds = [];
   }
 
   /* ── watermark ──────────────────────────────────────────────── */
@@ -411,11 +468,15 @@ export class UploadEngineCore {
       await this.waitWhilePaused();
       if (this.abort.signal.aborted) break;
 
-      // Backpressure: don't compress if downstream is saturated.
-      while (this.compressedQueue.length >= COMPRESSED_QUEUE_HIGH_WATER) {
-        await this.waitMicro();
+      // Backpressure: throttle compression to the upload rate. `compressedBlobs`
+      // is every blob not yet uploaded; `runningCompressors` are compressions
+      // about to add one. Gating on their sum bounds peak memory and keeps
+      // presign just behind upload (so signed URLs don't expire while queued).
+      while (this.compressedBlobs.size + this.runningCompressors >= MAX_OUTSTANDING_BLOBS) {
         if (this.abort.signal.aborted) break;
+        await sleep(BACKPRESSURE_POLL_MS);
       }
+      if (this.abort.signal.aborted) break;
 
       const input = this.inputs[this.inputCursor++];
       const recordId = makeRecordId(this.bookingId, makeFingerprint(input.file));
@@ -546,6 +607,12 @@ export class UploadEngineCore {
         },
       });
     } catch (err) {
+      // Aborted by cancel — not a real failure. Drop the blobs and bail quietly
+      // (no error log, no `failed` status); cancel wipes all state anyway.
+      if (this.abort.signal.aborted || isAbortError(err)) {
+        for (const id of batchIds) this.compressedBlobs.delete(id);
+        return;
+      }
       const reason = err instanceof Error ? err.message : "presign failed";
       const filenames = batchIds.map((id) => this.records.get(id)?.filename ?? id);
       console.error("[upload:presign] terminal failure", { files: filenames, reason }, err);
@@ -656,6 +723,15 @@ export class UploadEngineCore {
       );
       succeeded = true;
     } catch (err) {
+      // A cancelled run aborts in-flight PUTs — that's not a real failure. Bail
+      // quietly (no error log, no `failed` status); cancel wipes state anyway.
+      // Release the AIMD slot so the reused engine's concurrency accounting
+      // doesn't leak into the next run.
+      if (this.abort.signal.aborted || isAbortError(err)) {
+        this.aimd.noteAborted();
+        this.compressedBlobs.delete(item.recordId);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "upload failed";
       console.error("[upload:put] terminal failure", {
         file: fileLabel,
@@ -700,13 +776,31 @@ export class UploadEngineCore {
   /**
    * Background loop: flush create-media chunks while uploads are in flight.
    * Partial remainders (< METADATA_CHUNK_SIZE) are flushed by `drainAllMetadata`
-   * when the pipeline finishes or is interrupted.
+   * when the pipeline finishes or is interrupted — or, while paused, by the
+   * pause-drain branch below.
    */
   private async runMetadataFlushLoop(): Promise<void> {
     while (true) {
       this.seedMetadataQueue();
 
       if (this.metadataPendingIds.length >= METADATA_CHUNK_SIZE) {
+        await this.enqueueMetadataFlush();
+        if (this.state.metadataSaveError) return;
+        continue;
+      }
+
+      // Paused: once the in-flight PUTs have settled (`runningUploaders === 0`),
+      // persist the partial batch of whatever already reached R2 so the DB
+      // reflects the pause point. Each flushed record is marked `saved` and
+      // spliced out of the pending queue, so `seedMetadataQueue` never re-queues
+      // it — the next post-resume 200-chunk excludes these automatically (no
+      // double-save).
+      if (
+        this.paused &&
+        this.runningUploaders === 0 &&
+        this.metadataPendingIds.length > 0 &&
+        !this.abort.signal.aborted
+      ) {
         await this.enqueueMetadataFlush();
         if (this.state.metadataSaveError) return;
         continue;
@@ -857,7 +951,17 @@ export class UploadEngineCore {
     for (const r of persisted) this.records.set(r.id, r);
   }
 
-  private async upsertPendingRecords(inputs: UploadInput[]): Promise<void> {
+  /**
+   * Build the IndexedDB record set for the batch about to upload. Each input's
+   * record id (`${bookingId}__${fingerprint}`) is the same media_id the backend
+   * stores, so any input whose id is in `alreadyUploaded` is recorded as `saved`
+   * — counted as done in the progress bar and skipped silently by the pipeline,
+   * never re-compressed or re-uploaded.
+   */
+  private async upsertPendingRecords(
+    inputs: UploadInput[],
+    alreadyUploaded: Set<string>,
+  ): Promise<void> {
     const toWrite: UploadRecord[] = [];
     for (const inp of inputs) {
       const fingerprint = makeFingerprint(inp.file);
@@ -879,7 +983,7 @@ export class UploadEngineCore {
       };
       const next: UploadRecord = {
         ...record,
-        status: "pending",
+        status: alreadyUploaded.has(id) ? "saved" : "pending",
         attempts: 0,
         lastError: undefined,
         updatedAt: Date.now(),
@@ -888,6 +992,24 @@ export class UploadEngineCore {
       this.records.set(id, next);
     }
     await putRecords(toWrite);
+  }
+
+  /**
+   * Fetch the set of media_ids already saved for this booking. Best-effort: a
+   * failure just disables backend-side skipping for this run (files re-upload
+   * rather than blocking the whole upload on a transient error).
+   */
+  private async fetchUploadedMediaIds(): Promise<Set<string>> {
+    try {
+      const ids = await getUploadedMediaIds(this.bookingId);
+      return new Set(ids);
+    } catch (err) {
+      console.warn(
+        "[upload:dedup] could not fetch existing media ids; uploading without backend skip",
+        err,
+      );
+      return new Set<string>();
+    }
   }
 
   /* ── batched IDB + debounced progress ───────────────────────── */
@@ -1017,6 +1139,11 @@ type PresignedItem = {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** True for the DOMException a fetch/PUT throws when its abort signal fires. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
 }
 
 function makeIdleProgress(): EngineProgress {

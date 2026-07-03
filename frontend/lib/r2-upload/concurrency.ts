@@ -73,6 +73,25 @@ export class AimdController {
     }
   }
 
+  /**
+   * Release a slot for a task that neither succeeded nor failed — e.g. an
+   * in-flight PUT aborted by a cancel. Frees the slot without penalising the
+   * limit (a user cancel isn't a signal that the network is congested).
+   */
+  noteAborted(): void {
+    this.active = Math.max(0, this.active - 1);
+  }
+
+  /**
+   * Reset in-flight accounting for a fresh run. The engine instance (and this
+   * controller) is reused per-booking across runs; a cancelled run can leave
+   * `active` elevated if PUTs were aborted mid-flight, so a new run starts from
+   * a clean slate. The learned `limit` is intentionally kept.
+   */
+  resetActive(): void {
+    this.active = 0;
+  }
+
   /** For diagnostics in the UI. */
   snapshot() {
     return {
