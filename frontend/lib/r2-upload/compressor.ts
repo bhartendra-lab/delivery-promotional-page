@@ -23,6 +23,11 @@ import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
 const QUALITY = 0.80;
+/** EXIF/APP1 sits at the very front of a JPEG; read only this much of the source
+ *  to extract it rather than base64-ing the whole (often 15–20 MB) file per
+ *  photo on the main thread. 256 KB comfortably covers APP0 + a max-size (64 KB)
+ *  APP1 (+ any XMP) with margin. */
+const EXIF_HEAD_BYTES = 256 * 1024;
 
 /** Default pool size: leave one core free for the main thread. */
 export function defaultPoolSize(): number {
@@ -80,24 +85,26 @@ export async function compressWithExif(
   file: File,
   watermark?: WatermarkRenderer | null,
 ): Promise<Blob> {
-  // Read source EXIF before compression destroys it.
-  // Only meaningful for JPEG sources (PNG/HEIC don't have EXIF in the same way).
+  // Read source EXIF before compression destroys it. Only meaningful for JPEG
+  // sources (PNG/HEIC don't carry EXIF the same way). We read just the header
+  // slice — EXIF sits right after the SOI marker — and keep the serialized
+  // segment as raw bytes so it can be spliced back in without any base64 or
+  // whole-image string round-trip (both were heavy main-thread work per photo).
   const sourceIsJpeg = file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
-  let preservedExifBytes: string | null = null;
+  let exifSegmentBytes: Uint8Array | null = null;
 
   if (sourceIsJpeg) {
     try {
-      const sourceDataUrl = await fileToDataUrl(file);
-      const exifDict = piexif.load(sourceDataUrl);
+      const exifDict = await loadSourceExifDict(file);
       // browser-image-compression bakes orientation into pixels; reset to 1 to
       // avoid double-rotation when a viewer applies orientation later.
       if (exifDict["0th"]) {
         exifDict["0th"][piexif.ImageIFD.Orientation] = 1;
       }
-      preservedExifBytes = piexif.dump(exifDict);
+      exifSegmentBytes = binaryStringToBytes(piexif.dump(exifDict));
     } catch {
-      // Not all JPEGs have EXIF; ignore failures and proceed.
-      preservedExifBytes = null;
+      // Not all JPEGs have EXIF; ignore failures and proceed unmarked.
+      exifSegmentBytes = null;
     }
   }
 
@@ -123,49 +130,86 @@ export async function compressWithExif(
     }
   }
 
-  if (!preservedExifBytes) {
+  if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
     return compressedBlob;
   }
 
-  // Re-inject EXIF. piexif works on data URLs, so we round-trip via base64.
+  // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
+  // must never fail the upload — losing metadata beats losing the photo.
   try {
-    const compressedDataUrl = await blobToDataUrl(compressedBlob);
-    const merged = piexif.insert(preservedExifBytes, compressedDataUrl);
-    return dataUrlToBlob(merged);
+    const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
+    return spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
   } catch {
-    // If re-injection fails for any reason, return the compressed blob anyway —
-    // losing metadata is better than failing the upload entirely.
     return compressedBlob;
   }
 }
 
-/* ── data URL <-> Blob helpers (small, hand-rolled) ───────────────── */
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result as string);
-    fr.onerror = () => reject(fr.error ?? new Error("FileReader failed"));
-    fr.readAsDataURL(file);
-  });
+/**
+ * Load the source JPEG's EXIF reading only the header slice — EXIF sits before
+ * the SOS marker, which is virtually always within the first 256 KB. Falls back
+ * to the full file for the rare image whose pre-scan segments (e.g. a giant ICC
+ * profile) exceed the slice, so we never silently drop EXIF we used to keep.
+ */
+async function loadSourceExifDict(file: File) {
+  try {
+    const head = new Uint8Array(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
+    return piexif.load(bytesToBinaryString(head));
+  } catch {
+    const full = new Uint8Array(await file.arrayBuffer());
+    return piexif.load(bytesToBinaryString(full));
+  }
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result as string);
-    fr.onerror = () => reject(fr.error ?? new Error("FileReader failed"));
-    fr.readAsDataURL(blob);
-  });
+/* ── EXIF byte helpers (piexif speaks latin1 "binary strings") ─────── */
+
+// NB: piexif operates on ISO-8859-1 binary strings (one char per byte, 0–255).
+// We convert with String.fromCharCode / charCodeAt — NOT TextDecoder, whose
+// "latin1" is really windows-1252 and would corrupt bytes 0x80–0x9F.
+
+/** Raw bytes → latin1 binary string (chunked to stay within arg limits). */
+function bytesToBinaryString(u8: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let s = "";
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    s += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+  }
+  return s;
 }
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const [meta, b64] = dataUrl.split(",");
-  const m = /data:([^;]+)/.exec(meta);
-  const mime = m?.[1] ?? "image/jpeg";
-  const binary = atob(b64);
-  const arr = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-  return new Blob([arr], { type: mime });
+/** latin1 binary string (piexif.dump output) → raw bytes. */
+function binaryStringToBytes(s: string): Uint8Array {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  return out;
+}
+
+/**
+ * Insert an EXIF payload (piexif.dump output — "Exif\0\0" + TIFF) as an APP1
+ * segment immediately after the SOI marker of a compressed JPEG. Returns a new
+ * Blob, or null if the input isn't a JPEG we recognise (caller keeps the
+ * original). browser-image-compression strips all metadata, so there's no
+ * existing APP1 to replace — we just prepend ours.
+ */
+function spliceExifIntoJpeg(compBytes: Uint8Array, exifPayload: Uint8Array): Blob | null {
+  // Must start with SOI (0xFFD8).
+  if (compBytes.length < 2 || compBytes[0] !== 0xff || compBytes[1] !== 0xd8) {
+    return null;
+  }
+  // JPEG segment length spans the 2 length bytes + payload, capped at 65535.
+  const segLen = exifPayload.length + 2;
+  if (segLen > 0xffff) return null;
+
+  const out = new Uint8Array(compBytes.length + 4 + exifPayload.length);
+  let o = 0;
+  out[o++] = 0xff;
+  out[o++] = 0xd8; // SOI
+  out[o++] = 0xff;
+  out[o++] = 0xe1; // APP1 marker
+  out[o++] = (segLen >> 8) & 0xff; // length hi
+  out[o++] = segLen & 0xff; // length lo
+  out.set(exifPayload, o);
+  o += exifPayload.length;
+  out.set(compBytes.subarray(2), o); // rest of the compressed JPEG (after SOI)
+  return new Blob([out], { type: "image/jpeg" });
 }

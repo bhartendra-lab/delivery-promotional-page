@@ -14,6 +14,17 @@ type Props = {
   /** Single-folder mode: every image goes here, no subfolder parsing / popups. */
   targetFolderId?: string;
   targetFolderName?: string;
+  /**
+   * Folder-upload only (hide the "Or select photos" option). Used by the
+   * "Create new folder" path, where the intent is explicitly a subfoldered
+   * folder pick. Ignored in single-folder mode.
+   */
+  folderOnly?: boolean;
+  /**
+   * When provided in single-folder mode, renders a "Change" action in the
+   * "Uploading to" banner so the user can re-pick the destination folder.
+   */
+  onChangeFolder?: () => void;
 };
 
 type Analysis = {
@@ -33,6 +44,8 @@ export function UploadModal({
   onStart,
   targetFolderId,
   targetFolderName,
+  folderOnly = false,
+  onChangeFolder,
 }: Props) {
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -237,7 +250,16 @@ export function UploadModal({
         {single && (
           <div className="flex items-center gap-2 border-b border-[var(--color-brand-navy)]/20 bg-[var(--color-brand-navy-soft)] px-6 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)]">
             <FolderIcon size={14} />
-            Uploading to: {targetFolderName ?? "Folder"}
+            <span>Uploading to: {targetFolderName ?? "Folder"}</span>
+            {onChangeFolder && (
+              <button
+                type="button"
+                onClick={onChangeFolder}
+                className="brand-focus ml-auto shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold text-[var(--color-brand-navy)] underline decoration-[var(--color-brand-navy)]/40 underline-offset-2 hover:decoration-[var(--color-brand-navy)]"
+              >
+                Change
+              </button>
+            )}
           </div>
         )}
 
@@ -273,6 +295,7 @@ export function UploadModal({
                 onBrowseFolder={() => folderInputRef.current?.click()}
                 onBrowseFiles={() => fileInputRef.current?.click()}
                 single={single}
+                folderOnly={folderOnly}
               />
             ) : (
               <ContentPanel
@@ -363,6 +386,7 @@ function DropZone({
   onBrowseFolder,
   onBrowseFiles,
   single,
+  folderOnly,
 }: {
   dragOver: boolean;
   setDragOver: (v: boolean) => void;
@@ -370,6 +394,7 @@ function DropZone({
   onBrowseFolder: () => void;
   onBrowseFiles: () => void;
   single: boolean;
+  folderOnly: boolean;
 }) {
   return (
     <>
@@ -412,17 +437,20 @@ function DropZone({
               Browse folders
             </button>
           )}
-          <button
-            type="button"
-            onClick={onBrowseFiles}
-            className={`brand-focus inline-flex h-10 items-center gap-2 rounded-lg px-5 text-[13.5px] font-semibold ${
-              single
-                ? "bg-[var(--color-brand-navy)] text-white hover:bg-[var(--color-brand-navy-deep)]"
-                : "border border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-            }`}
-          >
-            {single ? "Browse photos" : "Or select photos"}
-          </button>
+          {/* Loose-photo picker — hidden in folder-only mode (Create new folder). */}
+          {(single || !folderOnly) && (
+            <button
+              type="button"
+              onClick={onBrowseFiles}
+              className={`brand-focus inline-flex h-10 items-center gap-2 rounded-lg px-5 text-[13.5px] font-semibold ${
+                single
+                  ? "bg-[var(--color-brand-navy)] text-white hover:bg-[var(--color-brand-navy-deep)]"
+                  : "border border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+              }`}
+            >
+              {single ? "Browse photos" : "Or select photos"}
+            </button>
+          )}
         </div>
       </div>
     </>
