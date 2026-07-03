@@ -171,7 +171,9 @@ export function Sidebar({
               type="button"
               onClick={signOut}
               title="Sign out"
-              className="brand-focus w-full rounded-md border border-[var(--color-brand-border)] py-2.5 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              className={`brand-focus w-full rounded-md border border-[var(--color-brand-border)] py-2.5 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] ${
+                locked ? "pointer-events-none opacity-50" : ""
+              }`}
             >
               <IconLogout size={16} className="mx-auto" />
             </button>
@@ -191,7 +193,9 @@ export function Sidebar({
             <button
               type="button"
               onClick={signOut}
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
+              className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60 ${
+                locked ? "pointer-events-none opacity-50" : ""
+              }`}
             >
               <IconLogout size={16} className="text-[var(--color-brand-muted)]" />
               <span>Sign out</span>

@@ -13,7 +13,7 @@ export type Breadcrumb = {
 
 export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const pathname = usePathname();
-  const { topbarExtra } = useChrome();
+  const { topbarExtra, locked } = useChrome();
   const company = useCompany();
   const companyName = company?.name ?? "Studio";
   const initials = (
@@ -59,7 +59,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         {breadcrumb.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && <IconCaretRight size={12} />}
-            {crumb.href ? (
+            {crumb.href && !locked ? (
               <Link
                 href={crumb.href}
                 className={
@@ -72,11 +72,11 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
               </Link>
             ) : (
               <span
-                className={
+                className={`${
                   i === breadcrumb.length - 1
                     ? "font-semibold text-[var(--color-brand-ink)]"
                     : ""
-                }
+                }${locked && crumb.href ? " opacity-50" : ""}`}
               >
                 {crumb.label}
               </span>
@@ -111,9 +111,17 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         </a>
         <span className="mx-1 h-[18px] w-px bg-[var(--color-brand-border)]" aria-hidden />
         <div className="flex items-center gap-2 p-1">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-brand-ink)] text-[11px] font-bold text-white">
-            {initials}
-          </span>
+          {company?.logo ? (
+            <img
+              src={company.logo}
+              alt={companyName}
+              className="h-7 w-7 rounded-full object-cover"
+            />
+          ) : (
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-brand-ink)] text-[11px] font-bold text-white">
+              {initials}
+            </span>
+          )}
           <span className="hidden text-[13px] font-semibold text-[var(--color-brand-ink)] sm:inline">
             {companyName}
           </span>
