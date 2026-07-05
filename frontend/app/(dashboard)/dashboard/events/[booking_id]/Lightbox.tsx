@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
-import { IconChevronLeft, IconChevronRight, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
+import { downloadImage } from "@/lib/media-actions";
+import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
@@ -19,12 +20,16 @@ export function Lightbox({
   onIndexChange,
   onClose,
   onDelete,
+  onToggleShortlist,
 }: {
   items: MediaItem[];
   index: number;
   onIndexChange: (i: number) => void;
   onClose: () => void;
-  onDelete: (item: MediaItem) => void;
+  /** Delete the previewed item. Omitted where delete isn't offered (Smart Selects). */
+  onDelete?: (item: MediaItem) => void;
+  /** Toggle the previewed item's shortlist flag (Smart Selects). */
+  onToggleShortlist?: (item: MediaItem) => void;
 }) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
@@ -125,9 +130,17 @@ export function Lightbox({
     >
       {/* Top toolbar */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <span className="text-[13px] font-semibold tabular-nums text-white/80">
-          {index + 1} / {count.toLocaleString("en-IN")}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold tabular-nums text-white/80">
+            {index + 1} / {count.toLocaleString("en-IN")}
+          </span>
+          {(item.likes_count ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-[12.5px] font-semibold tabular-nums text-white/80">
+              <IconHeart size={13} filled />
+              {(item.likes_count ?? 0).toLocaleString("en-IN")}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           <ToolButton label="Zoom out" disabled={scale <= MIN_SCALE} onClick={() => setScale((s) => { const n = clamp(s / 1.4); if (n === 1) { setTx(0); setTy(0); } return n; })}>
             <IconZoomOut size={17} />
@@ -139,9 +152,23 @@ export function Lightbox({
             <IconZoomIn size={17} />
           </ToolButton>
           <span className="mx-1 h-5 w-px bg-white/20" />
-          <ToolButton label="Delete photo" danger onClick={() => onDelete(item)}>
-            <IconTrash size={16} />
+          {onToggleShortlist && (
+            <ToolButton
+              label={item.shortlisted ? "Remove from shortlist" : "Shortlist photo"}
+              active={!!item.shortlisted}
+              onClick={() => onToggleShortlist(item)}
+            >
+              <IconStar size={16} filled={!!item.shortlisted} />
+            </ToolButton>
+          )}
+          <ToolButton label="Download photo" onClick={() => downloadImage(item.url)}>
+            <IconDownload size={16} />
           </ToolButton>
+          {onDelete && (
+            <ToolButton label="Delete photo" danger onClick={() => onDelete(item)}>
+              <IconTrash size={16} />
+            </ToolButton>
+          )}
           <ToolButton label="Close preview" onClick={onClose}>
             <IconX size={18} />
           </ToolButton>
@@ -201,23 +228,27 @@ function ToolButton({
   onClick,
   disabled,
   danger,
+  active,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** Persistent "on" state (e.g. shortlisted) — tinted amber. */
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
       title={label}
       aria-label={label}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-9 w-9 items-center justify-center rounded-lg text-white transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
-        danger ? "hover:bg-[var(--color-brand-danger)]" : "hover:bg-white/15"
-      }`}
+      className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+        active ? "text-[var(--color-brand-warning)]" : "text-white"
+      } ${danger ? "hover:bg-[var(--color-brand-danger)]" : "hover:bg-white/15"}`}
     >
       {children}
     </button>

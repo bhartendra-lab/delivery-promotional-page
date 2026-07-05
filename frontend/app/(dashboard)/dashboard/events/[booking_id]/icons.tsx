@@ -263,3 +263,79 @@ export function IconEdit({ size = 13, className, style }: IconProps) {
     </svg>
   );
 }
+
+export function IconDownload({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size)} className={className} style={style}>
+      <path d="M12 3v12M7 11l5 5 5-5M5 20h14" />
+    </svg>
+  );
+}
+
+export function IconHeart({
+  size = 14,
+  className,
+  style,
+  filled,
+}: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      {...base(size, 1.6)}
+      className={className}
+      style={style}
+      fill={filled ? "currentColor" : "none"}
+    >
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  );
+}
+
+export function IconSearch({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size, 1.6)} className={className} style={style}>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="16.5" y1="16.5" x2="21" y2="21" />
+    </svg>
+  );
+}
+
+export function IconUsers({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size, 1.5)} className={className} style={style}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <path d="M16 6a3 3 0 0 1 0 5.4M17 13.5a5.5 5.5 0 0 1 3.5 5.5" />
+    </svg>
+  );
+}
+
+export function IconStar({
+  size = 14,
+  className,
+  style,
+  filled,
+}: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      {...base(size, 1.6)}
+      className={className}
+      style={style}
+      fill={filled ? "currentColor" : "none"}
+    >
+      <path d="M12 3.2l2.6 5.27 5.82.85-4.21 4.1.99 5.79L12 16.9l-5.2 2.31.99-5.79-4.21-4.1 5.82-.85L12 3.2z" />
+    </svg>
+  );
+}
+
+export function IconTarget({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size, 1.6)} className={className} style={style}>
+      <circle cx="12" cy="12" r="7.5" />
+      <circle cx="12" cy="12" r="2.6" />
+      <line x1="12" y1="1.5" x2="12" y2="5" />
+      <line x1="12" y1="19" x2="12" y2="22.5" />
+      <line x1="1.5" y1="12" x2="5" y2="12" />
+      <line x1="19" y1="12" x2="22.5" y2="12" />
+    </svg>
+  );
+}

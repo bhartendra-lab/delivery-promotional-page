@@ -65,7 +65,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   const folderRows: FolderRow[] = useMemo(() => {
     if (folders.length === 0) return [];
-    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: totalCount, system: true };
+    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: totalCount, system: true, icon: "images" };
     const userRows: FolderRow[] = folders.map((f) => ({
       id: f._id,
       label: f.name,
@@ -111,14 +111,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
   );
 
   const handleUploadMore = useCallback(() => {
-    if (activeFolderId === ALL_MEDIA_ID) setPrePickerOpen(true);
+    // System views (All Media / Liked Media) aren't real upload targets — pick a
+    // folder first. A real folder tab uploads straight into it (single mode).
+    if (activeIsSystem) setPrePickerOpen(true);
     else {
-      // A specific folder tab is open — upload straight into it (single mode).
       setUploadTarget({ id: activeFolderId, name: activeFolderLabel });
       setFolderOnly(false);
       setUploadModalOpen(true);
     }
-  }, [activeFolderId, activeFolderLabel]);
+  }, [activeIsSystem, activeFolderId, activeFolderLabel]);
 
   const handleBulkUpload = useCallback(() => {
     setUploadTarget(null);
@@ -193,7 +194,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           uploadingFoldersCount={engine.progress.folders.length}
           state={state}
           paused={paused}
-          activeIsAllMedia={activeFolderId === ALL_MEDIA_ID}
+          activeIsSystem={activeIsSystem}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
         />
@@ -219,6 +220,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             onLoadMore={loadMore}
             disabled={activeLocked}
             onDeleteMany={deleteMediaIds}
+            notify={toast}
             onRename={() => {
               if (!activeIsSystem) {
                 const next = window.prompt("Rename folder", activeFolderLabel);
@@ -294,7 +296,7 @@ function EventHeader({
   uploadingFoldersCount,
   state,
   paused,
-  activeIsAllMedia,
+  activeIsSystem,
   onUploadMore,
   onEdit,
 }: {
@@ -305,7 +307,7 @@ function EventHeader({
   uploadingFoldersCount: number;
   state: "loading" | "uploading" | "populated" | "empty";
   paused: boolean;
-  activeIsAllMedia: boolean;
+  activeIsSystem: boolean;
   onUploadMore: () => void;
   onEdit: () => void;
 }) {
@@ -371,8 +373,8 @@ function EventHeader({
               <UploadIcon size={14} />
               Upload more
             </button>
-            {activeIsAllMedia && (
-              <span className="text-[11px] text-[var(--color-brand-muted)]">All Media — tap to choose folder first</span>
+            {activeIsSystem && (
+              <span className="text-[11px] text-[var(--color-brand-muted)]">Tap to choose a folder to upload into</span>
             )}
           </>
         )}
@@ -417,6 +419,7 @@ function PopulatedBody({
   disabled,
   onDeleteMany,
   onRename,
+  notify,
 }: {
   activeFolderLabel: string;
   activeIsSystem: boolean;
@@ -429,6 +432,8 @@ function PopulatedBody({
   disabled: boolean;
   onDeleteMany: (ids: string[]) => Promise<void>;
   onRename: () => void;
+  /** Transient status messages (e.g. download progress). */
+  notify?: (msg: string) => void;
 }) {
   return (
     <section className="px-6 pb-12 pt-6 sm:px-10">
@@ -463,6 +468,7 @@ function PopulatedBody({
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={onLoadMore}
+        notify={notify}
       />
     </section>
   );

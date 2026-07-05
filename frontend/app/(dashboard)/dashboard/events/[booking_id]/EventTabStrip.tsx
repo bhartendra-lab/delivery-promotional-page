@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { IconLock } from "./icons";
 
-export type TabId = "media" | "gallery" | "access";
+export type TabId = "media" | "smart" | "gallery" | "access";
 
 export type TabDef = {
   id: TabId;

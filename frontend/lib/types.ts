@@ -184,6 +184,35 @@ export type MediaItem = {
   booking_id: string;
   custom_folder_ids: string[];
   createdAt: string;
+  /** Client-generated fingerprint id (`{booking}__{name}-{size}-{mtime}`). Projected
+   *  by get-media; absent on optimistic (not-yet-persisted) items. */
+  media_id?: string;
+  /** Original client-side filename at upload (raw file.name). Stored on newer docs. */
+  filename?: string;
+  /** Total likes across all guests. Present on dashboard get-media (drives the
+   *  "Liked Media" folder's badge + most-liked sort). Absent on optimistic items. */
+  likes_count?: number;
+  /** Studio shortlist flag (Smart Selects) — a picked-for-delivery liked photo. */
+  shortlisted?: boolean;
+  /** True once the shortlisted photo's original file was located on disk. */
+  identified?: boolean;
+};
+
+/**
+ * A guest of a booking, from `GET /deliverables/get-all-guests/:booking_id`.
+ * Powers the "Liked Media" per-guest filter — `likes_count` orders most-active first.
+ */
+export type Guest = {
+  _id: string;
+  name: string;
+  email?: string;
+  guest_type: "guest" | "host";
+  guest_sub_type?: string | null;
+  likes_count?: number;
+};
+
+export type GetAllGuestsResponse = {
+  guests: Guest[];
 };
 
 export type CreateBookingResponse = {
@@ -302,6 +331,10 @@ export type GetMediaResponse = {
   totalCount?: number;
   /** Per-folder media membership counts, keyed by folder id. Drives the sidebar. */
   folderCounts?: Record<string, number>;
+  /** Count of media with at least one like. Drives the Smart Selects header. */
+  likedCount?: number;
+  /** Count of shortlisted media. Drives the "Shortlisted" filter chip. */
+  shortlistedCount?: number;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */
