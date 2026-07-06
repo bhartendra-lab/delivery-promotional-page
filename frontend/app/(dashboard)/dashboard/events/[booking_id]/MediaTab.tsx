@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCustomFolder, updateCustomFolder } from "@/lib/api";
 import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
-import { FoldersSidebar, type FolderRow } from "@/components/dashboard/FoldersSidebar";
+import { FoldersSidebar, InlineFolderInput, type FolderRow } from "@/components/dashboard/FoldersSidebar";
 import { UploadModal } from "./UploadModal";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
@@ -44,6 +44,11 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
+  // Directory (folder) uploads need <input webkitdirectory>, which mobile
+  // browsers don't support — steer those to the plain multi-file picker.
+  const [dirSupported] = useState(
+    () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
+  );
   const [prePickerOpen, setPrePickerOpen] = useState(false);
   // Folder-only upload (the "Create new folder" path): opens the first-time
   // folder flow with the subfolder guide, minus the "Or select photos" option.
@@ -199,8 +204,20 @@ export function MediaTab({ loading }: { loading: boolean }) {
           onEdit={() => setEditOpen(true)}
         />
 
+        {/* Mobile folder switcher (desktop uses the FoldersSidebar). */}
+        {state === "populated" && folderRows.length > 0 && (
+          <MobileFolderStrip
+            folders={folderRows}
+            activeFolderId={activeFolderId}
+            onSelect={activeLocked ? () => {} : setActiveFolder}
+            onAddFolder={addFolder}
+            onRename={handleRename}
+            disabled={activeLocked}
+          />
+        )}
+
         {state === "loading" && <LoadingBody />}
-        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} />}
+        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} dirSupported={dirSupported} />}
         {state === "uploading" && (
           <UploadProgress
             progress={engine.progress}
@@ -383,7 +400,7 @@ function EventHeader({
   );
 }
 
-function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
+function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirSupported: boolean }) {
   return (
     <div className="mx-6 my-8 flex flex-col items-center gap-3.5 rounded-xl border-2 border-dashed border-[var(--color-brand-outline)] bg-white px-8 py-12 text-center sm:mx-10">
       <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
@@ -391,8 +408,17 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
       </div>
       <h3 className="text-[20px] font-bold tracking-tight text-[var(--color-brand-ink)]">Upload media to get started</h3>
       <p className="max-w-[480px] text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-        Drop in a folder of photos. We&apos;ll preserve any subfolders so your gallery stays organised by Ceremony,
-        Reception, Portraits and so on.
+        {dirSupported ? (
+          <>
+            Drop in a folder of photos. We&apos;ll preserve any subfolders so your gallery stays organised by Ceremony,
+            Reception, Portraits and so on.
+          </>
+        ) : (
+          <>
+            Add photos to this event to get started. Folder uploads that keep your subfolders organised are available
+            on desktop.
+          </>
+        )}
       </p>
       <button
         type="button"
@@ -400,9 +426,109 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
         className="brand-focus mt-1.5 inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
         <UploadIcon size={16} />
-        Upload media
+        {dirSupported ? "Upload media" : "Add photos"}
       </button>
       <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">JPG · PNG · HEIC · WebP · no size limit</div>
+    </div>
+  );
+}
+
+/* ── mobile folder strip (desktop uses FoldersSidebar) ──────────── */
+
+/**
+ * Horizontal, scrollable folder chips shown only below md. Mirrors the
+ * FoldersSidebar's switch/add/rename behaviour: tapping the active user folder
+ * enters rename (reusing InlineFolderInput); a dashed chip adds a folder. Styled
+ * like the Events-page status filter chips.
+ */
+function MobileFolderStrip({
+  folders,
+  activeFolderId,
+  onSelect,
+  onAddFolder,
+  onRename,
+  disabled,
+}: {
+  folders: FolderRow[];
+  activeFolderId: string;
+  onSelect: (id: string) => void;
+  onAddFolder: (name: string) => void | Promise<void>;
+  onRename: (id: string, name: string) => void | Promise<void>;
+  disabled: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+
+  return (
+    <div className="border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+      <div className="flex items-center gap-1.5 overflow-x-auto">
+        {folders.map((f) => {
+          const selected = f.id === activeFolderId;
+          if (selected && renaming && !f.system) {
+            return (
+              <div
+                key={f.id}
+                className="flex h-8 shrink-0 items-center rounded-full border border-[var(--color-brand-navy)] bg-white px-2"
+              >
+                <InlineFolderInput
+                  initial={f.label}
+                  onCommit={async (name) => {
+                    setRenaming(false);
+                    const trimmed = name.trim();
+                    if (trimmed && trimmed !== f.label) await onRename(f.id, trimmed);
+                  }}
+                  onCancel={() => setRenaming(false)}
+                />
+              </div>
+            );
+          }
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => {
+                if (disabled) return;
+                // Tapping the already-active user folder switches it into rename.
+                if (selected && !f.system) setRenaming(true);
+                else onSelect(f.id);
+              }}
+              aria-pressed={selected}
+              className={`brand-focus flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors ${
+                selected
+                  ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                  : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
+              } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            >
+              <span>{f.label}</span>
+              <span className="tabular-nums opacity-70">{f.count.toLocaleString("en-IN")}</span>
+              {selected && !f.system && <EditIcon size={12} />}
+            </button>
+          );
+        })}
+
+        {adding ? (
+          <div className="flex h-8 shrink-0 items-center rounded-full border border-[var(--color-brand-navy)] bg-white px-2">
+            <InlineFolderInput
+              placeholder="New folder name"
+              onCommit={async (name) => {
+                setAdding(false);
+                if (name.trim()) await onAddFolder(name.trim());
+              }}
+              onCancel={() => setAdding(false)}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            disabled={disabled}
+            className="brand-focus flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-[var(--color-brand-border)] px-3 text-xs font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="text-[14px] leading-none">+</span>
+            Add folder
+          </button>
+        )}
+      </div>
     </div>
   );
 }

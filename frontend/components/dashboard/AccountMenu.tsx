@@ -1,0 +1,204 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { clearToken, clearCompany } from "@/lib/auth";
+import { useCompany } from "@/lib/useCompany";
+import { useChrome } from "./ChromeContext";
+
+const UPLOAD_GUARD = "Upload in progress — please wait or cancel before leaving this page.";
+
+/**
+ * Trigger flavours for the shared account popover:
+ *   chip   — desktop sidebar footer, full profile chip (opens upward)
+ *   icon   — collapsed sidebar footer, avatar-only button (opens upward)
+ *   avatar — mobile Topbar, avatar button (opens downward)
+ */
+type Variant = "chip" | "icon" | "avatar";
+
+/**
+ * One account menu, two responsive triggers. Holds the identity header (logo or
+ * initials + company name), a Settings link, and Sign out. Closes on
+ * outside-click and Esc (mirrors CoverBanner's outside-click effect). Settings
+ * and Sign out respect the upload `locked` state exactly like the old Sidebar
+ * footer did — visually disabled + an "Upload in progress" guard.
+ */
+export function AccountMenu({ variant }: { variant: Variant }) {
+  const router = useRouter();
+  const company = useCompany();
+  const { locked } = useChrome();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const companyName = company?.name ?? "Studio";
+  const initials = (
+    (company?.name?.[0]?.toUpperCase() ?? "S") +
+    (company?.name?.split(" ")[1]?.[0]?.toUpperCase() ?? "")
+  ).slice(0, 2);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function guardNav(e: React.MouseEvent) {
+    if (locked) {
+      e.preventDefault();
+      window.alert(UPLOAD_GUARD);
+      return;
+    }
+    setOpen(false);
+  }
+
+  function signOut() {
+    if (locked) {
+      window.alert(UPLOAD_GUARD);
+      return;
+    }
+    setOpen(false);
+    clearToken();
+    clearCompany();
+    router.replace("/login");
+  }
+
+  const upward = variant !== "avatar";
+  const menuPos = `${upward ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} ${
+    variant === "avatar" ? "right-0" : "left-0"
+  }`;
+  const lockedCls = locked ? "pointer-events-none opacity-50" : "";
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      {variant === "chip" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Account menu"
+          className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-[var(--color-brand-surface)]/60"
+        >
+          <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--color-brand-ink)]">
+            {companyName}
+          </span>
+          <IconCaretUpDown size={14} className="shrink-0 text-[var(--color-brand-muted)]" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Account menu"
+          title={variant === "icon" ? companyName : undefined}
+          className={`brand-focus flex items-center rounded-md hover:bg-[var(--color-brand-surface)]/60 ${
+            variant === "icon" ? "w-full justify-center py-1.5" : "p-1"
+          }`}
+        >
+          <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
+        </button>
+      )}
+
+      {open && (
+        <div
+          role="menu"
+          className={`absolute ${menuPos} z-40 w-[240px] overflow-hidden rounded-[10px] border border-[var(--color-brand-border)] bg-white shadow-[0_8px_28px_rgba(42,34,24,0.14)]`}
+        >
+          <div className="flex items-center gap-2.5 border-b border-[var(--color-brand-border)] px-3.5 py-3">
+            <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-8 w-8" textCls="text-[12px]" />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--color-brand-ink)]">
+              {companyName}
+            </span>
+          </div>
+          <Link
+            href="/dashboard/settings"
+            role="menuitem"
+            onClick={guardNav}
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-[var(--color-brand-ink)] no-underline hover:bg-[var(--color-brand-bg)] ${lockedCls}`}
+          >
+            <IconGear size={16} className="text-[var(--color-brand-muted)]" />
+            Settings
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={signOut}
+            className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] ${lockedCls}`}
+          >
+            <IconLogout size={16} className="text-[var(--color-brand-muted)]" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Avatar({
+  logo,
+  name,
+  initials,
+  sizeCls,
+  textCls,
+}: {
+  logo?: string;
+  name: string;
+  initials: string;
+  sizeCls: string;
+  textCls: string;
+}) {
+  if (logo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={logo} alt={name} className={`${sizeCls} shrink-0 rounded-full object-cover`} />
+    );
+  }
+  return (
+    <span
+      className={`${sizeCls} ${textCls} inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-ink)] font-bold text-white`}
+    >
+      {initials}
+    </span>
+  );
+}
+
+/* ── icons (match the Sidebar's Phosphor-style set) ─────────────── */
+
+function IconGear({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </svg>
+  );
+}
+
+function IconLogout({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M14 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h7a2 2 0 002-2v-2M10 12h11M18 8l3 4-3 4" />
+    </svg>
+  );
+}
+
+function IconCaretUpDown({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="8 9 12 5 16 9" />
+      <polyline points="8 15 12 19 16 15" />
+    </svg>
+  );
+}

@@ -776,6 +776,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
+        {/* Mobile-only publish action row. The same pill is injected into the
+            Topbar for desktop (usePageTopbarExtra); here it stays reachable on
+            mobile where the Topbar hides it. One visible instance per breakpoint. */}
+        <div className="sticky top-0 z-20 flex justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+          {pillNode}
+        </div>
+
         {banner && (
           <PostUploadBanner type={banner.type} photoCount={banner.count} onDismiss={() => setBanner(null)} />
         )}
