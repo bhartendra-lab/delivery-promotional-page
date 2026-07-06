@@ -26,6 +26,14 @@ export type UploadEngineHook = {
     existingFolders?: Array<{ name: string; id: string }>;
     targetFolderId?: string;
     targetFolderName?: string;
+    /**
+     * Fired synchronously once folder ids are resolved (created or reused),
+     * before the (potentially long) upload run itself. Lets the caller merge
+     * newly-created folders into its own folder list immediately, so a second
+     * upload started moments later — before any debounced DB reload lands —
+     * already sees them and doesn't re-create the same folder.
+     */
+    onFoldersEnsured?: (folders: Array<{ id: string; name: string }>) => void;
   }) => Promise<void>;
   /** Cancel the in-flight run; flushes create-media for completed uploads first. */
   cancelUpload: () => Promise<void>;
@@ -183,12 +191,14 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       existingFolders = [],
       targetFolderId,
       targetFolderName,
+      onFoldersEnsured,
     }: {
       files?: File[];
       groups?: Array<{ name: string; files: File[] }>;
       existingFolders?: Array<{ name: string; id: string }>;
       targetFolderId?: string;
       targetFolderName?: string;
+      onFoldersEnsured?: (folders: Array<{ id: string; name: string }>) => void;
     }) => {
       console.log("[upload:start] plan", {
         mode: targetFolderId ? "single-folder" : "grouped",
@@ -231,6 +241,17 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
         resolvedGroups.map((g) => g.name),
         seed,
       );
+      // Report newly-created folders back to the caller *before* the (possibly
+      // long) upload run, so its own folder list is up to date immediately —
+      // a second upload started moments later reuses these instead of
+      // re-creating them.
+      if (onFoldersEnsured) {
+        const knownIds = new Set(existingFolders.map((f) => f.id));
+        const newlyEnsured = resolvedGroups
+          .map((g) => ({ id: folderIdByName.get(g.name), name: g.name }))
+          .filter((f): f is { id: string; name: string } => !!f.id && !knownIds.has(f.id));
+        if (newlyEnsured.length > 0) onFoldersEnsured(newlyEnsured);
+      }
       const inputs: UploadInput[] = [];
       for (const g of resolvedGroups) {
         const cfId = folderIdByName.get(g.name);
