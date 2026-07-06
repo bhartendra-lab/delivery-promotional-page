@@ -189,7 +189,7 @@ function FolderRowComponent({
   );
 }
 
-function InlineFolderInput({
+export function InlineFolderInput({
   initial = "",
   placeholder,
   onCommit,
