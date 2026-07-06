@@ -104,10 +104,16 @@ export function MediaTab({ loading }: { loading: boolean }) {
     async (name: string) => {
       try {
         const res = await createCustomFolder(bookingId, name);
-        setFolders((prev) => [
-          ...prev,
-          { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
-        ]);
+        setFolders((prev) => {
+          // The backend reuses an existing folder for a duplicate name (same
+          // case-insensitive/trimmed match) and returns its id — don't add a
+          // second row sharing that id.
+          if (prev.some((f) => f._id === res.custom_folder_id)) return prev;
+          return [
+            ...prev,
+            { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
+          ];
+        });
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not create folder", "error");
       }
@@ -272,6 +278,20 @@ export function MediaTab({ loading }: { loading: boolean }) {
             void engine.startUpload({
               groups: plan.groups,
               existingFolders: folders.map((f) => ({ name: f.name, id: f._id })),
+              onFoldersEnsured: (ensured) => {
+                setFolders((prev) => {
+                  const known = new Set(prev.map((f) => f._id));
+                  const additions = ensured
+                    .filter((f) => !known.has(f.id))
+                    .map((f) => ({
+                      _id: f.id,
+                      name: f.name,
+                      booking_id: bookingId,
+                      createdAt: new Date().toISOString(),
+                    }));
+                  return additions.length > 0 ? [...prev, ...additions] : prev;
+                });
+              },
             });
           }
         }}
