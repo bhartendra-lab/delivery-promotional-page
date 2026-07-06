@@ -858,6 +858,7 @@ export class UploadEngineCore {
       type: "image" as const,
       custom_folder_id: r.customFolderId,
       media_id: r.id,
+      filename: r.filename,
     }));
 
     try {

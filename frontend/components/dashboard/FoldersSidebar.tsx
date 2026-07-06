@@ -7,6 +7,8 @@ export type FolderRow = {
   label: string;
   count: number;
   system?: boolean;
+  /** Which glyph to show. Defaults to a folder (or the stack for `system` rows). */
+  icon?: "images" | "heart";
 };
 
 type Props = {
@@ -136,7 +138,8 @@ function FolderRowComponent({
   onCommitRename: (name: string) => void | Promise<void>;
   onCancelRename: () => void;
 }) {
-  const Icon = folder.system ? ImageStackIcon : FolderIcon;
+  const Icon =
+    folder.icon === "heart" ? HeartIcon : folder.system ? ImageStackIcon : FolderIcon;
   return (
     <div
       onClick={isRenaming || disabled ? undefined : onSelect}
@@ -257,6 +260,14 @@ function ImageStackIcon({ size = 16, className }: { size?: number; className?: s
       <path d="M4 6v14a1 1 0 0 0 1 1h14" />
       <circle cx="11" cy="8" r="1.2" fill="currentColor" />
       <path d="M6 14l4-4 6 6" />
+    </svg>
+  );
+}
+
+function HeartIcon({ size = 16, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
     </svg>
   );
 }

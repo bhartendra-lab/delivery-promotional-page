@@ -9,6 +9,7 @@ import {
   regenerateFamilyPasscode,
   updateBooking,
   updateGalleryActivationStatus,
+  updateMediaShortlist,
   type UpdateBookingInput,
 } from "@/lib/api";
 import type {
@@ -21,11 +22,19 @@ import type {
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageLock, usePageTopbarExtra } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
-import { EventProvider, ALL_MEDIA_ID, type EventMeta } from "./EventContext";
+import {
+  EventProvider,
+  ALL_MEDIA_ID,
+  LIKED_MEDIA_ID,
+  EMPTY_LIKED_FILTERS,
+  type EventMeta,
+  type LikedFilters,
+} from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
 import { LivePill, type LivePillState } from "./LivePill";
 import { PostUploadBanner, PostUploadInfoDialog } from "./PostUploadBanner";
 import { MediaTab } from "./MediaTab";
+import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
 import { AccessSharingTab } from "./AccessSharingTab";
 
@@ -105,6 +114,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [folders, setFolders] = useState<CustomFolder[]>([]);
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
+  const [likedCount, setLikedCount] = useState(0); // liked media in the booking
+  const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
+  const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
   const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
@@ -119,21 +131,32 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const engine = useUploadEngine(bookingId);
 
+  // The view the media grid is loading. The Smart Selects tab shows the liked
+  // feed; every other tab shows the Media tab's active folder. This decouples the
+  // liked view from the Media sidebar (it's now its own top-level section).
+  const viewId = activeTab === "smart" ? LIKED_MEDIA_ID : activeFolderId;
+
   // Refs so async handlers/effects read the latest values without re-binding.
   const metaRef = useRef<EventMeta | null>(meta);
   const pubRef = useRef(pub);
   const mediaRef = useRef(media);
   const activeFolderIdRef = useRef(activeFolderId);
+  const activeTabRef = useRef(activeTab);
+  const viewIdRef = useRef(viewId);
   const totalForViewRef = useRef(totalForView);
   const totalCountRef = useRef(totalCount);
+  const likedFiltersRef = useRef(likedFilters);
   const loadingMoreRef = useRef(false);
   useEffect(() => {
     metaRef.current = meta;
     pubRef.current = pub;
     mediaRef.current = media;
     activeFolderIdRef.current = activeFolderId;
+    activeTabRef.current = activeTab;
+    viewIdRef.current = viewId;
     totalForViewRef.current = totalForView;
     totalCountRef.current = totalCount;
+    likedFiltersRef.current = likedFilters;
   });
 
   const toast = useCallback(
@@ -148,14 +171,30 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── data load ──────────────────────────────────────────────── */
 
-  // Fetch one page of media for a view (ALL_MEDIA_ID → no folder filter).
+  // Fetch one page of media for a view. ALL_MEDIA_ID → no folder filter;
+  // LIKED_MEDIA_ID → the liked feed (most-liked first) with the active who-filters
+  // (read via ref so paging/reloads always use the latest selection).
   const fetchPage = useCallback(
-    (folderId: string, skip: number, limit: number) =>
-      getMedia(bookingId, {
+    (folderId: string, skip: number, limit: number) => {
+      if (folderId === LIKED_MEDIA_ID) {
+        const f = likedFiltersRef.current;
+        return getMedia(bookingId, {
+          skip,
+          limit,
+          onlyLiked: true,
+          sort: "likes",
+          likedGuestType: f.audience === "all" ? undefined : f.audience,
+          likedGuestSubTypes: f.subTypes,
+          likedGuestIds: f.guestIds,
+          shortlistedOnly: f.shortlistedOnly,
+        });
+      }
+      return getMedia(bookingId, {
         customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
         skip,
         limit,
-      }),
+      });
+    },
     [bookingId],
   );
 
@@ -173,6 +212,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         mediaRef.current = list;
         if (res.customFolders) setFolders(res.customFolders);
         if (res.folderCounts) setFolderCounts(res.folderCounts);
+        if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
+        if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
           totalCountRef.current = res.totalCount;
@@ -200,7 +241,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // many items are currently loaded, so counts stay correct after an
   // upload/delete without collapsing the scroll back to a single page.
   const reload = useCallback(
-    () => loadFirstPage(activeFolderIdRef.current, Math.max(PAGE_SIZE, mediaRef.current.length)),
+    () => loadFirstPage(viewIdRef.current, Math.max(PAGE_SIZE, mediaRef.current.length)),
     [loadFirstPage],
   );
 
@@ -213,7 +254,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     setLoadingMore(true);
     try {
       const res = await fetchPage(
-        activeFolderIdRef.current,
+        viewIdRef.current,
         mediaRef.current.length,
         PAGE_SIZE,
       );
@@ -236,10 +277,31 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     setActiveFolderId((prev) => (prev === folderId ? prev : folderId));
   }, []);
 
-  // Initial paint + folder switches both load the first page for the view.
+  // Tab switches that cross the Media ↔ Smart Selects boundary swap the media
+  // list's context — clear the grid to a skeleton so the incoming tab never
+  // flashes the other context's photos before its own first page arrives.
+  const onTabChange = useCallback((id: TabId) => {
+    const prev = activeTabRef.current;
+    if (prev === id) return;
+    if ((prev === "smart") !== (id === "smart")) {
+      setMedia([]);
+      mediaRef.current = [];
+      setLoading(true);
+    }
+    setActiveTab(id);
+  }, []);
+
+  // Load the first page whenever the view changes (initial paint, folder switch,
+  // or switching to/from the Smart Selects tab). Clearing the grid on a tab switch
+  // is handled in `onTabChange` (an event) so this effect stays a pure load.
   useEffect(() => {
-    void loadView(activeFolderId);
-  }, [activeFolderId, loadView]);
+    void loadView(viewId);
+  }, [viewId, loadView]);
+
+  // Re-fetch the Smart Selects view when its filters change (only while active).
+  useEffect(() => {
+    if (viewIdRef.current === LIKED_MEDIA_ID) void loadView(LIKED_MEDIA_ID);
+  }, [likedFilters, loadView]);
 
   // Authoritative booking refresh: drives meta + publish/activation state.
   // Returns the fresh publish snapshot so callers can read it without waiting
@@ -519,6 +581,40 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking, reload, toast],
   );
 
+  // Flag/unflag media as shortlisted (Smart Selects). Optimistic: flip the flag
+  // in place, and when un-shortlisting under the "Shortlisted only" filter, drop
+  // the items from the view so they vanish immediately. Reverts on failure.
+  const setShortlisted = useCallback(
+    async (ids: string[], shortlisted: boolean) => {
+      const real = ids.filter((id) => id && !id.startsWith("optimistic-"));
+      if (real.length === 0) return;
+      const prev = mediaRef.current;
+      const changed = prev.filter(
+        (m) => real.includes(m._id) && !!m.shortlisted !== shortlisted,
+      ).length;
+      const dropFromView = !shortlisted && likedFiltersRef.current.shortlistedOnly;
+      setMedia((cur) =>
+        dropFromView
+          ? cur.filter((m) => !real.includes(m._id))
+          : cur.map((m) => (real.includes(m._id) ? { ...m, shortlisted } : m)),
+      );
+      try {
+        await updateMediaShortlist(real, shortlisted);
+        setShortlistedCount((c) => Math.max(0, c + (shortlisted ? changed : -changed)));
+        if (dropFromView) setTotalForView((t) => Math.max(0, t - real.length));
+        toast(
+          shortlisted
+            ? `${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} shortlisted`
+            : `Removed ${real.length.toLocaleString("en-IN")} from shortlist`,
+        );
+      } catch (err) {
+        setMedia(prev); // restore on failure
+        toast(err instanceof Error ? err.message : "Could not update shortlist — try again", "error");
+      }
+    },
+    [toast],
+  );
+
   /* ── publish / activation actions ───────────────────────────── */
 
   const doPublish = useCallback(async () => {
@@ -593,10 +689,17 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const galleryLocked = !mediaReady || activeLocked;
   const accessLocked = pub.status !== "published" || activeLocked;
+  // Smart Selects curates guest-liked photos — it needs media (likes come from
+  // the published gallery, but an empty state covers the "no likes yet" case).
+  const smartLocked = !mediaReady || activeLocked;
   // If the active tab becomes locked (media deleted, upload starts), the strip
   // and body fall back to Media without mutating `activeTab` state.
   const effectiveTab: TabId =
-    (activeTab === "gallery" && galleryLocked) || (activeTab === "access" && accessLocked) ? "media" : activeTab;
+    (activeTab === "gallery" && galleryLocked) ||
+    (activeTab === "access" && accessLocked) ||
+    (activeTab === "smart" && smartLocked)
+      ? "media"
+      : activeTab;
 
   const tabs = useMemo(
     () => [
@@ -618,8 +721,16 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             ? "Publish the gallery to manage sharing & guest access."
             : "Available once the current upload finishes.",
       },
+      {
+        id: "smart" as TabId,
+        label: "Smart Selects",
+        locked: smartLocked,
+        tooltip: !mediaReady
+          ? "Upload media to this event first."
+          : "Available once the current upload finishes.",
+      },
     ],
-    [mediaReady, totalCount, galleryLocked, accessLocked, pub.status],
+    [mediaReady, totalCount, galleryLocked, accessLocked, smartLocked, pub.status],
   );
 
   const ctx = useMemo(
@@ -633,6 +744,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       activeFolderId,
       setActiveFolder,
       folderCounts,
+      likedCount,
+      shortlistedCount,
+      likedFilters,
+      setLikedFilters,
+      setShortlisted,
       totalCount,
       totalForView,
       hasMore,
@@ -650,7 +766,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -658,7 +774,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   return (
     <EventProvider value={ctx}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <EventTabStrip tabs={tabs} active={effectiveTab} onChange={setActiveTab} />
+        <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
         {/* Mobile-only publish action row. The same pill is injected into the
             Topbar for desktop (usePageTopbarExtra); here it stays reachable on
@@ -672,6 +788,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         )}
 
         {effectiveTab === "media" && <MediaTab loading={loading} />}
+        {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
         {effectiveTab === "gallery" && (
           <GalleryDesignTab
             eventName={ctx.meta.name}

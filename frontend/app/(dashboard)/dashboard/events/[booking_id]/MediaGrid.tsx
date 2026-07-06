@@ -2,12 +2,42 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
+import { downloadImage, downloadMany } from "@/lib/media-actions";
 import { Lightbox } from "./Lightbox";
-import { IconCheck, IconTrash, IconX } from "./icons";
+import { IconCheck, IconDownload, IconHeart, IconStar, IconTrash, IconX } from "./icons";
 
 /** Optimistic, not-yet-persisted items can't be deleted (no real id yet). */
 function isPersisted(m: MediaItem): boolean {
   return !!m._id && !m._id.startsWith("optimistic-");
+}
+
+/**
+ * A thumbnail that shows a warm shimmer placeholder while the photo loads, then
+ * fades it in — so the grid fills smoothly instead of images popping in. Handles
+ * already-cached images (whose `onLoad` may fire before React attaches).
+ */
+function GridImage({ src }: { src: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const ref = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    if (ref.current?.complete) setLoaded(true);
+  }, []);
+  return (
+    <>
+      {!loaded && <span aria-hidden className="skeleton absolute inset-0" />}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={ref}
+        src={src}
+        alt=""
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        className={`h-full w-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-[1.02] ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </>
+  );
 }
 
 export function MediaGrid({
@@ -17,6 +47,12 @@ export function MediaGrid({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
+  showLikes = false,
+  showShortlist = false,
+  onShortlistMany,
+  allowDelete = true,
+  emptyMessage,
+  notify,
 }: {
   items: MediaItem[];
   disabled?: boolean;
@@ -28,11 +64,25 @@ export function MediaGrid({
   loadingMore?: boolean;
   /** Append the next page — fired when the sentinel scrolls into view. */
   onLoadMore?: () => void;
+  /** Show each tile's like count (the Smart Selects view). */
+  showLikes?: boolean;
+  /** Show the per-tile shortlist star + the bulk Shortlist action (Smart Selects). */
+  showShortlist?: boolean;
+  /** Flag/unflag Media ids as shortlisted. Required for shortlist affordances. */
+  onShortlistMany?: (ids: string[], shortlisted: boolean) => Promise<void>;
+  /** Whether Delete is offered (false on Smart Selects). */
+  allowDelete?: boolean;
+  /** Custom empty-state copy for this view. */
+  emptyMessage?: string;
+  /** Transient status messages (e.g. download progress). */
+  notify?: (msg: string) => void;
 }) {
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ ids: string[]; fromLightbox: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [shortlisting, setShortlisting] = useState(false);
 
   // Infinite scroll: observe a sentinel below the grid and pull the next page
   // when it nears the viewport. `onLoadMore` is read through a ref so the
@@ -94,10 +144,42 @@ export function MediaGrid({
     }
   }, [confirm, onDeleteMany, items.length]);
 
+  // Download every selected photo (sequential individual files, via the same
+  // proxy the guest gallery uses). The browser handles each save.
+  const downloadSelected = useCallback(async () => {
+    const urls = items.filter((m) => selected.has(m._id)).map((m) => m.url).filter(Boolean);
+    if (urls.length === 0 || downloading) return;
+    setDownloading(true);
+    notify?.(`Downloading ${urls.length.toLocaleString("en-IN")} photo${urls.length === 1 ? "" : "s"}…`);
+    try {
+      await downloadMany(urls);
+    } finally {
+      setDownloading(false);
+    }
+  }, [items, selected, downloading, notify]);
+
+  // Shortlist toggle for the selection. If every selected photo is already
+  // shortlisted the button removes them; otherwise it shortlists all of them.
+  const selectedItems = useMemo(() => items.filter((m) => selected.has(m._id)), [items, selected]);
+  const allSelectedShortlisted =
+    selectedItems.length > 0 && selectedItems.every((m) => m.shortlisted);
+  const shortlistSelected = useCallback(async () => {
+    if (!onShortlistMany || shortlisting) return;
+    const ids = selectedItems.filter(isPersisted).map((m) => m._id);
+    if (ids.length === 0) return;
+    setShortlisting(true);
+    try {
+      await onShortlistMany(ids, !allSelectedShortlisted);
+      setSelected(new Set());
+    } finally {
+      setShortlisting(false);
+    }
+  }, [onShortlistMany, shortlisting, selectedItems, allSelectedShortlisted]);
+
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-[var(--color-brand-border)] bg-white px-6 py-12 text-center text-[13px] text-[var(--color-brand-muted)]">
-        No photos in this folder yet.
+        {emptyMessage ?? "No photos in this folder yet."}
       </div>
     );
   }
@@ -126,14 +208,48 @@ export function MediaGrid({
           >
             Clear
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setConfirm({ ids: Array.from(selected), fromLightbox: false })}
-              className="brand-focus inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-danger)] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90"
+              onClick={downloadSelected}
+              disabled={downloading}
+              className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <IconTrash size={14} /> Delete selected
+              {downloading ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+              ) : (
+                <IconDownload size={14} />
+              )}
+              Download
             </button>
+            {showShortlist && onShortlistMany && (
+              <button
+                type="button"
+                onClick={shortlistSelected}
+                disabled={shortlisting}
+                className={`brand-focus inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  allSelectedShortlisted
+                    ? "bg-[var(--color-brand-muted)]"
+                    : "bg-[var(--color-brand-warning)]"
+                }`}
+              >
+                {shortlisting ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/50 border-t-white" />
+                ) : (
+                  <IconStar size={14} filled={!allSelectedShortlisted} />
+                )}
+                {allSelectedShortlisted ? "Remove from shortlist" : "Shortlist"}
+              </button>
+            )}
+            {allowDelete && onDeleteMany && (
+              <button
+                type="button"
+                onClick={() => setConfirm({ ids: Array.from(selected), fromLightbox: false })}
+                className="brand-focus inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-danger)] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90"
+              >
+                <IconTrash size={14} /> Delete selected
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -155,13 +271,7 @@ export function MediaGrid({
                 aria-label="Open preview"
                 className="block h-full w-full"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={m.url}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                />
+                <GridImage src={m.url} />
               </button>
 
               {persisted && !disabled && (
@@ -181,6 +291,49 @@ export function MediaGrid({
                 >
                   <IconCheck size={12} />
                 </button>
+              )}
+
+              {/* Per-photo shortlist star (top-right). Persistent + amber when
+                  shortlisted; otherwise a hover toggle. One-click curation. */}
+              {showShortlist && onShortlistMany && persisted && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onShortlistMany([m._id], !m.shortlisted);
+                  }}
+                  aria-label={m.shortlisted ? "Remove from shortlist" : "Shortlist photo"}
+                  aria-pressed={!!m.shortlisted}
+                  title={m.shortlisted ? "Shortlisted" : "Shortlist"}
+                  className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md transition-opacity ${
+                    m.shortlisted
+                      ? "bg-[var(--color-brand-warning)] text-white opacity-100"
+                      : "bg-black/40 text-white opacity-0 hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+                  }`}
+                >
+                  <IconStar size={13} filled={!!m.shortlisted} />
+                </button>
+              )}
+
+              {/* Per-photo download (hover, bottom-right). */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadImage(m.url);
+                }}
+                aria-label="Download photo"
+                title="Download"
+                className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <IconDownload size={13} />
+              </button>
+
+              {showLikes && (m.likes_count ?? 0) > 0 && (
+                <span className="pointer-events-none absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-[3px] text-[11px] font-semibold text-white">
+                  <IconHeart size={11} filled />
+                  {(m.likes_count ?? 0).toLocaleString("en-IN")}
+                </span>
               )}
             </div>
           );
@@ -202,9 +355,20 @@ export function MediaGrid({
           index={safeIndex}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
-          onDelete={(item) => {
-            if (isPersisted(item)) setConfirm({ ids: [item._id], fromLightbox: true });
-          }}
+          onDelete={
+            allowDelete && onDeleteMany
+              ? (item) => {
+                  if (isPersisted(item)) setConfirm({ ids: [item._id], fromLightbox: true });
+                }
+              : undefined
+          }
+          onToggleShortlist={
+            showShortlist && onShortlistMany
+              ? (item) => {
+                  if (isPersisted(item)) void onShortlistMany([item._id], !item.shortlisted);
+                }
+              : undefined
+          }
         />
       )}
 
