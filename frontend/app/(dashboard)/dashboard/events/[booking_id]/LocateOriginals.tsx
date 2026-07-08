@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getShortlistedMedia, updateMediaIdentified, type ShortlistedMediaItem } from "@/lib/api";
+import { streamZipToDisk } from "@/lib/media-actions";
 import { resolveCleanName } from "@/lib/locate-originals/match";
 import {
   ensureReadwrite,
@@ -62,6 +63,7 @@ export function LocateOriginals({
   const [items, setItems] = useState<ShortlistedMediaItem[]>([]);
   const [foldersById, setFoldersById] = useState<Map<string, string>>(new Map());
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const [zipping, setZipping] = useState(false);
 
   // First statement is the `await`, so no setState runs synchronously in the
   // effect body (keeps the react-hooks/set-state-in-effect rule happy).
@@ -97,6 +99,32 @@ export function LocateOriginals({
     );
   }, [unidentifiedNames, eventName]);
 
+  // Download the web-res versions of every still-unidentified photo as one ZIP,
+  // built in the browser (client-zip) via the same streamZipToDisk path as every
+  // other gallery download.
+  const downloadUnidentifiedImages = useCallback(async () => {
+    const entries = unidentified
+      .filter((i) => i.url)
+      .map((i) => ({ url: i.url, name: resolveCleanName(i, bookingId) }));
+    if (entries.length === 0 || zipping) return;
+    setZipping(true);
+    toast("Preparing your download…");
+    try {
+      const { zipped, failed, cancelled } = await streamZipToDisk(
+        entries,
+        `${sanitizeArchive(eventName)}_unidentified.zip`,
+        (done, count) => toast(`Zipping ${fmt(done)}/${fmt(count)}…`),
+      );
+      if (cancelled) return;
+      toast(failed > 0 ? `Saved ${fmt(zipped)} — ${fmt(failed)} couldn't be fetched` : "Saved to your downloads");
+    } catch (err) {
+      console.warn("[downloadUnidentifiedImages] failed", err);
+      toast("Download failed — please try again", "error");
+    } finally {
+      setZipping(false);
+    }
+  }, [unidentified, bookingId, eventName, zipping, toast]);
+
   if (shortlistedCount === 0) return null;
 
   return (
@@ -106,8 +134,10 @@ export function LocateOriginals({
         total={total}
         identified={identifiedCount}
         unidentifiedNames={unidentifiedNames}
+        zipping={zipping}
         onLocate={() => onOpenChange(true)}
         onDownload={downloadUnidentified}
+        onDownloadImages={downloadUnidentifiedImages}
       />
       {open && (
         <LocateModal
@@ -131,15 +161,19 @@ function ReportCard({
   total,
   identified,
   unidentifiedNames,
+  zipping,
   onLocate,
   onDownload,
+  onDownloadImages,
 }: {
   loading: boolean;
   total: number;
   identified: number;
   unidentifiedNames: string[];
+  zipping: boolean;
   onLocate: () => void;
   onDownload: () => void;
+  onDownloadImages: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const pct = total === 0 ? 0 : Math.round((identified / total) * 100);
@@ -168,13 +202,28 @@ function ReportCard({
         </div>
         <div className="flex items-center gap-2">
           {remaining > 0 && (
-            <button
-              type="button"
-              onClick={onDownload}
-              className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-            >
-              <IconDownload size={13} /> Unidentified list
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onDownloadImages}
+                disabled={zipping}
+                className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {zipping ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+                ) : (
+                  <IconDownload size={13} />
+                )}
+                {zipping ? "Preparing…" : "Download images"}
+              </button>
+              <button
+                type="button"
+                onClick={onDownload}
+                className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
+              >
+                <IconDownload size={13} /> List
+              </button>
+            </>
           )}
           <button
             type="button"

@@ -190,7 +190,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             media={media}
             busy={coverBusy}
             disabled={activeLocked}
-            lockReason={publishedEver ? "Locked after publishing to keep the shared link stable." : null}
+            lockReason={publishedEver ? "Locked once photos are delivered, to keep the shared link stable." : null}
             onSetFromUrl={setCoverFromUrl}
             onSetFromFile={setCoverFromFile}
             onSavePosition={setCoverPosition}
@@ -614,6 +614,7 @@ function PopulatedBody({
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={onLoadMore}
+        archiveName={activeFolderLabel}
         notify={notify}
       />
     </section>
