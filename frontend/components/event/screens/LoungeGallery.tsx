@@ -308,22 +308,67 @@ export function LoungeGallery({
     void runZip(async () => entries, `${event.event_name || "gallery"} (${entries.length} photos).zip`);
   }
 
-  // Download the whole gallery: page through every photo (host = All Photos),
-  // then build + stream one ZIP in the browser.
-  const downloadAllZip = useCallback(() => {
-    void runZip(async () => {
+  // Paginate the guest media API into {url,name} entries for a browser-built ZIP.
+  const fetchMediaEntriesForZip = useCallback(
+    async (scope: { mine?: boolean; onlyLiked?: boolean; customFolderId?: string }) => {
       const entries: { url: string; name: string }[] = [];
-      const LIMIT = 500;
-      for (let skip = 0; ; skip += LIMIT) {
-        const res = await getGuestMedia(uniqueIdentifier, bookingId, { mine: false, skip, limit: LIMIT }, mediaIds ?? []);
+      const seen = new Set<string>();
+      const PAGE_SIZE = 500;
+      for (let skip = 0; ; skip += PAGE_SIZE) {
+        const res = await getGuestMedia(
+          uniqueIdentifier,
+          bookingId,
+          {
+            mine: scope.mine,
+            onlyLiked: scope.onlyLiked,
+            customFolderId: scope.customFolderId,
+            skip,
+            limit: PAGE_SIZE,
+          },
+          mediaIds ?? [],
+        );
         const media = res.media ?? [];
-        for (const m of media) entries.push({ url: m.url, name: nameFromUrl(m.url) });
-        const total = typeof res.total === "number" ? res.total : entries.length;
-        if (media.length === 0 || entries.length >= total) break;
+        for (const m of media) {
+          if (seen.has(m._id)) continue;
+          seen.add(m._id);
+          entries.push({ url: m.url, name: nameFromUrl(m.url) });
+        }
+        // Stop on an empty or short page only — don't trust `total` for stopping;
+        // the API may report a capped total (e.g. 1000) even when more media exists.
+        if (media.length === 0 || media.length < PAGE_SIZE) break;
       }
       return entries;
-    }, `${event.event_name || "gallery"}.zip`);
-  }, [runZip, uniqueIdentifier, bookingId, mediaIds, event.event_name]);
+    },
+    [uniqueIdentifier, bookingId, mediaIds],
+  );
+
+  // Lounge + gallery "All" folder: the complete unlocked gallery.
+  const downloadFullGalleryZip = useCallback(() => {
+    const base = (event.event_name || "gallery").trim() || "gallery";
+    void runZip(() => fetchMediaEntriesForZip({ mine: false }), `${base}.zip`);
+  }, [runZip, fetchMediaEntriesForZip, event.event_name]);
+
+  // Gallery header: honour the active folder pill; "All" still means every photo.
+  const downloadGalleryZip = useCallback(() => {
+    const base = (event.event_name || "gallery").trim() || "gallery";
+    if (likedView) {
+      void runZip(() => fetchMediaEntriesForZip({ onlyLiked: true }), `${base} - liked.zip`);
+      return;
+    }
+    if (folder !== ALL) {
+      const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
+      void runZip(
+        () =>
+          fetchMediaEntriesForZip({
+            mine: effTab === "mine",
+            customFolderId: folder,
+          }),
+        `${base} - ${folderName}.zip`,
+      );
+      return;
+    }
+    downloadFullGalleryZip();
+  }, [runZip, fetchMediaEntriesForZip, event.event_name, likedView, folder, folders, effTab, downloadFullGalleryZip]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -380,7 +425,7 @@ export function LoungeGallery({
           homeThumbs={homeThumbs}
           canDownloadAll={canDownloadAll}
           zipping={zipping}
-          onDownloadAll={downloadAllZip}
+          onDownloadAll={downloadFullGalleryZip}
           onSeeMine={() => gotoGallery("mine")}
           onSeeAll={() => gotoGallery("all")}
           onUnlock={() => setPasscodeOpen(true)}
@@ -425,7 +470,7 @@ export function LoungeGallery({
           onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
           canDownloadAll={canDownloadAll}
           zipping={zipping}
-          onDownloadAll={downloadAllZip}
+          onDownloadAll={downloadGalleryZip}
         />
       )}
       </div>

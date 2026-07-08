@@ -165,7 +165,7 @@ export function MediaGrid({
       const base = (archiveName || "photos").trim() || "photos";
       notify?.("Preparing your download…");
       const { zipped, failed, cancelled } = await streamZipToDisk(entries, `${base}.zip`, (done, total) =>
-        notify?.(`Zipping ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
+        notify?.(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
       );
       if (cancelled) {
         notify?.("");

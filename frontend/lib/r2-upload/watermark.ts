@@ -10,11 +10,8 @@
  *   - margin = 5% (of width for left/right, of height for top/bottom)
  *   - opacity applied via `globalAlpha`
  *
- * The watermark bytes are fetched through the same-origin `/api/download` proxy
- * because R2's public host has no browser CORS (see `lib/media-actions.ts`).
- * Routing through the proxy keeps the fetched blob same-origin, so the decoded
- * bitmap never taints the output canvas. A direct fetch is tried as a fallback
- * for hosts the proxy refuses (it only streams the configured R2 host).
+ * The watermark bytes are fetched directly from the public R2 URL (CORS must
+ * allow this origin so the decoded bitmap never taints the output canvas).
  */
 
 import type { WatermarkPosition } from "@/lib/types";
@@ -154,14 +151,8 @@ async function canvasToJpeg(canvas: RenderCanvas): Promise<Blob> {
 
 /* ── watermark image loading ────────────────────────────────────────── */
 
-function proxyUrl(url: string): string {
-  return `/api/download?url=${encodeURIComponent(url)}&name=watermark`;
-}
-
 async function loadBitmap(imageUrl: string): Promise<ImageBitmap> {
-  // Prefer the same-origin proxy (R2's public host has no browser CORS). Fall
-  // back to a direct fetch for any host the proxy refuses to stream.
-  const blob = await fetchBlob(proxyUrl(imageUrl)).catch(() => fetchBlob(imageUrl));
+  const blob = await fetchBlob(imageUrl);
   return createImageBitmap(blob);
 }
 

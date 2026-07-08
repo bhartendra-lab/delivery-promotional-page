@@ -91,14 +91,6 @@ export function LocateOriginals({
   const total = items.length;
   const identifiedCount = total - unidentified.length;
 
-  const downloadUnidentified = useCallback(() => {
-    if (unidentifiedNames.length === 0) return;
-    downloadTextFile(
-      `${sanitizeArchive(eventName)}_unidentified.csv`,
-      ["filename", ...unidentifiedNames].join("\n"),
-    );
-  }, [unidentifiedNames, eventName]);
-
   // Download the web-res versions of every still-unidentified photo as one ZIP,
   // built in the browser (client-zip) via the same streamZipToDisk path as every
   // other gallery download.
@@ -136,7 +128,6 @@ export function LocateOriginals({
         unidentifiedNames={unidentifiedNames}
         zipping={zipping}
         onLocate={() => onOpenChange(true)}
-        onDownload={downloadUnidentified}
         onDownloadImages={downloadUnidentifiedImages}
       />
       {open && (
@@ -163,7 +154,6 @@ function ReportCard({
   unidentifiedNames,
   zipping,
   onLocate,
-  onDownload,
   onDownloadImages,
 }: {
   loading: boolean;
@@ -172,7 +162,6 @@ function ReportCard({
   unidentifiedNames: string[];
   zipping: boolean;
   onLocate: () => void;
-  onDownload: () => void;
   onDownloadImages: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -215,13 +204,6 @@ function ReportCard({
                   <IconDownload size={13} />
                 )}
                 {zipping ? "Preparing…" : "Download images"}
-              </button>
-              <button
-                type="button"
-                onClick={onDownload}
-                className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
-              >
-                <IconDownload size={13} /> List
               </button>
             </>
           )}
@@ -944,15 +926,3 @@ function sanitizeArchive(name: string): string {
   );
 }
 
-function downloadTextFile(filename: string, content: string): void {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}

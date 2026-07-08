@@ -1,9 +1,7 @@
 /**
  * Client-side photo actions — download, share, and browser-side ZIP. Single
- * downloads (and the share blob) go through the same-origin `/api/download`
- * proxy so they work regardless of the R2 bucket's CORS config: the proxy
- * streams the object with `Content-Disposition: attachment`, which forces a
- * real download. The full-gallery / multi-select ZIP is built entirely in the
+ * downloads fetch originals directly from the public R2 URL (CORS must allow
+ * this origin). The full-gallery / multi-select ZIP is built entirely in the
  * browser (`client-zip`) — no server-side zip. On browsers with the File System
  * Access API (Chrome/Edge desktop) it streams straight to disk (a "Save as"
  * dialog; bounded memory, any size); elsewhere it falls back to an in-memory
@@ -20,22 +18,14 @@ export function nameFromUrl(url: string): string {
   }
 }
 
-function proxyUrl(url: string, name: string): string {
-  return `/api/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`;
-}
-
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Download one photo via the same-origin proxy (forces a real download). */
-export function downloadImage(url: string, filename?: string): void {
+/** Download one photo by fetching from its public R2 URL and saving locally. */
+export async function downloadImage(url: string, filename?: string): Promise<void> {
   const name = filename ?? nameFromUrl(url);
-  const a = document.createElement("a");
-  a.href = proxyUrl(url, name);
-  a.download = name; // same-origin → respected
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  triggerBlobDownload(await res.blob(), name);
 }
 
 /** A photo to place in a browser-built ZIP: source URL + the entry name to use. */
@@ -43,39 +33,28 @@ export type ZipEntry = { url: string; name: string };
 
 /**
  * How many originals to fetch in parallel while building the ZIP. Kept modest so
- * we don't overwhelm the same-origin download proxy (a Cloudflare Worker), which
- * returns 503s / cuts response streams under bursty concurrent load.
+ * we don't overwhelm R2 or the browser's connection pool under bursty load.
  */
-const ZIP_CONCURRENCY = 3;
+const ZIP_CONCURRENCY = 8;
 
-/** Attempts per image before skipping it. Transient proxy failures (503, 429,
- *  and mid-stream HTTP/2 resets) usually recover on a later try. */
+/** Attempts per image before skipping it. Transient failures (429, 5xx, and
+ *  mid-stream HTTP/2 resets) usually recover on a later try. */
 const FETCH_ATTEMPTS = 4;
-
-/**
- * When R2's CORS policy allows this site's origin, set
- * `NEXT_PUBLIC_ZIP_FETCH_DIRECT=true` to fetch originals straight from R2 and
- * bypass the `/api/download` Worker proxy — this removes the Cloudflare Worker
- * from the bulk-download byte path entirely (it can 503 / cut streams under
- * concurrent load). Defaults to the proxy, which needs no R2 CORS.
- */
-const ZIP_FETCH_DIRECT = process.env.NEXT_PUBLIC_ZIP_FETCH_DIRECT === "true";
 
 /**
  * Fetch one original fully into a Blob, retrying transient failures. Buffering
  * the whole object BEFORE it enters the ZIP is deliberate: it makes each image
- * an atomic, retryable unit, so a proxy hiccup (a 503 or a cut response stream)
- * retries just that image instead of aborting the entire archive — which is what
- * happens when `client-zip` is fed a live network stream that dies mid-read.
+ * an atomic, retryable unit, so a network hiccup retries just that image
+ * instead of aborting the entire archive — which is what happens when
+ * `client-zip` is fed a live network stream that dies mid-read.
  *
  * Returns null when the image can't be fetched after every attempt; the caller
  * skips it and keeps zipping the rest.
  */
-async function fetchImageBlob(url: string, name: string): Promise<Blob | null> {
-  const src = ZIP_FETCH_DIRECT ? url : proxyUrl(url, name);
+async function fetchImageBlob(url: string): Promise<Blob | null> {
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(src, { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store" });
       if (res.ok) {
         // `.blob()` reads the FULL body here — a cut stream throws and we retry.
         const blob = await res.blob();
@@ -156,12 +135,12 @@ function dedupeNames(entries: ZipEntry[]): ZipEntry[] {
 
 /**
  * Build a ZIP of the given photos entirely in the browser — no server-side zip.
- * Each original is fetched (with retry) through the same-origin `/api/download`
- * proxy and buffered fully before it enters the archive, so a flaky proxy can't
- * abort the whole download; `client-zip` writes STORED (no re-compression)
- * entries. On browsers with the File System Access API the archive streams
- * straight to disk (bounded memory, any size); elsewhere it's built into a Blob
- * and downloaded.
+ * Each original is fetched (with retry) directly from its public R2 URL and
+ * buffered fully before it enters the archive, so a flaky network can't abort
+ * the whole download; `client-zip` writes STORED (no re-compression) entries.
+ * On browsers with the File System Access API the archive streams straight to
+ * disk (bounded memory, any size); otherwise it's built into a Blob and
+ * downloaded.
  *
  * `source` may be a ready array OR a function returning one — pass the function
  * form when resolving the list is slow (e.g. paginating a whole gallery), so the
@@ -212,7 +191,7 @@ export async function streamZipToDisk(
     const fill = () => {
       while (pending.length < ZIP_CONCURRENCY && next < entries.length) {
         const e = entries[next++];
-        pending.push({ name: e.name, blob: fetchImageBlob(e.url, e.name) });
+        pending.push({ name: e.name, blob: fetchImageBlob(e.url) });
       }
     };
     fill();
@@ -253,7 +232,7 @@ export async function downloadMany(
   onProgress?: (done: number, total: number) => void,
 ): Promise<void> {
   for (let i = 0; i < urls.length; i++) {
-    downloadImage(urls[i]);
+    await downloadImage(urls[i]);
     onProgress?.(i + 1, urls.length);
     if (i < urls.length - 1) await delay(600);
   }
@@ -263,15 +242,15 @@ export type ShareResult = "shared" | "copied" | "cancelled" | "failed";
 
 /**
  * Share a photo via the Web Share API — prefers sharing the file (native sheet
- * with the image, fetched through the proxy so CORS never blocks it), then the
- * URL, finally copying the link to the clipboard.
+ * with the image, fetched from R2), then the URL, finally copying the link to
+ * the clipboard.
  */
 export async function shareImage(url: string, title?: string): Promise<ShareResult> {
   const nav = typeof navigator !== "undefined" ? navigator : undefined;
   const name = nameFromUrl(url);
   try {
     if (nav?.canShare) {
-      const res = await fetch(proxyUrl(url, name));
+      const res = await fetch(url, { cache: "no-store" });
       if (res.ok) {
         const blob = await res.blob();
         const file = new File([blob], name, { type: blob.type || "image/jpeg" });
