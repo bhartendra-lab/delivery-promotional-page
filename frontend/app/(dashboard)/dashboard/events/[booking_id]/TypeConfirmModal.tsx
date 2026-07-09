@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { IconWarning } from "./icons";
 
-export type ConfirmAction = "publish" | "republish" | "activate" | "deactivate";
+export type ConfirmAction = "activate" | "deactivate";
 
 /**
  * Type-to-confirm safety gate (recreated from `event-tabs.jsx`). The user must
- * type the exact action word before the confirm button enables. Unpublish uses
- * the red `--error` button; publish/republish use terracotta. Esc cancels,
- * Enter confirms once matched.
+ * type the exact action word before the confirm button enables. Deactivate
+ * uses the red danger button; activate uses navy. Esc cancels, Enter confirms
+ * once matched. (Publish/republish no longer exist — events are live from
+ * creation and media syncs automatically.)
  */
 export function TypeConfirmModal({
   action,

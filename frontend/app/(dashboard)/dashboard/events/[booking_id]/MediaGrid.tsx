@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
-import { downloadImage, downloadMany } from "@/lib/media-actions";
+import { downloadImage, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { Lightbox } from "./Lightbox";
 import { IconCheck, IconDownload, IconHeart, IconStar, IconTrash, IconX } from "./icons";
 
@@ -52,6 +52,7 @@ export function MediaGrid({
   onShortlistMany,
   allowDelete = true,
   emptyMessage,
+  archiveName,
   notify,
 }: {
   items: MediaItem[];
@@ -74,6 +75,8 @@ export function MediaGrid({
   allowDelete?: boolean;
   /** Custom empty-state copy for this view. */
   emptyMessage?: string;
+  /** Base name for the multi-select ZIP (e.g. the folder or event name). */
+  archiveName?: string;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
 }) {
@@ -144,19 +147,43 @@ export function MediaGrid({
     }
   }, [confirm, onDeleteMany, items.length]);
 
-  // Download every selected photo (sequential individual files, via the same
-  // proxy the guest gallery uses). The browser handles each save.
+  // Download the selection: one photo saves directly; several are packed into a
+  // single ZIP built in the browser (client-zip) — streamed to disk via the File
+  // System Access API where available, else an in-memory Blob. No server-side zip.
   const downloadSelected = useCallback(async () => {
-    const urls = items.filter((m) => selected.has(m._id)).map((m) => m.url).filter(Boolean);
-    if (urls.length === 0 || downloading) return;
+    const chosen = items.filter((m) => selected.has(m._id) && m.url);
+    if (chosen.length === 0 || downloading) return;
     setDownloading(true);
-    notify?.(`Downloading ${urls.length.toLocaleString("en-IN")} photo${urls.length === 1 ? "" : "s"}…`);
     try {
-      await downloadMany(urls);
+      if (chosen.length === 1) {
+        notify?.("Downloading 1 photo…");
+        downloadImage(chosen[0].url, chosen[0].filename);
+        setSelected(new Set());
+        return;
+      }
+      const entries = chosen.map((m) => ({ url: m.url, name: m.filename || nameFromUrl(m.url) }));
+      const base = (archiveName || "photos").trim() || "photos";
+      notify?.("Preparing your download…");
+      const { zipped, failed, cancelled } = await streamZipToDisk(entries, `${base}.zip`, (done, total) =>
+        notify?.(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
+      );
+      if (cancelled) {
+        notify?.("");
+        return;
+      }
+      notify?.(
+        failed > 0
+          ? `Saved ${zipped.toLocaleString("en-IN")}, ${failed.toLocaleString("en-IN")} skipped`
+          : "Saved to your downloads",
+      );
+      setSelected(new Set());
+    } catch (err) {
+      console.warn("[downloadSelected] failed", err);
+      notify?.("Download failed — please try again");
     } finally {
       setDownloading(false);
     }
-  }, [items, selected, downloading, notify]);
+  }, [items, selected, downloading, archiveName, notify]);
 
   // Shortlist toggle for the selection. If every selected photo is already
   // shortlisted the button removes them; otherwise it shortlists all of them.

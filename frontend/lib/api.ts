@@ -444,6 +444,8 @@ export function updateMediaShortlist(mediaIds: string[], shortlisted: boolean) {
 export type ShortlistedMediaItem = {
   _id: string;
   media_id: string;
+  /** Gallery (web-res) R2 URL — lets the studio zip-download unidentified photos. */
+  url: string;
   filename: string | null;
   identified: boolean;
   custom_folder_ids: string[];
@@ -511,10 +513,10 @@ export function deleteMedia(mediaIds: string[]) {
 }
 
 /**
- * POST /deliverables/publish-gallery/:booking_id — kicks off the GPU-expensive
- * face-embedding batch job and sets `embedding_status="in_progress"`. Publish
- * actually flips `gallery_publish_status` to "published" only when the job
- * finishes. Used for both Publish and Republish from the top-right LivePill.
+ * POST /deliverables/publish-gallery/:booking_id — LEGACY. Events are live
+ * from creation and uploads embed + sync automatically, so the app no longer
+ * calls this. The backend keeps the route as an idempotent manual "sync now"
+ * nudge (ops escape hatch); the function stays for parity with that.
  */
 export function publishGallery(bookingId: string) {
   return request<{ message: string }>(

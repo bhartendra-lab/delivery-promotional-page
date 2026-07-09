@@ -49,8 +49,10 @@ export type EmbeddingStatus =
   | "failed";
 
 /**
- * Gallery publish status. "published" is set by the embedding job on
- * completion; "expired" is set by the cleanup job after the 90-day window.
+ * Gallery publish status. Events are live ("published") from creation — there
+ * is no publish/unpublish action; the studio only toggles `is_active`.
+ * "expired" is set by the cleanup job after the 90-day window; "unpublished"
+ * survives in the union only for pre-migration legacy rows.
  */
 export type GalleryPublishStatus = "unpublished" | "published" | "expired";
 

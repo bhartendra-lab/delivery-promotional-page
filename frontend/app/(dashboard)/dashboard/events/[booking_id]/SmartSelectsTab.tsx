@@ -128,6 +128,7 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
             loadingMore={loadingMore}
             onLoadMore={loadMore}
             emptyMessage={emptyMessage}
+            archiveName={`${meta.name || "Gallery"} — Smart Selects`}
             notify={toast}
           />
         </>
