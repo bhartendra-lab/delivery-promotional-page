@@ -5,10 +5,10 @@ import {
   deleteMedia,
   getBookingById,
   getMedia,
-  publishGallery,
   regenerateFamilyPasscode,
   updateBooking,
   updateGalleryActivationStatus,
+  updateMediaShortlist,
   type UpdateBookingInput,
 } from "@/lib/api";
 import type {
@@ -21,15 +21,27 @@ import type {
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageLock, usePageTopbarExtra } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
-import { EventProvider, ALL_MEDIA_ID, type EventMeta } from "./EventContext";
+import {
+  EventProvider,
+  ALL_MEDIA_ID,
+  LIKED_MEDIA_ID,
+  EMPTY_LIKED_FILTERS,
+  type EventMeta,
+  type LikedFilters,
+} from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
 import { LivePill, type LivePillState } from "./LivePill";
-import { PostUploadBanner, PostUploadInfoDialog } from "./PostUploadBanner";
+import { PostUploadBanner } from "./PostUploadBanner";
 import { MediaTab } from "./MediaTab";
+import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
 import { AccessSharingTab } from "./AccessSharingTab";
 
-/** Publish/activation snapshot, sourced authoritatively from get-booking-by-id. */
+/**
+ * Live/sync snapshot, sourced authoritatively from get-booking-by-id.
+ * Events are live from creation — the only user control is activate/
+ * deactivate; everything else here is pipeline status.
+ */
 type PublishInfo = {
   status: GalleryPublishStatus;
   embedding: EmbeddingStatus;
@@ -37,15 +49,16 @@ type PublishInfo = {
   outOfSync: boolean;
   unsyncedCount: number;
   /**
-   * True once the gallery has been published at least once (`gallery_published_at`
-   * set, or currently published). Survives later unpublish/deactivate/expire so
-   * the name + cover stay locked for the event's life.
+   * True once the first photos have SYNCED (`gallery_published_at` set by the
+   * backend on the first completed finalize). Locks the event name — renaming
+   * would regenerate the unique_identifier and break the shared link, which by
+   * this point has plausibly been sent to guests.
    */
   hasBeenPublished: boolean;
 };
 
 const DEFAULT_PUB: PublishInfo = {
-  status: "unpublished",
+  status: "published",
   embedding: "not_started",
   isActive: true,
   outOfSync: false,
@@ -81,23 +94,24 @@ function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
 
 function normalizePublish(b: BookingDetail): PublishInfo {
   return {
-    status: b.gallery_publish_status === "published" ? "published" : "unpublished",
+    status: b.gallery_publish_status ?? "published",
     embedding: b.embedding_status ?? "not_started",
     isActive: b.is_active !== false,
     outOfSync: b.media_out_of_sync === true,
     unsyncedCount: typeof b.unsynced_media_count === "number" ? b.unsynced_media_count : 0,
-    hasBeenPublished:
-      b.gallery_publish_status === "published" || typeof b.gallery_published_at === "number",
+    // Name lock keys on "first photos synced", not on a publish action (which
+    // no longer exists) — see the PublishInfo docs.
+    hasBeenPublished: typeof b.gallery_published_at === "number",
   };
 }
 
-function computePillState(pub: PublishInfo, mediaReady: boolean): LivePillState {
-  if (!mediaReady) return "empty";
-  if (pub.embedding === "in_progress") return "publishing";
+function computePillState(pub: PublishInfo): LivePillState {
   if (!pub.isActive) return "deactivated";
-  if (pub.status === "published" && pub.outOfSync) return "republish";
-  if (pub.status === "published") return "published";
-  return "publish";
+  // Out-of-sync is a STATUS, not a call to action: the pipeline embeds new
+  // uploads and re-finalizes on its own; the workspace polls until the
+  // backend reports in-sync again.
+  if (pub.outOfSync) return "syncing";
+  return "live";
 }
 
 export function EventWorkspace({ bookingId }: { bookingId: string }) {
@@ -105,6 +119,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [folders, setFolders] = useState<CustomFolder[]>([]);
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
+  const [likedCount, setLikedCount] = useState(0); // liked media in the booking
+  const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
+  const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
   const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
@@ -112,28 +129,38 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("media");
   const [pub, setPub] = useState<PublishInfo>(DEFAULT_PUB);
-  const [banner, setBanner] = useState<{ type: "publish" | "republish"; count: number } | null>(null);
-  const [infoDialog, setInfoDialog] = useState<number | null>(null);
+  const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const engine = useUploadEngine(bookingId);
+
+  // The view the media grid is loading. The Smart Selects tab shows the liked
+  // feed; every other tab shows the Media tab's active folder. This decouples the
+  // liked view from the Media sidebar (it's now its own top-level section).
+  const viewId = activeTab === "smart" ? LIKED_MEDIA_ID : activeFolderId;
 
   // Refs so async handlers/effects read the latest values without re-binding.
   const metaRef = useRef<EventMeta | null>(meta);
   const pubRef = useRef(pub);
   const mediaRef = useRef(media);
   const activeFolderIdRef = useRef(activeFolderId);
+  const activeTabRef = useRef(activeTab);
+  const viewIdRef = useRef(viewId);
   const totalForViewRef = useRef(totalForView);
   const totalCountRef = useRef(totalCount);
+  const likedFiltersRef = useRef(likedFilters);
   const loadingMoreRef = useRef(false);
   useEffect(() => {
     metaRef.current = meta;
     pubRef.current = pub;
     mediaRef.current = media;
     activeFolderIdRef.current = activeFolderId;
+    activeTabRef.current = activeTab;
+    viewIdRef.current = viewId;
     totalForViewRef.current = totalForView;
     totalCountRef.current = totalCount;
+    likedFiltersRef.current = likedFilters;
   });
 
   const toast = useCallback(
@@ -148,14 +175,30 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── data load ──────────────────────────────────────────────── */
 
-  // Fetch one page of media for a view (ALL_MEDIA_ID → no folder filter).
+  // Fetch one page of media for a view. ALL_MEDIA_ID → no folder filter;
+  // LIKED_MEDIA_ID → the liked feed (most-liked first) with the active who-filters
+  // (read via ref so paging/reloads always use the latest selection).
   const fetchPage = useCallback(
-    (folderId: string, skip: number, limit: number) =>
-      getMedia(bookingId, {
+    (folderId: string, skip: number, limit: number) => {
+      if (folderId === LIKED_MEDIA_ID) {
+        const f = likedFiltersRef.current;
+        return getMedia(bookingId, {
+          skip,
+          limit,
+          onlyLiked: true,
+          sort: "likes",
+          likedGuestType: f.audience === "all" ? undefined : f.audience,
+          likedGuestSubTypes: f.subTypes,
+          likedGuestIds: f.guestIds,
+          shortlistedOnly: f.shortlistedOnly,
+        });
+      }
+      return getMedia(bookingId, {
         customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
         skip,
         limit,
-      }),
+      });
+    },
     [bookingId],
   );
 
@@ -173,6 +216,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         mediaRef.current = list;
         if (res.customFolders) setFolders(res.customFolders);
         if (res.folderCounts) setFolderCounts(res.folderCounts);
+        if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
+        if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
           totalCountRef.current = res.totalCount;
@@ -200,7 +245,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // many items are currently loaded, so counts stay correct after an
   // upload/delete without collapsing the scroll back to a single page.
   const reload = useCallback(
-    () => loadFirstPage(activeFolderIdRef.current, Math.max(PAGE_SIZE, mediaRef.current.length)),
+    () => loadFirstPage(viewIdRef.current, Math.max(PAGE_SIZE, mediaRef.current.length)),
     [loadFirstPage],
   );
 
@@ -213,7 +258,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     setLoadingMore(true);
     try {
       const res = await fetchPage(
-        activeFolderIdRef.current,
+        viewIdRef.current,
         mediaRef.current.length,
         PAGE_SIZE,
       );
@@ -236,10 +281,31 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     setActiveFolderId((prev) => (prev === folderId ? prev : folderId));
   }, []);
 
-  // Initial paint + folder switches both load the first page for the view.
+  // Tab switches that cross the Media ↔ Smart Selects boundary swap the media
+  // list's context — clear the grid to a skeleton so the incoming tab never
+  // flashes the other context's photos before its own first page arrives.
+  const onTabChange = useCallback((id: TabId) => {
+    const prev = activeTabRef.current;
+    if (prev === id) return;
+    if ((prev === "smart") !== (id === "smart")) {
+      setMedia([]);
+      mediaRef.current = [];
+      setLoading(true);
+    }
+    setActiveTab(id);
+  }, []);
+
+  // Load the first page whenever the view changes (initial paint, folder switch,
+  // or switching to/from the Smart Selects tab). Clearing the grid on a tab switch
+  // is handled in `onTabChange` (an event) so this effect stays a pure load.
   useEffect(() => {
-    void loadView(activeFolderId);
-  }, [activeFolderId, loadView]);
+    void loadView(viewId);
+  }, [viewId, loadView]);
+
+  // Re-fetch the Smart Selects view when its filters change (only while active).
+  useEffect(() => {
+    if (viewIdRef.current === LIKED_MEDIA_ID) void loadView(LIKED_MEDIA_ID);
+  }, [likedFilters, loadView]);
 
   // Authoritative booking refresh: drives meta + publish/activation state.
   // Returns the fresh publish snapshot so callers can read it without waiting
@@ -274,33 +340,43 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     void reloadBooking();
   }, [bookingId, reloadBooking]);
 
-  // While embeddings are processing, poll so the pill flips to Published on
-  // completion without a manual refresh ("we'll notify you" + auto-update).
+  // Poll while the pipeline has work in flight for this booking (outOfSync =
+  // new media is being embedded + re-clustered + re-zipped automatically), so
+  // the amber "Syncing" pill resolves itself without a manual refresh.
+  // embedding "in_progress" only occurs via the legacy manual-sync endpoint
+  // but is included for completeness.
+  const pipelineBusy = pub.outOfSync || pub.embedding === "in_progress";
   useEffect(() => {
-    if (pub.embedding !== "in_progress") return;
+    if (!pipelineBusy) return;
     const id = setInterval(() => void reloadBooking(), POLL_MS);
     return () => clearInterval(id);
-  }, [pub.embedding, reloadBooking]);
+  }, [pipelineBusy, reloadBooking]);
 
-  // Notify in-app when an embedding run finishes (publish / republish done).
+  // Notify in-app when a sync lands (outOfSync true → false) or a processing
+  // run fails. Failures never take the gallery offline — the pipeline retries
+  // on its own, so the error toast is informational.
   const prevEmbeddingRef = useRef<EmbeddingStatus | null>(null);
+  const prevOutOfSyncRef = useRef<boolean | null>(null);
   useEffect(() => {
-    const prev = prevEmbeddingRef.current;
-    if (prev === "in_progress" && pub.embedding === "completed" && pub.status === "published") {
-      toast("Your AI gallery is now live for guests.");
-    } else if (prev === "in_progress" && pub.embedding === "failed") {
-      toast("Publishing failed — please try again from the top-right button.", "error");
+    const prevEmbedding = prevEmbeddingRef.current;
+    const prevOutOfSync = prevOutOfSyncRef.current;
+    if (prevOutOfSync === true && !pub.outOfSync && pub.embedding !== "failed") {
+      toast("New photos are synced — they're now in guest face search.");
+    } else if (prevEmbedding !== null && prevEmbedding !== "failed" && pub.embedding === "failed") {
+      toast("Photo processing hit a snag — it will retry automatically.", "error");
     }
     prevEmbeddingRef.current = pub.embedding;
-  }, [pub.embedding, pub.status, toast]);
+    prevOutOfSyncRef.current = pub.outOfSync;
+  }, [pub.embedding, pub.outOfSync, toast]);
 
   /* ── engine ↔ state wiring ──────────────────────────────────── */
 
-  // New media uploaded to an already-published gallery must be tagged so the
-  // backend flags media_out_of_sync (drives Republish on return).
+  // Every gallery is live from creation, so every upload is tagged
+  // out-of-sync — that drives the booking's unsynced counter and the amber
+  // "Syncing" pill until the pipeline finishes processing the new media.
   useEffect(() => {
-    engine.setOutOfSync(pub.status === "published");
-  }, [engine, pub.status]);
+    engine.setOutOfSync(true);
+  }, [engine]);
 
   // Live optimistic grid prepend as images land (batched for large uploads).
   useEffect(() => {
@@ -365,27 +441,19 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   }, [engine, reload]);
 
   // On run completion: reconcile media + booking, then surface the post-upload
-  // banner (and the info dialog when new media landed on a published gallery).
+  // banner. Purely informational — the pipeline is already embedding + syncing
+  // the new photos (the pill shows "Syncing" until the backend reports done).
   const wasActiveRef = useRef(false);
   useEffect(() => {
     const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
     if (wasActiveRef.current && !isActive) {
       void (async () => {
         const list = await reload();
-        // `wasPublished` is read before the refresh so it reflects the state
-        // *before* this upload; the fresh count comes from the refresh.
-        const wasPublished = pubRef.current.status === "published";
         const fresh = await reloadBooking();
-        // `reload` just refreshed the booking-wide total; prefer it over the
-        // loaded-page length so the banner counts every uploaded photo.
-        const totalAll = totalCountRef.current;
-        if (wasPublished) {
-          const added = (fresh?.unsyncedCount || 0) || totalAll || list.length;
-          setBanner({ type: "republish", count: added });
-          setInfoDialog(added);
-        } else if (totalAll > 0) {
-          setBanner({ type: "publish", count: totalAll });
-        }
+        // Prefer the backend's unsynced counter (photos still processing);
+        // fall back to the booking-wide total from the refresh.
+        const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
+        if (added > 0) setBanner({ count: added });
       })();
     }
     wasActiveRef.current = isActive;
@@ -397,7 +465,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const activeLocked = engineActive && !engine.progress.paused;
   const mediaReady = totalCount > 0;
   const hasMore = media.length < totalForView;
-  const pillState = computePillState(pub, mediaReady);
+  const pillState = computePillState(pub);
 
   // Lock the global chrome only while actively uploading (paused unlocks it).
   usePageLock(activeLocked);
@@ -519,30 +587,41 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking, reload, toast],
   );
 
-  /* ── publish / activation actions ───────────────────────────── */
+  // Flag/unflag media as shortlisted (Smart Selects). Optimistic: flip the flag
+  // in place, and when un-shortlisting under the "Shortlisted only" filter, drop
+  // the items from the view so they vanish immediately. Reverts on failure.
+  const setShortlisted = useCallback(
+    async (ids: string[], shortlisted: boolean) => {
+      const real = ids.filter((id) => id && !id.startsWith("optimistic-"));
+      if (real.length === 0) return;
+      const prev = mediaRef.current;
+      const changed = prev.filter(
+        (m) => real.includes(m._id) && !!m.shortlisted !== shortlisted,
+      ).length;
+      const dropFromView = !shortlisted && likedFiltersRef.current.shortlistedOnly;
+      setMedia((cur) =>
+        dropFromView
+          ? cur.filter((m) => !real.includes(m._id))
+          : cur.map((m) => (real.includes(m._id) ? { ...m, shortlisted } : m)),
+      );
+      try {
+        await updateMediaShortlist(real, shortlisted);
+        setShortlistedCount((c) => Math.max(0, c + (shortlisted ? changed : -changed)));
+        if (dropFromView) setTotalForView((t) => Math.max(0, t - real.length));
+        toast(
+          shortlisted
+            ? `${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} shortlisted`
+            : `Removed ${real.length.toLocaleString("en-IN")} from shortlist`,
+        );
+      } catch (err) {
+        setMedia(prev); // restore on failure
+        toast(err instanceof Error ? err.message : "Could not update shortlist — try again", "error");
+      }
+    },
+    [toast],
+  );
 
-  const doPublish = useCallback(async () => {
-    try {
-      await publishGallery(bookingId);
-      await reloadBooking();
-      setBanner(null);
-      toast("Publishing started — the AI gallery is getting ready. We'll notify you once it's live.");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not start publishing", "error");
-    }
-  }, [bookingId, reloadBooking, toast]);
-
-  const doRepublish = useCallback(async () => {
-    try {
-      await publishGallery(bookingId);
-      await reloadBooking();
-      setBanner(null);
-      setInfoDialog(null);
-      toast("Republishing started — we'll notify you once the new photos are live.");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not start republishing", "error");
-    }
-  }, [bookingId, reloadBooking, toast]);
+  /* ── activation actions (the only gallery controls left) ────── */
 
   const doDeactivate = useCallback(async () => {
     try {
@@ -566,37 +645,40 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── topbar LivePill ────────────────────────────────────────── */
 
-  // The pill is inert for the whole run (incl. paused) — publishing a partial
-  // gallery mid-upload would be wrong; it re-enables only once the run ends.
-  // A cover photo is required before the first publish (it's the hero guests
-  // see). Block the Publish CTA until one is set and explain why.
-  const coverMissing = !meta?.backgroundImage;
+  // The pill is inert for the whole run (incl. paused) — toggling activation
+  // mid-upload would be confusing; it re-enables once the run ends.
   const pillNode = useMemo(
     () => (
       <LivePill
         state={pillState}
         disabled={engineActive}
         unsyncedCount={pub.unsyncedCount}
-        publishBlocked={coverMissing}
-        onPublishBlocked={() => toast("Add a cover photo before publishing.", "error")}
-        onPublish={doPublish}
-        onRepublish={doRepublish}
         onActivate={doActivate}
         onDeactivate={doDeactivate}
       />
     ),
-    [pillState, engineActive, pub.unsyncedCount, coverMissing, toast, doPublish, doRepublish, doActivate, doDeactivate],
+    [pillState, engineActive, pub.unsyncedCount, doActivate, doDeactivate],
   );
   usePageTopbarExtra(pillNode);
 
   /* ── tab gating ─────────────────────────────────────────────── */
 
   const galleryLocked = !mediaReady || activeLocked;
-  const accessLocked = pub.status !== "published" || activeLocked;
+  // Galleries are live from creation, so Access & Sharing is always available
+  // (the shared link + passcode exist as soon as the event does) — it only
+  // locks while an upload is actively running.
+  const accessLocked = activeLocked;
+  // Smart Selects curates guest-liked photos — it needs media (likes come from
+  // the live gallery, but an empty state covers the "no likes yet" case).
+  const smartLocked = !mediaReady || activeLocked;
   // If the active tab becomes locked (media deleted, upload starts), the strip
   // and body fall back to Media without mutating `activeTab` state.
   const effectiveTab: TabId =
-    (activeTab === "gallery" && galleryLocked) || (activeTab === "access" && accessLocked) ? "media" : activeTab;
+    (activeTab === "gallery" && galleryLocked) ||
+    (activeTab === "access" && accessLocked) ||
+    (activeTab === "smart" && smartLocked)
+      ? "media"
+      : activeTab;
 
   const tabs = useMemo(
     () => [
@@ -613,13 +695,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         id: "access" as TabId,
         label: "Access & Sharing",
         locked: accessLocked,
-        tooltip:
-          pub.status !== "published"
-            ? "Publish the gallery to manage sharing & guest access."
-            : "Available once the current upload finishes.",
+        tooltip: "Available once the current upload finishes.",
+      },
+      {
+        id: "smart" as TabId,
+        label: "Smart Selects",
+        locked: smartLocked,
+        tooltip: !mediaReady
+          ? "Upload media to this event first."
+          : "Available once the current upload finishes.",
       },
     ],
-    [mediaReady, totalCount, galleryLocked, accessLocked, pub.status],
+    [mediaReady, totalCount, galleryLocked, accessLocked, smartLocked],
   );
 
   const ctx = useMemo(
@@ -633,6 +720,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       activeFolderId,
       setActiveFolder,
       folderCounts,
+      likedCount,
+      shortlistedCount,
+      likedFilters,
+      setLikedFilters,
+      setShortlisted,
       totalCount,
       totalForView,
       hasMore,
@@ -650,7 +742,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -658,13 +750,21 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   return (
     <EventProvider value={ctx}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <EventTabStrip tabs={tabs} active={effectiveTab} onChange={setActiveTab} />
+        <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
+
+        {/* Mobile-only publish action row. The same pill is injected into the
+            Topbar for desktop (usePageTopbarExtra); here it stays reachable on
+            mobile where the Topbar hides it. One visible instance per breakpoint. */}
+        <div className="sticky top-0 z-20 flex justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+          {pillNode}
+        </div>
 
         {banner && (
-          <PostUploadBanner type={banner.type} photoCount={banner.count} onDismiss={() => setBanner(null)} />
+          <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
         )}
 
         {effectiveTab === "media" && <MediaTab loading={loading} />}
+        {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
         {effectiveTab === "gallery" && (
           <GalleryDesignTab
             eventName={ctx.meta.name}
@@ -697,10 +797,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           />
         )}
       </div>
-
-      {infoDialog != null && (
-        <PostUploadInfoDialog photoCount={infoDialog} onClose={() => setInfoDialog(null)} />
-      )}
 
       {toastMsg && (
         <div className="pointer-events-none fixed inset-x-0 top-6 z-[230] flex justify-center px-4">

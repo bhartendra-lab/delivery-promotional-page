@@ -7,6 +7,41 @@ import type { UploadEngineHook } from "./useUploadEngine";
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
 export const ALL_MEDIA_ID = "__all__";
 
+/** Synthetic folder id for the "Liked Media" view (server-side only_liked). */
+export const LIKED_MEDIA_ID = "__liked__";
+
+/**
+ * Filters for the "Liked Media" folder — narrows to photos liked by a matching
+ * audience. All constraints AND-combine (a like counts only if its guest matches
+ * every active one). `audience: "all"` and empty arrays mean "no filter".
+ */
+export type LikedFilters = {
+  audience: "all" | "host" | "guest";
+  /** Guest teams (delivery-landing-page `guest_types` → guest `guest_sub_type`). */
+  subTypes: string[];
+  /** Specific guest ids (from get-all-guests). */
+  guestIds: string[];
+  /** Show only shortlisted (picked-for-delivery) media. */
+  shortlistedOnly: boolean;
+};
+
+export const EMPTY_LIKED_FILTERS: LikedFilters = {
+  audience: "all",
+  subTypes: [],
+  guestIds: [],
+  shortlistedOnly: false,
+};
+
+/** True when any Smart Selects filter is active (drives the "Clear" affordance). */
+export function hasActiveLikedFilters(f: LikedFilters): boolean {
+  return (
+    f.audience !== "all" ||
+    f.subTypes.length > 0 ||
+    f.guestIds.length > 0 ||
+    f.shortlistedOnly
+  );
+}
+
 export type EventMeta = {
   name: string;
   type: string;
@@ -46,6 +81,16 @@ export type EventContextValue = {
   setActiveFolder: (folderId: string) => void;
   /** Per-folder media counts (server-derived), keyed by folder id. */
   folderCounts: Record<string, number>;
+  /** Count of liked media in the booking (drives the Smart Selects header). */
+  likedCount: number;
+  /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
+  shortlistedCount: number;
+  /** Active filters for the Smart Selects (liked) view. */
+  likedFilters: LikedFilters;
+  /** Update the Smart Selects filters (re-fetches the liked view when it's active). */
+  setLikedFilters: React.Dispatch<React.SetStateAction<LikedFilters>>;
+  /** Flag/unflag media as shortlisted (optimistic; used by Smart Selects). */
+  setShortlisted: (ids: string[], shortlisted: boolean) => Promise<void>;
   /** Total media in the booking (drives the header + All Media count). */
   totalCount: number;
   /** Total media in the active view (drives the folder's photo count + hasMore). */

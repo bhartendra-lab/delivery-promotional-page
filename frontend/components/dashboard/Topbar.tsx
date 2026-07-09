@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCompany } from "@/lib/useCompany";
 import { useChrome } from "./ChromeContext";
 import { ActiveUploadsIndicator } from "./ActiveUploadsIndicator";
+import { AccountMenu } from "./AccountMenu";
 
 export type Breadcrumb = {
   label: string;
@@ -13,13 +13,7 @@ export type Breadcrumb = {
 
 export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const pathname = usePathname();
-  const { topbarExtra } = useChrome();
-  const company = useCompany();
-  const companyName = company?.name ?? "Studio";
-  const initials = (
-    (company?.name?.[0]?.toUpperCase() ?? "S") +
-    (company?.name?.split(" ")[1]?.[0]?.toUpperCase() ?? "")
-  ).slice(0, 2);
+  const { topbarExtra, locked } = useChrome();
 
   const dashActive = pathname === "/dashboard";
   const eventsActive = pathname.startsWith("/dashboard/events");
@@ -59,7 +53,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         {breadcrumb.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && <IconCaretRight size={12} />}
-            {crumb.href ? (
+            {crumb.href && !locked ? (
               <Link
                 href={crumb.href}
                 className={
@@ -72,11 +66,11 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
               </Link>
             ) : (
               <span
-                className={
+                className={`${
                   i === breadcrumb.length - 1
                     ? "font-semibold text-[var(--color-brand-ink)]"
                     : ""
-                }
+                }${locked && crumb.href ? " opacity-50" : ""}`}
               >
                 {crumb.label}
               </span>
@@ -86,8 +80,10 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
       </div>
       <div className="flex items-center gap-2">
         <ActiveUploadsIndicator />
+        {/* Page-injected pill (LivePill) — desktop only; mobile shows it inline
+            beneath the tab strip to avoid a cramped, overflowing header. */}
         {topbarExtra && (
-          <div className="mr-1 flex items-center">{topbarExtra}</div>
+          <div className="mr-1 hidden items-center md:flex">{topbarExtra}</div>
         )}
         <button
           type="button"
@@ -109,14 +105,11 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         >
           <IconHelp size={16} />
         </a>
-        <span className="mx-1 h-[18px] w-px bg-[var(--color-brand-border)]" aria-hidden />
-        <div className="flex items-center gap-2 p-1">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-brand-ink)] text-[11px] font-bold text-white">
-            {initials}
-          </span>
-          <span className="hidden text-[13px] font-semibold text-[var(--color-brand-ink)] sm:inline">
-            {companyName}
-          </span>
+        {/* Account menu — mobile only; on desktop the identity + account actions
+            live in the sidebar footer chip, so there's no double identity. */}
+        <div className="flex items-center gap-2 md:hidden">
+          <span className="h-[18px] w-px bg-[var(--color-brand-border)]" aria-hidden />
+          <AccountMenu variant="avatar" />
         </div>
       </div>
     </header>

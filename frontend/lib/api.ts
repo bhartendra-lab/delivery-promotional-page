@@ -12,6 +12,7 @@ import type {
   GalleryPublishStatus,
   SocialLinks,
   GetMediaResponse,
+  GetAllGuestsResponse,
   LoginResponse,
   StyleVariant,
   TrackingType,
@@ -309,6 +310,9 @@ export type MediaMetadataItem = {
   type: "image" | "video";
   custom_folder_id: string;
   media_id: string;
+  /** Original client-side filename (raw file.name). Persisted so "Locate Original
+   *  Images" can read the clean name without parsing it back out of media_id. */
+  filename?: string;
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published
@@ -370,15 +374,114 @@ export function presignUploads(bookingId: string, files: PresignRequest[]) {
  */
 export function getMedia(
   bookingId: string,
-  opts?: { customFolderId?: string; skip?: number; limit?: number },
+  opts?: {
+    customFolderId?: string;
+    skip?: number;
+    limit?: number;
+    /** "Liked Media" view — only photos with at least one like. */
+    onlyLiked?: boolean;
+    /** "likes" → most-liked first (the Liked Media order); default is newest-first. */
+    sort?: "likes" | "recent";
+    /** Restrict likes to hosts / guests. */
+    likedGuestType?: "host" | "guest";
+    /** Restrict likes to guests in these teams (guest_sub_type). */
+    likedGuestSubTypes?: string[];
+    /** Restrict likes to these specific guest ids. */
+    likedGuestIds?: string[];
+    /** Smart Selects — only shortlisted media. */
+    shortlistedOnly?: boolean;
+  },
 ) {
   const params = new URLSearchParams();
   if (opts?.customFolderId) params.set("custom_folder_id", opts.customFolderId);
   if (opts?.skip != null) params.set("skip", String(opts.skip));
   if (opts?.limit != null) params.set("limit", String(opts.limit));
+  if (opts?.onlyLiked) params.set("only_liked", "true");
+  if (opts?.sort) params.set("sort", opts.sort);
+  if (opts?.likedGuestType) params.set("liked_guest_type", opts.likedGuestType);
+  if (opts?.likedGuestSubTypes?.length)
+    params.set("liked_guest_sub_types", opts.likedGuestSubTypes.join(","));
+  if (opts?.likedGuestIds?.length)
+    params.set("liked_guest_ids", opts.likedGuestIds.join(","));
+  if (opts?.shortlistedOnly) params.set("shortlisted_only", "true");
   const qs = params.toString();
   return request<GetMediaResponse>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/**
+ * GET /deliverables/get-all-guests/:booking_id — every guest of the booking with
+ * their like count. Powers the "Liked Media" per-guest filter (dashboard only).
+ */
+export function getAllGuests(bookingId: string) {
+  return request<GetAllGuestsResponse>(
+    `/deliverables/get-all-guests/${encodeURIComponent(bookingId)}`,
+  );
+}
+
+/**
+ * POST /deliverables/update-media-shortlist — flag/unflag media as shortlisted
+ * for Smart Selects. `mediaIds` are Media `_id`s (never optimistic placeholders).
+ */
+export function updateMediaShortlist(mediaIds: string[], shortlisted: boolean) {
+  return request<{ message: string; modifiedCount: number }>(
+    "/deliverables/update-media-shortlist",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: mediaIds, shortlisted }),
+    },
+  );
+}
+
+/**
+ * One shortlisted media item as returned by `get-shortlisted-media` — just the
+ * fields the client-side "Locate Original Images" matcher needs. `media_id`
+ * encodes `{booking}__{filename}-{size}-{lastModified}`; `filename` is the stored
+ * clean name (null on legacy docs, which parse it back out of `media_id`).
+ */
+export type ShortlistedMediaItem = {
+  _id: string;
+  media_id: string;
+  /** Gallery (web-res) R2 URL — lets the studio zip-download unidentified photos. */
+  url: string;
+  filename: string | null;
+  identified: boolean;
+  custom_folder_ids: string[];
+};
+
+export type ShortlistedMediaResponse = {
+  media: ShortlistedMediaItem[];
+  /** The booking's custom folders — id→name for per-folder subfolder routing. */
+  customFolders: { _id: string; name: string }[];
+};
+
+/**
+ * GET /deliverables/get-shortlisted-media/:booking_id — the full, unpaginated set
+ * of shortlisted media for the booking (Smart Selects → Locate Original Images),
+ * plus the booking's custom folders. Drives the DB-backed identified report and
+ * the client-side disk matcher.
+ */
+export function getShortlistedMedia(bookingId: string) {
+  return request<ShortlistedMediaResponse>(
+    `/deliverables/get-shortlisted-media/${encodeURIComponent(bookingId)}`,
+  );
+}
+
+/**
+ * POST /deliverables/update-media-identified — mark shortlisted media whose
+ * originals were located on disk as identified. `mediaIds` are Media `_id`s.
+ * Cumulative on the backend (only ever sets true).
+ */
+export function updateMediaIdentified(mediaIds: string[]) {
+  return request<{ message: string; modifiedCount: number }>(
+    "/deliverables/update-media-identified",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: mediaIds }),
+    },
   );
 }
 
@@ -410,10 +513,10 @@ export function deleteMedia(mediaIds: string[]) {
 }
 
 /**
- * POST /deliverables/publish-gallery/:booking_id — kicks off the GPU-expensive
- * face-embedding batch job and sets `embedding_status="in_progress"`. Publish
- * actually flips `gallery_publish_status` to "published" only when the job
- * finishes. Used for both Publish and Republish from the top-right LivePill.
+ * POST /deliverables/publish-gallery/:booking_id — LEGACY. Events are live
+ * from creation and uploads embed + sync automatically, so the app no longer
+ * calls this. The backend keeps the route as an idempotent manual "sync now"
+ * nudge (ops escape hatch); the function stays for parity with that.
  */
 export function publishGallery(bookingId: string) {
   return request<{ message: string }>(

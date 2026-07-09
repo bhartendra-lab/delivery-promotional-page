@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { IconLock } from "./icons";
 
-export type TabId = "media" | "gallery" | "access";
+export type TabId = "media" | "smart" | "gallery" | "access";
 
 export type TabDef = {
   id: TabId;
@@ -33,7 +33,9 @@ export function EventTabStrip({
     <div
       role="tablist"
       aria-label="Event workspace"
-      className="flex items-stretch gap-1 border-b border-[var(--color-brand-border)] bg-white px-4 sm:px-10"
+      // overflow-x-auto lets the tabs scroll on narrow screens; reset to visible
+      // at md+ (tabs always fit there) so the locked-tab tooltips aren't clipped.
+      className="flex items-stretch gap-1 overflow-x-auto border-b border-[var(--color-brand-border)] bg-white px-4 sm:px-10 md:overflow-x-visible"
     >
       {tabs.map((t) => {
         const locked = !!t.locked;
@@ -41,7 +43,7 @@ export function EventTabStrip({
         return (
           <div
             key={t.id}
-            className="relative flex"
+            className="relative flex shrink-0"
             onMouseEnter={() => locked && setHovered(t.id)}
             onMouseLeave={() => setHovered((h) => (h === t.id ? null : h))}
           >
@@ -53,7 +55,7 @@ export function EventTabStrip({
               onClick={() => {
                 if (!locked) onChange(t.id);
               }}
-              className="brand-focus relative inline-flex items-center gap-2 px-3.5 pb-3.5 pt-[15px] text-[14px] tracking-[-0.005em]"
+              className="brand-focus relative inline-flex items-center gap-2 whitespace-nowrap px-3.5 pb-3.5 pt-[15px] text-[14px] tracking-[-0.005em]"
               style={{
                 cursor: locked ? "not-allowed" : "pointer",
                 fontWeight: isActive ? 600 : 500,

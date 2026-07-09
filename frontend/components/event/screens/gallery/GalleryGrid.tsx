@@ -1,0 +1,208 @@
+"use client";
+
+import type { GuestMediaItem } from "@/lib/types";
+import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
+
+/**
+ * The guest gallery's photo layout — isolated behind a `layout` prop so the
+ * studio can later choose the presentation without touching LoungeGallery.
+ *
+ * - "masonry" (default): CSS multi-column layout that preserves each photo's
+ *   native aspect ratio (GuestMediaItem carries no width/height, so we rely on
+ *   the image's intrinsic ratio via `h-auto` rather than dimension data).
+ *   NOTE: CSS columns fill COLUMN-MAJOR — items flow top-to-bottom down the
+ *   first column, then the next. This means visual order is not strictly the
+ *   API order; that's the accepted Pinterest-style trade-off for a gapless wall.
+ * - "grid": the original square-cropped grid, kept as a fallback so the seam
+ *   exists for future layouts.
+ *
+ * Infinite scroll is owned by the parent scroll container; this component just
+ * renders whatever `items` it's given, so appended pages flow in naturally.
+ */
+export function GalleryGrid({
+  t,
+  layout = "masonry",
+  items,
+  selectMode,
+  selected,
+  liked,
+  onOpen,
+  onToggleSelect,
+  onToggleLike,
+  onEnterSelectWith,
+}: {
+  t: ClientTheme;
+  layout?: "masonry" | "grid";
+  items: GuestMediaItem[];
+  selectMode: boolean;
+  selected: Set<string>;
+  liked: Set<string>;
+  onOpen: (index: number) => void;
+  onToggleSelect: (item: GuestMediaItem) => void;
+  onToggleLike: (item: GuestMediaItem) => void;
+  onEnterSelectWith: (item: GuestMediaItem) => void;
+}) {
+  const containerClass =
+    layout === "masonry"
+      ? "columns-2 gap-[14px] lg:columns-3 xl:columns-4"
+      : "grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5";
+
+  return (
+    <div className={containerClass}>
+      {items.map((item, index) => (
+        <PhotoTile
+          key={item._id}
+          t={t}
+          layout={layout}
+          item={item}
+          index={index}
+          selectMode={selectMode}
+          isSel={selected.has(item._id)}
+          isLiked={liked.has(item._id)}
+          onOpen={() => onOpen(index)}
+          onToggleSelect={() => onToggleSelect(item)}
+          onToggleLike={() => onToggleLike(item)}
+          onEnterSelectWith={() => onEnterSelectWith(item)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PhotoTile({
+  t,
+  layout,
+  item,
+  index,
+  selectMode,
+  isSel,
+  isLiked,
+  onOpen,
+  onToggleSelect,
+  onToggleLike,
+  onEnterSelectWith,
+}: {
+  t: ClientTheme;
+  layout: "masonry" | "grid";
+  item: GuestMediaItem;
+  index: number;
+  selectMode: boolean;
+  isSel: boolean;
+  isLiked: boolean;
+  onOpen: () => void;
+  onToggleSelect: () => void;
+  onToggleLike: () => void;
+  onEnterSelectWith: () => void;
+}) {
+  const isMasonry = layout === "masonry";
+  const pad = selectMode && isSel ? 4 : 0;
+  // Keep a liked heart visible on desktop; other controls reveal on hover so the
+  // photos stay the focus. Mobile keeps everything tappable (opacity-100 below sm).
+  const revealCls = "sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100";
+
+  return (
+    <div
+      className={`group tile-in relative cursor-pointer ${
+        isMasonry ? "mb-3 w-full break-inside-avoid" : "aspect-square transition-colors"
+      }`}
+      style={{
+        // grid uses the wrapper as the selected-state frame; masonry frames the inner box.
+        background: !isMasonry && selectMode && isSel ? t.brand : "transparent",
+        borderRadius: isMasonry ? 12 : undefined,
+        animationDelay: `${(index % 14) * 0.03}s`,
+      }}
+      onClick={() => (selectMode ? onToggleSelect() : onOpen())}
+    >
+      <div
+        className={`overflow-hidden transition-all ${isMasonry ? "relative" : "absolute"}`}
+        style={
+          isMasonry
+            ? {
+                padding: pad,
+                background: selectMode && isSel ? t.brand : "transparent",
+                borderRadius: selectMode && isSel ? 12 : 10,
+              }
+            : { inset: pad, borderRadius: selectMode && isSel ? 9 : 8 }
+        }
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={item.url}
+          alt=""
+          loading="lazy"
+          className={
+            isMasonry
+              ? "block h-auto w-full rounded-[8px] transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
+              : "h-full w-full object-cover transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
+          }
+        />
+        {/* soft theme-tinted wash on hover (replaces the old zoom) */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          style={{ background: t.accentWash, borderRadius: isMasonry ? 8 : undefined }}
+        />
+      </div>
+
+      {/* select badge — always in select mode; desktop hover otherwise */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (selectMode) onToggleSelect();
+          else onEnterSelectWith();
+        }}
+        aria-label="Select photo"
+        className={`absolute left-1.5 top-1.5 z-10 flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full ${
+          selectMode ? "flex" : `hidden sm:flex ${revealCls}`
+        }`}
+        style={{
+          background: isSel ? t.brand : "rgba(20,16,8,0.3)",
+          border: isSel ? "none" : "2px solid rgba(255,255,255,0.9)",
+          color: t.onBrand,
+        }}
+      >
+        {isSel && <CheckIcon size={13} />}
+      </button>
+
+      {/* like — visible when liked; otherwise reveals on desktop hover, lighter on mobile */}
+      {!selectMode && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleLike();
+          }}
+          aria-label={isLiked ? "Unlike photo" : "Like photo"}
+          className={`absolute bottom-1.5 left-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 transition-transform active:scale-95 ${
+            isLiked ? "" : revealCls
+          }`}
+          style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.38)" }}
+        >
+          <HeartIcon size={14} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
+          {(item.likes_count ?? 0) > 0 && (
+            <span className="pr-0.5 text-[11px] font-bold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
+              {item.likes_count}
+            </span>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── icons (local copies so the gallery layout stays self-contained) ──────── */
+
+function HeartIcon({ size = 18, filled, color = "currentColor" }: { size?: number; filled?: boolean; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth={2} strokeLinejoin="round">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  );
+}
+function CheckIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="5 12 10 17 19 7" />
+    </svg>
+  );
+}

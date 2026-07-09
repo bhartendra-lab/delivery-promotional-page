@@ -110,6 +110,13 @@ export class UploadEngineCore {
   /** Real pause flag — gates dispatch of new compress/presign/upload work. */
   private paused = false;
   /**
+   * True for the entire duration of `cancel()`, including the `wipeAll()` tail
+   * that runs after the run's own `finally` has settled. `run()` checks this
+   * (in addition to `isUploading`) so a new run can never start while a cancel
+   * is still clearing IDB/in-memory state out from under it.
+   */
+  private cancelling = false;
+  /**
    * When true, create-media chunks are tagged `media_out_of_sync` so the
    * backend marks the booking as needing a republish (new media added to an
    * already-published gallery). Set by the workspace from the booking's
@@ -189,7 +196,7 @@ export class UploadEngineCore {
 
   /** Begin (or resume) processing the given inputs. */
   async run(inputs: UploadInput[]): Promise<void> {
-    if (this.state.isUploading) return;
+    if (this.state.isUploading || this.cancelling) return;
     // Arm the completion barrier before any `await` so a concurrent `cancel()`
     // waits for this run's `finally` rather than racing it.
     this.runDone = new Promise<void>((resolve) => {
@@ -257,7 +264,13 @@ export class UploadEngineCore {
       await this.drainAllMetadata();
       await this.flushIdb();
       this.paused = false;
-      this.scheduleEmit({ isUploading: false, paused: false }, true);
+      // While a `cancel()` is in flight, let it own the `isUploading: false`
+      // transition (it flips it only after `wipeAll()` fully settles). Emitting
+      // it here too would let the UI briefly believe the upload is idle and
+      // safe to restart while wipeAll() is still clearing state underneath it.
+      if (!this.cancelling) {
+        this.scheduleEmit({ isUploading: false, paused: false }, true);
+      }
       // Release any `cancel()` waiting on this run — metadata is now persisted.
       this.resolveRunDone?.();
       this.resolveRunDone = null;
@@ -272,14 +285,20 @@ export class UploadEngineCore {
    * what's already uploaded, skipping those silently.
    */
   async cancel(): Promise<void> {
+    if (this.cancelling) return; // already cancelling — avoid a second concurrent wipe
     const wasRunning = this.state.isUploading;
+    this.cancelling = true;
     this.paused = false;
     this.abort.abort();
-    // Wait for the active run's `finally` to persist metadata for bytes already
-    // on R2 before wiping — otherwise we'd orphan those objects.
-    if (wasRunning) await this.runDone;
-    await this.wipeAll();
-    this.scheduleEmit({ isUploading: false, paused: false }, true);
+    try {
+      // Wait for the active run's `finally` to persist metadata for bytes already
+      // on R2 before wiping — otherwise we'd orphan those objects.
+      if (wasRunning) await this.runDone;
+      await this.wipeAll();
+    } finally {
+      this.cancelling = false;
+      this.scheduleEmit({ isUploading: false, paused: false }, true);
+    }
   }
 
   /**
@@ -858,6 +877,7 @@ export class UploadEngineCore {
       type: "image" as const,
       custom_folder_id: r.customFolderId,
       media_id: r.id,
+      filename: r.filename,
     }));
 
     try {
@@ -1178,17 +1198,40 @@ function formatEta(seconds: number, done: number, total: number): string {
  * Called before kicking off the engine, since the engine needs the
  * customFolderId on each input.
  */
+/** Trim + lowercase so "Candids", " candids ", and "CANDIDS" are one folder. */
+function normalizeFolderName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 export async function ensureFolders(
   bookingId: string,
   folderNames: string[],
   existingMap: Map<string, string>,
 ): Promise<Map<string, string>> {
+  // Look up by normalized name so a folder created moments ago (stale caller
+  // state) or typed with different casing/whitespace is reused instead of
+  // duplicated. `out` stays keyed by the exact requested name so callers can
+  // still `.get(name)` with what they passed in.
+  const byNormalized = new Map<string, string>();
+  for (const [name, id] of existingMap) byNormalized.set(normalizeFolderName(name), id);
+
   const out = new Map(existingMap);
-  const missing = folderNames.filter((name) => !out.has(name));
-  if (missing.length === 0) return out;
+  const toCreate: string[] = [];
+  for (const name of folderNames) {
+    const norm = normalizeFolderName(name);
+    if (byNormalized.has(norm)) {
+      out.set(name, byNormalized.get(norm) as string);
+    } else if (!toCreate.some((n) => normalizeFolderName(n) === norm)) {
+      // Not seen yet in this batch either — queue exactly one create per
+      // distinct normalized name (two groups named "Candids"/"candids" in the
+      // same upload share one folder + one create call).
+      toCreate.push(name);
+    }
+  }
+  if (toCreate.length === 0) return out;
 
   const created = await Promise.all(
-    missing.map(async (name) => {
+    toCreate.map(async (name) => {
       try {
         const res = await apiCreateCustomFolder(bookingId, name);
         console.log("[upload:folder] created", { name, id: res.custom_folder_id });
@@ -1202,7 +1245,13 @@ export async function ensureFolders(
       }
     }),
   );
-  for (const { name, id } of created) out.set(name, id);
+  for (const { name, id } of created) byNormalized.set(normalizeFolderName(name), id);
+  for (const name of folderNames) {
+    if (!out.has(name)) {
+      const id = byNormalized.get(normalizeFolderName(name));
+      if (id) out.set(name, id);
+    }
+  }
   return out;
 }
 

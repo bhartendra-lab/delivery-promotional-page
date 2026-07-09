@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { clearToken, clearCompany } from "@/lib/auth";
-import { useCompany } from "@/lib/useCompany";
 import type { DlpUsage } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
+import { AccountMenu } from "./AccountMenu";
 
 const SIDEBAR_W_EXPANDED = 240;
 const SIDEBAR_W_COLLAPSED = 88;
@@ -31,21 +30,13 @@ export function Sidebar({
   locked?: boolean;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { dlpUsage, dlpLoading } = useChrome();
-  const company = useCompany();
 
   const activeId =
     NAV_ITEMS.slice()
       .sort((a, b) => b.href.length - a.href.length)
       .find((item) => pathname === item.href || pathname.startsWith(item.href + "/"))
       ?.id ?? null;
-
-  function signOut() {
-    clearToken();
-    clearCompany();
-    router.replace("/login");
-  }
 
   function attemptNav(e: React.MouseEvent<HTMLAnchorElement>) {
     if (locked) {
@@ -152,57 +143,10 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Footer: events meter + settings */}
+      {/* Footer: events meter + account chip (identity + Settings + Sign out) */}
       <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2.5 py-3" : "px-3.5 py-3"}`}>
         {!collapsed && <EventsMeter usage={dlpUsage} loading={dlpLoading} />}
-        {collapsed ? (
-          <div className="flex flex-col gap-1.5">
-            <Link
-              href="/dashboard/settings"
-              onClick={attemptNav}
-              title="Settings"
-              className={`brand-focus block w-full rounded-md border border-[var(--color-brand-border)] py-2.5 text-center text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] ${
-                locked ? "pointer-events-none opacity-50" : ""
-              }`}
-            >
-              <IconGear size={18} className="mx-auto" />
-            </Link>
-            <button
-              type="button"
-              onClick={signOut}
-              title="Sign out"
-              className="brand-focus w-full rounded-md border border-[var(--color-brand-border)] py-2.5 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-            >
-              <IconLogout size={16} className="mx-auto" />
-            </button>
-          </div>
-        ) : (
-          <>
-            <Link
-              href="/dashboard/settings"
-              onClick={attemptNav}
-              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium text-[var(--color-brand-ink)] no-underline hover:bg-[var(--color-brand-surface)]/60 ${
-                locked ? "pointer-events-none opacity-50" : ""
-              }`}
-            >
-              <IconGear size={16} className="text-[var(--color-brand-muted)]" />
-              <span>Settings</span>
-            </Link>
-            <button
-              type="button"
-              onClick={signOut}
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
-            >
-              <IconLogout size={16} className="text-[var(--color-brand-muted)]" />
-              <span>Sign out</span>
-            </button>
-            {company && (
-              <p className="mt-1.5 truncate px-3 text-[10.5px] text-[var(--color-brand-muted)]">
-                {company.name}
-              </p>
-            )}
-          </>
-        )}
+        <AccountMenu variant={collapsed ? "icon" : "chip"} />
       </div>
     </aside>
   );
@@ -329,19 +273,3 @@ function IconSidebar({ size = 16, className }: { size?: number; className?: stri
   );
 }
 
-function IconGear({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-    </svg>
-  );
-}
-
-function IconLogout({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M14 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h7a2 2 0 002-2v-2M10 12h11M18 8l3 4-3 4" />
-    </svg>
-  );
-}

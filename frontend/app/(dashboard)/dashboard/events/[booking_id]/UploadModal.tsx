@@ -58,6 +58,11 @@ export function UploadModal({
   const [firstRoot, setFirstRoot] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // <input webkitdirectory> (the one-shot folder flow) isn't supported on mobile
+  // browsers — detect it so we can fall back to the plain multi-file picker.
+  const [dirSupported] = useState(
+    () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
+  );
 
   const single = !!targetFolderId;
 
@@ -233,7 +238,9 @@ export function UploadModal({
             <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
               {single
                 ? "Pick photos to add to this folder."
-                : "Pick the folder from your computer. We'll preserve the subfolder structure."}
+                : dirSupported
+                  ? "Pick the folder from your computer. We'll preserve the subfolder structure."
+                  : "Add photos to this event."}
             </p>
           </div>
           <button
@@ -296,13 +303,16 @@ export function UploadModal({
                 onBrowseFiles={() => fileInputRef.current?.click()}
                 single={single}
                 folderOnly={folderOnly}
+                dirSupported={dirSupported}
               />
             ) : (
               <ContentPanel
                 headingName={headingName}
                 totalImages={files.length}
                 groups={previewGroups}
-                onAddMore={() => (single ? fileInputRef.current?.click() : folderInputRef.current?.click())}
+                onAddMore={() =>
+                  single || !dirSupported ? fileInputRef.current?.click() : folderInputRef.current?.click()
+                }
               />
             )}
 
@@ -387,6 +397,7 @@ function DropZone({
   onBrowseFiles,
   single,
   folderOnly,
+  dirSupported,
 }: {
   dragOver: boolean;
   setDragOver: (v: boolean) => void;
@@ -395,7 +406,16 @@ function DropZone({
   onBrowseFiles: () => void;
   single: boolean;
   folderOnly: boolean;
+  dirSupported: boolean;
 }) {
+  // Folder browsing is only possible off the directory input on desktop.
+  const canBrowseFolder = !single && dirSupported;
+  // The file picker is the main CTA whenever folder browsing isn't available
+  // (single mode, or mobile) — otherwise it's the secondary "Or select photos".
+  const showFileButton = single || !dirSupported || !folderOnly;
+  const fileButtonPrimary = !canBrowseFolder;
+  const fileButtonLabel = single ? "Browse photos" : canBrowseFolder ? "Or select photos" : "Add photos";
+
   return (
     <>
       <div
@@ -422,13 +442,13 @@ function DropZone({
           <UploadIcon size={26} />
         </div>
         <div className="text-center text-[15px] font-semibold text-[var(--color-brand-ink)]">
-          {single ? "Drag photos here" : "Drag a folder here"}
+          {single ? "Drag photos here" : canBrowseFolder ? "Drag a folder here" : "Add photos"}
         </div>
         <div className="max-w-[280px] text-center text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
           JPG · PNG · HEIC · WebP · no size limit
         </div>
         <div className="mt-1.5 flex flex-wrap items-center justify-center gap-2">
-          {!single && (
+          {canBrowseFolder && (
             <button
               type="button"
               onClick={onBrowseFolder}
@@ -437,21 +457,26 @@ function DropZone({
               Browse folders
             </button>
           )}
-          {/* Loose-photo picker — hidden in folder-only mode (Create new folder). */}
-          {(single || !folderOnly) && (
+          {showFileButton && (
             <button
               type="button"
               onClick={onBrowseFiles}
               className={`brand-focus inline-flex h-10 items-center gap-2 rounded-lg px-5 text-[13.5px] font-semibold ${
-                single
+                fileButtonPrimary
                   ? "bg-[var(--color-brand-navy)] text-white hover:bg-[var(--color-brand-navy-deep)]"
                   : "border border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
               }`}
             >
-              {single ? "Browse photos" : "Or select photos"}
+              {fileButtonLabel}
             </button>
           )}
         </div>
+        {/* Mobile can't preserve subfolder structure — point users to desktop. */}
+        {!single && !dirSupported && (
+          <p className="max-w-[280px] text-center text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+            Folder uploads with subfolders are available on desktop.
+          </p>
+        )}
       </div>
     </>
   );

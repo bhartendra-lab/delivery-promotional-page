@@ -10,11 +10,12 @@ import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
 const PAGE_SIZE = 20;
 
-/** Status filter chips → `status` query param. Defaults to all clients. */
+/** Status filter chips → `status` query param. Defaults to all clients.
+ * No "Draft" chip: events are live from creation (publish no longer exists);
+ * the only non-live states are deactivated (is_active) and expired. */
 const STATUS_FILTERS = [
   { id: "all", label: "All" },
   { id: "published", label: "Live" },
-  { id: "unpublished", label: "Draft" },
   { id: "expired", label: "Expired" },
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];

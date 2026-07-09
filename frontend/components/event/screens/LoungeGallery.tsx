@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, markZipAsDownloaded, requestZipGeneration, searchSelfie, unlikePhoto } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
-import { downloadMany, downloadZip } from "@/lib/media-actions";
+import { downloadMany, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 import { ProfileSheet } from "./lounge/ProfileSheet";
+import { GalleryGrid } from "./gallery/GalleryGrid";
 
 const PAGE = 60;
 const ALL = "__all__";
@@ -38,14 +39,10 @@ export function LoungeGallery({
   const branding = event.include_company_branding === true;
   const unlocked = session.guest_type === "host";
 
-  // Full-gallery ZIP — host-only. The backend marks a fresh zip "generated" and a
-  // previously-fetched one "downloaded" (both still downloadable); "ready" is the
-  // build-spec alias. "expired" offers a re-request; anything else shows nothing.
-  const zipStatus = event.zip_status;
-  const zipUrl = event.zip_url;
-  const zipReady =
-    unlocked && !!zipUrl && (zipStatus === "generated" || zipStatus === "downloaded" || zipStatus === "ready");
-  const zipExpired = unlocked && zipStatus === "expired";
+  // Full-gallery ZIP is host-only and now built in the browser (client-zip,
+  // streamed to disk), so it's available whenever the guest is unlocked — there's
+  // no backend zip state to gate on any more.
+  const canDownloadAll = unlocked;
 
   const [view, setView] = useState<"home" | "gallery">("home");
   const [tab, setTab] = useState<"mine" | "all">("mine");
@@ -70,7 +67,7 @@ export function LoungeGallery({
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [zipRequestOpen, setZipRequestOpen] = useState(false);
+  const [zipping, setZipping] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const effTab: "mine" | "all" = unlocked ? tab : "mine";
@@ -256,34 +253,122 @@ export function LoungeGallery({
     setSelected(new Set([item._id]));
   }, []);
 
+  // Build a ZIP in the browser and stream it to disk (client-zip + File System
+  // Access API, Blob fallback). `getEntries` resolves the {url,name} list (may
+  // paginate); the toast carries progress, and `zipping` guards against re-entry.
+  const runZip = useCallback(
+    async (getEntries: () => Promise<{ url: string; name: string }[]>, filename: string) => {
+      if (zipping) return;
+      setZipping(true);
+      setToast("Preparing your download…");
+      try {
+        // Pass the provider so the "Save as" dialog opens on the click gesture,
+        // before the (possibly slow) full-gallery pagination runs.
+        const { zipped, failed, cancelled } = await streamZipToDisk(getEntries, filename, (done, total) =>
+          setToast(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
+        );
+        if (cancelled) {
+          setToast(null);
+          return;
+        }
+        setToast(
+          zipped === 0
+            ? "No photos to download"
+            : failed > 0
+              ? `Saved ${zipped.toLocaleString("en-IN")} — ${failed.toLocaleString("en-IN")} couldn't be fetched`
+              : "Saved to your downloads",
+        );
+      } catch (e) {
+        if (e instanceof GuestAuthError) {
+          onReauth();
+          return;
+        }
+        console.warn("[runZip] failed", e);
+        setToast("Download failed — please try again");
+      } finally {
+        setZipping(false);
+      }
+    },
+    [zipping, onReauth],
+  );
+
   async function downloadSelected() {
-    const urls = displayed.filter((i) => selected.has(i._id)).map((i) => i.url);
-    if (!urls.length) return;
-    setToast(`Downloading ${urls.length} photo${urls.length === 1 ? "" : "s"}…`);
-    await downloadMany(urls);
-    setToast("Downloads started");
+    const chosen = displayed.filter((i) => selected.has(i._id));
+    if (!chosen.length) return;
+    // One photo → straight download; several → a single browser-built ZIP.
+    if (chosen.length === 1) {
+      setToast("Downloading 1 photo…");
+      await downloadMany([chosen[0].url]);
+      setToast("Download started");
+      exitSelect();
+      return;
+    }
+    const entries = chosen.map((i) => ({ url: i.url, name: nameFromUrl(i.url) }));
     exitSelect();
+    void runZip(async () => entries, `${event.event_name || "gallery"} (${entries.length} photos).zip`);
   }
 
-  // Download the whole gallery as a ZIP. The download fires first/independently so
-  // a tracking failure can never deprive the guest of their photos.
-  const downloadAllZip = useCallback(() => {
-    if (!zipUrl) return;
-    setToast("Preparing your download…");
-    downloadZip(zipUrl, `${event.event_name || "gallery"}.zip`);
-    markZipAsDownloaded(uniqueIdentifier, bookingId).catch((e) =>
-      console.warn("[markZipAsDownloaded] failed", e),
-    );
-    window.setTimeout(() => setToast("Download started"), 700);
-  }, [zipUrl, event.event_name, uniqueIdentifier, bookingId]);
+  // Paginate the guest media API into {url,name} entries for a browser-built ZIP.
+  const fetchMediaEntriesForZip = useCallback(
+    async (scope: { mine?: boolean; onlyLiked?: boolean; customFolderId?: string }) => {
+      const entries: { url: string; name: string }[] = [];
+      const seen = new Set<string>();
+      const PAGE_SIZE = 500;
+      for (let skip = 0; ; skip += PAGE_SIZE) {
+        const res = await getGuestMedia(
+          uniqueIdentifier,
+          bookingId,
+          {
+            mine: scope.mine,
+            onlyLiked: scope.onlyLiked,
+            customFolderId: scope.customFolderId,
+            skip,
+            limit: PAGE_SIZE,
+          },
+          mediaIds ?? [],
+        );
+        const media = res.media ?? [];
+        for (const m of media) {
+          if (seen.has(m._id)) continue;
+          seen.add(m._id);
+          entries.push({ url: m.url, name: nameFromUrl(m.url) });
+        }
+        // Stop on an empty or short page only — don't trust `total` for stopping;
+        // the API may report a capped total (e.g. 1000) even when more media exists.
+        if (media.length === 0 || media.length < PAGE_SIZE) break;
+      }
+      return entries;
+    },
+    [uniqueIdentifier, bookingId, mediaIds],
+  );
 
-  // Expired ZIP → fire a (re)generation request and confirm via the info dialog.
-  const requestZip = useCallback(() => {
-    requestZipGeneration(uniqueIdentifier, bookingId).catch((e) =>
-      console.warn("[requestZipGeneration] failed", e),
-    );
-    setZipRequestOpen(true);
-  }, [uniqueIdentifier, bookingId]);
+  // Lounge + gallery "All" folder: the complete unlocked gallery.
+  const downloadFullGalleryZip = useCallback(() => {
+    const base = (event.event_name || "gallery").trim() || "gallery";
+    void runZip(() => fetchMediaEntriesForZip({ mine: false }), `${base}.zip`);
+  }, [runZip, fetchMediaEntriesForZip, event.event_name]);
+
+  // Gallery header: honour the active folder pill; "All" still means every photo.
+  const downloadGalleryZip = useCallback(() => {
+    const base = (event.event_name || "gallery").trim() || "gallery";
+    if (likedView) {
+      void runZip(() => fetchMediaEntriesForZip({ onlyLiked: true }), `${base} - liked.zip`);
+      return;
+    }
+    if (folder !== ALL) {
+      const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
+      void runZip(
+        () =>
+          fetchMediaEntriesForZip({
+            mine: effTab === "mine",
+            customFolderId: folder,
+          }),
+        `${base} - ${folderName}.zip`,
+      );
+      return;
+    }
+    downloadFullGalleryZip();
+  }, [runZip, fetchMediaEntriesForZip, event.event_name, likedView, folder, folders, effTab, downloadFullGalleryZip]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -338,8 +423,9 @@ export function LoungeGallery({
           selfieUrl={session.selfie_url}
           onOpenProfile={() => setProfileOpen(true)}
           homeThumbs={homeThumbs}
-          zipReady={zipReady}
-          onDownloadAll={downloadAllZip}
+          canDownloadAll={canDownloadAll}
+          zipping={zipping}
+          onDownloadAll={downloadFullGalleryZip}
           onSeeMine={() => gotoGallery("mine")}
           onSeeAll={() => gotoGallery("all")}
           onUnlock={() => setPasscodeOpen(true)}
@@ -382,10 +468,9 @@ export function LoungeGallery({
           onEnterSelectWith={enterSelectWith}
           onOpen={(i) => setViewerIndex(i)}
           onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
-          zipReady={zipReady}
-          zipExpired={zipExpired}
-          onDownloadAll={downloadAllZip}
-          onRequestZip={requestZip}
+          canDownloadAll={canDownloadAll}
+          zipping={zipping}
+          onDownloadAll={downloadGalleryZip}
         />
       )}
       </div>
@@ -460,9 +545,6 @@ export function LoungeGallery({
         />
       )}
 
-      {/* zip re-request confirmation */}
-      {zipRequestOpen && <ZipRequestDialog t={t} onClose={() => setZipRequestOpen(false)} />}
-
       {/* toast */}
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-[150px] z-50 flex justify-center px-5 lg:bottom-8">
@@ -489,7 +571,8 @@ function LoungeHome({
   selfieUrl,
   onOpenProfile,
   homeThumbs,
-  zipReady,
+  canDownloadAll,
+  zipping,
   onDownloadAll,
   onSeeMine,
   onSeeAll,
@@ -506,7 +589,8 @@ function LoungeHome({
   selfieUrl: string | null;
   onOpenProfile: () => void;
   homeThumbs: GuestMediaItem[];
-  zipReady: boolean;
+  canDownloadAll: boolean;
+  zipping: boolean;
   onDownloadAll: () => void;
   onSeeMine: () => void;
   onSeeAll: () => void;
@@ -528,13 +612,15 @@ function LoungeHome({
 
   return (
     <div className="flex-1 overflow-y-auto pb-[150px] lg:pb-14">
-      {/* hero */}
-      <div className="relative min-h-[200px] overflow-hidden px-6 pb-7 pt-7 lg:min-h-[320px] lg:px-12 lg:pb-12 lg:pt-12" style={{ borderRadius: "0 0 28px 28px" }}>
+      {/* hero — cover-first first impression: taller & immersive on desktop, compact
+          on mobile; the title anchors to the bottom (flex justify-between) so the
+          cover reads before any chrome. */}
+      <div className="relative flex min-h-[200px] flex-col justify-between overflow-hidden px-6 pb-7 pt-7 lg:min-h-[62vh] lg:px-12 lg:pb-12 lg:pt-10" style={{ borderRadius: "0 0 28px 28px" }}>
         <div className={`absolute inset-0 ${event.background_image ? "hero-kenburns" : ""}`} style={heroBg} />
         <div className="absolute inset-0" style={{ background: t.heroScrim }} />
         <div className="relative flex items-center justify-between">
           {branding && event.company_name ? (
-            <span className="text-[13px] font-extrabold lowercase text-white/85">{event.company_name}</span>
+            <span className="text-[13px] font-semibold lowercase text-white/85">{event.company_name}</span>
           ) : (
             <span />
           )}
@@ -543,7 +629,7 @@ function LoungeHome({
               type="button"
               onClick={onOpenProfile}
               aria-label="Your profile"
-              className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-[12px] font-extrabold text-white transition-transform active:scale-95"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-[12px] font-semibold text-white transition-transform active:scale-95"
               style={{ background: t.brand }}
             >
               {selfieUrl ? (
@@ -555,18 +641,18 @@ function LoungeHome({
             </button>
           )}
         </div>
-        <div className="relative mt-8 hero-text">
+        <div className="relative mt-8 hero-text lg:mt-0">
           <div className="text-white" style={{ fontFamily: "var(--font-playfair), Georgia, serif", fontStyle: "italic", fontSize: "clamp(32px, 4vw, 46px)", fontWeight: 700, lineHeight: 1.12 }}>
             {event.event_name}
           </div>
           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-white/70">
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
               {event.event_type ? `${event.event_type} gallery` : "Gallery"}
             </span>
             {date && (
               <>
                 <span className="h-[3px] w-[3px] rounded-full bg-white/40" />
-                <span className="text-[12.5px] font-semibold text-white/65">{date}</span>
+                <span className="text-[12.5px] font-medium text-white/65">{date}</span>
               </>
             )}
           </div>
@@ -584,7 +670,7 @@ function LoungeHome({
                   type="button"
                   onClick={onOpenProfile}
                   aria-label="Your profile"
-                  className="relative flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-[14px] font-extrabold transition-transform active:scale-95"
+                  className="relative flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-[14px] font-semibold transition-transform active:scale-95"
                   style={{ background: t.ring, padding: 3 }}
                 >
                   <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: t.card, color: t.brand }}>
@@ -600,7 +686,7 @@ function LoungeHome({
                   <div className="text-[14px] font-extrabold" style={{ color: t.text }}>
                     {matchCount > 0 ? `Found you in ${matchCount} photo${matchCount === 1 ? "" : "s"}` : "No matches yet"}
                   </div>
-                  <div className="mt-0.5 text-[11.5px] font-semibold" style={{ color: t.muted }}>
+                  <div className="mt-0.5 text-[11.5px] font-medium" style={{ color: t.muted }}>
                     {matchCount > 0 ? "Sorted just for you" : "Check back as the studio adds more"}
                   </div>
                 </div>
@@ -612,7 +698,7 @@ function LoungeHome({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={m.url} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-[600ms] ease-out group-hover:scale-110" />
                       {i === 3 && matchCount > 4 && (
-                        <div className="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold text-white" style={{ background: "rgba(31,26,14,0.55)" }}>
+                        <div className="absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-white" style={{ background: "rgba(31,26,14,0.55)" }}>
                           +{matchCount - 4}
                         </div>
                       )}
@@ -623,7 +709,7 @@ function LoungeHome({
               <button
                 type="button"
                 onClick={onSeeMine}
-                className="cta-shine flex cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+                className="cta-shine flex cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-semibold transition-transform active:scale-[0.99]"
                 style={{ background: `linear-gradient(100deg, ${t.brand}, ${t.brandDeep})`, color: t.onBrand }}
               >
                 See my photos
@@ -636,34 +722,40 @@ function LoungeHome({
                 type="button"
                 onClick={onSeeAll}
                 className="lounge-rise lounge-card flex cursor-pointer items-center gap-3.5 rounded-2xl p-4 text-left"
-                style={{ background: t.card, boxShadow: t.shadowSm, animationDelay: "0.1s" }}
+                style={{ background: t.card, border: `1px solid ${t.border}`, animationDelay: "0.1s" }}
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: t.brand, color: t.onBrand }}>
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: t.accentWash, color: t.brand }}>
                   <GridIcon size={19} />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-[14px] font-extrabold" style={{ color: t.text }}>Browse all photos</span>
-                  <span className="mt-0.5 block text-[11.5px] font-semibold" style={{ color: t.muted }}>The complete gallery is unlocked</span>
+                  <span className="block text-[14px] font-semibold" style={{ color: t.text }}>Browse all photos</span>
+                  <span className="mt-0.5 block text-[11.5px] font-medium" style={{ color: t.muted }}>The complete gallery is unlocked</span>
                 </span>
                 <ChevronIcon size={18} dir="right" color={t.muted} />
               </button>
             )}
 
-            {/* download all photos (zip) — host-only, primary/premium action */}
-            {unlocked && zipReady && (
+            {/* download all photos (zip) — host-only, primary/premium action.
+                Built in the browser (client-zip) and streamed to the download
+                tray, so it's available as soon as the guest is unlocked. */}
+            {canDownloadAll && (
               <button
                 type="button"
                 onClick={onDownloadAll}
-                className="lounge-rise lounge-card flex cursor-pointer items-center gap-3.5 rounded-2xl p-4 text-left transition-transform active:scale-[0.99]"
-                style={{ background: `linear-gradient(100deg, ${t.brand}, ${t.brandDeep})`, color: t.onBrand, boxShadow: t.shadow, animationDelay: "0.14s" }}
+                disabled={zipping}
+                className="lounge-rise lounge-card flex cursor-pointer items-center gap-3.5 rounded-2xl p-4 text-left transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ background: t.card, border: `1px solid ${t.border}`, animationDelay: "0.14s" }}
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "rgba(255,255,255,0.18)", color: t.onBrand }}>
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: t.accentWash, color: t.brand }}>
                   <DownloadIcon size={19} />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-[14px] font-extrabold">Download all photos</span>
-                  <span className="mt-0.5 block text-[11.5px] font-semibold" style={{ opacity: 0.82 }}>Save the complete gallery as a zip</span>
+                  <span className="block text-[14px] font-semibold" style={{ color: t.text }}>Download all photos</span>
+                  <span className="mt-0.5 block text-[11.5px] font-medium" style={{ color: t.muted }}>
+                    {zipping ? "Preparing your download…" : "Save the complete gallery as a zip"}
+                  </span>
                 </span>
+                <ChevronIcon size={18} dir="right" color={t.muted} />
               </button>
             )}
           </div>
@@ -671,7 +763,7 @@ function LoungeHome({
           {/* RIGHT — studio branding */}
           {hasStudio && (
             <div className="flex flex-col gap-4 lg:gap-5">
-              <div className="lounge-rise lounge-card flex flex-col gap-3.5 rounded-2xl p-4 pl-3.5" style={{ background: t.card, boxShadow: t.shadowSm, borderLeft: `4px solid ${t.brand}`, animationDelay: "0.12s" }}>
+              <div className="lounge-rise lounge-card flex flex-col gap-3.5 rounded-2xl p-4" style={{ background: t.card, border: `1px solid ${t.border}`, animationDelay: "0.12s" }}>
                 <div className="flex items-center gap-3">
                   <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl" style={{ background: t.ink, color: t.brand }}>
                     {event.company_logo_light || event.company_logo ? (
@@ -679,22 +771,24 @@ function LoungeHome({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={event.company_logo_light || event.company_logo} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <span className="text-[13px] font-extrabold">{initials(event.company_name ?? "")}</span>
+                      <span className="text-[13px] font-semibold">{initials(event.company_name ?? "")}</span>
                     )}
                   </span>
                   <div>
-                    <div className="text-[14px] font-extrabold" style={{ color: t.text }}>{event.company_name}</div>
-                    <div className="text-[11.5px] font-semibold" style={{ color: t.muted }}>Photography &amp; films</div>
+                    <div className="text-[14px] font-semibold" style={{ color: t.text }}>{event.company_name}</div>
+                    {/* No studio-tagline field exists on the event yet, so this stays a
+                        de-emphasised default (lighter weight + faint) until one lands. */}
+                    <div className="text-[11px] font-medium" style={{ color: t.faint }}>Photography &amp; films</div>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
                   {reviewUrl && (
-                    <a href={reviewUrl} target="_blank" rel="noopener noreferrer" onClick={onReviewClick} className="flex items-center justify-center rounded-full py-3 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
+                    <a href={reviewUrl} target="_blank" rel="noopener noreferrer" onClick={onReviewClick} className="flex items-center justify-center rounded-full py-3 text-[13px] font-semibold" style={{ background: t.brand, color: t.onBrand }}>
                       Leave us a Google review ↗
                     </a>
                   )}
                   {contactUrl && (
-                    <a href={contactUrl} target="_blank" rel="noopener noreferrer" onClick={onContactClick} className="flex items-center justify-center rounded-full py-2.5 text-[13px] font-extrabold" style={{ border: `1.5px solid ${t.border}`, color: t.text }}>
+                    <a href={contactUrl} target="_blank" rel="noopener noreferrer" onClick={onContactClick} className="flex items-center justify-center rounded-full py-2.5 text-[13px] font-semibold" style={{ border: `1.5px solid ${t.border}`, color: t.text }}>
                       Contact us
                     </a>
                   )}
@@ -708,7 +802,7 @@ function LoungeHome({
         {/* passcode CTA (locked only) — bottom */}
         {!unlocked && (
           <div className="flex justify-center pt-1">
-            <button type="button" onClick={onUnlock} className="lounge-rise flex cursor-pointer items-center justify-center gap-2 py-2 text-[12.5px] font-bold" style={{ color: t.muted, animationDelay: "0.18s" }}>
+            <button type="button" onClick={onUnlock} className="lounge-rise flex cursor-pointer items-center justify-center gap-2 py-2 text-[12.5px] font-medium" style={{ color: t.muted, animationDelay: "0.18s" }}>
               <LockIcon size={13} /> Have a passcode? Unlock the full gallery
             </button>
           </div>
@@ -725,7 +819,7 @@ function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
   const linkCls = "cursor-pointer underline-offset-2 hover:underline";
   return (
     <div
-      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11.5px] font-bold ${className}`}
+      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11.5px] font-medium ${className}`}
       style={{ color: t.faint }}
     >
       <button type="button" onClick={() => openPolicy("terms")} className={linkCls}>
@@ -757,7 +851,7 @@ function SocialRow({ event, t }: { event: ReturnType<typeof useEventTheme>["even
   return (
     <div className="flex justify-center gap-2 pt-1">
       {links.map((l) => (
-        <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-bold underline-offset-2 hover:underline" style={{ color: t.brand }}>
+        <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium underline-offset-2 hover:underline" style={{ color: t.brand }}>
           {l.label}
         </a>
       ))}
@@ -794,12 +888,11 @@ function GalleryView(props: {
   onEnterSelectWith: (i: GuestMediaItem) => void;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
-  zipReady: boolean;
-  zipExpired: boolean;
+  canDownloadAll: boolean;
+  zipping: boolean;
   onDownloadAll: () => void;
-  onRequestZip: () => void;
 }) {
-  const { t, unlocked, tab, setTab, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, totalForView, likedView, selectMode, selected, liked, zipReady, zipExpired } = props;
+  const { t, unlocked, tab, setTab, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, totalForView, likedView, selectMode, selected, liked, canDownloadAll, zipping } = props;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -816,20 +909,29 @@ function GalleryView(props: {
           <h1 className="flex-1 text-[18px] font-extrabold" style={{ color: t.text }}>{title}</h1>
         </div>
 
-        {/* My / All tabs — only once unlocked */}
+        {/* My / All tabs — quiet, compact segmented switch (not a full-width pill).
+            Only the active segment carries brand, and only as text. */}
         {unlocked && !likedView && (
-          <div className="mt-3 flex rounded-full p-1" style={{ background: t.card, boxShadow: t.shadowSm }}>
-            {(["mine", "all"] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setTab(k)}
-                className="flex-1 cursor-pointer rounded-full py-2.5 text-[13px] font-extrabold"
-                style={{ background: tab === k ? t.brand : "transparent", color: tab === k ? t.onBrand : t.text }}
-              >
-                {k === "mine" ? "My Photos" : "All Photos"}
-              </button>
-            ))}
+          <div className="mt-3 inline-flex rounded-full p-0.5" style={{ background: t.sunken }}>
+            {(["mine", "all"] as const).map((k) => {
+              const on = tab === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setTab(k)}
+                  className="cursor-pointer rounded-full px-4 py-1.5 text-[12.5px] transition-colors"
+                  style={{
+                    background: on ? t.card : "transparent",
+                    color: on ? t.brand : t.muted,
+                    fontWeight: on ? 600 : 500,
+                    boxShadow: on ? t.shadowSm : "none",
+                  }}
+                >
+                  {k === "mine" ? "My Photos" : "All Photos"}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -843,8 +945,13 @@ function GalleryView(props: {
                   key={f._id}
                   type="button"
                   onClick={() => setFolder(f._id)}
-                  className="shrink-0 cursor-pointer rounded-full px-3.5 py-1.5 text-[12px] font-extrabold"
-                  style={{ background: active ? t.brand : t.card, color: active ? t.onBrand : t.text, boxShadow: active ? "none" : t.shadowSm }}
+                  className="shrink-0 cursor-pointer rounded-full px-3.5 py-1.5 text-[12px] transition-colors"
+                  style={{
+                    background: active ? t.accentWash : "transparent",
+                    color: active ? t.brand : t.muted,
+                    border: `1px solid ${active ? "transparent" : t.border}`,
+                    fontWeight: active ? 600 : 500,
+                  }}
                 >
                   {f.name}
                   {f._id !== ALL && folderCounts[f._id] != null && <span className="ml-1 opacity-70">{folderCounts[f._id]}</span>}
@@ -856,34 +963,30 @@ function GalleryView(props: {
 
         {/* count + select */}
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span className="text-[11.5px] font-bold" style={{ color: t.muted }}>
+          <span className="text-[11.5px] font-medium" style={{ color: t.muted }}>
             {selectMode ? `${selected.size} selected` : countLabel}
           </span>
           <div className="flex items-center gap-2">
-            {/* download all (zip) — host-only, primary action */}
-            {!selectMode && zipReady && (
+            {/* download all (zip) — host-only; the ONE brand-filled element in this
+                row. Built in-browser + streamed to the tray; disabled while busy. */}
+            {!selectMode && canDownloadAll && (
               <button
                 type="button"
                 onClick={props.onDownloadAll}
-                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-extrabold transition-transform active:scale-95"
+                disabled={zipping}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{ background: t.brand, color: t.onBrand }}
               >
                 <DownloadIcon size={14} />
-                Download all
+                {zipping ? "Preparing…" : "Download all"}
               </button>
             )}
-            {/* expired zip → re-request lives in the overflow menu */}
-            {!selectMode && zipExpired && (
-              <OverflowMenu
-                t={t}
-                items={[{ label: "Request a zip download", icon: <DownloadIcon size={15} />, onClick: props.onRequestZip }]}
-              />
-            )}
+            {/* select — ghost/text button; brand tint only while active */}
             <button
               type="button"
               onClick={props.onToggleSelectMode}
-              className="cursor-pointer rounded-full px-3.5 py-1.5 text-[12px] font-extrabold"
-              style={{ background: selectMode ? t.brand : t.card, color: selectMode ? t.onBrand : t.text, boxShadow: selectMode ? "none" : t.shadowSm }}
+              className="cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors"
+              style={{ background: "transparent", color: selectMode ? t.brand : t.muted }}
             >
               {selectMode ? "Cancel" : "Select"}
             </button>
@@ -893,11 +996,16 @@ function GalleryView(props: {
 
       {/* grid */}
       <div className="min-h-0 flex-1 overflow-y-auto pb-[150px] pt-3" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
-        <div className="mx-auto w-full max-w-[760px] px-4 lg:max-w-[1180px] lg:px-8">
+        <div className="mx-auto w-full max-w-[760px] px-4 lg:max-w-[1440px] lg:px-8">
           {loading ? (
-            <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5">
+            // masonry-shaped skeleton so the load state matches the photo wall
+            <div className="columns-2 gap-[14px] lg:columns-3 xl:columns-4">
               {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="skeleton aspect-square rounded-lg" style={{ animationDelay: `${i * 0.04}s` }} />
+                <div
+                  key={i}
+                  className="skeleton mb-3 w-full break-inside-avoid rounded-[10px]"
+                  style={{ height: 150 + (i % 4) * 60, animationDelay: `${i * 0.04}s` }}
+                />
               ))}
             </div>
           ) : props.loadError && items.length === 0 ? (
@@ -906,23 +1014,18 @@ function GalleryView(props: {
             <EmptyState t={t} likedView={likedView} tab={tab} />
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5">
-                {items.map((item, index) => (
-                  <PhotoTile
-                    key={item._id}
-                    t={t}
-                    item={item}
-                    index={index}
-                    selectMode={selectMode}
-                    isSel={selected.has(item._id)}
-                    isLiked={liked.has(item._id)}
-                    onOpen={() => props.onOpen(index)}
-                    onToggleSelect={() => props.onToggleSelect(item)}
-                    onToggleLike={() => props.onToggleLike(item)}
-                    onEnterSelectWith={() => props.onEnterSelectWith(item)}
-                  />
-                ))}
-              </div>
+              <GalleryGrid
+                t={t}
+                layout="masonry"
+                items={items}
+                selectMode={selectMode}
+                selected={selected}
+                liked={liked}
+                onOpen={props.onOpen}
+                onToggleSelect={props.onToggleSelect}
+                onToggleLike={props.onToggleLike}
+                onEnterSelectWith={props.onEnterSelectWith}
+              />
               {loadingMore && (
                 <div className="flex justify-center py-6">
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
@@ -932,86 +1035,6 @@ function GalleryView(props: {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function PhotoTile({
-  t,
-  item,
-  index,
-  selectMode,
-  isSel,
-  isLiked,
-  onOpen,
-  onToggleSelect,
-  onToggleLike,
-  onEnterSelectWith,
-}: {
-  t: Theme;
-  item: GuestMediaItem;
-  index: number;
-  selectMode: boolean;
-  isSel: boolean;
-  isLiked: boolean;
-  onOpen: () => void;
-  onToggleSelect: () => void;
-  onToggleLike: () => void;
-  onEnterSelectWith: () => void;
-}) {
-  const pad = selectMode && isSel ? 4 : 0;
-  return (
-    <div
-      className="group tile-in relative aspect-square cursor-pointer transition-colors"
-      style={{ background: selectMode && isSel ? t.brand : "transparent", animationDelay: `${(index % 14) * 0.03}s` }}
-      onClick={() => (selectMode ? onToggleSelect() : onOpen())}
-    >
-      <div className="absolute overflow-hidden transition-all" style={{ inset: pad, borderRadius: selectMode && isSel ? 9 : 8 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={item.url} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-[450ms] ease-out group-hover:scale-[1.08]" />
-      </div>
-
-      {/* select badge — always in select mode; desktop hover otherwise */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (selectMode) onToggleSelect();
-          else onEnterSelectWith();
-        }}
-        aria-label="Select photo"
-        className={`absolute left-1.5 top-1.5 z-10 flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-opacity ${
-          selectMode ? "flex" : "hidden opacity-0 sm:flex sm:group-hover:opacity-100"
-        }`}
-        style={{
-          background: isSel ? t.brand : "rgba(20,16,8,0.3)",
-          border: isSel ? "none" : "2px solid rgba(255,255,255,0.9)",
-          color: t.onBrand,
-        }}
-      >
-        {isSel && <CheckIcon size={13} />}
-      </button>
-
-      {/* like — always visible, shows the total like count */}
-      {!selectMode && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleLike();
-          }}
-          aria-label={isLiked ? "Unlike photo" : "Like photo"}
-          className="absolute bottom-1.5 left-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 transition-transform active:scale-95"
-          style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.42)" }}
-        >
-          <HeartIcon size={14} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
-          {(item.likes_count ?? 0) > 0 && (
-            <span className="pr-0.5 text-[11px] font-extrabold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
-              {item.likes_count}
-            </span>
-          )}
-        </button>
-      )}
     </div>
   );
 }
@@ -1066,14 +1089,14 @@ function SideRail({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={studioLogo} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
         ) : (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-extrabold" style={{ background: t.ink, color: t.brand }}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-semibold" style={{ background: t.ink, color: t.brand }}>
             {event.company_name ? initials(event.company_name) : "·"}
           </span>
         )}
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-extrabold" style={{ color: t.text }}>{event.event_name}</div>
+          <div className="truncate text-[14px] font-semibold" style={{ color: t.text }}>{event.event_name}</div>
           {event.include_company_branding && event.company_name && (
-            <div className="truncate text-[11.5px] font-semibold" style={{ color: t.muted }}>{event.company_name}</div>
+            <div className="truncate text-[11.5px] font-medium" style={{ color: t.muted }}>{event.company_name}</div>
           )}
         </div>
       </div>
@@ -1085,8 +1108,8 @@ function SideRail({
               key={n.key}
               type="button"
               onClick={n.on}
-              className="flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 text-left text-[14px] font-extrabold transition-colors"
-              style={{ background: on ? t.brand : "transparent", color: on ? t.onBrand : t.text }}
+              className="flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 text-left text-[14px] transition-colors"
+              style={{ background: on ? t.accentWash : "transparent", color: on ? t.brand : t.muted, fontWeight: on ? 600 : 500 }}
             >
               {n.icon}
               {n.label}
@@ -1101,7 +1124,7 @@ function SideRail({
           className="mt-auto flex cursor-pointer items-center gap-2.5 border-t pt-5 text-left transition-opacity hover:opacity-80"
           style={{ borderColor: t.border }}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[13px] font-extrabold text-white" style={{ background: t.brand }}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[13px] font-semibold text-white" style={{ background: t.brand }}>
             {selfieUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
@@ -1109,7 +1132,7 @@ function SideRail({
               (guestName[0] ?? "·").toUpperCase()
             )}
           </span>
-          <span className="min-w-0 truncate text-[13px] font-bold" style={{ color: t.text }}>{guestName}</span>
+          <span className="min-w-0 truncate text-[13px] font-medium" style={{ color: t.text }}>{guestName}</span>
         </button>
       )}
       <PolicyFooter t={t} className={`${guestName ? "mt-4" : "mt-auto"} justify-start pt-4`} />
@@ -1149,118 +1172,14 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
               key={n.key}
               type="button"
               onClick={n.on}
-              className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full py-2.5 text-[12.5px] font-extrabold"
-              style={{ background: on ? t.brand : "transparent", color: on ? t.onBrand : t.text }}
+              className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full py-2.5 text-[12.5px] transition-colors"
+              style={{ background: on ? t.accentWash : "transparent", color: on ? t.brand : t.muted, fontWeight: on ? 600 : 500 }}
             >
               {n.icon}
               {on && n.label}
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-/* ── zip: overflow menu + request dialog ────────────────────────────────── */
-
-/** Small accessible "⋯" menu: opens a popover, closes on outside-click + Escape. */
-function OverflowMenu({ t, items }: { t: Theme; items: { label: string; icon?: React.ReactNode; onClick: () => void }[] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="More options"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full transition-colors"
-        style={{ background: open ? t.brand : t.card, color: open ? t.onBrand : t.text, boxShadow: open ? "none" : t.shadowSm }}
-      >
-        <MoreIcon size={16} />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="popup-pop absolute right-0 top-[calc(100%+8px)] z-50 min-w-[210px] overflow-hidden rounded-2xl p-1.5"
-          style={{ background: t.card, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
-        >
-          {items.map((it) => (
-            <button
-              key={it.label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                it.onClick();
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-extrabold transition-colors hover:bg-black/[0.04]"
-              style={{ color: t.text }}
-            >
-              {it.icon}
-              {it.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Informational confirmation shown after re-requesting an expired zip. */
-function ZipRequestDialog({ t, onClose }: { t: Theme; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="dash-fade fixed inset-0 z-[60] flex items-center justify-center p-5" style={{ background: "rgba(31,26,14,0.55)" }} onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Request received"
-        className="popup-pop w-full max-w-[400px] rounded-3xl p-7 text-center sm:p-8"
-        style={{ background: t.card, fontFamily: t.font, boxShadow: t.shadow }}
-      >
-        <span className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.successSoft, color: t.success }}>
-          <CheckIcon size={26} />
-        </span>
-        <div className="text-[19px] font-extrabold" style={{ color: t.text }}>Request received</div>
-        <p className="mx-auto mt-2 max-w-[300px] text-[13px] font-semibold leading-relaxed" style={{ color: t.muted }}>
-          Your download is being prepared. We’ll notify you by email once your zip is ready.
-        </p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-6 w-full cursor-pointer rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
-          style={{ background: t.brand, color: t.onBrand }}
-        >
-          Got it
-        </button>
       </div>
     </div>
   );
@@ -1306,13 +1225,6 @@ function HomeIcon({ size = 18 }: { size?: number }) {
     </svg>
   );
 }
-function CheckIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
 function LockIcon({ size = 13 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -1332,15 +1244,6 @@ function DownloadIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
-    </svg>
-  );
-}
-function MoreIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="5" cy="12" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="19" cy="12" r="2" />
     </svg>
   );
 }

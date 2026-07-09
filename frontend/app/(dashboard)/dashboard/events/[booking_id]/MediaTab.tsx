@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createCustomFolder, updateCustomFolder } from "@/lib/api";
 import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
-import { FoldersSidebar, type FolderRow } from "@/components/dashboard/FoldersSidebar";
+import { FoldersSidebar, InlineFolderInput, type FolderRow } from "@/components/dashboard/FoldersSidebar";
 import { UploadModal } from "./UploadModal";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
@@ -44,6 +44,11 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
+  // Directory (folder) uploads need <input webkitdirectory>, which mobile
+  // browsers don't support — steer those to the plain multi-file picker.
+  const [dirSupported] = useState(
+    () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
+  );
   const [prePickerOpen, setPrePickerOpen] = useState(false);
   // Folder-only upload (the "Create new folder" path): opens the first-time
   // folder flow with the subfolder guide, minus the "Or select photos" option.
@@ -65,7 +70,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   const folderRows: FolderRow[] = useMemo(() => {
     if (folders.length === 0) return [];
-    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: totalCount, system: true };
+    const allRow: FolderRow = { id: ALL_MEDIA_ID, label: "All Media", count: totalCount, system: true, icon: "images" };
     const userRows: FolderRow[] = folders.map((f) => ({
       id: f._id,
       label: f.name,
@@ -99,10 +104,16 @@ export function MediaTab({ loading }: { loading: boolean }) {
     async (name: string) => {
       try {
         const res = await createCustomFolder(bookingId, name);
-        setFolders((prev) => [
-          ...prev,
-          { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
-        ]);
+        setFolders((prev) => {
+          // The backend reuses an existing folder for a duplicate name (same
+          // case-insensitive/trimmed match) and returns its id — don't add a
+          // second row sharing that id.
+          if (prev.some((f) => f._id === res.custom_folder_id)) return prev;
+          return [
+            ...prev,
+            { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
+          ];
+        });
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not create folder", "error");
       }
@@ -111,14 +122,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
   );
 
   const handleUploadMore = useCallback(() => {
-    if (activeFolderId === ALL_MEDIA_ID) setPrePickerOpen(true);
+    // System views (All Media / Liked Media) aren't real upload targets — pick a
+    // folder first. A real folder tab uploads straight into it (single mode).
+    if (activeIsSystem) setPrePickerOpen(true);
     else {
-      // A specific folder tab is open — upload straight into it (single mode).
       setUploadTarget({ id: activeFolderId, name: activeFolderLabel });
       setFolderOnly(false);
       setUploadModalOpen(true);
     }
-  }, [activeFolderId, activeFolderLabel]);
+  }, [activeIsSystem, activeFolderId, activeFolderLabel]);
 
   const handleBulkUpload = useCallback(() => {
     setUploadTarget(null);
@@ -178,7 +190,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             media={media}
             busy={coverBusy}
             disabled={activeLocked}
-            lockReason={publishedEver ? "Locked after publishing to keep the shared link stable." : null}
+            lockReason={publishedEver ? "Locked once photos are delivered, to keep the shared link stable." : null}
             onSetFromUrl={setCoverFromUrl}
             onSetFromFile={setCoverFromFile}
             onSavePosition={setCoverPosition}
@@ -193,13 +205,25 @@ export function MediaTab({ loading }: { loading: boolean }) {
           uploadingFoldersCount={engine.progress.folders.length}
           state={state}
           paused={paused}
-          activeIsAllMedia={activeFolderId === ALL_MEDIA_ID}
+          activeIsSystem={activeIsSystem}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
         />
 
+        {/* Mobile folder switcher (desktop uses the FoldersSidebar). */}
+        {state === "populated" && folderRows.length > 0 && (
+          <MobileFolderStrip
+            folders={folderRows}
+            activeFolderId={activeFolderId}
+            onSelect={activeLocked ? () => {} : setActiveFolder}
+            onAddFolder={addFolder}
+            onRename={handleRename}
+            disabled={activeLocked}
+          />
+        )}
+
         {state === "loading" && <LoadingBody />}
-        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} />}
+        {state === "empty" && <EmptyUploadCTA onUpload={handleBulkUpload} dirSupported={dirSupported} />}
         {state === "uploading" && (
           <UploadProgress
             progress={engine.progress}
@@ -219,6 +243,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             onLoadMore={loadMore}
             disabled={activeLocked}
             onDeleteMany={deleteMediaIds}
+            notify={toast}
             onRename={() => {
               if (!activeIsSystem) {
                 const next = window.prompt("Rename folder", activeFolderLabel);
@@ -253,6 +278,20 @@ export function MediaTab({ loading }: { loading: boolean }) {
             void engine.startUpload({
               groups: plan.groups,
               existingFolders: folders.map((f) => ({ name: f.name, id: f._id })),
+              onFoldersEnsured: (ensured) => {
+                setFolders((prev) => {
+                  const known = new Set(prev.map((f) => f._id));
+                  const additions = ensured
+                    .filter((f) => !known.has(f.id))
+                    .map((f) => ({
+                      _id: f.id,
+                      name: f.name,
+                      booking_id: bookingId,
+                      createdAt: new Date().toISOString(),
+                    }));
+                  return additions.length > 0 ? [...prev, ...additions] : prev;
+                });
+              },
             });
           }
         }}
@@ -294,7 +333,7 @@ function EventHeader({
   uploadingFoldersCount,
   state,
   paused,
-  activeIsAllMedia,
+  activeIsSystem,
   onUploadMore,
   onEdit,
 }: {
@@ -305,7 +344,7 @@ function EventHeader({
   uploadingFoldersCount: number;
   state: "loading" | "uploading" | "populated" | "empty";
   paused: boolean;
-  activeIsAllMedia: boolean;
+  activeIsSystem: boolean;
   onUploadMore: () => void;
   onEdit: () => void;
 }) {
@@ -371,8 +410,8 @@ function EventHeader({
               <UploadIcon size={14} />
               Upload more
             </button>
-            {activeIsAllMedia && (
-              <span className="text-[11px] text-[var(--color-brand-muted)]">All Media — tap to choose folder first</span>
+            {activeIsSystem && (
+              <span className="text-[11px] text-[var(--color-brand-muted)]">Tap to choose a folder to upload into</span>
             )}
           </>
         )}
@@ -381,7 +420,7 @@ function EventHeader({
   );
 }
 
-function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
+function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirSupported: boolean }) {
   return (
     <div className="mx-6 my-8 flex flex-col items-center gap-3.5 rounded-xl border-2 border-dashed border-[var(--color-brand-outline)] bg-white px-8 py-12 text-center sm:mx-10">
       <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
@@ -389,8 +428,17 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
       </div>
       <h3 className="text-[20px] font-bold tracking-tight text-[var(--color-brand-ink)]">Upload media to get started</h3>
       <p className="max-w-[480px] text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-        Drop in a folder of photos. We&apos;ll preserve any subfolders so your gallery stays organised by Ceremony,
-        Reception, Portraits and so on.
+        {dirSupported ? (
+          <>
+            Drop in a folder of photos. We&apos;ll preserve any subfolders so your gallery stays organised by Ceremony,
+            Reception, Portraits and so on.
+          </>
+        ) : (
+          <>
+            Add photos to this event to get started. Folder uploads that keep your subfolders organised are available
+            on desktop.
+          </>
+        )}
       </p>
       <button
         type="button"
@@ -398,9 +446,109 @@ function EmptyUploadCTA({ onUpload }: { onUpload: () => void }) {
         className="brand-focus mt-1.5 inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
         <UploadIcon size={16} />
-        Upload media
+        {dirSupported ? "Upload media" : "Add photos"}
       </button>
       <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">JPG · PNG · HEIC · WebP · no size limit</div>
+    </div>
+  );
+}
+
+/* ── mobile folder strip (desktop uses FoldersSidebar) ──────────── */
+
+/**
+ * Horizontal, scrollable folder chips shown only below md. Mirrors the
+ * FoldersSidebar's switch/add/rename behaviour: tapping the active user folder
+ * enters rename (reusing InlineFolderInput); a dashed chip adds a folder. Styled
+ * like the Events-page status filter chips.
+ */
+function MobileFolderStrip({
+  folders,
+  activeFolderId,
+  onSelect,
+  onAddFolder,
+  onRename,
+  disabled,
+}: {
+  folders: FolderRow[];
+  activeFolderId: string;
+  onSelect: (id: string) => void;
+  onAddFolder: (name: string) => void | Promise<void>;
+  onRename: (id: string, name: string) => void | Promise<void>;
+  disabled: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+
+  return (
+    <div className="border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+      <div className="flex items-center gap-1.5 overflow-x-auto">
+        {folders.map((f) => {
+          const selected = f.id === activeFolderId;
+          if (selected && renaming && !f.system) {
+            return (
+              <div
+                key={f.id}
+                className="flex h-8 shrink-0 items-center rounded-full border border-[var(--color-brand-navy)] bg-white px-2"
+              >
+                <InlineFolderInput
+                  initial={f.label}
+                  onCommit={async (name) => {
+                    setRenaming(false);
+                    const trimmed = name.trim();
+                    if (trimmed && trimmed !== f.label) await onRename(f.id, trimmed);
+                  }}
+                  onCancel={() => setRenaming(false)}
+                />
+              </div>
+            );
+          }
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => {
+                if (disabled) return;
+                // Tapping the already-active user folder switches it into rename.
+                if (selected && !f.system) setRenaming(true);
+                else onSelect(f.id);
+              }}
+              aria-pressed={selected}
+              className={`brand-focus flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors ${
+                selected
+                  ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                  : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
+              } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            >
+              <span>{f.label}</span>
+              <span className="tabular-nums opacity-70">{f.count.toLocaleString("en-IN")}</span>
+              {selected && !f.system && <EditIcon size={12} />}
+            </button>
+          );
+        })}
+
+        {adding ? (
+          <div className="flex h-8 shrink-0 items-center rounded-full border border-[var(--color-brand-navy)] bg-white px-2">
+            <InlineFolderInput
+              placeholder="New folder name"
+              onCommit={async (name) => {
+                setAdding(false);
+                if (name.trim()) await onAddFolder(name.trim());
+              }}
+              onCancel={() => setAdding(false)}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            disabled={disabled}
+            className="brand-focus flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-[var(--color-brand-border)] px-3 text-xs font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="text-[14px] leading-none">+</span>
+            Add folder
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -417,6 +565,7 @@ function PopulatedBody({
   disabled,
   onDeleteMany,
   onRename,
+  notify,
 }: {
   activeFolderLabel: string;
   activeIsSystem: boolean;
@@ -429,6 +578,8 @@ function PopulatedBody({
   disabled: boolean;
   onDeleteMany: (ids: string[]) => Promise<void>;
   onRename: () => void;
+  /** Transient status messages (e.g. download progress). */
+  notify?: (msg: string) => void;
 }) {
   return (
     <section className="px-6 pb-12 pt-6 sm:px-10">
@@ -463,6 +614,8 @@ function PopulatedBody({
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={onLoadMore}
+        archiveName={activeFolderLabel}
+        notify={notify}
       />
     </section>
   );
