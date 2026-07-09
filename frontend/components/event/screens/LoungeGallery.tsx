@@ -265,7 +265,7 @@ export function LoungeGallery({
         // Pass the provider so the "Save as" dialog opens on the click gesture,
         // before the (possibly slow) full-gallery pagination runs.
         const { zipped, failed, cancelled } = await streamZipToDisk(getEntries, filename, (done, total) =>
-          setToast(`Zipping ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
+          setToast(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
         );
         if (cancelled) {
           setToast(null);
