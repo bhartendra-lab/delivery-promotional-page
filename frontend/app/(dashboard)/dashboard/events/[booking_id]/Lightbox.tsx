@@ -135,8 +135,15 @@ export function Lightbox({
             {index + 1} / {count.toLocaleString("en-IN")}
           </span>
           {(item.likes_count ?? 0) > 0 && (
-            <span className="inline-flex items-center gap-1 text-[12.5px] font-semibold tabular-nums text-white/80">
-              <IconHeart size={13} filled />
+            <span
+              className="inline-flex items-center gap-1 text-[12.5px] font-semibold tabular-nums text-white/80"
+              title={item.host_liked ? "Liked by the host" : "Liked by guests"}
+            >
+              <IconHeart
+                size={13}
+                filled={!!item.host_liked}
+                style={item.host_liked ? { color: "var(--color-brand-navy)" } : undefined}
+              />
               {(item.likes_count ?? 0).toLocaleString("en-IN")}
             </span>
           )}
@@ -154,8 +161,17 @@ export function Lightbox({
           <span className="mx-1 h-5 w-px bg-white/20" />
           {onToggleShortlist && (
             <ToolButton
-              label={item.shortlisted ? "Remove from shortlist" : "Shortlist photo"}
+              label={
+                item.identified
+                  ? "Shortlisted · original located"
+                  : item.shortlisted
+                    ? "Remove from shortlist"
+                    : "Shortlist photo"
+              }
               active={!!item.shortlisted}
+              activeColor={
+                item.identified ? "var(--color-brand-success)" : "var(--color-brand-warning)"
+              }
               onClick={() => onToggleShortlist(item)}
             >
               <IconStar size={16} filled={!!item.shortlisted} />
@@ -229,14 +245,17 @@ function ToolButton({
   disabled,
   danger,
   active,
+  activeColor,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
-  /** Persistent "on" state (e.g. shortlisted) — tinted amber. */
+  /** Persistent "on" state (e.g. shortlisted) — tinted with `activeColor`. */
   active?: boolean;
+  /** Colour applied when `active` (defaults to amber); green once located. */
+  activeColor?: string;
 }) {
   return (
     <button
@@ -246,8 +265,9 @@ function ToolButton({
       aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
+      style={active ? { color: activeColor ?? "var(--color-brand-warning)" } : undefined}
       className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
-        active ? "text-[var(--color-brand-warning)]" : "text-white"
+        active ? "" : "text-white"
       } ${danger ? "hover:bg-[var(--color-brand-danger)]" : "hover:bg-white/15"}`}
     >
       {children}

@@ -410,7 +410,7 @@ export function LoungeGallery({
 
   return (
     <div className="relative flex h-[100dvh] overflow-hidden" style={{ background: t.bg, fontFamily: t.font, color: t.text }}>
-      <SideRail t={t} event={event} guestName={session.name} selfieUrl={session.selfie_url} onOpenProfile={() => setProfileOpen(true)} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
+      <SideRail t={t} event={event} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
       <div className="flex min-h-0 flex-1 flex-col">
       {view === "home" ? (
         <LoungeHome
@@ -624,22 +624,7 @@ function LoungeHome({
           ) : (
             <span />
           )}
-          {guestName && (
-            <button
-              type="button"
-              onClick={onOpenProfile}
-              aria-label="Your profile"
-              className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-[12px] font-semibold text-white transition-transform active:scale-95"
-              style={{ background: t.brand }}
-            >
-              {selfieUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                (guestName[0] ?? "·").toUpperCase()
-              )}
-            </button>
-          )}
+
         </div>
         <div className="relative mt-8 hero-text lg:mt-0">
           <div className="text-white" style={{ fontFamily: "var(--font-playfair), Georgia, serif", fontStyle: "italic", fontSize: "clamp(32px, 4vw, 46px)", fontWeight: 700, lineHeight: 1.12 }}>
@@ -1058,9 +1043,6 @@ function EmptyState({ t, likedView, tab }: { t: Theme; likedView: boolean; tab: 
 function SideRail({
   t,
   event,
-  guestName,
-  selfieUrl,
-  onOpenProfile,
   active,
   onHome,
   onGallery,
@@ -1068,9 +1050,6 @@ function SideRail({
 }: {
   t: Theme;
   event: ReturnType<typeof useEventTheme>["event"];
-  guestName?: string;
-  selfieUrl: string | null;
-  onOpenProfile: () => void;
   active: "home" | "gallery" | "liked";
   onHome: () => void;
   onGallery: () => void;
@@ -1117,25 +1096,7 @@ function SideRail({
           );
         })}
       </nav>
-      {guestName && (
-        <button
-          type="button"
-          onClick={onOpenProfile}
-          className="mt-auto flex cursor-pointer items-center gap-2.5 border-t pt-5 text-left transition-opacity hover:opacity-80"
-          style={{ borderColor: t.border }}
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[13px] font-semibold text-white" style={{ background: t.brand }}>
-            {selfieUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              (guestName[0] ?? "·").toUpperCase()
-            )}
-          </span>
-          <span className="min-w-0 truncate text-[13px] font-medium" style={{ color: t.text }}>{guestName}</span>
-        </button>
-      )}
-      <PolicyFooter t={t} className={`${guestName ? "mt-4" : "mt-auto"} justify-start pt-4`} />
+      <PolicyFooter t={t} className="mt-auto justify-start pt-4" />
     </aside>
   );
 }

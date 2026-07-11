@@ -23,6 +23,11 @@ export type LikedFilters = {
   guestIds: string[];
   /** Show only shortlisted (picked-for-delivery) media. */
   shortlistedOnly: boolean;
+  /** Show only shortlisted media whose originals aren't yet located ("Awaiting
+   *  original"). Implies `shortlistedOnly` on the wire (drives `awaiting_original`). */
+  awaitingOnly: boolean;
+  /** Result ordering. "likes" = most-liked first (default); "recent" = newest first. */
+  sort: "likes" | "recent";
 };
 
 export const EMPTY_LIKED_FILTERS: LikedFilters = {
@@ -30,15 +35,20 @@ export const EMPTY_LIKED_FILTERS: LikedFilters = {
   subTypes: [],
   guestIds: [],
   shortlistedOnly: false,
+  awaitingOnly: false,
+  sort: "likes",
 };
 
-/** True when any Smart Selects filter is active (drives the "Clear" affordance). */
+/** True when any Smart Selects filter is active (drives the "Clear" affordance).
+ *  Sort is a refinement, not a scope filter, so it's included so Clear resets it. */
 export function hasActiveLikedFilters(f: LikedFilters): boolean {
   return (
     f.audience !== "all" ||
     f.subTypes.length > 0 ||
     f.guestIds.length > 0 ||
-    f.shortlistedOnly
+    f.shortlistedOnly ||
+    f.awaitingOnly ||
+    f.sort !== "likes"
   );
 }
 
@@ -85,6 +95,9 @@ export type EventContextValue = {
   likedCount: number;
   /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
   shortlistedCount: number;
+  /** Count of shortlisted media whose originals are located (progress strip
+   *  "Located"; awaiting-original = shortlistedCount − locatedCount). */
+  locatedCount: number;
   /** Active filters for the Smart Selects (liked) view. */
   likedFilters: LikedFilters;
   /** Update the Smart Selects filters (re-fetches the liked view when it's active). */

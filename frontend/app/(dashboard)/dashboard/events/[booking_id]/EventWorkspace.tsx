@@ -121,6 +121,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [likedCount, setLikedCount] = useState(0); // liked media in the booking
   const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
+  const [locatedCount, setLocatedCount] = useState(0); // shortlisted + located media
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
@@ -186,11 +187,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           skip,
           limit,
           onlyLiked: true,
-          sort: "likes",
+          sort: f.sort,
           likedGuestType: f.audience === "all" ? undefined : f.audience,
           likedGuestSubTypes: f.subTypes,
           likedGuestIds: f.guestIds,
-          shortlistedOnly: f.shortlistedOnly,
+          shortlistedOnly: f.shortlistedOnly || f.awaitingOnly,
+          awaitingOnly: f.awaitingOnly,
         });
       }
       return getMedia(bookingId, {
@@ -218,6 +220,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (res.folderCounts) setFolderCounts(res.folderCounts);
         if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
         if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
+        if (typeof res.locatedCount === "number") setLocatedCount(res.locatedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
           totalCountRef.current = res.totalCount;
@@ -598,15 +601,26 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       const changed = prev.filter(
         (m) => real.includes(m._id) && !!m.shortlisted !== shortlisted,
       ).length;
-      const dropFromView = !shortlisted && likedFiltersRef.current.shortlistedOnly;
+      // Un-shortlisting also clears `identified` server-side (see B1), so any of
+      // these that were located drop out of the located count too.
+      const wasLocated = shortlisted
+        ? 0
+        : prev.filter((m) => real.includes(m._id) && m.identified).length;
+      const f = likedFiltersRef.current;
+      const dropFromView = !shortlisted && (f.shortlistedOnly || f.awaitingOnly);
       setMedia((cur) =>
         dropFromView
           ? cur.filter((m) => !real.includes(m._id))
-          : cur.map((m) => (real.includes(m._id) ? { ...m, shortlisted } : m)),
+          : cur.map((m) =>
+              real.includes(m._id)
+                ? { ...m, shortlisted, ...(shortlisted ? {} : { identified: false }) }
+                : m,
+            ),
       );
       try {
         await updateMediaShortlist(real, shortlisted);
         setShortlistedCount((c) => Math.max(0, c + (shortlisted ? changed : -changed)));
+        if (wasLocated > 0) setLocatedCount((c) => Math.max(0, c - wasLocated));
         if (dropFromView) setTotalForView((t) => Math.max(0, t - real.length));
         toast(
           shortlisted
@@ -722,6 +736,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       folderCounts,
       likedCount,
       shortlistedCount,
+      locatedCount,
       likedFilters,
       setLikedFilters,
       setShortlisted,
@@ -742,7 +757,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, locatedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
