@@ -405,14 +405,15 @@ function EventHeader({
             <button
               type="button"
               onClick={onUploadMore}
-              className="brand-focus inline-flex items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+              className="brand-focus hidden items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] md:inline-flex"
             >
               <UploadIcon size={14} />
               Upload more
             </button>
             {activeIsSystem && (
-              <span className="text-[11px] text-[var(--color-brand-muted)]">Tap to choose a folder to upload into</span>
+              <span className="hidden text-[11px] text-[var(--color-brand-muted)] md:inline">Tap to choose a folder to upload into</span>
             )}
+            <span className="text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
           </>
         )}
       </div>
@@ -443,11 +444,12 @@ function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirS
       <button
         type="button"
         onClick={onUpload}
-        className="brand-focus mt-1.5 inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
+        className="brand-focus mt-1.5 hidden h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] md:inline-flex"
       >
         <UploadIcon size={16} />
         {dirSupported ? "Upload media" : "Add photos"}
       </button>
+      <span className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
       <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">JPG · PNG · HEIC · WebP · no size limit</div>
     </div>
   );

@@ -16,11 +16,18 @@ const AUDIENCE: { key: LikedFiltersState["audience"]; label: string }[] = [
   { key: "guest", label: "Guests" },
 ];
 
+const SORT_LABEL: Record<LikedFiltersState["sort"], string> = {
+  likes: "Most liked",
+  recent: "Newest",
+};
+
 /**
- * Filter bar for the Smart Selects view. Slices the liked feed by *who* liked:
- * audience (host/guest), guest teams (only when the event has `guest_types`), and
- * specific guests (lazy-loaded from get-all-guests) — plus a "Shortlisted only"
- * toggle. All constraints AND-combine; changing any re-fetches (via EventWorkspace).
+ * Filter bar for the Smart Selects view. A row of quick scope pills (All liked /
+ * Host picks / Shortlisted / Awaiting original) sits above the refinement
+ * controls — audience (host/guest), guest teams (only when the event has
+ * `guest_types`), specific guests (lazy-loaded), and Sort. Pills just set the
+ * underlying filter fields, so they stay in sync with the refinement row. All
+ * constraints AND-combine; changing any re-fetches (via EventWorkspace).
  */
 export function LikedFilters({
   bookingId,
@@ -28,12 +35,14 @@ export function LikedFilters({
   filters,
   onChange,
   shortlistedCount = 0,
+  awaitingCount = 0,
 }: {
   bookingId: string;
   guestTypes: string[] | undefined;
   filters: LikedFiltersState;
   onChange: React.Dispatch<React.SetStateAction<LikedFiltersState>>;
   shortlistedCount?: number;
+  awaitingCount?: number;
 }) {
   const showTeams = !!guestTypes && guestTypes.length > 0;
   const active = hasActiveLikedFilters(filters);
@@ -59,6 +68,7 @@ export function LikedFilters({
 
   const setAudience = (audience: LikedFiltersState["audience"]) =>
     onChange((f) => ({ ...f, audience }));
+  const setSort = (sort: LikedFiltersState["sort"]) => onChange((f) => ({ ...f, sort }));
   const toggleSubType = (t: string) =>
     onChange((f) => ({
       ...f,
@@ -69,8 +79,41 @@ export function LikedFilters({
       ...f,
       guestIds: f.guestIds.includes(id) ? f.guestIds.filter((x) => x !== id) : [...f.guestIds, id],
     }));
-  const toggleShortlistedOnly = () =>
-    onChange((f) => ({ ...f, shortlistedOnly: !f.shortlistedOnly }));
+
+  // ── Quick pills. Each maps to underlying filter fields (so pill state derives
+  // from the same fields the refinement row edits — they can't drift apart).
+  const scopeAll =
+    filters.audience === "all" &&
+    filters.subTypes.length === 0 &&
+    filters.guestIds.length === 0;
+  const allLikedOn = scopeAll && !filters.shortlistedOnly && !filters.awaitingOnly;
+  const hostPicksOn = filters.audience === "host";
+  const shortlistedOn = filters.shortlistedOnly && !filters.awaitingOnly;
+  const awaitingOn = filters.awaitingOnly;
+
+  const setAllLiked = () =>
+    onChange((f) => ({
+      ...f,
+      audience: "all",
+      subTypes: [],
+      guestIds: [],
+      shortlistedOnly: false,
+      awaitingOnly: false,
+    }));
+  const toggleHostPicks = () =>
+    onChange((f) => ({ ...f, audience: f.audience === "host" ? "all" : "host" }));
+  const toggleShortlisted = () =>
+    onChange((f) =>
+      f.shortlistedOnly && !f.awaitingOnly
+        ? { ...f, shortlistedOnly: false }
+        : { ...f, shortlistedOnly: true, awaitingOnly: false },
+    );
+  const toggleAwaiting = () =>
+    onChange((f) =>
+      f.awaitingOnly
+        ? { ...f, shortlistedOnly: false, awaitingOnly: false }
+        : { ...f, shortlistedOnly: true, awaitingOnly: true },
+    );
 
   // Button summary for the Guests dropdown (name when one, count otherwise).
   const guestsLabel = useMemo(() => {
@@ -83,103 +126,158 @@ export function LikedFilters({
   }, [filters.guestIds, guests]);
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-brand-border)] bg-white px-2.5 py-2">
-      <span className="inline-flex shrink-0 items-center gap-1.5 pl-1 pr-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">
-        <IconHeart size={13} className="text-[var(--color-brand-navy)]" />
-        Liked by
-      </span>
-
-      {/* Audience segmented control */}
-      <div className="inline-flex items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-0.5">
-        {AUDIENCE.map((a) => {
-          const on = filters.audience === a.key;
-          return (
-            <button
-              key={a.key}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setAudience(a.key)}
-              className={`brand-focus rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
-                on
-                  ? "bg-white font-semibold text-[var(--color-brand-navy)] shadow-[0_1px_3px_rgba(42,34,24,0.1)]"
-                  : "font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-              }`}
-            >
-              {a.label}
-            </button>
-          );
-        })}
+    <div className="mb-4 flex flex-col gap-2.5 rounded-xl border border-[var(--color-brand-border)] bg-white px-2.5 py-2.5">
+      {/* Quick scope pills */}
+      <div className="flex flex-wrap items-center gap-2">
+        <QuickPill active={allLikedOn} onClick={setAllLiked}>
+          All liked
+        </QuickPill>
+        <QuickPill active={hostPicksOn} onClick={toggleHostPicks}>
+          Host picks
+        </QuickPill>
+        <QuickPill active={shortlistedOn} onClick={toggleShortlisted} count={shortlistedCount}>
+          <IconStar size={12} filled={shortlistedOn} />
+          Shortlisted
+        </QuickPill>
+        <QuickPill active={awaitingOn} onClick={toggleAwaiting} count={awaitingCount}>
+          Awaiting original
+        </QuickPill>
       </div>
 
-      {showTeams && (
-        <FilterDropdown label="Teams" count={filters.subTypes.length}>
-          <div className="max-h-[280px] overflow-y-auto py-1">
-            {guestTypes!.map((t) => (
-              <CheckRow
-                key={t}
-                label={t}
-                checked={filters.subTypes.includes(t)}
-                onToggle={() => toggleSubType(t)}
-              />
-            ))}
+      <span className="h-px w-full bg-[var(--color-brand-border)]" aria-hidden />
+
+      {/* Refinement controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex shrink-0 items-center gap-1.5 pl-1 pr-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">
+          <IconHeart size={13} className="text-[var(--color-brand-navy)]" />
+          Liked by
+        </span>
+
+        {/* Audience segmented control */}
+        <div className="inline-flex items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-0.5">
+          {AUDIENCE.map((a) => {
+            const on = filters.audience === a.key;
+            return (
+              <button
+                key={a.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setAudience(a.key)}
+                className={`brand-focus rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
+                  on
+                    ? "bg-white font-semibold text-[var(--color-brand-navy)] shadow-[0_1px_3px_rgba(42,34,24,0.1)]"
+                    : "font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+                }`}
+              >
+                {a.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {showTeams && (
+          <FilterDropdown label="Team" count={filters.subTypes.length}>
+            <div className="max-h-[280px] overflow-y-auto py-1">
+              {guestTypes!.map((t) => (
+                <CheckRow
+                  key={t}
+                  label={t}
+                  checked={filters.subTypes.includes(t)}
+                  onToggle={() => toggleSubType(t)}
+                />
+              ))}
+            </div>
+          </FilterDropdown>
+        )}
+
+        <FilterDropdown
+          label={guestsLabel}
+          icon={<IconUsers size={14} />}
+          count={filters.guestIds.length}
+          onOpen={loadGuests}
+        >
+          <GuestPicker
+            guests={guests}
+            loading={guestsLoading}
+            error={guestsError}
+            selected={filters.guestIds}
+            onToggle={toggleGuest}
+            onRetry={loadGuests}
+          />
+        </FilterDropdown>
+
+        {/* Sort — pushed to the right; Clear follows it. */}
+        <FilterDropdown
+          label={`Sort: ${SORT_LABEL[filters.sort]}`}
+          count={0}
+          className="ml-auto"
+          align="right"
+        >
+          <div className="py-1">
+            <CheckRow
+              label="Most liked"
+              checked={filters.sort === "likes"}
+              onToggle={() => setSort("likes")}
+            />
+            <CheckRow
+              label="Newest"
+              checked={filters.sort === "recent"}
+              onToggle={() => setSort("recent")}
+            />
           </div>
         </FilterDropdown>
-      )}
 
-      <FilterDropdown
-        label={guestsLabel}
-        icon={<IconUsers size={14} />}
-        count={filters.guestIds.length}
-        onOpen={loadGuests}
-      >
-        <GuestPicker
-          guests={guests}
-          loading={guestsLoading}
-          error={guestsError}
-          selected={filters.guestIds}
-          onToggle={toggleGuest}
-          onRetry={loadGuests}
-        />
-      </FilterDropdown>
-
-      {/* Shortlisted-only toggle — a distinct slice, set apart from "liked by". */}
-      <span className="mx-0.5 hidden h-6 w-px bg-[var(--color-brand-border)] sm:block" aria-hidden />
-      <button
-        type="button"
-        aria-pressed={filters.shortlistedOnly}
-        onClick={toggleShortlistedOnly}
-        className={`brand-focus inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-          filters.shortlistedOnly
-            ? "border-[var(--color-brand-warning)] bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]"
-            : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-        }`}
-      >
-        <IconStar size={13} filled={filters.shortlistedOnly} />
-        Shortlisted
-        {shortlistedCount > 0 && (
-          <span
-            className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
-              filters.shortlistedOnly
-                ? "bg-[var(--color-brand-warning)] text-white"
-                : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
-            }`}
+        {active && (
+          <button
+            type="button"
+            onClick={() => onChange(EMPTY_LIKED_FILTERS)}
+            className="brand-focus inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
           >
-            {shortlistedCount.toLocaleString("en-IN")}
-          </span>
+            <IconX size={12} />
+            Clear
+          </button>
         )}
-      </button>
-
-      {active && (
-        <button
-          type="button"
-          onClick={() => onChange(EMPTY_LIKED_FILTERS)}
-          className="brand-focus ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-        >
-          <IconX size={12} />
-          Clear
-        </button>
-      )}
+      </div>
     </div>
+  );
+}
+
+/* ── quick scope pill ───────────────────────────────────────────── */
+
+function QuickPill({
+  active,
+  count,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  /** Optional count badge; hidden when 0. */
+  count?: number;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`brand-focus inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+        active
+          ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
+          : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      }`}
+    >
+      {children}
+      {typeof count === "number" && count > 0 && (
+        <span
+          className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+            active ? "bg-white/25 text-white" : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
+          }`}
+        >
+          {count.toLocaleString("en-IN")}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -191,12 +289,18 @@ function FilterDropdown({
   count,
   onOpen,
   children,
+  className,
+  align = "left",
 }: {
   label: string;
   icon?: React.ReactNode;
   count: number;
   onOpen?: () => void;
   children: React.ReactNode;
+  /** Extra classes for the positioning wrapper (e.g. `ml-auto`). */
+  className?: string;
+  /** Which edge the menu aligns to (right for right-anchored triggers). */
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -219,7 +323,7 @@ function FilterDropdown({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${className ?? ""}`}>
       <button
         type="button"
         aria-expanded={open}
@@ -244,7 +348,11 @@ function FilterDropdown({
       </button>
 
       {open && (
-        <div className="dash-rise absolute left-0 z-30 mt-1.5 w-[260px] overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]">
+        <div
+          className={`dash-rise absolute z-30 mt-1.5 w-[260px] overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)] ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
           {children}
         </div>
       )}

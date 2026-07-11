@@ -51,6 +51,7 @@ export function LocateOriginals({
   shortlistedCount,
   open,
   onOpenChange,
+  onLocated,
   toast,
 }: {
   bookingId: string;
@@ -58,6 +59,9 @@ export function LocateOriginals({
   shortlistedCount: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Fired after a successful locate run so the owner can refresh the located
+   *  count / progress strip (the DB-backed report refreshes itself). */
+  onLocated?: () => void;
   toast: (msg: string, type?: "success" | "error") => void;
 }) {
   const [items, setItems] = useState<ShortlistedMediaItem[]>([]);
@@ -138,7 +142,10 @@ export function LocateOriginals({
           foldersById={foldersById}
           toast={toast}
           onClose={() => onOpenChange(false)}
-          onCompleted={fetchReport}
+          onCompleted={async () => {
+            await fetchReport();
+            onLocated?.();
+          }}
         />
       )}
     </>
@@ -743,10 +750,13 @@ function ReviewPanel({
           <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-[var(--color-brand-ink)]">
             <IconInfo size={13} className="text-[var(--color-brand-warning)]" />
             Probable matches — please confirm
+            <InfoTip label="Why these need confirming">
+              Same name &amp; size but a different modified date — common with cloud sync or
+              &ldquo;save as&rdquo;. Usually the same photo, but worth a glance.
+            </InfoTip>
           </h3>
           <p className="mb-2 text-[11.5px] text-[var(--color-brand-muted)]">
-            Same name &amp; size but a different modified date (common with cloud sync or
-            &ldquo;save as&rdquo;). Untick any that aren&apos;t the right photo.
+            Untick any that aren&apos;t the right photo.
           </p>
           <div className="flex flex-col divide-y divide-[var(--color-brand-border)] rounded-lg border border-[var(--color-brand-border)]">
             {probable.map((m) => (
@@ -810,12 +820,52 @@ function ReviewPanel({
         </section>
       )}
 
-      <p className="text-[11.5px] text-[var(--color-brand-muted)]">
-        Files route into per-folder subfolders inside “Smartly Selected by Vyavasth AI”. Photos with
-        no folder go to “Uncategorised”.{" "}
-        {foldersById.size > 0 ? `${fmt(foldersById.size)} folders available.` : ""}
+      <p className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
+        Sorted into per-folder subfolders
+        <InfoTip label="How files are organised">
+          Matched originals route into per-folder subfolders inside “Smartly Selected by Vyavasth
+          AI”. Photos with no folder go to “Uncategorised”.
+          {foldersById.size > 0 ? ` ${fmt(foldersById.size)} folders available.` : ""}
+        </InfoTip>
       </p>
     </div>
+  );
+}
+
+/**
+ * A small accessible info-tip: an IconInfo trigger that reveals explanatory copy
+ * on hover *and* keyboard focus (and toggles on click/tap). Used to fold long
+ * notes out of the Locate flow while keeping them one interaction away.
+ */
+function InfoTip({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="brand-focus inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+      >
+        <IconInfo size={13} />
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-full z-40 mt-1.5 w-[240px] rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[11.5px] font-normal normal-case leading-relaxed text-[var(--color-brand-muted)] shadow-[0_10px_30px_rgba(42,34,24,0.16)]"
+        >
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
 

@@ -198,6 +198,9 @@ export type MediaItem = {
   shortlisted?: boolean;
   /** True once the shortlisted photo's original file was located on disk. */
   identified?: boolean;
+  /** True when at least one host liked this photo (drives the filled heart in Smart
+   *  Selects). Independent of the active who-filter; present only on smart loads. */
+  host_liked?: boolean;
 };
 
 /**
@@ -337,6 +340,9 @@ export type GetMediaResponse = {
   likedCount?: number;
   /** Count of shortlisted media. Drives the "Shortlisted" filter chip. */
   shortlistedCount?: number;
+  /** Count of shortlisted media whose originals are located. Drives the progress
+   *  strip's "Located" stat + the awaiting-original count (shortlisted − located). */
+  locatedCount?: number;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */

@@ -390,6 +390,8 @@ export function getMedia(
     likedGuestIds?: string[];
     /** Smart Selects — only shortlisted media. */
     shortlistedOnly?: boolean;
+    /** Smart Selects — only shortlisted media whose originals aren't yet located. */
+    awaitingOnly?: boolean;
   },
 ) {
   const params = new URLSearchParams();
@@ -404,6 +406,7 @@ export function getMedia(
   if (opts?.likedGuestIds?.length)
     params.set("liked_guest_ids", opts.likedGuestIds.join(","));
   if (opts?.shortlistedOnly) params.set("shortlisted_only", "true");
+  if (opts?.awaitingOnly) params.set("awaiting_original", "true");
   const qs = params.toString();
   return request<GetMediaResponse>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
