@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
 import { downloadImage, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { Lightbox } from "./Lightbox";
-import { IconCheck, IconDownload, IconHeart, IconStar, IconTrash, IconX } from "./icons";
+import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
 
 /** Optimistic, not-yet-persisted items can't be deleted (no real id yet). */
 function isPersisted(m: MediaItem): boolean {
@@ -53,6 +53,8 @@ export function MediaGrid({
   allowDelete = true,
   emptyMessage,
   archiveName,
+  coverUrl,
+  onSetCover,
   notify,
 }: {
   items: MediaItem[];
@@ -77,6 +79,13 @@ export function MediaGrid({
   emptyMessage?: string;
   /** Base name for the multi-select ZIP (e.g. the folder or event name). */
   archiveName?: string;
+  /** Current event cover URL — flags the matching tile. */
+  coverUrl?: string;
+  /**
+   * Set a photo as the event cover. When provided (the Media tab), each tile's
+   * download button becomes a "⋮" menu offering Download + Set as cover photo.
+   */
+  onSetCover?: (item: MediaItem) => void | Promise<void>;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
 }) {
@@ -318,18 +327,23 @@ export function MediaGrid({
           return (
             <div
               key={m._id}
-              className={`group relative aspect-square overflow-hidden rounded bg-[var(--color-brand-surface)] ${
+              className={`group relative aspect-square rounded ${
                 isSel ? "ring-2 ring-[var(--color-brand-navy)] ring-offset-1" : ""
               }`}
             >
-              <button
-                type="button"
-                onClick={() => setLightboxIndex(i)}
-                aria-label="Open preview"
-                className="block h-full w-full"
-              >
-                <GridImage src={m.url} />
-              </button>
+              {/* Clips the image + its hover zoom; kept separate from the tile
+                  wrapper so the "⋮" menu below can pop out past this corner
+                  radius instead of being clipped. */}
+              <div className="absolute inset-0 overflow-hidden rounded bg-[var(--color-brand-surface)]">
+                <button
+                  type="button"
+                  onClick={() => setLightboxIndex(i)}
+                  aria-label="Open preview"
+                  className="block h-full w-full"
+                >
+                  <GridImage src={m.url} />
+                </button>
+              </div>
 
               {persisted && !disabled && (
                 <button
@@ -361,19 +375,33 @@ export function MediaGrid({
                 />
               )}
 
-              {/* Per-photo download (hover, bottom-right). */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  downloadImage(m.url);
-                }}
-                aria-label="Download photo"
-                title="Download"
-                className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
-              >
-                <IconDownload size={13} />
-              </button>
+              {/* Per-photo actions (hover): a "⋮" menu (top-right) with
+                  Download + Set as cover photo where cover-setting is offered
+                  (the Media tab, and only for persisted images); a plain
+                  download button (bottom-right) elsewhere (e.g. Smart
+                  Selects, videos). */}
+              {onSetCover && persisted && m.type === "image" ? (
+                <PhotoMenu
+                  isCover={!!coverUrl && m.url === coverUrl}
+                  onDownload={() =>
+                    void downloadImage(m.url).catch(() => notify?.("Download failed — please try again"))
+                  }
+                  onSetCover={() => void onSetCover(m)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    downloadImage(m.url);
+                  }}
+                  aria-label="Download photo"
+                  title="Download"
+                  className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white opacity-0 transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  <IconDownload size={13} />
+                </button>
+              )}
 
               {/* Persistent like signal (bottom-left). Heart fills brand-navy when
                   a host liked the photo; outline when it's guests-only. */}
@@ -667,6 +695,89 @@ function DeleteConfirm({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Per-tile "⋮" menu (Download / Set as cover photo), anchored top-right.
+ * Opens downward so it isn't clipped by the tile's rounded corner mask, and
+ * closes on an outside click — mirrors the CoverBanner's own dropdown.
+ */
+function PhotoMenu({
+  isCover,
+  onDownload,
+  onSetCover,
+}: {
+  isCover: boolean;
+  onDownload: () => void;
+  onSetCover: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="absolute right-2 top-2 z-10">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        aria-label="Photo options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Photo options"
+        className={`flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white transition-opacity hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100 ${
+          open ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <IconDotsVertical size={14} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[calc(100%+6px)] z-20 w-[176px] overflow-hidden rounded-[10px] border border-[var(--color-brand-border)] bg-white shadow-[0_8px_28px_rgba(42,34,24,0.16)]"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onDownload();
+            }}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
+          >
+            <IconDownload size={14} className="text-[var(--color-brand-muted)]" />
+            Download
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={isCover}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onSetCover();
+            }}
+            className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] disabled:cursor-default disabled:text-[var(--color-brand-muted)] disabled:hover:bg-transparent"
+          >
+            <IconImage size={14} className="text-[var(--color-brand-muted)]" />
+            {isCover ? "Current cover photo" : "Set as cover photo"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

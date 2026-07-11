@@ -272,6 +272,16 @@ export function IconDownload({ size = 15, className, style }: IconProps) {
   );
 }
 
+export function IconDotsVertical({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size)} className={className} style={style} fill="currentColor" stroke="none">
+      <circle cx="12" cy="5" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="12" cy="19" r="1.6" />
+    </svg>
+  );
+}
+
 export function IconHeart({
   size = 14,
   className,

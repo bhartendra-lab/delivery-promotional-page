@@ -8,7 +8,11 @@ import { UploadModal } from "./UploadModal";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
+import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
+
+/** A cover pick awaiting position adjustment in `CoverPositionModal` before it's persisted. */
+type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "existing"; url: string };
 
 /**
  * Media tab — the original event-page body (folders sidebar + cover + header +
@@ -54,6 +58,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // folder flow with the subfolder guide, minus the "Or select photos" option.
   const [folderOnly, setFolderOnly] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  // A cover pick (upload or "Set as cover photo") parked here until the studio
+  // confirms its position in `CoverPositionModal` — nothing is persisted until then.
+  const [pendingCover, setPendingCover] = useState<PendingCover | null>(null);
 
   const paused = engine.progress.paused;
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
@@ -119,6 +126,39 @@ export function MediaTab({ loading }: { loading: boolean }) {
       }
     },
     [bookingId, setFolders, toast],
+  );
+
+  // A new file was picked as the cover — park it for position adjustment
+  // instead of uploading/persisting right away.
+  const pickCoverFile = useCallback((file: File) => {
+    setPendingCover({ kind: "file", file, previewUrl: URL.createObjectURL(file) });
+  }, []);
+
+  // "Set as cover photo" from the grid — same parking, no upload needed since
+  // the image is already on R2.
+  const pickCoverFromMedia = useCallback((item: MediaItem) => {
+    setPendingCover({ kind: "existing", url: item.url });
+  }, []);
+
+  const closePendingCover = useCallback(() => {
+    setPendingCover((prev) => {
+      if (prev?.kind === "file") URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }, []);
+
+  const confirmPendingCover = useCallback(
+    async (position: string) => {
+      if (!pendingCover) return;
+      if (pendingCover.kind === "file") {
+        await setCoverFromFile(pendingCover.file, position);
+        URL.revokeObjectURL(pendingCover.previewUrl);
+      } else {
+        await setCoverFromUrl(pendingCover.url, position);
+      }
+      setPendingCover(null);
+    },
+    [pendingCover, setCoverFromFile, setCoverFromUrl],
   );
 
   const handleUploadMore = useCallback(() => {
@@ -187,12 +227,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
           <CoverBanner
             coverUrl={meta.backgroundImage}
             coverPosition={meta.backgroundPosition}
-            media={media}
             busy={coverBusy}
             disabled={activeLocked}
-            lockReason={publishedEver ? "Locked once photos are delivered, to keep the shared link stable." : null}
-            onSetFromUrl={setCoverFromUrl}
-            onSetFromFile={setCoverFromFile}
+            onSetFromFile={pickCoverFile}
             onSavePosition={setCoverPosition}
           />
         )}
@@ -243,6 +280,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
             onLoadMore={loadMore}
             disabled={activeLocked}
             onDeleteMany={deleteMediaIds}
+            coverUrl={meta.backgroundImage}
+            onSetCover={pickCoverFromMedia}
             notify={toast}
             onRename={() => {
               if (!activeIsSystem) {
@@ -317,6 +356,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
             setEditOpen(false);
           }}
           onClose={() => setEditOpen(false)}
+        />
+      )}
+
+      {pendingCover && (
+        <CoverPositionModal
+          imageUrl={pendingCover.kind === "file" ? pendingCover.previewUrl : pendingCover.url}
+          busy={coverBusy}
+          onSave={confirmPendingCover}
+          onCancel={closePendingCover}
         />
       )}
     </div>
@@ -567,6 +615,8 @@ function PopulatedBody({
   disabled,
   onDeleteMany,
   onRename,
+  coverUrl,
+  onSetCover,
   notify,
 }: {
   activeFolderLabel: string;
@@ -580,6 +630,10 @@ function PopulatedBody({
   disabled: boolean;
   onDeleteMany: (ids: string[]) => Promise<void>;
   onRename: () => void;
+  /** Current event cover URL — flags the matching tile in the grid. */
+  coverUrl?: string;
+  /** Set a grid photo as the event cover. */
+  onSetCover: (item: MediaItem) => void | Promise<void>;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
 }) {
@@ -617,6 +671,8 @@ function PopulatedBody({
         loadingMore={loadingMore}
         onLoadMore={onLoadMore}
         archiveName={activeFolderLabel}
+        coverUrl={coverUrl}
+        onSetCover={onSetCover}
         notify={notify}
       />
     </section>

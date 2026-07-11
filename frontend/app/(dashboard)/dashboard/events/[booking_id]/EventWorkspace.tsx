@@ -518,12 +518,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   }, [bookingId]);
 
   const setCoverFromUrl = useCallback(
-    async (url: string) => {
+    async (url: string, position: string = "50% 50%") => {
       setCoverBusy(true);
       try {
-        await persistBooking({ background_image: url, background_position: "50% 50%" });
+        await persistBooking({ background_image: url, background_position: position });
         // API response may not echo background_image, so patch meta directly.
-        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: "50% 50%" } : prev));
+        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: position } : prev));
         toast("Cover photo updated");
       } finally {
         setCoverBusy(false);
@@ -533,15 +533,14 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   );
 
   const setCoverFromFile = useCallback(
-    async (file: File) => {
+    async (file: File, position: string = "50% 50%") => {
       setCoverBusy(true);
       try {
         const keyFolderId = folders[0]?._id ?? mediaRef.current[0]?.custom_folder_ids?.[0] ?? "cover";
         const url = await engine.uploadCover(file, keyFolderId);
-        // A new cover resets the focal point to center.
-        await persistBooking({ background_image: url, background_position: "50% 50%" });
+        await persistBooking({ background_image: url, background_position: position });
         // API response may not echo background_image, so patch meta directly.
-        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: "50% 50%" } : prev));
+        setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: position } : prev));
         toast("Cover photo updated");
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not set cover", "error");

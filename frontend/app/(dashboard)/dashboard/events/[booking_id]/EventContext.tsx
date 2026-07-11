@@ -119,18 +119,18 @@ export type EventContextValue = {
   activeLocked: boolean;
   /**
    * True once the gallery has been published at least once. While true the
-   * event name and cover photo are locked read-only to keep the shared
-   * `/event/<unique_identifier>` URL (and the guest-facing cover) stable.
+   * event name is locked read-only to keep the shared
+   * `/event/<unique_identifier>` URL stable. The cover photo stays editable.
    */
   publishedEver: boolean;
   /** Edit name + type + date from the edit sheet. */
   saveMeta: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
   /** Mint a fresh family passcode; returns the new code. */
   regenerateFamilyPasscode: () => Promise<string>;
-  /** Set the cover from an already-uploaded R2 url. */
-  setCoverFromUrl: (url: string) => Promise<void>;
-  /** Upload a new cover via the engine, then persist it. */
-  setCoverFromFile: (file: File) => Promise<void>;
+  /** Set the cover from an already-uploaded R2 url, optionally with a focal position. */
+  setCoverFromUrl: (url: string, position?: string) => Promise<void>;
+  /** Upload a new cover via the engine, then persist it (optionally with a focal position). */
+  setCoverFromFile: (file: File, position?: string) => Promise<void>;
   /** Persist the cover focal point (CSS object-position string). */
   setCoverPosition: (position: string) => Promise<void>;
   coverBusy: boolean;
