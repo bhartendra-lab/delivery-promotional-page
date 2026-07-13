@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { ServiceType } from "@/lib/types";
+import { isStorageBasedPlan } from "@/lib/types";
 import { TypeConfirmModal, type ConfirmAction } from "./TypeConfirmModal";
-import { IconCaretDown, IconLock } from "./icons";
+import { IconArchive, IconCaretDown, IconLock } from "./icons";
 
 /**
  * Pill state, derived by the workspace from the booking's DB fields.
@@ -24,21 +26,31 @@ type Props = {
   /** True while an upload is actively running — the pill is shown but inert. */
   disabled?: boolean;
   unsyncedCount?: number;
+  /** The booking's own plan. Archive is offered only for Monthly/Yearly. */
+  serviceType?: ServiceType | null;
   onActivate: () => Promise<void>;
   onDeactivate: () => Promise<void>;
+  /** Archive this booking (deactivate + start the 7-day expiry countdown). */
+  onArchive?: () => Promise<void>;
 };
 
 export function LivePill({
   state,
   disabled = false,
   unsyncedCount = 0,
+  serviceType = null,
   onActivate,
   onDeactivate,
+  onArchive,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmAction | null>(null);
   const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Archive is a storage-plan-only control; the pill only ever renders while the
+  // booking is published, so no extra status gate is needed here.
+  const canArchive = !!onArchive && isStorageBasedPlan(serviceType);
 
   useEffect(() => {
     if (!open) return;
@@ -54,6 +66,7 @@ export function LivePill({
     setBusy(true);
     try {
       if (confirming === "activate") await onActivate();
+      else if (confirming === "archive") await onArchive?.();
       else await onDeactivate();
       setConfirming(null);
     } finally {
@@ -64,6 +77,8 @@ export function LivePill({
   const modal = confirming ? (
     <TypeConfirmModal
       action={confirming}
+      // Archive is a simple confirm (no typing); activate/deactivate stay typed.
+      requireTyping={confirming !== "archive"}
       busy={busy}
       title={CONFIRM_COPY[confirming].title}
       description={CONFIRM_COPY[confirming].description}
@@ -71,6 +86,26 @@ export function LivePill({
       onConfirm={runConfirm}
       onCancel={() => setConfirming(null)}
     />
+  ) : null;
+
+  // The Archive row shared by every dropdown variant (all render while published).
+  const archiveRow = canArchive ? (
+    <button
+      type="button"
+      onClick={() => {
+        setOpen(false);
+        setConfirming("archive");
+      }}
+      className="flex w-full items-start gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-3 text-left hover:bg-[var(--color-brand-bg)]"
+    >
+      <IconArchive size={15} className="mt-px shrink-0 text-[var(--color-brand-warning)]" />
+      <span className="flex-1">
+        <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Archive</span>
+        <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">
+          Hide from guests and start the 7-day countdown to clear
+        </span>
+      </span>
+    </button>
   ) : null;
 
   // While uploading, show the current status inert (no actions).
@@ -126,6 +161,7 @@ export function LivePill({
                   <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">Temporarily take the gallery offline</span>
                 </span>
               </button>
+              {archiveRow}
             </div>
           )}
         </div>
@@ -180,6 +216,7 @@ export function LivePill({
                 <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">{nextDesc}</span>
               </span>
             </button>
+            {archiveRow}
           </div>
         )}
       </div>
@@ -199,6 +236,18 @@ const CONFIRM_COPY: Record<ConfirmAction, { title: string; description: string; 
     description:
       "This temporarily takes the gallery offline. Guests who open the link see an “unavailable” message until you reactivate. Your media and design are kept.",
     warning: "Any guests currently viewing the gallery will lose access immediately.",
+  },
+  archive: {
+    title: "Archive this event?",
+    description:
+      "This deactivates the gallery and hides it from guests. You can restore it later, within 7 days, before its media is permanently cleared.",
+    warning: null,
+  },
+  // Not triggered from the pill, but present so the copy map stays exhaustive.
+  delete: {
+    title: "Clear this event's data?",
+    description: "This permanently removes every photo and all face-search data for this event.",
+    warning: "Only the cover photo is kept. This cannot be undone.",
   },
 };
 

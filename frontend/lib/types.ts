@@ -51,10 +51,13 @@ export type EmbeddingStatus =
 /**
  * Gallery publish status. Events are live ("published") from creation — there
  * is no publish/unpublish action; the studio only toggles `is_active`.
- * "expired" is set by the cleanup job after the 90-day window; "unpublished"
- * survives in the union only for pre-migration legacy rows.
+ * "archived" is set when the studio manually archives a storage-plan booking
+ * (deactivates it and starts a 7-day countdown to auto-expiry). "expired" is
+ * set by the cleanup job — after the 90-day window (Free/Event-based) or 7 days
+ * after archiving — and tears down the media (the cover photo is spared).
+ * "unpublished" survives in the union only for pre-migration legacy rows.
  */
-export type GalleryPublishStatus = "unpublished" | "published" | "expired";
+export type GalleryPublishStatus = "unpublished" | "published" | "archived" | "expired";
 
 export type ContentType = "Images" | "Videos" | "Images & Videos";
 
@@ -161,14 +164,51 @@ export type LoginResponse = {
   company: Company;
 };
 
+/**
+ * Subscription service type, driving how usage is metered. Mirrors the backend
+ * `Service.service_type` enum.
+ *   - "Free" / "Event-based"  → event-count limits (bookings created this cycle)
+ *   - "Monthly" / "Yearly"    → storage limits (GB used across non-expired bookings)
+ */
+export type ServiceType = "Free" | "Event-based" | "Monthly" | "Yearly";
+
 export type DlpUsage = {
+  /**
+   * `used`/`limit`/`remaining` carry DIFFERENT UNITS depending on `service_type`:
+   *   - count-based plans ("Free" | "Event-based") → event counts
+   *   - storage-based plans ("Monthly" | "Yearly") → gigabytes (GB, backend-rounded to 2dp)
+   * Use `isCountBasedPlan` / `isStorageBasedPlan` to branch, never a raw string compare.
+   */
   used: number;
+  /** Event count or GB cap. Null when the subscription is malformed/absent. */
   limit: number | null;
+  /** Remaining events or GB (max(0, limit - used)). Null when limit is null. */
   remaining: number | null;
-  service_type: string | null;
+  service_type: ServiceType | null;
   month_start: string;
   status: "ok";
 };
+
+/** True for plans metered by number of events created (limit = event count). */
+export function isCountBasedPlan(t: ServiceType | null | undefined): boolean {
+  return t === "Free" || t === "Event-based";
+}
+
+/** True for plans metered by storage consumed (used/limit/remaining = GB). */
+export function isStorageBasedPlan(t: ServiceType | null | undefined): boolean {
+  return t === "Monthly" || t === "Yearly";
+}
+
+/**
+ * Shared severity for a usage percentage, driving the green → orange → red story
+ * used by the sidebar storage meter and the upload-modal size warning.
+ *   < 70% → "ok" · 70–90% → "warning" · ≥ 90% → "danger"
+ */
+export function getUsageSeverity(pct: number): "ok" | "warning" | "danger" {
+  if (pct >= 90) return "danger";
+  if (pct >= 70) return "warning";
+  return "ok";
+}
 
 /* ── Events / bookings ─────────────────────────────────────────── */
 
@@ -256,6 +296,15 @@ export type Booking = {
   background_image?: string;
   /** Public slug for the delivery landing page. */
   unique_identifier?: string;
+  /**
+   * The plan the booking was created under. Drives the expiry model: Free/
+   * Event-based auto-expire 90 days from `createdAt`; Monthly/Yearly only expire
+   * once archived (7 days from `gallery_archived_at`). Optional so older backend
+   * responses still type-check.
+   */
+  service_type?: ServiceType | string | null;
+  /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
+  gallery_archived_at?: number | null;
 };
 
 /**
@@ -314,6 +363,10 @@ export type BookingDetail = {
   /** True when new media was uploaded since the last publish (needs republish). */
   media_out_of_sync?: boolean;
   unsynced_media_count?: number;
+  /** The plan the booking was created under (drives the archive/expiry model). */
+  service_type?: ServiceType | string | null;
+  /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
+  gallery_archived_at?: number | null;
 
   /** Legacy/optional fields kept for backwards-compatible reads. */
   _id?: string;

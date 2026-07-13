@@ -4,6 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { DlpUsage } from "@/lib/types";
+import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
 
@@ -186,11 +187,11 @@ export function useSidebarCollapsed(): [boolean, (next: boolean) => void] {
 }
 
 /**
- * Live events meter (replaces the old hardcoded storage block). Driven by the
- * shared `getDlpUsage` value from ChromeContext.
- *  - Pre-Paid → "{used} / {limit}" with a progress bar (danger when ≤2 left).
- *  - Post-Paid → "{used}" + "this month", no bar.
- *  - null / Monthly / One-Time / no data → "{used ?? 0}", no bar.
+ * Live usage meter, driven by the shared `getDlpUsage` value from ChromeContext.
+ *  - Count-based (Free / Event-based) → "Events {used}/{limit}" bar, red at ≤2 left.
+ *  - Storage-based (Monthly / Yearly) → "Storage {used}/{limit} GB" bar,
+ *    green < 70% → orange ≥ 70% → red ≥ 90%.
+ *  - null service type / no limit / no data → bare "{used}" count, no bar.
  *  - Loading → skeleton; fetch error (no usage) → hidden.
  */
 function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
@@ -202,8 +203,8 @@ function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: bool
 
   const used = usage.used ?? 0;
 
-  // Pre-Paid: value "{used} / {limit}" + progress bar.
-  if (usage.service_type === "Pre-Paid" && typeof usage.limit === "number") {
+  // Count-based: "Events {used} / {limit}" + progress bar (danger when ≤2 left).
+  if (isCountBasedPlan(usage.service_type) && typeof usage.limit === "number") {
     const limit = usage.limit;
     const remaining = usage.remaining ?? Math.max(limit - used, 0);
     const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
@@ -230,15 +231,46 @@ function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: bool
     );
   }
 
-  // Post-Paid → "this month" caption; everything else → bare count. No bar.
-  const caption = usage.service_type === "Post-Paid" ? "this month" : null;
+  // Storage-based: "Storage {used} / {limit} GB" + green → orange → red bar.
+  if (isStorageBasedPlan(usage.service_type) && typeof usage.limit === "number") {
+    const limit = usage.limit;
+    const remaining = usage.remaining ?? Math.max(limit - used, 0);
+    const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+    const severity = getUsageSeverity(pct);
+    const barColor =
+      severity === "danger"
+        ? "var(--color-brand-danger)"
+        : severity === "warning"
+          ? "var(--color-brand-warning)"
+          : "var(--color-brand-success)";
+    return (
+      <div className="mb-1.5 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Storage</span>
+          <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">
+            {used.toFixed(1)} / {limit.toFixed(1)} GB
+          </span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-[#F2F0EB]">
+          <div
+            className="h-full rounded-full"
+            style={{ width: `${pct}%`, background: barColor }}
+          />
+        </div>
+        <p className="mt-1 text-[10.5px] text-[var(--color-brand-muted)]">
+          {remaining.toFixed(1)} GB left
+        </p>
+      </div>
+    );
+  }
+
+  // Malformed/absent subscription → bare count, no bar.
   return (
     <div className="mb-1.5 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5">
       <div className="flex items-baseline justify-between">
         <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Events</span>
         <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">{used}</span>
       </div>
-      {caption && <p className="mt-1 text-[10.5px] text-[var(--color-brand-muted)]">{caption}</p>}
     </div>
   );
 }

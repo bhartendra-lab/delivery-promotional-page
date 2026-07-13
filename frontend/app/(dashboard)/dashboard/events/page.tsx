@@ -4,24 +4,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse } from "@/lib/types";
+import { isCountBasedPlan } from "@/lib/types";
 import { EventCard } from "@/components/dashboard/EventCard";
+import { useChrome } from "@/components/dashboard/ChromeContext";
+import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
 const PAGE_SIZE = 20;
 
-/** Status filter chips → `status` query param. Defaults to all clients.
- * No "Draft" chip: events are live from creation (publish no longer exists);
- * the only non-live states are deactivated (is_active) and expired. */
-const STATUS_FILTERS = [
-  { id: "all", label: "All" },
-  { id: "published", label: "Live" },
-  { id: "expired", label: "Expired" },
-] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
-
 export default function EventsListPage() {
   const router = useRouter();
+  // Mirror the dashboard-home gating: count-based plans (Free/Event-based)
+  // block new events once the allowance is used up. Storage plans are never
+  // gated on creation.
+  const { dlpUsage, locked } = useChrome();
+  const createBlocked =
+    isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0;
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +28,9 @@ export default function EventsListPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  // The only two views: live (default) and archived+expired (opt-in). There is
+  // no draft/unpublished state, so the old All/Live/Expired chips are gone.
+  const [showArchived, setShowArchived] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,7 +54,9 @@ export default function EventsListPage() {
         page,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
-        status,
+        // "archived" is the combined archived+expired view (backend maps it to
+        // $in: ["archived", "expired"]); otherwise the live/published set.
+        status: showArchived ? "archived" : "published",
       });
       setData(res);
     } catch (err) {
@@ -61,16 +64,13 @@ export default function EventsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, status]);
-
-  function selectStatus(next: StatusFilter) {
-    setStatus(next);
-    setPage(1);
-  }
+  }, [page, debouncedSearch, showArchived]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const { onArchive, onRestore, onClearData, toastNode } = useBookingLifecycle(reload);
 
   const totalPages = useMemo(() => {
     if (!data) return 1;
@@ -82,12 +82,10 @@ export default function EventsListPage() {
   // A filter/search is narrowing the list — an empty result here means "nothing
   // matched", not "no events exist". Only the truly-unfiltered empty list should
   // show the create-your-first-event call to action.
-  const filtersActive = status !== "all" || debouncedSearch.length > 0;
-  const activeStatusLabel =
-    status !== "all" ? STATUS_FILTERS.find((f) => f.id === status)?.label : undefined;
+  const filtersActive = showArchived || debouncedSearch.length > 0;
 
   function clearFilters() {
-    setStatus("all");
+    setShowArchived(false);
     setSearch("");
     setPage(1);
   }
@@ -114,7 +112,8 @@ export default function EventsListPage() {
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+            disabled={createBlocked}
+            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PlusIcon />
             Add event
@@ -148,26 +147,23 @@ export default function EventsListPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            {STATUS_FILTERS.map((f) => {
-              const selected = status === f.id;
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => selectStatus(f.id)}
-                  aria-pressed={selected}
-                  className={`brand-focus h-8 rounded-full border px-3 text-xs font-semibold transition-colors ${
-                    selected
-                      ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-                      : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowArchived((v) => !v);
+              setPage(1);
+            }}
+            aria-pressed={showArchived}
+            title="Show archived & expired events"
+            className={`brand-focus inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors ${
+              showArchived
+                ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
+            }`}
+          >
+            <ArchiveIcon />
+            <span className="hidden sm:inline">{showArchived ? "Archived & expired" : "Show archived"}</span>
+          </button>
 
           {data && (
             <p className="shrink-0 text-xs text-[var(--color-brand-muted)]">
@@ -197,7 +193,7 @@ export default function EventsListPage() {
         ) : isEmpty ? (
           filtersActive ? (
             <NoResults
-              statusLabel={activeStatusLabel}
+              showArchived={showArchived}
               hasSearch={debouncedSearch.length > 0}
               onClear={clearFilters}
             />
@@ -209,12 +205,22 @@ export default function EventsListPage() {
           data.bookings.length > 0 && (
             <div className="dash-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {data.bookings.map((row) => (
-                <EventCard key={row._id} row={row} onOpen={openEvent} />
+                <EventCard
+                  key={row._id}
+                  row={row}
+                  onOpen={openEvent}
+                  locked={locked}
+                  onArchive={onArchive}
+                  onRestore={onRestore}
+                  onClearData={onClearData}
+                />
               ))}
             </div>
           )
         )}
       </section>
+
+      {toastNode}
 
       {data && data.bookings.length > 0 && (
         <Pagination current={page} totalPages={totalPages} onChange={setPage} />
@@ -250,18 +256,20 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 }
 
 function NoResults({
-  statusLabel,
+  showArchived,
   hasSearch,
   onClear,
 }: {
-  statusLabel?: string;
+  showArchived: boolean;
   hasSearch: boolean;
   onClear: () => void;
 }) {
-  const title = statusLabel ? `No ${statusLabel.toLowerCase()} events` : "No matching events";
+  const title = showArchived ? "No archived or expired events" : "No matching events";
   const description = hasSearch
     ? "No events match your search and filters. Try adjusting them."
-    : "No events match this filter. Try a different status.";
+    : showArchived
+      ? "Nothing has been archived or expired yet."
+      : "No events match this filter. Try adjusting it.";
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
@@ -315,6 +323,25 @@ function PlusIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
       <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ArchiveIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
     </svg>
   );
 }

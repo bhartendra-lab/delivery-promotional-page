@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useChrome } from "@/components/dashboard/ChromeContext";
+import { isStorageBasedPlan } from "@/lib/types";
+import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
 
 /** What the modal hands back once the user commits a selection. */
 export type UploadPlan =
@@ -66,6 +69,16 @@ export function UploadModal({
 
   const single = !!targetFolderId;
 
+  // Storage-plan gating: on Monthly/Yearly plans, estimate the compressed upload
+  // size and block if it would exceed the remaining GB. Inert (and absent) for
+  // count-based plans and while usage is still loading.
+  const { dlpUsage, dlpLoading } = useChrome();
+  const storageGated = isStorageBasedPlan(dlpUsage?.service_type);
+  const remainingGB = dlpUsage?.remaining ?? null;
+  // null = not yet estimated; number = estimated GB. Re-derived on selection change.
+  const [estimateGB, setEstimateGB] = useState<number | null>(null);
+  const [estimating, setEstimating] = useState(false);
+
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
@@ -75,11 +88,58 @@ export function UploadModal({
     setNaming(false);
     setMixedOpen(false);
     setFirstRoot(null);
+    setEstimateGB(null);
+    setEstimating(false);
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
     };
   }, [open]);
+
+  // Fingerprint the selection by name+size so the estimate re-runs when photos
+  // are added/removed but NOT on unrelated re-renders (analysis identity churns).
+  const filesFingerprint = useMemo(
+    () => `${files.length}:${files.map((f) => `${f.name}-${f.size}`).join("|")}`,
+    [files],
+  );
+
+  // Debounced, off-render sampling estimate — only for storage plans with a
+  // selection. Ignores stale results if the selection changes mid-sample.
+  useEffect(() => {
+    if (!open || !storageGated || files.length === 0) {
+      setEstimateGB(null);
+      setEstimating(false);
+      return;
+    }
+    let cancelled = false;
+    setEstimating(true);
+    const t = setTimeout(() => {
+      estimateCompressedGB(files)
+        .then((gb) => {
+          if (!cancelled) setEstimateGB(gb);
+        })
+        .catch(() => {
+          if (!cancelled) setEstimateGB(null);
+        })
+        .finally(() => {
+          if (!cancelled) setEstimating(false);
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // filesFingerprint captures the selection; files is read inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, storageGated, filesFingerprint]);
+
+  // Only block once we have real numbers (never a false-positive before they land).
+  const overStorage =
+    storageGated &&
+    !dlpLoading &&
+    estimateGB !== null &&
+    remainingGB !== null &&
+    estimateGB > remainingGB;
 
   // Escape closes the top-most layer (mixed popup → naming popup → modal).
   useEffect(() => {
@@ -175,6 +235,8 @@ export function UploadModal({
 
   function start() {
     if (files.length === 0) return;
+    // Storage plans: never start an upload that overruns the remaining GB.
+    if (overStorage) return;
     if (single) {
       onStart({
         mode: "single",
@@ -336,6 +398,16 @@ export function UploadModal({
           </div>
         </div>
 
+        {/* Storage estimate / overrun warning (Monthly / Yearly plans only) */}
+        {storageGated && hasSelection && !dlpLoading && (
+          <StorageEstimateNotice
+            estimating={estimating}
+            estimateGB={estimateGB}
+            remainingGB={remainingGB}
+            over={overStorage}
+          />
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-end gap-2.5 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
           <button
@@ -347,7 +419,7 @@ export function UploadModal({
           </button>
           <button
             type="button"
-            disabled={files.length === 0}
+            disabled={files.length === 0 || overStorage}
             onClick={start}
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -544,6 +616,74 @@ function ContentPanel({
         </ul>
       </div>
     </div>
+  );
+}
+
+/* ── storage estimate / overrun notice (Monthly / Yearly plans) ── */
+
+function StorageEstimateNotice({
+  estimating,
+  estimateGB,
+  remainingGB,
+  over,
+}: {
+  estimating: boolean;
+  estimateGB: number | null;
+  remainingGB: number | null;
+  over: boolean;
+}) {
+  const sizeLabel = estimateGB !== null ? `~${formatSizeFromGB(estimateGB)}` : "—";
+
+  if (over && estimateGB !== null) {
+    return (
+      <div className="border-t border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-6 py-3">
+        <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-danger)]">
+          <AlertIcon size={16} className="mt-0.5 shrink-0" />
+          <p>
+            This upload needs about{" "}
+            <strong className="tabular-nums">{formatSizeFromGB(estimateGB)}</strong>, but you only have{" "}
+            <strong className="tabular-nums">{formatSizeFromGB(remainingGB ?? 0)}</strong> left.{" "}
+            <a
+              href="/dashboard/events"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold underline decoration-[var(--color-brand-danger)]/50 underline-offset-2 hover:decoration-[var(--color-brand-danger)]"
+            >
+              Delete photos from older events
+            </a>{" "}
+            to free up space, or reduce your selection.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-2.5 text-[12.5px] text-[var(--color-brand-muted)]">
+      {estimating ? (
+        <>
+          <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+          <span>Estimating upload size…</span>
+        </>
+      ) : (
+        <>
+          <span>Estimated upload size:</span>
+          <strong className="tabular-nums text-[var(--color-brand-ink)]">{sizeLabel}</strong>
+          {remainingGB !== null && (
+            <span className="tabular-nums">· {formatSizeFromGB(remainingGB)} left on your plan</span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AlertIcon({ size, className }: { size: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 

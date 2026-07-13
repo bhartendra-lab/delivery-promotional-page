@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
+import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
 import { StatsBar } from "@/components/dashboard/StatsBar";
 import { EventCard } from "@/components/dashboard/EventCard";
 import { useChrome } from "@/components/dashboard/ChromeContext";
+import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 
@@ -24,6 +26,8 @@ export default function DashboardHomePage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Opt-in archived+expired view (parity with the events tab).
+  const [showArchived, setShowArchived] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -42,13 +46,14 @@ export default function DashboardHomePage() {
     setLoading(true);
     setError(null);
     try {
-      // Published-only is filtered server-side so pagination reflects the
-      // filtered set (the page only ever holds one paginated page).
+      // Status is filtered server-side so pagination reflects the filtered set
+      // (the page only ever holds one paginated page). "archived" resolves to
+      // the combined archived+expired view on the backend.
       const res = await getAllBookings({
         page,
         limit: PAGE_SIZE,
         search: debouncedSearch || undefined,
-        status: "published",
+        status: showArchived ? "archived" : "published",
       });
       setData(res);
     } catch (err) {
@@ -56,9 +61,11 @@ export default function DashboardHomePage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, showArchived]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  const { onArchive, onRestore, onClearData, toastNode } = useBookingLifecycle(reload);
 
   // The bookings endpoint doesn't return a total count; allow paging forward
   // while a full page comes back and back to page 1.
@@ -88,10 +95,16 @@ export default function DashboardHomePage() {
 
   const isEmpty = !loading && data && data.bookings.length === 0;
 
+  // Event creation is only ever gated on count-based plans (Free/Event-based)
+  // when the event allowance is used up. Storage plans (Monthly/Yearly) can
+  // always create events — only uploads are gated (in the upload modal).
+  const createBlocked =
+    isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0;
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
-      {/* Limit exhausted disclaimer (Pre-Paid only) */}
-      {!dlpLoading && dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0 && (
+      {/* Limit exhausted disclaimer (count-based plans only) */}
+      {!dlpLoading && createBlocked && (
         <div
           role="alert"
           className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"
@@ -120,7 +133,7 @@ export default function DashboardHomePage() {
           <button
             type="button"
             onClick={openCreate}
-            disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0}
+            disabled={createBlocked}
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PlusIcon />
@@ -163,15 +176,35 @@ export default function DashboardHomePage() {
           )}
         </div>
 
-        {data && (
-          <p className="text-xs text-[var(--color-brand-muted)]">
-            Showing{" "}
-            <span className="font-semibold text-[var(--color-brand-ink)]">
-              {data.bookings.length}
-            </span>{" "}
-            {data.bookings.length === 1 ? "event" : "events"}
-          </p>
-        )}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setShowArchived((v) => !v);
+              setPage(1);
+            }}
+            aria-pressed={showArchived}
+            title="Show archived & expired events"
+            className={`brand-focus inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors ${
+              showArchived
+                ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
+            }`}
+          >
+            <ArchiveIcon />
+            <span className="hidden sm:inline">{showArchived ? "Archived & expired" : "Show archived"}</span>
+          </button>
+
+          {data && (
+            <p className="shrink-0 text-xs text-[var(--color-brand-muted)]">
+              Showing{" "}
+              <span className="font-semibold text-[var(--color-brand-ink)]">
+                {data.bookings.length}
+              </span>{" "}
+              {data.bookings.length === 1 ? "event" : "events"}
+            </p>
+          )}
+        </div>
       </section>
 
       {error && (
@@ -189,17 +222,31 @@ export default function DashboardHomePage() {
         {loading && !data ? (
           <CardGridSkeleton />
         ) : isEmpty ? (
-          <EmptyState onCreate={openCreate} disabled={dlpUsage?.service_type === "Pre-Paid" && dlpUsage.remaining === 0} />
+          showArchived ? (
+            <ArchivedEmpty onClear={() => { setShowArchived(false); setPage(1); }} />
+          ) : (
+            <EmptyState onCreate={openCreate} disabled={createBlocked} />
+          )
         ) : (
           data && data.bookings.length > 0 && (
             <div className="dash-stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {data.bookings.map((row) => (
-                <EventCard key={row._id} row={row} onOpen={openEvent} locked={locked} />
+                <EventCard
+                  key={row._id}
+                  row={row}
+                  onOpen={openEvent}
+                  locked={locked}
+                  onArchive={onArchive}
+                  onRestore={onRestore}
+                  onClearData={onClearData}
+                />
               ))}
             </div>
           )
         )}
       </section>
+
+      {toastNode}
 
       {data && data.bookings.length > 0 && (
         <Pagination current={page} totalPages={totalPages} onChange={(p) => setPage(p)} />
@@ -232,6 +279,48 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
         Create your first event
       </button>
     </div>
+  );
+}
+
+function ArchivedEmpty({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
+        <ArchiveIcon size={26} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xl font-bold text-[var(--color-brand-ink)]">No archived or expired events</p>
+        <p className="max-w-sm text-sm text-[var(--color-brand-muted)]">
+          Nothing has been archived or expired yet.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onClear}
+        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      >
+        Back to live events
+      </button>
+    </div>
+  );
+}
+
+function ArchiveIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </svg>
   );
 }
 
@@ -270,9 +359,8 @@ function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolea
   }
   if (!usage) return null;
 
-  const isPrePaid = usage.service_type === "Pre-Paid";
-
-  if (isPrePaid) {
+  // Count-based plans (Free / Event-based): "{remaining} remaining" (events).
+  if (isCountBasedPlan(usage.service_type)) {
     const remaining = usage.remaining ?? 0;
     const isExhausted = remaining === 0;
     return (
@@ -290,7 +378,31 @@ function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolea
     );
   }
 
-  // Post-Paid: show current-month used count
+  // Storage-based plans (Monthly / Yearly): "{used}/{limit} GB" with the shared
+  // green → orange → red severity. Never framed as "exhausted" — event creation
+  // isn't gated here.
+  if (isStorageBasedPlan(usage.service_type) && typeof usage.limit === "number") {
+    const limit = usage.limit;
+    const pct = limit > 0 ? Math.min((usage.used / limit) * 100, 100) : 0;
+    const severity = getUsageSeverity(pct);
+    const palette =
+      severity === "danger"
+        ? { color: "var(--color-brand-danger)", background: "var(--color-brand-danger-soft)" }
+        : severity === "warning"
+          ? { color: "var(--color-brand-warning)", background: "var(--color-brand-warning-soft)" }
+          : { color: "var(--color-brand-success)", background: "var(--color-brand-success-soft)" };
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums"
+        style={palette}
+      >
+        <CountDot />
+        {usage.used.toFixed(1)} / {limit.toFixed(1)} GB
+      </span>
+    );
+  }
+
+  // Malformed/absent subscription (no plan type or missing limit): bare count.
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"

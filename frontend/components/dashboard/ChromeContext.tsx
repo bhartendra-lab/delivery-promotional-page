@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getDlpUsage } from "@/lib/api";
 import type { DlpUsage } from "@/lib/types";
 import type { Breadcrumb } from "./Topbar";
@@ -20,6 +20,13 @@ type ChromeState = {
    */
   dlpUsage: DlpUsage | null;
   dlpLoading: boolean;
+  /**
+   * Re-fetch usage and update the shared value. Used by live-changing flows
+   * (e.g. storage-plan uploads) so the sidebar meter and any open upload modal
+   * reflect the current number without a full reload. Returns the fresh value
+   * (or null on error) so callers can act on it immediately.
+   */
+  refreshDlpUsage: () => Promise<DlpUsage | null>;
 };
 
 const ChromeCtx = createContext<ChromeState>({
@@ -31,6 +38,7 @@ const ChromeCtx = createContext<ChromeState>({
   setTopbarExtra: () => {},
   dlpUsage: null,
   dlpLoading: true,
+  refreshDlpUsage: async () => null,
 });
 
 export function ChromeProvider({ children }: { children: React.ReactNode }) {
@@ -49,6 +57,18 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setDlpLoading(false));
   }, []);
 
+  const refreshDlpUsage = useCallback(async () => {
+    try {
+      const fresh = await getDlpUsage();
+      setDlpUsage(fresh);
+      return fresh;
+    } catch {
+      // Keep the last-known value on a transient failure rather than blanking
+      // the meter; return null so callers know the refresh didn't land.
+      return null;
+    }
+  }, []);
+
   const value = useMemo<ChromeState>(
     () => ({
       customBreadcrumb,
@@ -59,8 +79,9 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       setTopbarExtra,
       dlpUsage,
       dlpLoading,
+      refreshDlpUsage,
     }),
-    [customBreadcrumb, locked, topbarExtra, dlpUsage, dlpLoading],
+    [customBreadcrumb, locked, topbarExtra, dlpUsage, dlpLoading, refreshDlpUsage],
   );
 
   return <ChromeCtx.Provider value={value}>{children}</ChromeCtx.Provider>;

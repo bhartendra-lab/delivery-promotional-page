@@ -337,6 +337,16 @@ export function IconStar({
   );
 }
 
+export function IconArchive({ size = 15, className, style }: IconProps) {
+  return (
+    <svg {...base(size, 1.6)} className={className} style={style}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M12 11v5m0 0l-2.5-2.5M12 16l2.5-2.5" />
+    </svg>
+  );
+}
+
 export function IconTarget({ size = 15, className, style }: IconProps) {
   return (
     <svg {...base(size, 1.6)} className={className} style={style}>

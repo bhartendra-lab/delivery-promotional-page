@@ -36,6 +36,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
     loadMore,
     engine,
     activeLocked,
+    autoPauseReason,
+    storageRechecking,
+    recheckStorage,
     publishedEver,
     saveMeta,
     coverBusy,
@@ -266,6 +269,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
             progress={engine.progress}
             onCancel={() => void engine.cancelUpload()}
             onTogglePause={() => (paused ? engine.resume() : engine.pause())}
+            autoPauseReason={autoPauseReason}
+            onRecheckStorage={() => void recheckStorage()}
+            storageRechecking={storageRechecking}
           />
         )}
         {state === "populated" && (

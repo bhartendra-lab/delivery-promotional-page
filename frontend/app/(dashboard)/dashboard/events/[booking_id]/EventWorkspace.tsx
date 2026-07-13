@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  archiveBooking,
+  clearBookingData,
   deleteMedia,
   getBookingById,
   getMedia,
   regenerateFamilyPasscode,
+  restoreBooking,
   updateBooking,
   updateGalleryActivationStatus,
   updateMediaShortlist,
@@ -17,9 +20,11 @@ import type {
   EmbeddingStatus,
   GalleryPublishStatus,
   MediaItem,
+  ServiceType,
 } from "@/lib/types";
+import { isStorageBasedPlan } from "@/lib/types";
 import { setBookingName } from "@/lib/r2-upload/registry";
-import { usePageBreadcrumb, usePageLock, usePageTopbarExtra } from "@/components/dashboard/ChromeContext";
+import { usePageBreadcrumb, usePageLock, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
 import {
   EventProvider,
@@ -31,6 +36,8 @@ import {
 } from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
 import { LivePill, type LivePillState } from "./LivePill";
+import { TypeConfirmModal } from "./TypeConfirmModal";
+import { IconArchive, IconLock } from "./icons";
 import { PostUploadBanner } from "./PostUploadBanner";
 import { MediaTab } from "./MediaTab";
 import { SmartSelectsTab } from "./SmartSelectsTab";
@@ -48,6 +55,8 @@ type PublishInfo = {
   isActive: boolean;
   outOfSync: boolean;
   unsyncedCount: number;
+  /** The booking's own plan — gates the in-workspace Archive control. */
+  serviceType: ServiceType | null;
   /**
    * True once the first photos have SYNCED (`gallery_published_at` set by the
    * backend on the first completed finalize). Locks the event name — renaming
@@ -63,6 +72,7 @@ const DEFAULT_PUB: PublishInfo = {
   isActive: true,
   outOfSync: false,
   unsyncedCount: 0,
+  serviceType: null,
   hasBeenPublished: false,
 };
 
@@ -99,6 +109,7 @@ function normalizePublish(b: BookingDetail): PublishInfo {
     isActive: b.is_active !== false,
     outOfSync: b.media_out_of_sync === true,
     unsyncedCount: typeof b.unsynced_media_count === "number" ? b.unsynced_media_count : 0,
+    serviceType: (b.service_type as ServiceType | null | undefined) ?? null,
     // Name lock keys on "first photos synced", not on a publish action (which
     // no longer exists) — see the PublishInfo docs.
     hasBeenPublished: typeof b.gallery_published_at === "number",
@@ -133,6 +144,17 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  // Set when a storage-plan upload was auto-paused for running out of space.
+  const [autoPauseReason, setAutoPauseReason] = useState<string | null>(null);
+  const [storageRechecking, setStorageRechecking] = useState(false);
+
+  // Usage (plan type + live remaining) from the shared dashboard fetch. Read the
+  // plan type via a ref inside the metadata handler so it stays subscription-cheap.
+  const { dlpUsage, refreshDlpUsage } = useChrome();
+  const dlpServiceTypeRef = useRef<ServiceType | null>(dlpUsage?.service_type ?? null);
+  useEffect(() => {
+    dlpServiceTypeRef.current = dlpUsage?.service_type ?? null;
+  }, [dlpUsage?.service_type]);
 
   const engine = useUploadEngine(bookingId);
 
@@ -348,7 +370,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // the amber "Syncing" pill resolves itself without a manual refresh.
   // embedding "in_progress" only occurs via the legacy manual-sync endpoint
   // but is included for completeness.
-  const pipelineBusy = pub.outOfSync || pub.embedding === "in_progress";
+  // Only a published booking has a pipeline worth polling — an archived/expired
+  // booking is static, so skip the 20s poll entirely for it.
+  const pipelineBusy =
+    pub.status === "published" && (pub.outOfSync || pub.embedding === "in_progress");
   useEffect(() => {
     if (!pipelineBusy) return;
     const id = setInterval(() => void reloadBooking(), POLL_MS);
@@ -427,21 +452,62 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     };
   }, [engine, bookingId]);
 
-  // Debounced canonical refresh as metadata chunks land in the DB.
+  // Debounced canonical refresh as metadata chunks land in the DB. On
+  // storage-based plans, each chunk boundary (~200 uploaded images) also re-checks
+  // live usage and auto-pauses the run if the plan's space is exhausted.
   useEffect(() => {
     let reloadTimer: ReturnType<typeof setTimeout> | null = null;
     engine.onMetadataSaved(() => {
-      if (reloadTimer) return;
-      reloadTimer = setTimeout(() => {
-        reloadTimer = null;
-        void reload();
-      }, 1500);
+      if (!reloadTimer) {
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          void reload();
+        }, 1500);
+      }
+      // Storage-plan overrun guard — usage is changing live during this upload,
+      // so refetch fresh (not the cached value) and update the shared meter.
+      if (isStorageBasedPlan(dlpServiceTypeRef.current)) {
+        void refreshDlpUsage().then((fresh) => {
+          if (fresh && isStorageBasedPlan(fresh.service_type) && (fresh.remaining ?? 0) <= 0) {
+            setAutoPauseReason("storage-exhausted");
+            engine.pause();
+          }
+        });
+      }
     });
     return () => {
       if (reloadTimer) clearTimeout(reloadTimer);
       engine.onMetadataSaved(null);
     };
-  }, [engine, reload]);
+  }, [engine, reload, refreshDlpUsage]);
+
+  // Clear the auto-pause reason whenever a fresh run starts (isUploading rising
+  // edge), so a stale storage-pause from a prior run never leaks into a new one.
+  const wasUploadingRef = useRef(false);
+  useEffect(() => {
+    if (engine.progress.isUploading && !wasUploadingRef.current) {
+      setAutoPauseReason(null);
+    }
+    wasUploadingRef.current = engine.progress.isUploading;
+  }, [engine.progress.isUploading]);
+
+  // Manual "Re-check storage" from the paused UI: refresh usage and, if space
+  // has been freed, clear the reason so Resume re-enables. Otherwise leave the
+  // pause in place to avoid an immediate resume→re-pause loop.
+  const recheckStorage = useCallback(async () => {
+    setStorageRechecking(true);
+    try {
+      const fresh = await refreshDlpUsage();
+      if (fresh && (fresh.remaining ?? 0) > 0) {
+        setAutoPauseReason(null);
+        toast("Storage freed — you can resume the upload.");
+      } else {
+        toast("Still out of storage. Free more space, then re-check.", "error");
+      }
+    } finally {
+      setStorageRechecking(false);
+    }
+  }, [refreshDlpUsage, toast]);
 
   // On run completion: reconcile media + booking, then surface the post-upload
   // banner. Purely informational — the pipeline is already embedding + syncing
@@ -659,21 +725,80 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     }
   }, [bookingId, reloadBooking, toast]);
 
+  /* ── archive / restore / clear-data lifecycle ───────────────── */
+
+  // Archiving deactivates + flips status to "archived" in one write; reloading
+  // surfaces the terminal overlay in place (no navigation). Rethrows so the
+  // LivePill confirm keeps its modal open on failure.
+  const doArchive = useCallback(async () => {
+    try {
+      await archiveBooking(bookingId);
+      await reloadBooking();
+      toast("Event archived — it's hidden from guests.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not archive the event", "error");
+      throw err;
+    }
+  }, [bookingId, reloadBooking, toast]);
+
+  const [overlayBusy, setOverlayBusy] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
+
+  const doRestore = useCallback(async () => {
+    setOverlayBusy(true);
+    try {
+      await restoreBooking(bookingId);
+      // Once status flips back to "published" the overlay unmounts and the
+      // workspace becomes editable in place.
+      await reloadBooking();
+      toast("Event restored — you can edit it right here.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not restore the event", "error");
+    } finally {
+      setOverlayBusy(false);
+    }
+  }, [bookingId, reloadBooking, toast]);
+
+  const doClearData = useCallback(async () => {
+    setOverlayBusy(true);
+    try {
+      await clearBookingData(bookingId);
+      // Media was deleted server-side — re-sync the shared storage meter.
+      await refreshDlpUsage();
+      // Backend flips status to "expired"; reloading turns the archived screen
+      // into the terminal expired screen in place.
+      await reloadBooking();
+      setClearConfirm(false);
+      toast("Event data cleared. Only the cover photo remains.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not clear the event data", "error");
+    } finally {
+      setOverlayBusy(false);
+    }
+  }, [bookingId, reloadBooking, refreshDlpUsage, toast]);
+
   /* ── topbar LivePill ────────────────────────────────────────── */
 
+  const isTerminal = pub.status === "archived" || pub.status === "expired";
+
   // The pill is inert for the whole run (incl. paused) — toggling activation
-  // mid-upload would be confusing; it re-enables once the run ends.
+  // mid-upload would be confusing; it re-enables once the run ends. In the
+  // terminal (archived/expired) states the pill is hidden — the full-screen
+  // overlay owns the Restore/Clear-data actions instead.
   const pillNode = useMemo(
-    () => (
-      <LivePill
-        state={pillState}
-        disabled={engineActive}
-        unsyncedCount={pub.unsyncedCount}
-        onActivate={doActivate}
-        onDeactivate={doDeactivate}
-      />
-    ),
-    [pillState, engineActive, pub.unsyncedCount, doActivate, doDeactivate],
+    () =>
+      isTerminal ? null : (
+        <LivePill
+          state={pillState}
+          disabled={engineActive}
+          unsyncedCount={pub.unsyncedCount}
+          serviceType={pub.serviceType}
+          onActivate={doActivate}
+          onDeactivate={doDeactivate}
+          onArchive={doArchive}
+        />
+      ),
+    [isTerminal, pillState, engineActive, pub.unsyncedCount, pub.serviceType, doActivate, doDeactivate, doArchive],
   );
   usePageTopbarExtra(pillNode);
 
@@ -749,6 +874,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       loadMore,
       engine,
       activeLocked,
+      autoPauseReason,
+      storageRechecking,
+      recheckStorage,
       publishedEver: pub.hasBeenPublished,
       saveMeta,
       regenerateFamilyPasscode: doRegeneratePasscode,
@@ -759,61 +887,98 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, locatedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, locatedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, autoPauseReason, storageRechecking, recheckStorage, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
 
   return (
     <EventProvider value={ctx}>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* In archived/expired states the whole editing surface is blurred + inert;
+            the terminal overlay below owns the only reachable actions. The Topbar
+            breadcrumb (outside this component) stays interactive so the user can
+            still leave. */}
+        <div
+          className={
+            isTerminal
+              ? "pointer-events-none flex max-h-[calc(100dvh-52px)] flex-1 select-none flex-col overflow-hidden [filter:blur(3px)]"
+              : "flex flex-1 flex-col"
+          }
+          aria-hidden={isTerminal || undefined}
+        >
+          <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
-        {/* Mobile-only publish action row. The same pill is injected into the
-            Topbar for desktop (usePageTopbarExtra); here it stays reachable on
-            mobile where the Topbar hides it. One visible instance per breakpoint. */}
-        <div className="sticky top-0 z-20 flex justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
-          {pillNode}
+          {/* Mobile-only publish action row. The same pill is injected into the
+              Topbar for desktop (usePageTopbarExtra); here it stays reachable on
+              mobile where the Topbar hides it. One visible instance per breakpoint. */}
+          {!isTerminal && (
+            <div className="sticky top-0 z-20 flex justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+              {pillNode}
+            </div>
+          )}
+
+          {banner && (
+            <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
+          )}
+
+          {effectiveTab === "media" && <MediaTab loading={loading} />}
+          {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
+          {effectiveTab === "gallery" && (
+            <GalleryDesignTab
+              eventName={ctx.meta.name}
+              eventType={ctx.meta.type}
+              eventDateLabel={eventDateLabel}
+              coverUrl={ctx.meta.backgroundImage}
+              coverPosition={ctx.meta.backgroundPosition}
+              initialStyleVariant={ctx.meta.styleVariant}
+              initialCustomMessage={ctx.meta.customMessage}
+              initialIncludeBranding={ctx.meta.includeBranding}
+              initialGuestTypes={ctx.meta.guestTypes}
+              onSave={async (vals) => {
+                // Pass through current event_type/date (never event_name) so the
+                // landing-page save can't churn the shared URL or clobber the event.
+                await persistBooking({
+                  ...vals,
+                  event_type: ctx.meta.type,
+                  ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
+                });
+                toast("Gallery design saved");
+              }}
+            />
+          )}
+          {effectiveTab === "access" && (
+            <AccessSharingTab
+              eventName={ctx.meta.name}
+              uniqueIdentifier={ctx.meta.uniqueIdentifier}
+              familyPasscode={ctx.meta.familyPasscode}
+              onRegenerate={doRegeneratePasscode}
+            />
+          )}
         </div>
 
-        {banner && (
-          <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
-        )}
-
-        {effectiveTab === "media" && <MediaTab loading={loading} />}
-        {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
-        {effectiveTab === "gallery" && (
-          <GalleryDesignTab
-            eventName={ctx.meta.name}
-            eventType={ctx.meta.type}
-            eventDateLabel={eventDateLabel}
-            coverUrl={ctx.meta.backgroundImage}
-            coverPosition={ctx.meta.backgroundPosition}
-            initialStyleVariant={ctx.meta.styleVariant}
-            initialCustomMessage={ctx.meta.customMessage}
-            initialIncludeBranding={ctx.meta.includeBranding}
-            initialGuestTypes={ctx.meta.guestTypes}
-            onSave={async (vals) => {
-              // Pass through current event_type/date (never event_name) so the
-              // landing-page save can't churn the shared URL or clobber the event.
-              await persistBooking({
-                ...vals,
-                event_type: ctx.meta.type,
-                ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
-              });
-              toast("Gallery design saved");
-            }}
-          />
-        )}
-        {effectiveTab === "access" && (
-          <AccessSharingTab
-            eventName={ctx.meta.name}
-            uniqueIdentifier={ctx.meta.uniqueIdentifier}
-            familyPasscode={ctx.meta.familyPasscode}
-            onRegenerate={doRegeneratePasscode}
+        {isTerminal && (
+          <TerminalOverlay
+            status={pub.status}
+            coverUrl={meta?.backgroundImage}
+            busy={overlayBusy}
+            onRestore={doRestore}
+            onClearData={() => setClearConfirm(true)}
           />
         )}
       </div>
+
+      {clearConfirm && (
+        <TypeConfirmModal
+          action="delete"
+          busy={overlayBusy}
+          title="Clear this event's data?"
+          description="This permanently removes every photo and all face-search data for this event."
+          warningText="Only the cover photo is kept. Guests lose the gallery for good — this cannot be undone."
+          onConfirm={doClearData}
+          onCancel={() => setClearConfirm(false)}
+        />
+      )}
 
       {toastMsg && (
         <div className="pointer-events-none fixed inset-x-0 top-6 z-[230] flex justify-center px-4">
@@ -834,4 +999,86 @@ function formatDate(epoch: number): string {
   const d = new Date(epoch);
   if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Full-screen panel shown over the blurred workspace when a booking is archived
+ * or expired. Archived offers Restore + Clear data; expired is terminal (no
+ * actions — the backend 404s on restoring an expired booking and there's nothing
+ * left to clear). Sits inside the workspace's `relative` box so the Topbar
+ * breadcrumb above stays reachable; the dim/blur matches the modal chrome.
+ */
+function TerminalOverlay({
+  status,
+  coverUrl,
+  busy,
+  onRestore,
+  onClearData,
+}: {
+  status: GalleryPublishStatus;
+  coverUrl?: string;
+  busy: boolean;
+  onRestore: () => void;
+  onClearData: () => void;
+}) {
+  const archived = status === "archived";
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto px-4 py-8 sm:items-center"
+      style={{ background: "rgba(42,34,24,0.48)", backdropFilter: "blur(3px)" }}
+    >
+      <div className="dash-rise w-full max-w-[460px] rounded-[16px] border border-[var(--color-brand-border)] bg-white p-7 text-center shadow-[0_24px_64px_rgba(42,34,24,0.24)]">
+        {coverUrl && (
+          <div
+            className="mx-auto mb-5 h-24 w-full max-w-[280px] overflow-hidden rounded-xl"
+            style={{ backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: "center" }}
+            aria-hidden
+          />
+        )}
+        <span
+          className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full"
+          style={
+            archived
+              ? { background: "var(--color-brand-warning-soft)", color: "var(--color-brand-warning)" }
+              : { background: "var(--color-brand-bg)", color: "var(--color-brand-muted)" }
+          }
+          aria-hidden
+        >
+          {archived ? <IconArchive size={22} /> : <IconLock size={22} />}
+        </span>
+        <h2 className="text-[19px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+          {archived ? "This event is archived" : "This event has expired"}
+        </h2>
+        <p className="mx-auto mt-2 max-w-[380px] text-[13.5px] leading-relaxed text-[var(--color-brand-muted)]">
+          {archived
+            ? "The gallery is deactivated and hidden from guests. Restore it to edit and go live again, or clear its data to free up storage. It’s cleared automatically 7 days after archiving."
+            : "This event’s access window has closed and its media has been removed. The cover photo is kept for your records, but the gallery can’t be restored."}
+        </p>
+
+        {archived && (
+          <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              onClick={onRestore}
+              disabled={busy}
+              className="brand-focus inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
+              ) : null}
+              Restore
+            </button>
+            <button
+              type="button"
+              onClick={onClearData}
+              disabled={busy}
+              className="brand-focus inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-5 text-[13.5px] font-semibold text-[var(--color-brand-danger)] transition-colors hover:border-[var(--color-brand-danger)]/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Clear data
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

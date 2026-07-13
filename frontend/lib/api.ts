@@ -14,6 +14,7 @@ import type {
   GetMediaResponse,
   GetAllGuestsResponse,
   LoginResponse,
+  ServiceType,
   StyleVariant,
   TrackingType,
   WatermarkPreset,
@@ -219,6 +220,43 @@ export function getAllBookings(params: {
   );
 }
 
+/**
+ * POST /bookings/archive-booking/:booking_id — sets status → "archived",
+ * records `gallery_archived_at`, and deactivates the gallery in one write.
+ * Bodyless (booking_id is a path param), matching the deleteMedia wiring.
+ */
+export function archiveBooking(bookingId: string) {
+  return request<{ message: string }>(
+    `/bookings/archive-booking/${encodeURIComponent(bookingId)}`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * POST /bookings/restore-booking/:booking_id — brings an archived booking back
+ * to "published" + active. 404s server-side on an already-expired booking
+ * (there is no restore path back from expired), so never present Restore on an
+ * expired card/overlay.
+ */
+export function restoreBooking(bookingId: string) {
+  return request<{ message: string }>(
+    `/bookings/restore-booking/${encodeURIComponent(bookingId)}`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * DELETE /bookings/clear-booking-data/:booking_id — tears down all R2 media +
+ * face embeddings (the cover photo is deliberately spared) and sets status →
+ * "expired". Irreversible; gate it behind the typed-"delete" confirm.
+ */
+export function clearBookingData(bookingId: string) {
+  return request<{ message: string }>(
+    `/bookings/clear-booking-data/${encodeURIComponent(bookingId)}`,
+    { method: "DELETE" },
+  );
+}
+
 /** GET /bookings/get-booking-by-id/:booking_id/:service */
 export function getBookingById(bookingId: string, service: string = BOOKING_SERVICE) {
   return request<BookingDetailResponse>(
@@ -268,6 +306,13 @@ export function createBooking(body: {
   event_type: EventType | string;
   /** Optional numeric epoch (ms). Omit the field entirely when unset. */
   event_date?: number;
+  /**
+   * The company's active plan type (whatever `getDlpUsage` returned for
+   * `service_type` on this dashboard load). Stored on the booking so
+   * `getDlpUsage`'s later aggregation can match bookings by plan. Omit/null
+   * gracefully when usage hasn't loaded yet — creation must not block on it.
+   */
+  service_type?: ServiceType | string | null;
 }) {
   // Always create under the Delivery Hub service so the booking's
   // creation_source matches the "DH" filter used by getAllBookings/getBookingById.

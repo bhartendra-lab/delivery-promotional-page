@@ -3,20 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { IconWarning } from "./icons";
 
-export type ConfirmAction = "activate" | "deactivate";
+export type ConfirmAction = "activate" | "deactivate" | "archive" | "delete";
 
 /**
- * Type-to-confirm safety gate (recreated from `event-tabs.jsx`). The user must
- * type the exact action word before the confirm button enables. Deactivate
- * uses the red danger button; activate uses navy. Esc cancels, Enter confirms
- * once matched. (Publish/republish no longer exist — events are live from
- * creation and media syncs automatically.)
+ * Type-to-confirm safety gate (recreated from `event-tabs.jsx`). By default the
+ * user must type the exact action word before the confirm button enables;
+ * destructive actions (deactivate/archive/delete) use the red danger button,
+ * activate uses navy. Esc cancels, Enter confirms once matched.
+ *
+ * Pass `requireTyping={false}` for a simple confirm (used by archive): the typed
+ * input is hidden and Confirm is enabled immediately. Everything else — backdrop,
+ * focus trap, Esc-to-cancel, busy state, button styling — is identical.
  */
 export function TypeConfirmModal({
   action,
   title,
   description,
   warningText,
+  requireTyping = true,
   busy = false,
   onConfirm,
   onCancel,
@@ -25,12 +29,14 @@ export function TypeConfirmModal({
   title: string;
   description: string;
   warningText?: string | null;
+  requireTyping?: boolean;
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const [typed, setTyped] = useState("");
-  const matched = typed.trim().toLowerCase() === action.toLowerCase();
+  // When typing isn't required the confirm gate is open as soon as the modal is.
+  const matched = !requireTyping || typed.trim().toLowerCase() === action.toLowerCase();
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +69,8 @@ export function TypeConfirmModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [busy, onCancel]);
 
-  const confirmBg = action === "deactivate" ? "var(--color-brand-danger)" : "var(--color-brand-navy)";
+  const isDestructive = action === "deactivate" || action === "archive" || action === "delete";
+  const confirmBg = isDestructive ? "var(--color-brand-danger)" : "var(--color-brand-navy)";
 
   return (
     <div
@@ -95,33 +102,37 @@ export function TypeConfirmModal({
           </div>
         )}
 
-        <div className="mb-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)]">
-          Type{" "}
-          <code className="rounded-[5px] border border-[var(--color-brand-border)] bg-[#F2F0EB] px-1.5 py-0.5 font-mono text-[12.5px] text-[var(--color-brand-navy)]">
-            {action}
-          </code>{" "}
-          to confirm
-        </div>
-        <input
-          ref={inputRef}
-          value={typed}
-          disabled={busy}
-          onChange={(e) => setTyped(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && matched && !busy) {
-              e.preventDefault();
-              onConfirm();
-            }
-          }}
-          placeholder={`Type "${action}" here…`}
-          aria-label={`Type ${action} to confirm`}
-          className="mb-5 block w-full rounded-lg border bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none transition-colors"
-          style={{
-            borderWidth: 1.5,
-            borderColor: matched ? "var(--color-brand-success)" : "var(--color-brand-border)",
-            background: matched ? "var(--color-brand-success-soft)" : "#FFFFFF",
-          }}
-        />
+        {requireTyping && (
+          <>
+            <div className="mb-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)]">
+              Type{" "}
+              <code className="rounded-[5px] border border-[var(--color-brand-border)] bg-[#F2F0EB] px-1.5 py-0.5 font-mono text-[12.5px] text-[var(--color-brand-navy)]">
+                {action}
+              </code>{" "}
+              to confirm
+            </div>
+            <input
+              ref={inputRef}
+              value={typed}
+              disabled={busy}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && matched && !busy) {
+                  e.preventDefault();
+                  onConfirm();
+                }
+              }}
+              placeholder={`Type "${action}" here…`}
+              aria-label={`Type ${action} to confirm`}
+              className="mb-5 block w-full rounded-lg border bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none transition-colors"
+              style={{
+                borderWidth: 1.5,
+                borderColor: matched ? "var(--color-brand-success)" : "var(--color-brand-border)",
+                background: matched ? "var(--color-brand-success-soft)" : "#FFFFFF",
+              }}
+            />
+          </>
+        )}
 
         <div className="flex justify-end gap-2.5">
           <button

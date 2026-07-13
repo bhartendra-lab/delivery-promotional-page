@@ -118,6 +118,20 @@ export type EventContextValue = {
   /** True once the active upload run is genuinely running (not paused). */
   activeLocked: boolean;
   /**
+   * Set when the engine was auto-paused because the storage-based plan ran out
+   * of space mid-upload (distinct from a manual user pause, where this is null).
+   * Drives the storage-specific paused copy and gates the Resume button.
+   */
+  autoPauseReason: string | null;
+  /** True while a manual "Re-check storage" refresh is in flight. */
+  storageRechecking: boolean;
+  /**
+   * Re-fetch usage after an auto-pause; if space has been freed (remaining > 0)
+   * this clears `autoPauseReason` so the user can resume. Otherwise the pause —
+   * and the disabled Resume button — stay put to avoid a resume→re-pause loop.
+   */
+  recheckStorage: () => Promise<void>;
+  /**
    * True once the gallery has been published at least once. While true the
    * event name is locked read-only to keep the shared
    * `/event/<unique_identifier>` URL stable. The cover photo stays editable.
