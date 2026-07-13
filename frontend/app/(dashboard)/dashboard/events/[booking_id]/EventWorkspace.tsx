@@ -500,8 +500,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       // Once published, the event name is immutable — sending `event_name` would
       // regenerate the unique_identifier and break the shared /event/<uid> URL.
       const nameLocked = pubRef.current.hasBeenPublished;
+      // Only send `event_name` when it actually changed — the update is
+      // conditional per field, so omitting an unchanged name leaves it untouched.
+      const nameChanged = next.name !== metaRef.current?.name;
       await persistBooking({
-        ...(nameLocked ? {} : { event_name: next.name }),
+        ...(!nameLocked && nameChanged ? { event_name: next.name } : {}),
         event_type: next.type,
         ...(next.eventDate != null ? { event_date: next.eventDate } : {}),
       });
