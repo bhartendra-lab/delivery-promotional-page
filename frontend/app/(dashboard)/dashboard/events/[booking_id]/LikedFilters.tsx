@@ -10,39 +10,35 @@ import {
 } from "./EventContext";
 import { IconCaretDown, IconCheck, IconHeart, IconSearch, IconStar, IconUsers, IconX } from "./icons";
 
-const AUDIENCE: { key: LikedFiltersState["audience"]; label: string }[] = [
-  { key: "all", label: "Everyone" },
-  { key: "host", label: "Host" },
-  { key: "guest", label: "Guests" },
-];
-
 const SORT_LABEL: Record<LikedFiltersState["sort"], string> = {
   likes: "Most liked",
   recent: "Newest",
 };
 
 /**
- * Filter bar for the Smart Selects view. A row of quick scope pills (All liked /
- * Host picks / Shortlisted / Awaiting original) sits above the refinement
- * controls — audience (host/guest), guest teams (only when the event has
- * `guest_types`), specific guests (lazy-loaded), and Sort. Pills just set the
- * underlying filter fields, so they stay in sync with the refinement row. All
- * constraints AND-combine; changing any re-fetches (via EventWorkspace).
+ * Filter bar for the Smart Selects view — a single compact, wrapping row: quick
+ * scope pills (All liked / Host picks / Shortlisted, each carrying its own
+ * count badge) followed by the refinement controls — guest teams (only when
+ * the event has `guest_types`), specific guests (lazy-loaded), and Sort. Pills
+ * just set the underlying filter fields, so they stay in sync with the
+ * refinement controls. All constraints AND-combine; changing any re-fetches
+ * (via EventWorkspace).
  */
 export function LikedFilters({
   bookingId,
   guestTypes,
   filters,
   onChange,
+  likedCount = 0,
   shortlistedCount = 0,
-  awaitingCount = 0,
 }: {
   bookingId: string;
   guestTypes: string[] | undefined;
   filters: LikedFiltersState;
   onChange: React.Dispatch<React.SetStateAction<LikedFiltersState>>;
+  /** Total liked media in the booking — shown as the "All liked" pill's count. */
+  likedCount?: number;
   shortlistedCount?: number;
-  awaitingCount?: number;
 }) {
   const showTeams = !!guestTypes && guestTypes.length > 0;
   const active = hasActiveLikedFilters(filters);
@@ -66,8 +62,6 @@ export function LikedFilters({
     }
   }, [bookingId, guests, guestsLoading]);
 
-  const setAudience = (audience: LikedFiltersState["audience"]) =>
-    onChange((f) => ({ ...f, audience }));
   const setSort = (sort: LikedFiltersState["sort"]) => onChange((f) => ({ ...f, sort }));
   const toggleSubType = (t: string) =>
     onChange((f) => ({
@@ -86,10 +80,9 @@ export function LikedFilters({
     filters.audience === "all" &&
     filters.subTypes.length === 0 &&
     filters.guestIds.length === 0;
-  const allLikedOn = scopeAll && !filters.shortlistedOnly && !filters.awaitingOnly;
+  const allLikedOn = scopeAll && !filters.shortlistedOnly;
   const hostPicksOn = filters.audience === "host";
-  const shortlistedOn = filters.shortlistedOnly && !filters.awaitingOnly;
-  const awaitingOn = filters.awaitingOnly;
+  const shortlistedOn = filters.shortlistedOnly;
 
   const setAllLiked = () =>
     onChange((f) => ({
@@ -98,22 +91,11 @@ export function LikedFilters({
       subTypes: [],
       guestIds: [],
       shortlistedOnly: false,
-      awaitingOnly: false,
     }));
   const toggleHostPicks = () =>
     onChange((f) => ({ ...f, audience: f.audience === "host" ? "all" : "host" }));
   const toggleShortlisted = () =>
-    onChange((f) =>
-      f.shortlistedOnly && !f.awaitingOnly
-        ? { ...f, shortlistedOnly: false }
-        : { ...f, shortlistedOnly: true, awaitingOnly: false },
-    );
-  const toggleAwaiting = () =>
-    onChange((f) =>
-      f.awaitingOnly
-        ? { ...f, shortlistedOnly: false, awaitingOnly: false }
-        : { ...f, shortlistedOnly: true, awaitingOnly: true },
-    );
+    onChange((f) => ({ ...f, shortlistedOnly: !f.shortlistedOnly }));
 
   // Button summary for the Guests dropdown (name when one, count otherwise).
   const guestsLabel = useMemo(() => {
@@ -126,118 +108,82 @@ export function LikedFilters({
   }, [filters.guestIds, guests]);
 
   return (
-    <div className="mb-4 flex flex-col gap-2.5 rounded-xl border border-[var(--color-brand-border)] bg-white px-2.5 py-2.5">
-      {/* Quick scope pills */}
-      <div className="flex flex-wrap items-center gap-2">
-        <QuickPill active={allLikedOn} onClick={setAllLiked}>
-          All liked
-        </QuickPill>
-        <QuickPill active={hostPicksOn} onClick={toggleHostPicks}>
-          Host picks
-        </QuickPill>
-        <QuickPill active={shortlistedOn} onClick={toggleShortlisted} count={shortlistedCount}>
-          <IconStar size={12} filled={shortlistedOn} />
-          Shortlisted
-        </QuickPill>
-        <QuickPill active={awaitingOn} onClick={toggleAwaiting} count={awaitingCount}>
-          Awaiting original
-        </QuickPill>
-      </div>
+    <div className="mb-4 mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-brand-border)] bg-white px-3 py-2">
+      <QuickPill active={allLikedOn} onClick={setAllLiked} count={likedCount}>
+        All liked
+      </QuickPill>
+      <QuickPill active={hostPicksOn} onClick={toggleHostPicks}>
+        Host picks
+      </QuickPill>
+      <QuickPill active={shortlistedOn} onClick={toggleShortlisted} count={shortlistedCount}>
+        <IconStar size={12} filled={shortlistedOn} />
+        Shortlisted
+      </QuickPill>
 
-      <span className="h-px w-full bg-[var(--color-brand-border)]" aria-hidden />
+      <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-[var(--color-brand-border)] sm:block" aria-hidden />
 
-      {/* Refinement controls */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex shrink-0 items-center gap-1.5 pl-1 pr-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">
-          <IconHeart size={13} className="text-[var(--color-brand-navy)]" />
-          Liked by
-        </span>
-
-        {/* Audience segmented control */}
-        <div className="inline-flex items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-0.5">
-          {AUDIENCE.map((a) => {
-            const on = filters.audience === a.key;
-            return (
-              <button
-                key={a.key}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setAudience(a.key)}
-                className={`brand-focus rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
-                  on
-                    ? "bg-white font-semibold text-[var(--color-brand-navy)] shadow-[0_1px_3px_rgba(42,34,24,0.1)]"
-                    : "font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-                }`}
-              >
-                {a.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {showTeams && (
-          <FilterDropdown label="Team" count={filters.subTypes.length}>
-            <div className="max-h-[280px] overflow-y-auto py-1">
-              {guestTypes!.map((t) => (
-                <CheckRow
-                  key={t}
-                  label={t}
-                  checked={filters.subTypes.includes(t)}
-                  onToggle={() => toggleSubType(t)}
-                />
-              ))}
-            </div>
-          </FilterDropdown>
-        )}
-
-        <FilterDropdown
-          label={guestsLabel}
-          icon={<IconUsers size={14} />}
-          count={filters.guestIds.length}
-          onOpen={loadGuests}
-        >
-          <GuestPicker
-            guests={guests}
-            loading={guestsLoading}
-            error={guestsError}
-            selected={filters.guestIds}
-            onToggle={toggleGuest}
-            onRetry={loadGuests}
-          />
-        </FilterDropdown>
-
-        {/* Sort — pushed to the right; Clear follows it. */}
-        <FilterDropdown
-          label={`Sort: ${SORT_LABEL[filters.sort]}`}
-          count={0}
-          className="ml-auto"
-          align="right"
-        >
-          <div className="py-1">
-            <CheckRow
-              label="Most liked"
-              checked={filters.sort === "likes"}
-              onToggle={() => setSort("likes")}
-            />
-            <CheckRow
-              label="Newest"
-              checked={filters.sort === "recent"}
-              onToggle={() => setSort("recent")}
-            />
+      {showTeams && (
+        <FilterDropdown label="Team" count={filters.subTypes.length}>
+          <div className="max-h-[280px] overflow-y-auto py-1">
+            {guestTypes!.map((t) => (
+              <CheckRow
+                key={t}
+                label={t}
+                checked={filters.subTypes.includes(t)}
+                onToggle={() => toggleSubType(t)}
+              />
+            ))}
           </div>
         </FilterDropdown>
+      )}
 
-        {active && (
-          <button
-            type="button"
-            onClick={() => onChange(EMPTY_LIKED_FILTERS)}
-            className="brand-focus inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-          >
-            <IconX size={12} />
-            Clear
-          </button>
-        )}
-      </div>
+      <FilterDropdown
+        label={guestsLabel}
+        icon={<IconUsers size={14} />}
+        count={filters.guestIds.length}
+        onOpen={loadGuests}
+      >
+        <GuestPicker
+          guests={guests}
+          loading={guestsLoading}
+          error={guestsError}
+          selected={filters.guestIds}
+          onToggle={toggleGuest}
+          onRetry={loadGuests}
+        />
+      </FilterDropdown>
+
+      {/* Sort — pushed to the right; Clear follows it. */}
+      <FilterDropdown
+        label={`Sort: ${SORT_LABEL[filters.sort]}`}
+        count={0}
+        className="sm:ml-auto"
+        align="right"
+      >
+        <div className="py-1">
+          <CheckRow
+            label="Most liked"
+            checked={filters.sort === "likes"}
+            onToggle={() => setSort("likes")}
+          />
+          <CheckRow
+            label="Newest"
+            checked={filters.sort === "recent"}
+            onToggle={() => setSort("recent")}
+          />
+        </div>
+      </FilterDropdown>
+
+      {active && (
+        <button
+          type="button"
+          onClick={() => onChange(EMPTY_LIKED_FILTERS)}
+          className="brand-focus inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+        >
+          <IconX size={12} />
+          Clear
+        </button>
+      )}
     </div>
   );
 }

@@ -1,22 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getShortlistedMedia, updateMediaIdentified, type ShortlistedMediaItem } from "@/lib/api";
+import { getShortlistedMedia, type ShortlistedMediaItem } from "@/lib/api";
 import { streamZipToDisk } from "@/lib/media-actions";
-import { resolveCleanName } from "@/lib/locate-originals/match";
+import { OUTPUT_DIR, resolveCleanName } from "@/lib/locate-originals/match";
 import {
   ensureReadwrite,
+  findFreeDirName,
+  getExistingDirectory,
   pickDirectory,
   supportsFsa,
   type FsDirHandle,
+  type SourceFile,
 } from "@/lib/locate-originals/fsa";
 import { clearDirHandle, loadDirHandle, saveDirHandle } from "@/lib/locate-originals/handleStore";
 import {
   copyToDirectory,
   scanDirectory,
-  scanFiles,
   toTargets,
-  zipToDownload,
+  type CopyMode,
   type CopyProgress,
   type IncludedMatch,
   type RunResult,
@@ -25,10 +27,13 @@ import {
 import {
   IconArrowRight,
   IconCheck,
+  IconCopy,
   IconDownload,
   IconFolder,
   IconImage,
   IconInfo,
+  IconMonitor,
+  IconScanFace,
   IconTarget,
   IconWarning,
   IconX,
@@ -37,13 +42,11 @@ import {
 const fmt = (n: number) => n.toLocaleString("en-IN");
 
 /**
- * "Locate Original Images" (Smart Selects). Owns the persistent, DB-backed
- * identified report (rendered inline as a card); the interactive flow lives in
- * {@link LocateModal}, which mounts fresh each time `open` flips true (so its
- * state resets naturally, no reset effect).
- *
- * Everything operates only on `shortlisted: true` media; already-`identified`
- * rows are skipped from the match target up front.
+ * "Locate Original Images" (Smart Selects). A single-purpose, stateless tool:
+ * the studio picks a folder, we match it to the current shortlist, they review
+ * and copy. Nothing about a run is remembered server-side — the only surface on
+ * the tab is the header button; everything else lives in this modal, which
+ * mounts fresh each time `open` flips true.
  */
 export function LocateOriginals({
   bookingId,
@@ -51,7 +54,6 @@ export function LocateOriginals({
   shortlistedCount,
   open,
   onOpenChange,
-  onLocated,
   toast,
 }: {
   bookingId: string;
@@ -59,233 +61,68 @@ export function LocateOriginals({
   shortlistedCount: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Fired after a successful locate run so the owner can refresh the located
-   *  count / progress strip (the DB-backed report refreshes itself). */
-  onLocated?: () => void;
   toast: (msg: string, type?: "success" | "error") => void;
 }) {
-  const [items, setItems] = useState<ShortlistedMediaItem[]>([]);
-  const [foldersById, setFoldersById] = useState<Map<string, string>>(new Map());
-  const [loadedOnce, setLoadedOnce] = useState(false);
-  const [zipping, setZipping] = useState(false);
-
-  // First statement is the `await`, so no setState runs synchronously in the
-  // effect body (keeps the react-hooks/set-state-in-effect rule happy).
-  const fetchReport = useCallback(async () => {
-    try {
-      const res = await getShortlistedMedia(bookingId);
-      setItems(res.media);
-      setFoldersById(new Map(res.customFolders.map((f) => [f._id, f.name])));
-      setLoadedOnce(true);
-    } catch {
-      /* keep the last-known report */
-    }
-  }, [bookingId]);
-
-  // Refresh on mount and whenever the shortlist size changes (stars toggled).
-  useEffect(() => {
-    if (shortlistedCount > 0) void fetchReport();
-  }, [fetchReport, shortlistedCount]);
-
-  const unidentified = useMemo(() => items.filter((i) => !i.identified), [items]);
-  const unidentifiedNames = useMemo(
-    () => unidentified.map((i) => resolveCleanName(i, bookingId)),
-    [unidentified, bookingId],
-  );
-  const total = items.length;
-  const identifiedCount = total - unidentified.length;
-
-  // Download the web-res versions of every still-unidentified photo as one ZIP,
-  // built in the browser (client-zip) via the same streamZipToDisk path as every
-  // other gallery download.
-  const downloadUnidentifiedImages = useCallback(async () => {
-    const entries = unidentified
-      .filter((i) => i.url)
-      .map((i) => ({ url: i.url, name: resolveCleanName(i, bookingId) }));
-    if (entries.length === 0 || zipping) return;
-    setZipping(true);
-    toast("Preparing your download…");
-    try {
-      const { zipped, failed, cancelled } = await streamZipToDisk(
-        entries,
-        `${sanitizeArchive(eventName)}_unidentified.zip`,
-        (done, count) => toast(`Zipping ${fmt(done)}/${fmt(count)}…`),
-      );
-      if (cancelled) return;
-      toast(failed > 0 ? `Saved ${fmt(zipped)} — ${fmt(failed)} couldn't be fetched` : "Saved to your downloads");
-    } catch (err) {
-      console.warn("[downloadUnidentifiedImages] failed", err);
-      toast("Download failed — please try again", "error");
-    } finally {
-      setZipping(false);
-    }
-  }, [unidentified, bookingId, eventName, zipping, toast]);
-
-  if (shortlistedCount === 0) return null;
-
+  if (!open) return null;
   return (
-    <>
-      <ReportCard
-        loading={!loadedOnce}
-        total={total}
-        identified={identifiedCount}
-        unidentifiedNames={unidentifiedNames}
-        zipping={zipping}
-        onLocate={() => onOpenChange(true)}
-        onDownloadImages={downloadUnidentifiedImages}
-      />
-      {open && (
-        <LocateModal
-          bookingId={bookingId}
-          eventName={eventName}
-          unidentified={unidentified}
-          foldersById={foldersById}
-          toast={toast}
-          onClose={() => onOpenChange(false)}
-          onCompleted={async () => {
-            await fetchReport();
-            onLocated?.();
-          }}
-        />
-      )}
-    </>
+    <LocateModal
+      bookingId={bookingId}
+      eventName={eventName}
+      shortlistedCount={shortlistedCount}
+      toast={toast}
+      onClose={() => onOpenChange(false)}
+    />
   );
 }
 
-/* ── report card (inline, always visible on the tab) ──────────────── */
+/* ── the locate flow ──────────────────────────────────────────────── */
 
-function ReportCard({
-  loading,
-  total,
-  identified,
-  unidentifiedNames,
-  zipping,
-  onLocate,
-  onDownloadImages,
-}: {
-  loading: boolean;
-  total: number;
-  identified: number;
-  unidentifiedNames: string[];
-  zipping: boolean;
-  onLocate: () => void;
-  onDownloadImages: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const pct = total === 0 ? 0 : Math.round((identified / total) * 100);
-  const remaining = unidentifiedNames.length;
-  const preview = expanded ? unidentifiedNames : unidentifiedNames.slice(0, 8);
-
-  return (
-    <div className="mb-5 rounded-xl border border-[var(--color-brand-border)] bg-white p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-            <IconTarget size={16} />
-          </span>
-          <div>
-            <p className="text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-              {loading && total === 0
-                ? "Checking located originals…"
-                : `${fmt(identified)} of ${fmt(total)} originals identified`}
-            </p>
-            <p className="text-[12px] text-[var(--color-brand-muted)]">
-              {remaining === 0
-                ? "Every shortlisted photo has its original file located."
-                : `${fmt(remaining)} still to locate.`}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {remaining > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={onDownloadImages}
-                disabled={zipping}
-                className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {zipping ? (
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
-                ) : (
-                  <IconDownload size={13} />
-                )}
-                {zipping ? "Preparing…" : "Download images"}
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={onLocate}
-            className="brand-focus inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
-          >
-            <IconTarget size={13} /> {identified > 0 ? "Locate more" : "Locate originals"}
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-3.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-brand-surface)]">
-        <div
-          className="h-full rounded-full bg-[var(--color-brand-success)] transition-[width] duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      {remaining > 0 && (
-        <div className="mt-3.5">
-          <div className="flex flex-wrap gap-1.5">
-            {preview.map((name, i) => (
-              <span
-                key={`${name}-${i}`}
-                className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-md bg-[var(--color-brand-surface)] px-2 py-1 text-[11.5px] text-[var(--color-brand-ink)]"
-                title={name}
-              >
-                <IconImage size={11} className="shrink-0 text-[var(--color-brand-muted)]" />
-                <span className="truncate">{name}</span>
-              </span>
-            ))}
-          </div>
-          {remaining > 8 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="brand-focus mt-2 rounded text-[12px] font-semibold text-[var(--color-brand-navy)] hover:underline"
-            >
-              {expanded ? "Show less" : `Show all ${fmt(remaining)}`}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── the locate flow (mounted only while open) ────────────────────── */
-
-type Phase = "picker" | "scanning" | "review" | "copying" | "done" | "error";
+type Phase = "picker" | "scanning" | "review" | "choose" | "copying" | "done" | "error";
 
 function LocateModal({
   bookingId,
   eventName,
-  unidentified,
-  foldersById,
+  shortlistedCount,
   toast,
   onClose,
-  onCompleted,
 }: {
   bookingId: string;
   eventName: string;
-  unidentified: ShortlistedMediaItem[];
-  foldersById: Map<string, string>;
+  shortlistedCount: number;
   toast: (msg: string, type?: "success" | "error") => void;
   onClose: () => void;
-  onCompleted: () => Promise<void> | void;
 }) {
   // Capability is known at first render; the modal itself only renders after a
   // user gesture so there's no SSR/hydration surface to mismatch.
   const [supported] = useState<boolean | null>(() =>
     typeof window !== "undefined" ? supportsFsa() : null,
   );
+
+  // Every shortlisted item is a target, every run — fetched fresh on open.
+  const [items, setItems] = useState<ShortlistedMediaItem[]>([]);
+  const [foldersById, setFoldersById] = useState<Map<string, string>>(new Map());
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await getShortlistedMedia(bookingId);
+        if (!alive) return;
+        setItems(res.media);
+        setFoldersById(new Map(res.customFolders.map((f) => [f._id, f.name])));
+      } catch {
+        if (alive) setLoadError("Could not load your shortlist — close this and try again.");
+      } finally {
+        if (alive) setItemsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [bookingId]);
+
   const [phase, setPhase] = useState<Phase>("picker");
   const [savedHandle, setSavedHandle] = useState<FsDirHandle | null>(null);
   const [scanned, setScanned] = useState(0);
@@ -295,16 +132,17 @@ function LocateModal({
   const [chosenFile, setChosenFile] = useState<Record<string, number>>({});
   const [copyProg, setCopyProg] = useState<CopyProgress>({ copied: 0, total: 0 });
   const [result, setResult] = useState<RunResult | null>(null);
+  const [lastMode, setLastMode] = useState<CopyMode>("create");
+  const [finalFolderName, setFinalFolderName] = useState(OUTPUT_DIR);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  // True once a run is using the download-only (zip) path — tracked as state so
-  // render never reads a ref. Mirrors whether `rootRef` holds an FSA handle.
-  const [fallback, setFallback] = useState(false);
+  const [zipping, setZipping] = useState(false);
 
-  const rootRef = useRef<FsDirHandle | null>(null); // active scan + output dir (FSA)
+  const rootRef = useRef<FsDirHandle | null>(null);
   const targetsRef = useRef<ReturnType<typeof toTargets>>([]);
+  const rawIndexRef = useRef<Map<string, SourceFile>>(new Map());
   const busy = phase === "scanning" || phase === "copying";
 
-  // Re-offer the folder picked on a previous visit (post-await setState = fine).
+  // Re-offer the folder picked on a previous visit.
   useEffect(() => {
     if (!supportsFsa()) return;
     let alive = true;
@@ -331,10 +169,10 @@ function LocateModal({
 
   /* scan */
   const runScan = useCallback(
-    async (source: { kind: "dir"; root: FsDirHandle } | { kind: "files"; files: File[] }) => {
-      const targets = toTargets(unidentified, bookingId);
+    async (root: FsDirHandle) => {
+      const targets = toTargets(items, bookingId);
       if (targets.length === 0) {
-        toast("Every shortlisted original is already located.");
+        toast("Your shortlist is empty.");
         onClose();
         return;
       }
@@ -343,10 +181,7 @@ function LocateModal({
       setPhase("scanning");
       setScanned(0);
       try {
-        const res =
-          source.kind === "dir"
-            ? await scanDirectory(source.root, targets, bookingId, setScanned)
-            : await scanFiles(source.files, targets, bookingId, setScanned);
+        const res = await scanDirectory(root, targets, bookingId, setScanned);
         const inc: Record<string, boolean> = {};
         const ch: Record<string, number> = {};
         for (const m of res.matches) {
@@ -356,6 +191,7 @@ function LocateModal({
         setInclude(inc);
         setChosenFile(ch);
         setMatches(res.matches);
+        rawIndexRef.current = res.rawIndex;
         setScanned(res.scannedCount);
         setPhase("review");
       } catch (err) {
@@ -363,7 +199,7 @@ function LocateModal({
         setPhase("error");
       }
     },
-    [unidentified, bookingId, toast, onClose],
+    [items, bookingId, toast, onClose],
   );
 
   const pickAndScan = useCallback(
@@ -386,8 +222,7 @@ function LocateModal({
           setSavedHandle(root);
         }
         rootRef.current = root;
-        setFallback(false);
-        await runScan({ kind: "dir", root });
+        await runScan(root);
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : "Could not open that folder.");
         setPhase("error");
@@ -396,87 +231,129 @@ function LocateModal({
     [savedHandle, bookingId, toast, runScan],
   );
 
-  const onFallbackFiles = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) return;
-      rootRef.current = null;
-      setFallback(true);
-      void runScan({ kind: "files", files });
-    },
-    [runScan],
-  );
-
-  /* copy / zip */
+  /* review → copy */
   const includedMatches = useMemo<IncludedMatch[]>(
     () =>
       matches
         .filter((m) => m.kind === "exact" || include[m.target._id])
-        .map((m) => ({ target: m.target, file: m.sources[chosenFile[m.target._id] ?? 0]?.file }))
-        .filter((m): m is IncludedMatch => !!m.file),
+        .map((m) => ({ target: m.target, source: m.sources[chosenFile[m.target._id] ?? 0] }))
+        .filter((m): m is IncludedMatch => !!m.source),
     [matches, include, chosenFile],
   );
 
-  const doCopy = useCallback(async () => {
-    if (includedMatches.length === 0) return;
-    setPhase("copying");
-    setCopyProg({ copied: 0, total: includedMatches.length });
-    try {
-      const totalTargets = targetsRef.current.length;
-      const res = rootRef.current
-        ? await copyToDirectory(
-            rootRef.current,
-            bookingId,
-            includedMatches,
-            foldersById,
-            totalTargets,
-            setCopyProg,
-          )
-        : await zipToDownload(
-            includedMatches,
-            foldersById,
-            totalTargets,
-            `${sanitizeArchive(eventName)}_Selected.zip`,
-            setCopyProg,
-          );
-      if (res.identifiedIds.length > 0) {
-        try {
-          await updateMediaIdentified(res.identifiedIds);
-        } catch {
-          toast("Files are ready, but the report couldn't be updated — try refreshing.", "error");
-        }
+  const runCopy = useCallback(
+    async (mode: CopyMode, outDir: FsDirHandle, folderName: string) => {
+      setPhase("copying");
+      setCopyProg({ copied: 0, total: includedMatches.length });
+      try {
+        const res = await copyToDirectory(
+          outDir,
+          includedMatches,
+          rawIndexRef.current,
+          foldersById,
+          targetsRef.current.length,
+          mode,
+          setCopyProg,
+        );
+        setResult(res);
+        setLastMode(mode);
+        setFinalFolderName(folderName);
+        setPhase("done");
+        toast(
+          mode === "replace"
+            ? `“${folderName}” now matches this run's selection.`
+            : "Originals copied.",
+        );
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : "Something went wrong while copying.");
+        setPhase("error");
       }
-      setResult(res);
-      setPhase("done");
-      await onCompleted();
+    },
+    [includedMatches, foldersById, toast],
+  );
+
+  const startCopy = useCallback(async () => {
+    if (includedMatches.length === 0 || !rootRef.current) return;
+    const root = rootRef.current;
+    try {
+      const existing = await getExistingDirectory(root, OUTPUT_DIR);
+      if (existing) {
+        setPhase("choose");
+      } else {
+        const outDir = await root.getDirectoryHandle(OUTPUT_DIR, { create: true });
+        await runCopy("create", outDir, OUTPUT_DIR);
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong while copying.");
       setPhase("error");
     }
-  }, [includedMatches, bookingId, foldersById, eventName, toast, onCompleted]);
+  }, [includedMatches, runCopy]);
+
+  const chooseReplace = useCallback(async () => {
+    if (!rootRef.current) return;
+    const outDir = await rootRef.current.getDirectoryHandle(OUTPUT_DIR, { create: true });
+    await runCopy("replace", outDir, OUTPUT_DIR);
+  }, [runCopy]);
+
+  const chooseCreateNew = useCallback(async () => {
+    if (!rootRef.current) return;
+    const freeName = await findFreeDirName(rootRef.current, OUTPUT_DIR);
+    const outDir = await rootRef.current.getDirectoryHandle(freeName, { create: true });
+    await runCopy("create", outDir, freeName);
+  }, [runCopy]);
 
   const tryAgain = useCallback(() => {
     setMatches([]);
     setResult(null);
     setErrorMsg(null);
     setScanned(0);
-    setFallback(false);
     rootRef.current = null;
+    rawIndexRef.current = new Map();
     setPhase("picker");
     if (supportsFsa()) void loadDirHandle(bookingId).then(setSavedHandle);
   }, [bookingId]);
+
+  /* not-found → manual download (Done screen) */
+  const notFoundItems = useMemo(() => {
+    const includedIds = new Set(includedMatches.map((m) => m.target._id));
+    return items.filter((i) => !includedIds.has(i._id));
+  }, [items, includedMatches]);
+
+  const downloadNotFound = useCallback(async () => {
+    const entries = notFoundItems
+      .filter((i) => i.url)
+      .map((i) => ({ url: i.url, name: resolveCleanName(i, bookingId) }));
+    if (entries.length === 0 || zipping) return;
+    setZipping(true);
+    toast("Preparing your download…");
+    try {
+      const { zipped, failed, cancelled } = await streamZipToDisk(
+        entries,
+        `${sanitizeArchive(eventName)}_not_found.zip`,
+        (done, count) => toast(`Zipping ${fmt(done)}/${fmt(count)}…`),
+      );
+      if (cancelled) return;
+      toast(failed > 0 ? `Saved ${fmt(zipped)} — ${fmt(failed)} couldn't be fetched` : "Saved to your downloads");
+    } catch (err) {
+      console.warn("[downloadNotFound] failed", err);
+      toast("Download failed — please try again", "error");
+    } finally {
+      setZipping(false);
+    }
+  }, [notFoundItems, bookingId, eventName, zipping, toast]);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Locate original images"
-      className="fixed inset-0 z-[220] flex items-center justify-center px-4"
+      className="fixed inset-0 z-[220] flex items-stretch justify-center sm:items-center sm:px-4"
       style={{ background: "rgba(42,34,24,0.48)", backdropFilter: "blur(3px)" }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="dash-rise flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-[16px] border border-[var(--color-brand-border)] bg-white shadow-[0_24px_64px_rgba(42,34,24,0.24)]">
+      <div className="dash-rise flex h-full w-full flex-col overflow-hidden bg-white shadow-[0_24px_64px_rgba(42,34,24,0.24)] sm:h-auto sm:max-h-[88vh] sm:w-full sm:max-w-[560px] sm:rounded-[16px] sm:border sm:border-[var(--color-brand-border)]">
         <header className="flex items-center justify-between gap-4 border-b border-[var(--color-brand-border)] px-6 py-4">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
@@ -503,72 +380,91 @@ function LocateModal({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {phase === "picker" && (
-            <PickerPanel
-              supported={supported}
-              savedHandle={savedHandle}
-              targetCount={unidentified.length}
-              onUseSaved={() => void pickAndScan(true)}
-              onPick={() => void pickAndScan(false)}
-              onFallbackFiles={onFallbackFiles}
-            />
+          {supported === false ? (
+            <ChromeRequiredPanel />
+          ) : (
+            <>
+              {phase === "picker" && (
+                <PickerPanel
+                  supported={supported}
+                  savedHandle={savedHandle}
+                  targetCount={items.length || shortlistedCount}
+                  loading={itemsLoading}
+                  loadError={loadError}
+                  onUseSaved={() => void pickAndScan(true)}
+                  onPick={() => void pickAndScan(false)}
+                />
+              )}
+              {phase === "scanning" && <ScanningPanel scanned={scanned} />}
+              {phase === "review" && (
+                <ReviewPanel
+                  matches={matches}
+                  targetCount={targetCount}
+                  include={include}
+                  chosenFile={chosenFile}
+                  onToggleInclude={(id) => setInclude((p) => ({ ...p, [id]: !p[id] }))}
+                  onChooseFile={(id, i) => setChosenFile((p) => ({ ...p, [id]: i }))}
+                />
+              )}
+              {phase === "choose" && (
+                <ChooseDestinationPanel
+                  onReplace={() => void chooseReplace()}
+                  onCreateNew={() => void chooseCreateNew()}
+                />
+              )}
+              {phase === "copying" && <CopyingPanel prog={copyProg} />}
+              {phase === "done" && result && (
+                <DonePanel
+                  result={result}
+                  mode={lastMode}
+                  folderName={finalFolderName}
+                  zipping={zipping}
+                  onDownloadNotFound={() => void downloadNotFound()}
+                />
+              )}
+              {phase === "error" && <ErrorPanel message={errorMsg} />}
+            </>
           )}
-          {phase === "scanning" && <ScanningPanel scanned={scanned} />}
-          {phase === "review" && (
-            <ReviewPanel
-              matches={matches}
-              targetCount={targetCount}
-              include={include}
-              chosenFile={chosenFile}
-              foldersById={foldersById}
-              onToggleInclude={(id) => setInclude((p) => ({ ...p, [id]: !p[id] }))}
-              onChooseFile={(id, i) => setChosenFile((p) => ({ ...p, [id]: i }))}
-            />
-          )}
-          {phase === "copying" && <CopyingPanel prog={copyProg} fallback={fallback} />}
-          {phase === "done" && result && <DonePanel result={result} fallback={fallback} />}
-          {phase === "error" && <ErrorPanel message={errorMsg} />}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
-          <div className="text-[12px] text-[var(--color-brand-muted)]">
-            {phase === "review" && `${fmt(includedMatches.length)} of ${fmt(targetCount)} ready`}
-            {phase === "picker" && supported === false && "Download-only browser"}
-          </div>
-          <div className="flex items-center gap-2.5">
-            {(phase === "review" || phase === "done" || phase === "error") && (
-              <button
-                type="button"
-                onClick={phase === "review" ? close : tryAgain}
-                className="brand-focus inline-flex h-9 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 text-[13px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-              >
-                {phase === "review" ? "Cancel" : "Try Again"}
-              </button>
-            )}
-            {phase === "review" && (
-              <button
-                type="button"
-                onClick={() => void doCopy()}
-                disabled={includedMatches.length === 0}
-                className="brand-focus inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {fallback ? <IconDownload size={15} /> : <IconArrowRight size={15} />}
-                {fallback
-                  ? `Download ${fmt(includedMatches.length)}`
-                  : `Copy ${fmt(includedMatches.length)}`}
-              </button>
-            )}
-            {phase === "done" && (
-              <button
-                type="button"
-                onClick={close}
-                className="brand-focus inline-flex h-9 items-center rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
-              >
-                Done
-              </button>
-            )}
-          </div>
-        </footer>
+        {supported !== false && (
+          <footer className="flex items-center justify-between gap-3 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
+            <div className="text-[12px] text-[var(--color-brand-muted)]">
+              {phase === "review" && `${fmt(includedMatches.length)} of ${fmt(targetCount)} ready`}
+            </div>
+            <div className="flex items-center gap-2.5">
+              {(phase === "review" || phase === "done" || phase === "error") && (
+                <button
+                  type="button"
+                  onClick={phase === "review" ? close : tryAgain}
+                  className="brand-focus inline-flex h-9 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 text-[13px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+                >
+                  {phase === "review" ? "Cancel" : "Try Again"}
+                </button>
+              )}
+              {phase === "review" && (
+                <button
+                  type="button"
+                  onClick={() => void startCopy()}
+                  disabled={includedMatches.length === 0}
+                  className="brand-focus inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <IconArrowRight size={15} />
+                  {`Copy ${fmt(includedMatches.length)}`}
+                </button>
+              )}
+              {phase === "done" && (
+                <button
+                  type="button"
+                  onClick={close}
+                  className="brand-focus inline-flex h-9 items-center rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
+                >
+                  Done
+                </button>
+              )}
+            </div>
+          </footer>
+        )}
       </div>
     </div>
   );
@@ -576,107 +472,146 @@ function LocateModal({
 
 /* ── modal panels ─────────────────────────────────────────────────── */
 
+/** Dedicated full-panel screen for non-Chromium browsers — no partial/fallback
+ *  experience, just a plain explanation of where this works. */
+function ChromeRequiredPanel() {
+  return (
+    <div className="flex flex-col items-center gap-3 py-10 text-center">
+      <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+        <IconMonitor size={26} />
+      </span>
+      <h3 className="text-[16px] font-bold text-[var(--color-brand-ink)]">
+        Open this page in Google Chrome
+      </h3>
+      <p className="max-w-[360px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
+        Locate Originals works best in Google Chrome — open this page there to match your
+        shortlist to your photo folder.
+      </p>
+    </div>
+  );
+}
+
+const STEPS: { icon: React.ReactNode; label: string }[] = [
+  { icon: <IconFolder size={18} />, label: "Pick a folder" },
+  { icon: <IconScanFace size={18} />, label: "We check it against your shortlist" },
+  { icon: <IconCheck size={18} />, label: "You review what we found" },
+  { icon: <IconCopy size={18} />, label: "We copy them in" },
+];
+
+/** Compact step-by-step graphic — horizontal on wider screens, stacked on narrow. */
+function StepsGraphic() {
+  const nodes: React.ReactNode[] = [];
+  STEPS.forEach((step, i) => {
+    nodes.push(
+      <div
+        key={`step-${i}`}
+        className="flex items-center gap-3 sm:min-w-0 sm:flex-1 sm:flex-col sm:gap-2 sm:text-center"
+      >
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[var(--color-brand-navy)] shadow-[0_1px_3px_rgba(42,34,24,0.12)]">
+          {step.icon}
+        </span>
+        <span className="text-[12px] font-medium leading-snug text-[var(--color-brand-ink)]">
+          {step.label}
+        </span>
+      </div>,
+    );
+    if (i < STEPS.length - 1) {
+      nodes.push(
+        <span
+          key={`arrow-${i}`}
+          aria-hidden
+          className="flex shrink-0 rotate-90 items-center justify-center text-[var(--color-brand-outline)] sm:rotate-0"
+        >
+          <IconArrowRight size={14} />
+        </span>,
+      );
+    }
+  });
+  return (
+    <div className="mb-5 flex flex-col gap-2 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-4 sm:flex-row sm:items-center sm:gap-1">
+      {nodes}
+    </div>
+  );
+}
+
 function PickerPanel({
   supported,
   savedHandle,
   targetCount,
+  loading,
+  loadError,
   onUseSaved,
   onPick,
-  onFallbackFiles,
 }: {
   supported: boolean | null;
   savedHandle: FsDirHandle | null;
   targetCount: number;
+  loading: boolean;
+  loadError: string | null;
   onUseSaved: () => void;
   onPick: () => void;
-  onFallbackFiles: (files: File[]) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
   if (supported === null) {
     return <p className="text-[13px] text-[var(--color-brand-muted)]">Preparing…</p>;
   }
 
   return (
     <div>
-      <p className="mb-4 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-        We&apos;ll scan the folder you choose (including subfolders), match each file to your{" "}
-        <span className="font-semibold text-[var(--color-brand-ink)]">{fmt(targetCount)}</span>{" "}
-        shortlisted photo{targetCount === 1 ? "" : "s"} still to locate, and gather the
-        full-resolution originals for you.
-      </p>
+      <StepsGraphic />
 
-      {supported ? (
-        <div className="flex flex-col gap-2.5">
-          {savedHandle && (
-            <button
-              type="button"
-              onClick={onUseSaved}
-              className="brand-focus flex items-center gap-3 rounded-xl border border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] px-4 py-3 text-left hover:bg-white"
-            >
-              <IconFolder size={18} className="shrink-0 text-[var(--color-brand-navy)]" />
-              <span className="min-w-0">
-                <span className="block truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-                  Use “{savedHandle.name}”
-                </span>
-                <span className="block text-[12px] text-[var(--color-brand-muted)]">
-                  Continue with the folder you picked last time.
-                </span>
-              </span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onPick}
-            className="brand-focus flex items-center gap-3 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 py-3 text-left hover:border-[var(--color-brand-outline)]"
-          >
-            <IconFolder size={18} className="shrink-0 text-[var(--color-brand-muted)]" />
-            <span className="min-w-0">
-              <span className="block text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-                {savedHandle ? "Choose a different folder…" : "Choose folder…"}
-              </span>
-              <span className="block text-[12px] text-[var(--color-brand-muted)]">
-                Matched originals are copied in-place into a “Smartly Selected by Vyavasth AI”
-                subfolder.
-              </span>
-            </span>
-          </button>
-        </div>
+      {loadError ? (
+        <p className="mb-4 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+          {loadError}
+        </p>
+      ) : loading ? (
+        <p className="mb-4 flex items-center gap-2 text-[13px] text-[var(--color-brand-muted)]">
+          <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+          Loading your shortlist…
+        </p>
       ) : (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-3.5 py-3">
-            <IconInfo size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
-            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
-              This browser can only <span className="font-semibold">download</span> matched files as
-              a zip. For in-place copying into per-folder subfolders, open this page in{" "}
-              <span className="font-semibold">Chrome or Edge</span>.
-            </p>
-          </div>
+        <p className="mb-4 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
+          Pick a folder (we&apos;ll check subfolders too) and we&apos;ll match it against your{" "}
+          <span className="font-semibold text-[var(--color-brand-ink)]">{fmt(targetCount)}</span>{" "}
+          shortlisted photo{targetCount === 1 ? "" : "s"}.
+        </p>
+      )}
+
+      <div className="flex flex-col gap-2.5">
+        {savedHandle && (
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
-            className="brand-focus flex items-center gap-3 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 py-3 text-left hover:border-[var(--color-brand-outline)]"
+            onClick={onUseSaved}
+            disabled={loading || !!loadError}
+            className="brand-focus flex items-center gap-3 rounded-xl border border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] px-4 py-3 text-left hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <IconFolder size={18} className="shrink-0 text-[var(--color-brand-muted)]" />
-            <span>
-              <span className="block text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-                Choose folder to scan…
+            <IconFolder size={18} className="shrink-0 text-[var(--color-brand-navy)]" />
+            <span className="min-w-0">
+              <span className="block truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
+                Use “{savedHandle.name}”
               </span>
               <span className="block text-[12px] text-[var(--color-brand-muted)]">
-                Matched originals download as one zip, folders preserved inside.
+                Continue with the folder you picked last time.
               </span>
             </span>
           </button>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            onChange={(e) => onFallbackFiles(Array.from(e.target.files ?? []))}
-            className="hidden"
-            {...({ webkitdirectory: "true", directory: "true" } as Record<string, string>)}
-          />
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          onClick={onPick}
+          disabled={loading || !!loadError}
+          className="brand-focus flex items-center gap-3 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 py-3 text-left hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <IconFolder size={18} className="shrink-0 text-[var(--color-brand-muted)]" />
+          <span className="min-w-0">
+            <span className="block text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
+              {savedHandle ? "Choose a different folder…" : "Choose folder…"}
+            </span>
+            <span className="block text-[12px] text-[var(--color-brand-muted)]">
+              Matches are copied into a “{OUTPUT_DIR}” subfolder inside it.
+            </span>
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -698,7 +633,6 @@ function ReviewPanel({
   targetCount,
   include,
   chosenFile,
-  foldersById,
   onToggleInclude,
   onChooseFile,
 }: {
@@ -706,12 +640,11 @@ function ReviewPanel({
   targetCount: number;
   include: Record<string, boolean>;
   chosenFile: Record<string, number>;
-  foldersById: Map<string, string>;
   onToggleInclude: (id: string) => void;
   onChooseFile: (id: string, i: number) => void;
 }) {
-  const exactAuto = matches.filter((m) => m.kind === "exact" && m.sources.length === 1);
-  const probable = matches.filter((m) => m.kind === "fuzzy");
+  const exact = matches.filter((m) => m.kind === "exact");
+  const modified = matches.filter((m) => m.kind === "fuzzy");
   const conflicts = matches.filter((m) => m.sources.length > 1);
   const found = matches.length;
 
@@ -725,8 +658,8 @@ function ReviewPanel({
           No originals found in that folder
         </p>
         <p className="max-w-[360px] text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
-          None of the {fmt(targetCount)} shortlisted photos matched a file here. Try another folder —
-          matches accumulate, so nothing you&apos;ve already located is lost.
+          None of the {fmt(targetCount)} shortlisted photos matched a file here. Try another
+          folder.
         </p>
       </div>
     );
@@ -736,30 +669,29 @@ function ReviewPanel({
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-[var(--color-brand-success-soft)] bg-[var(--color-brand-success-soft)] px-3.5 py-2.5">
         <p className="text-[13px] font-semibold text-[var(--color-brand-ink)]">
-          Found {fmt(found)} of {fmt(targetCount)} shortlisted originals
+          Found {fmt(found)} of {fmt(targetCount)} shortlisted photos
         </p>
         <p className="text-[12px] text-[var(--color-brand-muted)]">
-          {fmt(exactAuto.length)} exact match{exactAuto.length === 1 ? "" : "es"}
-          {probable.length > 0 && ` · ${fmt(probable.length)} to confirm`}
-          {conflicts.length > 0 && ` · ${fmt(conflicts.length)} with duplicates`}
+          {fmt(exact.length)} found
+          {modified.length > 0 && ` · ${fmt(modified.length)} found, but modified`}
         </p>
       </div>
 
-      {probable.length > 0 && (
+      {modified.length > 0 && (
         <section>
           <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-[var(--color-brand-ink)]">
             <IconInfo size={13} className="text-[var(--color-brand-warning)]" />
-            Probable matches — please confirm
+            Found, but modified — please confirm
             <InfoTip label="Why these need confirming">
-              Same name &amp; size but a different modified date — common with cloud sync or
-              &ldquo;save as&rdquo;. Usually the same photo, but worth a glance.
+              Same name and size but a different modified date — common with cloud sync or
+              &ldquo;save as&rdquo;. Usually the same photo, but worth a quick glance.
             </InfoTip>
           </h3>
           <p className="mb-2 text-[11.5px] text-[var(--color-brand-muted)]">
             Untick any that aren&apos;t the right photo.
           </p>
           <div className="flex flex-col divide-y divide-[var(--color-brand-border)] rounded-lg border border-[var(--color-brand-border)]">
-            {probable.map((m) => (
+            {modified.map((m) => (
               <label
                 key={m.target._id}
                 className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-[12.5px]"
@@ -782,9 +714,8 @@ function ReviewPanel({
 
       {conflicts.length > 0 && (
         <section>
-          <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-[var(--color-brand-ink)]">
-            <IconWarning size={13} className="text-[var(--color-brand-warning)]" />
-            Duplicates — choose which file to use
+          <h3 className="mb-1.5 text-[12.5px] font-bold text-[var(--color-brand-ink)]">
+            More than one match — choose which file to use
           </h3>
           <div className="flex flex-col gap-2.5">
             {conflicts.map((m) => (
@@ -820,13 +751,8 @@ function ReviewPanel({
         </section>
       )}
 
-      <p className="flex items-center gap-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
-        Sorted into per-folder subfolders
-        <InfoTip label="How files are organised">
-          Matched originals route into per-folder subfolders inside “Smartly Selected by Vyavasth
-          AI”. Photos with no folder go to “Uncategorised”.
-          {foldersById.size > 0 ? ` ${fmt(foldersById.size)} folders available.` : ""}
-        </InfoTip>
+      <p className="text-[11.5px] text-[var(--color-brand-muted)]">
+        Sorted into per-folder subfolders inside “{OUTPUT_DIR}”.
       </p>
     </div>
   );
@@ -834,8 +760,7 @@ function ReviewPanel({
 
 /**
  * A small accessible info-tip: an IconInfo trigger that reveals explanatory copy
- * on hover *and* keyboard focus (and toggles on click/tap). Used to fold long
- * notes out of the Locate flow while keeping them one interaction away.
+ * on hover *and* keyboard focus (and toggles on click/tap).
  */
 function InfoTip({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -869,14 +794,54 @@ function InfoTip({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function CopyingPanel({ prog, fallback }: { prog: CopyProgress; fallback: boolean }) {
+function ChooseDestinationPanel({
+  onReplace,
+  onCreateNew,
+}: {
+  onReplace: () => void;
+  onCreateNew: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-3.5 py-3">
+        <IconInfo size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+        <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+          A “{OUTPUT_DIR}” folder from a previous run is already here. What should we do?
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onReplace}
+        className="brand-focus flex flex-col items-start gap-1 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 py-3 text-left hover:border-[var(--color-brand-outline)]"
+      >
+        <span className="text-[13.5px] font-semibold text-[var(--color-brand-ink)]">Replace it</span>
+        <span className="text-[12px] text-[var(--color-brand-muted)]">
+          Make it match exactly this run&apos;s selection — anything else in there is removed.
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onCreateNew}
+        className="brand-focus flex flex-col items-start gap-1 rounded-xl border border-[var(--color-brand-border)] bg-white px-4 py-3 text-left hover:border-[var(--color-brand-outline)]"
+      >
+        <span className="text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
+          Keep it, create a new copy
+        </span>
+        <span className="text-[12px] text-[var(--color-brand-muted)]">
+          Leave that folder untouched and copy this run&apos;s selection into a new one alongside
+          it.
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function CopyingPanel({ prog }: { prog: CopyProgress }) {
   const pct = prog.total === 0 ? 0 : Math.round((prog.copied / prog.total) * 100);
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
       <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
-      <p className="text-[14px] font-semibold text-[var(--color-brand-ink)]">
-        {fallback ? "Preparing your download…" : "Copying originals…"}
-      </p>
+      <p className="text-[14px] font-semibold text-[var(--color-brand-ink)]">Copying originals…</p>
       <p className="text-[12.5px] text-[var(--color-brand-muted)]">
         {fmt(prog.copied)} of {fmt(prog.total)}
         {prog.currentName ? ` · ${prog.currentName}` : ""}
@@ -891,7 +856,19 @@ function CopyingPanel({ prog, fallback }: { prog: CopyProgress; fallback: boolea
   );
 }
 
-function DonePanel({ result, fallback }: { result: RunResult; fallback: boolean }) {
+function DonePanel({
+  result,
+  mode,
+  folderName,
+  zipping,
+  onDownloadNotFound,
+}: {
+  result: RunResult;
+  mode: CopyMode;
+  folderName: string;
+  zipping: boolean;
+  onDownloadNotFound: () => void;
+}) {
   return (
     <div className="flex flex-col gap-4 py-2">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -899,24 +876,39 @@ function DonePanel({ result, fallback }: { result: RunResult; fallback: boolean 
           <IconCheck size={24} />
         </span>
         <p className="text-[15px] font-bold text-[var(--color-brand-ink)]">
-          {fallback ? "Your zip is downloading" : "Originals copied"}
+          {mode === "replace" ? "Folder replaced" : "Originals copied"}
         </p>
         <p className="max-w-[380px] text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
-          {fallback
-            ? "Matched originals are packed into one zip with your folder structure preserved."
-            : "Matched originals are in the “Smartly Selected by Vyavasth AI” folder, sorted into per-folder subfolders."}
+          {mode === "replace"
+            ? `The “${folderName}” folder now matches this run's selection exactly.`
+            : `Originals are in the “${folderName}” folder, sorted into per-folder subfolders.`}
         </p>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <Stat label={fallback ? "Downloaded" : "Newly copied"} value={result.newlyCopied} tone="success" />
-        <Stat label="Already delivered" value={result.alreadyDelivered} tone="muted" />
+        <Stat label="Copied" value={result.copied} tone="success" />
+        <Stat label="Already there" value={result.alreadyThere} tone="muted" />
         <Stat label="Not found" value={result.notFound} tone="warning" />
       </div>
       {result.notFound > 0 && (
-        <p className="text-center text-[12px] text-[var(--color-brand-muted)]">
-          Still missing {fmt(result.notFound)}? Use <span className="font-semibold">Try Again</span>{" "}
-          on another folder — already-located files are skipped automatically.
-        </p>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <p className="text-[12px] text-[var(--color-brand-muted)]">
+            {fmt(result.notFound)} shortlisted photo{result.notFound === 1 ? "" : "s"} weren&apos;t
+            found in that folder.
+          </p>
+          <button
+            type="button"
+            onClick={onDownloadNotFound}
+            disabled={zipping}
+            className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {zipping ? (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+            ) : (
+              <IconDownload size={13} />
+            )}
+            {zipping ? "Preparing…" : "Download these"}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -975,4 +967,3 @@ function sanitizeArchive(name: string): string {
     "Smartly Selected"
   );
 }
-

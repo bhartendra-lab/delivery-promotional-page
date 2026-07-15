@@ -23,9 +23,6 @@ export type LikedFilters = {
   guestIds: string[];
   /** Show only shortlisted (picked-for-delivery) media. */
   shortlistedOnly: boolean;
-  /** Show only shortlisted media whose originals aren't yet located ("Awaiting
-   *  original"). Implies `shortlistedOnly` on the wire (drives `awaiting_original`). */
-  awaitingOnly: boolean;
   /** Result ordering. "likes" = most-liked first (default); "recent" = newest first. */
   sort: "likes" | "recent";
 };
@@ -35,7 +32,6 @@ export const EMPTY_LIKED_FILTERS: LikedFilters = {
   subTypes: [],
   guestIds: [],
   shortlistedOnly: false,
-  awaitingOnly: false,
   sort: "likes",
 };
 
@@ -47,7 +43,6 @@ export function hasActiveLikedFilters(f: LikedFilters): boolean {
     f.subTypes.length > 0 ||
     f.guestIds.length > 0 ||
     f.shortlistedOnly ||
-    f.awaitingOnly ||
     f.sort !== "likes"
   );
 }
@@ -95,9 +90,6 @@ export type EventContextValue = {
   likedCount: number;
   /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
   shortlistedCount: number;
-  /** Count of shortlisted media whose originals are located (progress strip
-   *  "Located"; awaiting-original = shortlistedCount − locatedCount). */
-  locatedCount: number;
   /** Active filters for the Smart Selects (liked) view. */
   likedFilters: LikedFilters;
   /** Update the Smart Selects filters (re-fetches the liked view when it's active). */
@@ -118,19 +110,14 @@ export type EventContextValue = {
   /** True once the active upload run is genuinely running (not paused). */
   activeLocked: boolean;
   /**
-   * Set when the engine was auto-paused because the storage-based plan ran out
-   * of space mid-upload (distinct from a manual user pause, where this is null).
-   * Drives the storage-specific paused copy and gates the Resume button.
+   * True while a pause/cancel/complete-triggered `recalculate-studio-storage`
+   * call (+ usage refresh) is settling. The Media tab treats this like
+   * "still uploading" so the upload card doesn't hand off to its resting
+   * state with a stale storage number.
    */
-  autoPauseReason: string | null;
-  /** True while a manual "Re-check storage" refresh is in flight. */
-  storageRechecking: boolean;
-  /**
-   * Re-fetch usage after an auto-pause; if space has been freed (remaining > 0)
-   * this clears `autoPauseReason` so the user can resume. Otherwise the pause —
-   * and the disabled Resume button — stay put to avoid a resume→re-pause loop.
-   */
-  recheckStorage: () => Promise<void>;
+  finalizingStorage: boolean;
+  /** Pause the upload, then kick off the storage recalculation for it. */
+  pauseUpload: () => void;
   /**
    * True once the gallery has been published at least once. While true the
    * event name is locked read-only to keep the shared

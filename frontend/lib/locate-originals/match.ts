@@ -1,8 +1,7 @@
 /**
  * Pure matching logic for "Locate Original Images" (Smart Selects). No DOM, no
  * File System Access — just the fingerprint parsing, filename cleaning and the
- * shared exact→fuzzy matcher used both against the shortlisted set and against
- * the on-disk dedup manifest.
+ * shared exact→fuzzy matcher used against the shortlisted set.
  *
  * The stored `media_id` is `makeRecordId(bookingId, makeFingerprint(file))` =
  * `` `${bookingId}__${file.name}-${file.size}-${file.lastModified}` `` (see
@@ -11,16 +10,53 @@
  */
 
 /** Output folder created inside the studio's picked directory. */
-export const OUTPUT_DIR = "Smartly Selected by Vyavasth AI";
-/** Dot-prefixed dedup manifest at the root of {@link OUTPUT_DIR}. */
-export const MANIFEST_FILE = ".vyavasth_delivery_manifest.json";
+export const OUTPUT_DIR = "Smartly Selected";
 /** Subfolder for media with no custom folder (mirrors the uploader convention). */
 export const UNCATEGORISED = "Uncategorised";
+
+/** Raw-format extensions checked for a same-named sibling next to a matched
+ *  photo (case-insensitive). A list, not a single hardcoded extension, so
+ *  supporting another raw format later is a one-line change. */
+const RAW_EXTENSIONS = ["CR2"];
 
 /** Anything the matcher/copier should ignore while scanning a directory. */
 export function isJunkFile(name: string): boolean {
   const base = name.split("/").pop() ?? name;
   return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
+}
+
+/** Filename without its extension (or the whole name when there isn't one). */
+export function stripExtension(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
+
+/** The filename's extension, including the leading dot (or "" when there isn't one). */
+export function extensionOf(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(dot) : "";
+}
+
+/** True when `filename` has one of the known raw-photo extensions. */
+export function isRawFile(filename: string): boolean {
+  const ext = extensionOf(filename).slice(1).toUpperCase();
+  return RAW_EXTENSIONS.includes(ext);
+}
+
+/** Key a raw sibling is indexed/looked-up by: source directory + lowercased base name. */
+export function rawSiblingKey(dirPath: string, filename: string): string {
+  return `${dirPath}::${stripExtension(filename).toLowerCase()}`;
+}
+
+/** Extensions this feature itself ever writes to the output folder — Replace
+ *  mode scopes its deletions to these so a stray file the studio placed there
+ *  by hand is never touched. */
+const MANAGED_EXTENSIONS = ["JPG", "JPEG", "PNG", "WEBP", ...RAW_EXTENSIONS];
+
+/** True when `filename`'s extension is one this feature manages on disk. */
+export function isManagedFile(filename: string): boolean {
+  const ext = extensionOf(filename).slice(1).toUpperCase();
+  return ext !== "" && MANAGED_EXTENSIONS.includes(ext);
 }
 
 /**
@@ -88,13 +124,6 @@ export interface Matchable {
   filesize: number;
 }
 
-/** One row of the on-disk `.vyavasth_delivery_manifest.json` dedup ledger. */
-export interface ManifestEntry extends Matchable {
-  lastModified: number;
-  /** Epoch ms the file was copied into the output folder. */
-  copiedAt: number;
-}
-
 export type MatchTargets<T extends Matchable> = {
   exact: Map<string, T>;
   fuzzy: Map<string, T[]>;
@@ -114,19 +143,10 @@ export function buildTargets<T extends Matchable>(items: T[]): MatchTargets<T> {
   return { exact, fuzzy };
 }
 
-/** Add one item to an existing target index (keeps in-run dedup lookups live). */
-export function addToTargets<T extends Matchable>(t: MatchTargets<T>, item: T): void {
-  t.exact.set(item.media_id, item);
-  const key = fuzzyKey(item.filename, item.filesize);
-  const arr = t.fuzzy.get(key);
-  if (arr) arr.push(item);
-  else t.fuzzy.set(key, [item]);
-}
-
 /**
- * The shared match order used against both the shortlisted set and the dedup
- * manifest: (1) exact `media_id`; (2) else fuzzy `filename + filesize`. A fuzzy
- * hit is a *probable* match (mtime drifted) that the caller must confirm.
+ * The shared match order: (1) exact `media_id`; (2) else fuzzy `filename +
+ * filesize`. A fuzzy hit is a *probable* match (mtime drifted) that the caller
+ * must confirm.
  */
 export function matchOne<T extends Matchable>(
   targets: MatchTargets<T>,

@@ -92,15 +92,8 @@ export function MediaGrid({
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ ids: string[]; fromLightbox: boolean } | null>(null);
-  // Un-shortlist confirmation — raised only when at least one target is located
-  // (`identified`), since un-shortlisting clears that and the original must be
-  // re-located. `located` is the count of such photos (M in the copy).
-  const [unshortlist, setUnshortlist] = useState<
-    { ids: string[]; located: number; clearSelection: boolean } | null
-  >(null);
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [shortlisting, setShortlisting] = useState(false);
 
   // Infinite scroll: observe a sentinel below the grid and pull the next page
   // when it nears the viewport. `onLoadMore` is read through a ref so the
@@ -207,39 +200,17 @@ export function MediaGrid({
     selectedItems.length > 0 && selectedItems.every((m) => m.shortlisted);
 
   // Single entry point for every shortlist action (tile star, selection bar,
-  // lightbox). Shortlisting is immediate; un-shortlisting first checks whether any
-  // target is located and, if so, routes through the confirmation modal (F4).
+  // lightbox).
   const requestShortlist = useCallback(
     (ids: string[], next: boolean, opts?: { clearSelection?: boolean }) => {
       if (!onShortlistMany) return;
       const real = items.filter((m) => ids.includes(m._id) && isPersisted(m)).map((m) => m._id);
       if (real.length === 0) return;
       const clearSelection = !!opts?.clearSelection;
-      if (next) {
-        void onShortlistMany(real, true).then(() => clearSelection && setSelected(new Set()));
-        return;
-      }
-      const located = items.filter((m) => real.includes(m._id) && m.identified).length;
-      if (located > 0) {
-        setUnshortlist({ ids: real, located, clearSelection });
-      } else {
-        void onShortlistMany(real, false).then(() => clearSelection && setSelected(new Set()));
-      }
+      void onShortlistMany(real, next).then(() => clearSelection && setSelected(new Set()));
     },
     [items, onShortlistMany],
   );
-
-  const runUnshortlist = useCallback(async () => {
-    if (!unshortlist || !onShortlistMany || shortlisting) return;
-    setShortlisting(true);
-    try {
-      await onShortlistMany(unshortlist.ids, false);
-      if (unshortlist.clearSelection) setSelected(new Set());
-      setUnshortlist(null);
-    } finally {
-      setShortlisting(false);
-    }
-  }, [unshortlist, onShortlistMany, shortlisting]);
 
   const shortlistSelected = useCallback(() => {
     const ids = selectedItems.filter(isPersisted).map((m) => m._id);
@@ -366,11 +337,10 @@ export function MediaGrid({
 
               {/* Persistent status star (top-right) — the single status signal.
                   Not shortlisted → hover-only outline star. Shortlisted → amber.
-                  Shortlisted + located → green. One click toggles the shortlist. */}
+                  One click toggles the shortlist. */}
               {showShortlist && onShortlistMany && persisted && (
                 <StatusStar
                   shortlisted={!!m.shortlisted}
-                  located={!!m.identified}
                   onToggle={() => requestShortlist([m._id], !m.shortlisted)}
                 />
               )}
@@ -463,42 +433,24 @@ export function MediaGrid({
           onConfirm={runDelete}
         />
       )}
-
-      {unshortlist && (
-        <UnshortlistConfirm
-          count={unshortlist.ids.length}
-          located={unshortlist.located}
-          busy={shortlisting}
-          onCancel={() => !shortlisting && setUnshortlist(null)}
-          onConfirm={runUnshortlist}
-        />
-      )}
     </>
   );
 }
 
 /** Top-right status star. Renders nothing persistent when not shortlisted (an
- *  outline star fades in on tile hover); amber once shortlisted; green once the
- *  original is located. A single element carries the whole status. */
+ *  outline star fades in on tile hover); amber once shortlisted. One click
+ *  toggles the shortlist. */
 function StatusStar({
   shortlisted,
-  located,
   onToggle,
 }: {
   shortlisted: boolean;
-  located: boolean;
   onToggle: () => void;
 }) {
-  const label = !shortlisted
-    ? "Shortlist photo"
-    : located
-      ? "Shortlisted · original located"
-      : "Shortlisted";
-  const tone = !shortlisted
-    ? "bg-black/40 text-white opacity-0 hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100"
-    : located
-      ? "bg-[var(--color-brand-success)] text-white opacity-100"
-      : "bg-[var(--color-brand-warning)] text-white opacity-100";
+  const label = shortlisted ? "Remove from shortlist" : "Shortlist photo";
+  const tone = shortlisted
+    ? "bg-[var(--color-brand-warning)] text-white opacity-100"
+    : "bg-black/40 text-white opacity-0 hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100";
   return (
     <button
       type="button"
@@ -513,99 +465,6 @@ function StatusStar({
     >
       <IconStar size={13} filled={shortlisted} />
     </button>
-  );
-}
-
-function UnshortlistConfirm({
-  count,
-  located,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  count: number;
-  located: number;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    ref.current?.focus();
-    return () => document.removeEventListener("keydown", onKey);
-  }, [busy, onCancel]);
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="unshortlist-confirm-title"
-      className="fixed inset-0 z-[220] flex items-center justify-center px-4"
-      style={{ background: "rgba(42,34,24,0.48)", backdropFilter: "blur(3px)" }}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        ref={ref}
-        tabIndex={-1}
-        className="dash-rise w-full max-w-[420px] rounded-[14px] border border-[var(--color-brand-border)] bg-white p-6 shadow-[0_24px_64px_rgba(42,34,24,0.24)] outline-none"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]">
-            <IconStar size={18} filled />
-          </span>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            aria-label="Close"
-            className="brand-focus flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
-          >
-            <IconX size={16} />
-          </button>
-        </div>
-        <h3 id="unshortlist-confirm-title" className="mb-1.5 text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-          Remove {count.toLocaleString("en-IN")} photo{count === 1 ? "" : "s"} from the shortlist?
-        </h3>
-        <p className="text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-          {located.toLocaleString("en-IN")} of them already {located === 1 ? "has" : "have"} the
-          original located — locating will need to be redone for {located === 1 ? "it" : "those"} if
-          {located === 1 ? " it is" : " they are"} shortlisted again.
-        </p>
-        <div className="mt-6 flex justify-end gap-2.5">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-warning)] px-4 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
-          >
-            {busy ? (
-              <>
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
-                Removing…
-              </>
-            ) : (
-              <>
-                <IconStar size={14} /> Remove from shortlist
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

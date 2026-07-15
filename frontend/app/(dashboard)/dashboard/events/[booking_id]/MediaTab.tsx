@@ -36,9 +36,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     loadMore,
     engine,
     activeLocked,
-    autoPauseReason,
-    storageRechecking,
-    recheckStorage,
+    finalizingStorage,
+    pauseUpload,
     publishedEver,
     saveMeta,
     coverBusy,
@@ -69,10 +68,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
   // "populated" vs "empty" is event-level (does the booking have any media),
   // not view-level — an empty folder still shows the populated chrome with an
-  // empty grid, mirroring the prior behaviour.
+  // empty grid, mirroring the prior behaviour. `finalizingStorage` keeps this
+  // "uploading" a beat longer on cancel/complete, until the storage
+  // recalculation for that transition has settled.
   const state: "loading" | "uploading" | "populated" | "empty" = loading
     ? "loading"
-    : engineActive
+    : engineActive || finalizingStorage
     ? "uploading"
     : totalCount > 0
     ? "populated"
@@ -268,10 +269,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
           <UploadProgress
             progress={engine.progress}
             onCancel={() => void engine.cancelUpload()}
-            onTogglePause={() => (paused ? engine.resume() : engine.pause())}
-            autoPauseReason={autoPauseReason}
-            onRecheckStorage={() => void recheckStorage()}
-            storageRechecking={storageRechecking}
+            onTogglePause={() => (paused ? engine.resume() : pauseUpload())}
+            finalizingStorage={finalizingStorage}
           />
         )}
         {state === "populated" && (

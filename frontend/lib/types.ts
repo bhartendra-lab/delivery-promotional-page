@@ -236,8 +236,6 @@ export type MediaItem = {
   likes_count?: number;
   /** Studio shortlist flag (Smart Selects) — a picked-for-delivery liked photo. */
   shortlisted?: boolean;
-  /** True once the shortlisted photo's original file was located on disk. */
-  identified?: boolean;
   /** True when at least one host liked this photo (drives the filled heart in Smart
    *  Selects). Independent of the active who-filter; present only on smart loads. */
   host_liked?: boolean;
@@ -393,9 +391,6 @@ export type GetMediaResponse = {
   likedCount?: number;
   /** Count of shortlisted media. Drives the "Shortlisted" filter chip. */
   shortlistedCount?: number;
-  /** Count of shortlisted media whose originals are located. Drives the progress
-   *  strip's "Located" stat + the awaiting-original count (shortlisted − located). */
-  locatedCount?: number;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */
@@ -436,14 +431,6 @@ export type DeliveryLandingPageData = {
   is_active?: boolean;
   /** Publish state from the booking — "expired" means the gallery's access window has closed. */
   gallery_publish_status?: GalleryPublishStatus;
-  /** Full-gallery ZIP download URL (host-only). Null/absent until generated. */
-  zip_url?: string | null;
-  /**
-   * ZIP state. Backend enum: "not_generated" | "generated" | "downloaded" | "expired".
-   * Read open-endedly: "generated"/"downloaded" (and the spec alias "ready") are
-   * downloadable, "expired" offers a re-request, anything else shows nothing.
-   */
-  zip_status?: string;
 };
 
 /** A media item as returned to guests by `get-media` (carries `media_id` + likes). */

@@ -4,10 +4,10 @@ import { IconUpload, IconX } from "./icons";
 
 /**
  * Info strip rendered below the tab strip after an upload completes. Info +
- * dismiss × only — never a CTA: galleries are live from creation and the
- * pipeline embeds + re-clusters + rebuilds the download zip automatically, so
- * there is nothing for the studio to do. The top-right pill shows "Syncing"
- * until the backend reports the new photos are in guest face search.
+ * dismiss × only — never a CTA: galleries are live from creation, so there is
+ * nothing for the studio to do. Background processing (embeddings → face
+ * search) is deliberately not surfaced to the studio; the strip just confirms
+ * the photos are up and the gallery is live.
  */
 export function PostUploadBanner({
   photoCount,
@@ -35,12 +35,11 @@ export function PostUploadBanner({
       </span>
       <div className="flex-1 text-[13px] leading-snug text-[var(--color-brand-ink)]">
         <strong className="font-bold">
-          {countStr} photo{photoCount === 1 ? "" : "s"} uploaded — syncing automatically
+          {countStr} photo{photoCount === 1 ? "" : "s"} uploaded — your gallery is live
         </strong>
         <span className="text-[var(--color-brand-muted)]">
           {" "}
-          Your gallery is already live; the new photos appear in guest face
-          search and the download zip within a few minutes.
+          The new photos are now part of your live gallery for guests.
         </span>
       </div>
       <button

@@ -11,29 +11,27 @@ export function UploadProgress({
   progress,
   onCancel,
   onTogglePause,
-  autoPauseReason = null,
-  onRecheckStorage,
-  storageRechecking = false,
+  finalizingStorage = false,
 }: {
   progress: EngineProgress;
   onCancel: () => void;
   onTogglePause: () => void;
   /**
-   * Non-null when the run was auto-paused for a storage overrun (vs a manual
-   * user pause). Swaps in storage-specific copy and gates Resume until a
-   * re-check confirms space was freed.
+   * True while the storage recalculation triggered by this pause/cancel/
+   * complete transition is settling. Swaps in transitional copy so the
+   * resting Paused/done state doesn't appear before the fresh usage number
+   * has landed.
    */
-  autoPauseReason?: string | null;
-  /** Manual "Re-check storage" action, shown while auto-paused. */
-  onRecheckStorage?: () => void;
-  /** True while a re-check is in flight (disables the button + shows a spinner). */
-  storageRechecking?: boolean;
+  finalizingStorage?: boolean;
 }) {
   const dashOffset = RING_CIRC * (1 - progress.percent / 100);
   const paused = progress.paused;
   const playState = paused ? "paused" : "running";
-  // Storage auto-pause: distinct copy + Resume stays disabled until re-checked.
-  const storagePaused = paused && autoPauseReason !== null;
+  // Pause keeps `isUploading` true; cancel/complete flip it false — that
+  // distinguishes "settling right after Pause" from "settling right after
+  // Cancel/Complete" without a separate prop.
+  const finalizingPause = finalizingStorage && paused;
+  const finalizingExit = finalizingStorage && !progress.isUploading;
 
   return (
     <section className="px-6 pb-12 pt-10 sm:px-10">
@@ -93,20 +91,21 @@ export function UploadProgress({
             </div>
           </div>
           <h3 className="mt-6 text-[22px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-            {paused
+            {finalizingPause
+              ? "Pausing…"
+              : finalizingExit
+              ? "Finishing up…"
+              : paused
               ? `Upload paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : progress.isSavingMetadata
               ? "Saving photo metadata…"
               : `Uploading ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`}
           </h3>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-            {storagePaused ? (
-              <>
-                You&apos;ve used all available storage on your plan. Delete older
-                photos or upgrade your plan, then{" "}
-                <strong className="text-[var(--color-brand-ink)]">re-check storage</strong> to
-                resume.
-              </>
+            {finalizingPause ? (
+              <>Wrapping up before pausing…</>
+            ) : finalizingExit ? (
+              <>Syncing your storage usage — almost done.</>
             ) : paused ? (
               <>
                 Transfer is on hold — the workspace is unlocked.{" "}
@@ -188,34 +187,15 @@ export function UploadProgress({
             <button
               type="button"
               onClick={onCancel}
-              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              disabled={finalizingExit}
+              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel upload
             </button>
-            {storagePaused && onRecheckStorage && (
-              <button
-                type="button"
-                onClick={onRecheckStorage}
-                disabled={storageRechecking}
-                className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-4 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {storageRechecking ? (
-                  <>
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
-                    Checking…
-                  </>
-                ) : (
-                  "Re-check storage"
-                )}
-              </button>
-            )}
             <button
               type="button"
               onClick={onTogglePause}
-              // While storage-auto-paused, Resume stays disabled until a re-check
-              // confirms space was freed — otherwise it resumes into an instant re-pause.
-              disabled={storagePaused}
-              title={storagePaused ? "Free up storage and re-check before resuming." : undefined}
+              disabled={finalizingExit}
               className="brand-focus inline-flex items-center gap-1.5 rounded-md border px-4 py-2 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60"
               style={
                 paused

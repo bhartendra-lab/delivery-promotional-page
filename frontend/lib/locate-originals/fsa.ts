@@ -2,15 +2,11 @@
  * Thin, self-typed wrapper over the File System Access API (Chromium only). We
  * declare the minimal subset we use rather than depend on `lib.dom` shipping the
  * (still non-standard) `showDirectoryPicker` + handle types, so this compiles on
- * any TS lib set. Non-Chromium browsers fall back to the zip path (see engine).
+ * any TS lib set. Non-Chromium browsers get a dedicated "use Chrome" screen
+ * instead (see LocateOriginals.tsx) — there is no fallback scan/copy path here.
  */
 
-import {
-  MANIFEST_FILE,
-  OUTPUT_DIR,
-  isJunkFile,
-  type ManifestEntry,
-} from "./match";
+import { OUTPUT_DIR, isJunkFile } from "./match";
 
 export interface WritableFileStream {
   write(data: Blob | ArrayBuffer | string): Promise<void>;
@@ -28,6 +24,7 @@ export interface FsDirHandle {
   entries(): AsyncIterableIterator<[string, FsDirHandle | FsFileHandle]>;
   getDirectoryHandle(name: string, opts?: { create?: boolean }): Promise<FsDirHandle>;
   getFileHandle(name: string, opts?: { create?: boolean }): Promise<FsFileHandle>;
+  removeEntry(name: string, opts?: { recursive?: boolean }): Promise<void>;
   queryPermission?(opts: { mode: "read" | "readwrite" }): Promise<PermissionState>;
   requestPermission?(opts: { mode: "read" | "readwrite" }): Promise<PermissionState>;
 }
@@ -99,9 +96,28 @@ export async function* walkFiles(
   }
 }
 
-/** Get (creating if needed) the `OUTPUT_DIR` folder inside the picked directory. */
-export function getOutputDir(root: FsDirHandle): Promise<FsDirHandle> {
-  return root.getDirectoryHandle(OUTPUT_DIR, { create: true });
+/** Look up a subdirectory without creating it; null when it doesn't exist. */
+export async function getExistingDirectory(
+  root: FsDirHandle,
+  name: string,
+): Promise<FsDirHandle | null> {
+  try {
+    return await root.getDirectoryHandle(name, { create: false });
+  } catch {
+    return null;
+  }
+}
+
+/** Find a free sibling name for a folder that already exists: `name (1)`,
+ *  `name (2)`, … — whichever doesn't already exist under `root`. */
+export async function findFreeDirName(root: FsDirHandle, name: string): Promise<string> {
+  let n = 1;
+  let candidate = `${name} (${n})`;
+  while (await getExistingDirectory(root, candidate)) {
+    n++;
+    candidate = `${name} (${n})`;
+  }
+  return candidate;
 }
 
 /** Stream a file into `dir` under `filename` (Blob write streams internally). */
@@ -116,26 +132,23 @@ export async function copyFileInto(
   await w.close();
 }
 
-/** Read the dedup manifest at the root of the output dir; missing = first run. */
-export async function readManifest(outDir: FsDirHandle): Promise<ManifestEntry[]> {
-  try {
-    const fh = await outDir.getFileHandle(MANIFEST_FILE);
-    const file = await fh.getFile();
-    const data = JSON.parse(await file.text());
-    return Array.isArray(data?.entries) ? (data.entries as ManifestEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
+/** One file found while listing an existing output folder — carries its parent
+ *  handle + name so the Replace-mode diff can delete it directly. */
+export type ExistingFile = { path: string; parent: FsDirHandle; name: string };
 
-/** Persist the dedup manifest at the root of the output dir. */
-export async function writeManifest(
-  outDir: FsDirHandle,
-  bookingId: string,
-  entries: ManifestEntry[],
-): Promise<void> {
-  const fh = await outDir.getFileHandle(MANIFEST_FILE, { create: true });
-  const w = await fh.createWritable();
-  await w.write(JSON.stringify({ version: 1, bookingId, entries }, null, 2));
-  await w.close();
+/** Recursively list every file already inside `dir` (e.g. a previous run's
+ *  output folder) — no exclusions, since we're already inside it. */
+export async function* listExistingFiles(
+  dir: FsDirHandle,
+  prefix = "",
+): AsyncGenerator<ExistingFile> {
+  for await (const [name, handle] of dir.entries()) {
+    if (isJunkFile(name)) continue;
+    const path = prefix ? `${prefix}/${name}` : name;
+    if (handle.kind === "file") {
+      yield { path, parent: dir, name };
+    } else if (handle.kind === "directory") {
+      yield* listExistingFiles(handle, path);
+    }
+  }
 }

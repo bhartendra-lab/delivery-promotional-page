@@ -257,6 +257,20 @@ export function clearBookingData(bookingId: string) {
   );
 }
 
+/**
+ * POST /bookings/recalculate-studio-storage — re-walks R2 for every non-expired
+ * booking on the company's active subscription and writes the fresh total to
+ * Subscription.storage_used. Expensive (R2 listing), so only call it at
+ * well-defined storage-changing moments (clear data; upload paused/cancelled/
+ * completed) — never on a timer or poll.
+ */
+export function recalculateStudioStorage() {
+  return request<{ usedStorage: number; message: string }>(
+    "/bookings/recalculate-studio-storage",
+    { method: "POST" },
+  );
+}
+
 /** GET /bookings/get-booking-by-id/:booking_id/:service */
 export function getBookingById(bookingId: string, service: string = BOOKING_SERVICE) {
   return request<BookingDetailResponse>(
@@ -435,8 +449,6 @@ export function getMedia(
     likedGuestIds?: string[];
     /** Smart Selects — only shortlisted media. */
     shortlistedOnly?: boolean;
-    /** Smart Selects — only shortlisted media whose originals aren't yet located. */
-    awaitingOnly?: boolean;
   },
 ) {
   const params = new URLSearchParams();
@@ -451,7 +463,6 @@ export function getMedia(
   if (opts?.likedGuestIds?.length)
     params.set("liked_guest_ids", opts.likedGuestIds.join(","));
   if (opts?.shortlistedOnly) params.set("shortlisted_only", "true");
-  if (opts?.awaitingOnly) params.set("awaiting_original", "true");
   const qs = params.toString();
   return request<GetMediaResponse>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
@@ -492,10 +503,9 @@ export function updateMediaShortlist(mediaIds: string[], shortlisted: boolean) {
 export type ShortlistedMediaItem = {
   _id: string;
   media_id: string;
-  /** Gallery (web-res) R2 URL — lets the studio zip-download unidentified photos. */
+  /** Gallery (web-res) R2 URL — lets the studio zip-download any not-found photos. */
   url: string;
   filename: string | null;
-  identified: boolean;
   custom_folder_ids: string[];
 };
 
@@ -508,28 +518,12 @@ export type ShortlistedMediaResponse = {
 /**
  * GET /deliverables/get-shortlisted-media/:booking_id — the full, unpaginated set
  * of shortlisted media for the booking (Smart Selects → Locate Original Images),
- * plus the booking's custom folders. Drives the DB-backed identified report and
- * the client-side disk matcher.
+ * plus the booking's custom folders, for the client-side disk matcher. Nothing
+ * about a run is persisted server-side — every call reflects the live shortlist.
  */
 export function getShortlistedMedia(bookingId: string) {
   return request<ShortlistedMediaResponse>(
     `/deliverables/get-shortlisted-media/${encodeURIComponent(bookingId)}`,
-  );
-}
-
-/**
- * POST /deliverables/update-media-identified — mark shortlisted media whose
- * originals were located on disk as identified. `mediaIds` are Media `_id`s.
- * Cumulative on the backend (only ever sets true).
- */
-export function updateMediaIdentified(mediaIds: string[]) {
-  return request<{ message: string; modifiedCount: number }>(
-    "/deliverables/update-media-identified",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ media_ids: mediaIds }),
-    },
   );
 }
 

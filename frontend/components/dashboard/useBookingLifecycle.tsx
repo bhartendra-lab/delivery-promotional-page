@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { Booking } from "@/lib/types";
-import { archiveBooking, clearBookingData, restoreBooking } from "@/lib/api";
+import { archiveBooking, clearBookingData, recalculateStudioStorage, restoreBooking } from "@/lib/api";
 import { useChrome } from "./ChromeContext";
 
 /**
@@ -54,6 +54,11 @@ export function useBookingLifecycle(reload: () => Promise<void> | void) {
     async (row: Booking) => {
       try {
         await clearBookingData(row._id);
+        try {
+          await recalculateStudioStorage();
+        } catch (err) {
+          console.warn("[clear-data] recalculate-studio-storage failed", err);
+        }
         await refreshDlpUsage();
         await reload();
         notify("Event data cleared. Only the cover photo remains.");

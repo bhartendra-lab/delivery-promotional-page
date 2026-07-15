@@ -7,6 +7,7 @@ import {
   deleteMedia,
   getBookingById,
   getMedia,
+  recalculateStudioStorage,
   regenerateFamilyPasscode,
   restoreBooking,
   updateBooking,
@@ -22,7 +23,6 @@ import type {
   MediaItem,
   ServiceType,
 } from "@/lib/types";
-import { isStorageBasedPlan } from "@/lib/types";
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageLock, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
@@ -118,10 +118,9 @@ function normalizePublish(b: BookingDetail): PublishInfo {
 
 function computePillState(pub: PublishInfo): LivePillState {
   if (!pub.isActive) return "deactivated";
-  // Out-of-sync is a STATUS, not a call to action: the pipeline embeds new
-  // uploads and re-finalizes on its own; the workspace polls until the
-  // backend reports in-sync again.
-  if (pub.outOfSync) return "syncing";
+  // The studio only ever sees "Live". Background processing (embeddings →
+  // face search) runs after every upload but is deliberately NOT surfaced to
+  // the studio — the gallery is live the moment photos finish uploading.
   return "live";
 }
 
@@ -132,7 +131,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [likedCount, setLikedCount] = useState(0); // liked media in the booking
   const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
-  const [locatedCount, setLocatedCount] = useState(0); // shortlisted + located media
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
@@ -144,19 +142,39 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  // Set when a storage-plan upload was auto-paused for running out of space.
-  const [autoPauseReason, setAutoPauseReason] = useState<string | null>(null);
-  const [storageRechecking, setStorageRechecking] = useState(false);
+  // True while a pause/cancel/complete-triggered storage recalculation is in
+  // flight — keeps the upload card from handing off to its resting state (and
+  // the sidebar meter stale) until the fresh number lands.
+  const [finalizingStorage, setFinalizingStorage] = useState(false);
 
-  // Usage (plan type + live remaining) from the shared dashboard fetch. Read the
-  // plan type via a ref inside the metadata handler so it stays subscription-cheap.
-  const { dlpUsage, refreshDlpUsage } = useChrome();
-  const dlpServiceTypeRef = useRef<ServiceType | null>(dlpUsage?.service_type ?? null);
-  useEffect(() => {
-    dlpServiceTypeRef.current = dlpUsage?.service_type ?? null;
-  }, [dlpUsage?.service_type]);
+  const { refreshDlpUsage } = useChrome();
 
   const engine = useUploadEngine(bookingId);
+
+  // Re-walk R2 usage after a storage-changing upload transition (pause, cancel,
+  // completion). A failure here must never strand the UI on a spinner — the
+  // triggering action (pause/cancel/complete) already succeeded independently.
+  const settleStorage = useCallback(async () => {
+    setFinalizingStorage(true);
+    try {
+      try {
+        await recalculateStudioStorage();
+      } catch (err) {
+        console.warn("[upload] recalculate-studio-storage failed", err);
+      }
+      await refreshDlpUsage();
+    } finally {
+      setFinalizingStorage(false);
+    }
+  }, [refreshDlpUsage]);
+
+  // Pause needs its own trigger point — unlike cancel/completion it never
+  // flips `isUploading` false, so it doesn't pass through the run-completion
+  // effect below.
+  const pauseUpload = useCallback(() => {
+    engine.pause();
+    void settleStorage();
+  }, [engine, settleStorage]);
 
   // The view the media grid is loading. The Smart Selects tab shows the liked
   // feed; every other tab shows the Media tab's active folder. This decouples the
@@ -213,8 +231,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           likedGuestType: f.audience === "all" ? undefined : f.audience,
           likedGuestSubTypes: f.subTypes,
           likedGuestIds: f.guestIds,
-          shortlistedOnly: f.shortlistedOnly || f.awaitingOnly,
-          awaitingOnly: f.awaitingOnly,
+          shortlistedOnly: f.shortlistedOnly,
         });
       }
       return getMedia(bookingId, {
@@ -242,7 +259,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (res.folderCounts) setFolderCounts(res.folderCounts);
         if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
         if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
-        if (typeof res.locatedCount === "number") setLocatedCount(res.locatedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
           totalCountRef.current = res.totalCount;
@@ -452,9 +468,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     };
   }, [engine, bookingId]);
 
-  // Debounced canonical refresh as metadata chunks land in the DB. On
-  // storage-based plans, each chunk boundary (~200 uploaded images) also re-checks
-  // live usage and auto-pauses the run if the plan's space is exhausted.
+  // Debounced canonical refresh as metadata chunks land in the DB.
   useEffect(() => {
     let reloadTimer: ReturnType<typeof setTimeout> | null = null;
     engine.onMetadataSaved(() => {
@@ -464,50 +478,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           void reload();
         }, 1500);
       }
-      // Storage-plan overrun guard — usage is changing live during this upload,
-      // so refetch fresh (not the cached value) and update the shared meter.
-      if (isStorageBasedPlan(dlpServiceTypeRef.current)) {
-        void refreshDlpUsage().then((fresh) => {
-          if (fresh && isStorageBasedPlan(fresh.service_type) && (fresh.remaining ?? 0) <= 0) {
-            setAutoPauseReason("storage-exhausted");
-            engine.pause();
-          }
-        });
-      }
     });
     return () => {
       if (reloadTimer) clearTimeout(reloadTimer);
       engine.onMetadataSaved(null);
     };
-  }, [engine, reload, refreshDlpUsage]);
-
-  // Clear the auto-pause reason whenever a fresh run starts (isUploading rising
-  // edge), so a stale storage-pause from a prior run never leaks into a new one.
-  const wasUploadingRef = useRef(false);
-  useEffect(() => {
-    if (engine.progress.isUploading && !wasUploadingRef.current) {
-      setAutoPauseReason(null);
-    }
-    wasUploadingRef.current = engine.progress.isUploading;
-  }, [engine.progress.isUploading]);
-
-  // Manual "Re-check storage" from the paused UI: refresh usage and, if space
-  // has been freed, clear the reason so Resume re-enables. Otherwise leave the
-  // pause in place to avoid an immediate resume→re-pause loop.
-  const recheckStorage = useCallback(async () => {
-    setStorageRechecking(true);
-    try {
-      const fresh = await refreshDlpUsage();
-      if (fresh && (fresh.remaining ?? 0) > 0) {
-        setAutoPauseReason(null);
-        toast("Storage freed — you can resume the upload.");
-      } else {
-        toast("Still out of storage. Free more space, then re-check.", "error");
-      }
-    } finally {
-      setStorageRechecking(false);
-    }
-  }, [refreshDlpUsage, toast]);
+  }, [engine, reload]);
 
   // On run completion: reconcile media + booking, then surface the post-upload
   // banner. Purely informational — the pipeline is already embedding + syncing
@@ -517,8 +493,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
     if (wasActiveRef.current && !isActive) {
       void (async () => {
-        const list = await reload();
-        const fresh = await reloadBooking();
+        // Runs alongside reload/reloadBooking (not after) so `finalizingStorage`
+        // flips true in the same tick `isActive` flips false — no gap where the
+        // upload card could hand off before the storage number is fresh.
+        const [list, fresh] = await Promise.all([reload(), reloadBooking(), settleStorage()]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
         const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
@@ -526,7 +504,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       })();
     }
     wasActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking]);
+  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, settleStorage]);
 
   /* ── derived ────────────────────────────────────────────────── */
 
@@ -669,26 +647,16 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       const changed = prev.filter(
         (m) => real.includes(m._id) && !!m.shortlisted !== shortlisted,
       ).length;
-      // Un-shortlisting also clears `identified` server-side (see B1), so any of
-      // these that were located drop out of the located count too.
-      const wasLocated = shortlisted
-        ? 0
-        : prev.filter((m) => real.includes(m._id) && m.identified).length;
       const f = likedFiltersRef.current;
-      const dropFromView = !shortlisted && (f.shortlistedOnly || f.awaitingOnly);
+      const dropFromView = !shortlisted && f.shortlistedOnly;
       setMedia((cur) =>
         dropFromView
           ? cur.filter((m) => !real.includes(m._id))
-          : cur.map((m) =>
-              real.includes(m._id)
-                ? { ...m, shortlisted, ...(shortlisted ? {} : { identified: false }) }
-                : m,
-            ),
+          : cur.map((m) => (real.includes(m._id) ? { ...m, shortlisted } : m)),
       );
       try {
         await updateMediaShortlist(real, shortlisted);
         setShortlistedCount((c) => Math.max(0, c + (shortlisted ? changed : -changed)));
-        if (wasLocated > 0) setLocatedCount((c) => Math.max(0, c - wasLocated));
         if (dropFromView) setTotalForView((t) => Math.max(0, t - real.length));
         toast(
           shortlisted
@@ -763,6 +731,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     setOverlayBusy(true);
     try {
       await clearBookingData(bookingId);
+      try {
+        await recalculateStudioStorage();
+      } catch (err) {
+        console.warn("[clear-data] recalculate-studio-storage failed", err);
+      }
       // Media was deleted server-side — re-sync the shared storage meter.
       await refreshDlpUsage();
       // Backend flips status to "expired"; reloading turns the archived screen
@@ -791,14 +764,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         <LivePill
           state={pillState}
           disabled={engineActive}
-          unsyncedCount={pub.unsyncedCount}
           serviceType={pub.serviceType}
           onActivate={doActivate}
           onDeactivate={doDeactivate}
           onArchive={doArchive}
         />
       ),
-    [isTerminal, pillState, engineActive, pub.unsyncedCount, pub.serviceType, doActivate, doDeactivate, doArchive],
+    [isTerminal, pillState, engineActive, pub.serviceType, doActivate, doDeactivate, doArchive],
   );
   usePageTopbarExtra(pillNode);
 
@@ -863,7 +835,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       folderCounts,
       likedCount,
       shortlistedCount,
-      locatedCount,
       likedFilters,
       setLikedFilters,
       setShortlisted,
@@ -874,9 +845,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       loadMore,
       engine,
       activeLocked,
-      autoPauseReason,
-      storageRechecking,
-      recheckStorage,
+      finalizingStorage,
+      pauseUpload,
       publishedEver: pub.hasBeenPublished,
       saveMeta,
       regenerateFamilyPasscode: doRegeneratePasscode,
@@ -887,7 +857,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, locatedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, autoPauseReason, storageRechecking, recheckStorage, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, finalizingStorage, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
