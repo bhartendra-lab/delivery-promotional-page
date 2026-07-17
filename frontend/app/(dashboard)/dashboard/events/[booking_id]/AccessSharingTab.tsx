@@ -52,10 +52,14 @@ Open the gallery, sign in with Google and take one quick selfie — you'll insta
 ${shareUrl}`;
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--color-brand-bg)]">
-      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-6 px-6 py-6 sm:px-8 lg:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] lg:items-start">
+    // Below `lg` the two panels stack and the whole tab scrolls as one region
+    // (normal mobile behaviour). At `lg`+ this outer box no longer scrolls —
+    // the left column and the guest panel each own their own scroll region,
+    // both bound to the tab's actual height, so neither can stretch the page.
+    <div className="h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)] lg:overflow-hidden">
+      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] lg:items-stretch lg:px-8">
         {/* Left — existing sharing link + passcode. */}
-        <div className="flex flex-col">
+        <div className="flex flex-col lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
             <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
               <span
@@ -158,7 +162,10 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
   };
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white lg:sticky lg:top-6">
+    // Fills the grid cell's full height at `lg`+ (stretched by the parent
+    // grid) instead of growing with content — the row list below is the only
+    // part that scrolls, so this box's on-screen height stays fixed.
+    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white lg:h-full lg:min-h-0">
       <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
@@ -202,7 +209,10 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         </div>
       )}
 
-      <div className="max-h-[560px] overflow-y-auto">
+      {/* Capped on mobile (a "consistent height" rather than growing to fit
+          every guest); at `lg`+ it fills whatever room is left in the panel
+          instead, since the panel itself is now bound to the tab's height. */}
+      <div className="min-h-0 max-h-[50vh] flex-1 overflow-y-auto lg:max-h-none">
         {loading && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-[var(--color-brand-muted)]">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
