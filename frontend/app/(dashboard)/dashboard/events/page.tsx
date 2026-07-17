@@ -98,35 +98,42 @@ export default function EventsListPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
-      {/* Hero text — collapses away (height + fade) once the list scrolls past it. */}
-      <div className={`scroll-collapse ${collapsed ? "is-collapsed" : ""}`}>
-        <div className="scroll-collapse-inner">
-          <section className="scroll-collapse-fade dash-rise flex flex-col gap-4 pb-6 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-                Events · All clients
-              </p>
-              <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
-                Your events,<br className="hidden sm:block" /> in one place.
-              </h1>
-              <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
-                Create a page per booking. Upload media, organise by folder, share with your client.
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-              <button
-                type="button"
-                onClick={() => setModalOpen(true)}
-                disabled={createBlocked}
-                className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <PlusIcon />
-                Add event
-              </button>
-            </div>
-          </section>
+      {/* Hero text — fades away in place once the list scrolls past it. Keeps
+          its normal document height always (never collapses it) — shrinking
+          real layout height here fought short pages: with only a couple of
+          events the page barely has scroll room, so removing the hero's
+          height mid-scroll could erase that overflow entirely, snapping
+          scrollTop back to 0 and re-expanding the hero — an endless tug of
+          war against the user's own scroll gesture. Fading in place has no
+          such feedback loop. */}
+      <section
+        className={`scroll-fade dash-rise flex flex-col gap-4 pb-6 sm:flex-row sm:items-start sm:justify-between ${
+          collapsed ? "is-collapsed" : ""
+        }`}
+      >
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
+            Events · All clients
+          </p>
+          <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
+            Your events,<br className="hidden sm:block" /> in one place.
+          </h1>
+          <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
+            Create a page per booking. Upload media, organise by folder, share with your client.
+          </p>
         </div>
-      </div>
+        <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            disabled={createBlocked}
+            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <PlusIcon />
+            Add event
+          </button>
+        </div>
+      </section>
 
       {/* Search — locks to a single compact line once the hero above has scrolled
           out; Pagination + Add event fold into it so both stay reachable without

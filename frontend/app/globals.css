@@ -145,28 +145,23 @@ body {
 .dash-stagger > *:nth-child(7) { animation-delay: 0.34s; }
 .dash-stagger > *:nth-child(8) { animation-delay: 0.39s; }
 
-/* Scroll-driven collapse (Dashboard / Events list hero + stats): height comes
-   from a grid-template-rows 1fr → 0fr tween (no JS height measurement needed),
-   the inner content fades + lifts slightly in step. Respects the
-   prefers-reduced-motion override above (it zeroes all transition-duration). */
-.scroll-collapse {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 420ms cubic-bezier(0.2, 0.7, 0.3, 1);
+/* Scroll-driven fade (Dashboard / Events list hero + stats): pure opacity +
+   lift, layout height is never touched — the block keeps its normal document
+   space, so `main`'s scrollHeight never changes underneath the user's scroll
+   gesture. An earlier version collapsed real height here (grid-template-rows
+   1fr → 0fr) and fought short pages: with only a couple of result cards, the
+   page barely has scroll room, so shrinking this block mid-scroll could erase
+   that overflow entirely, snapping scrollTop back to 0 and re-expanding the
+   block — an endless tug of war against the user's own scroll input. Fading
+   in place has no such feedback loop. Respects the prefers-reduced-motion
+   override above (it zeroes all transition-duration). */
+.scroll-fade {
+  transition: opacity 280ms ease, transform 280ms ease;
 }
-.scroll-collapse.is-collapsed {
-  grid-template-rows: 0fr;
-}
-.scroll-collapse-inner {
-  overflow: hidden;
-  min-height: 0;
-}
-.scroll-collapse-fade {
-  transition: opacity 260ms ease, transform 260ms ease;
-}
-.scroll-collapse.is-collapsed .scroll-collapse-fade {
+.scroll-fade.is-collapsed {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-10px);
+  pointer-events: none;
 }
 
 .drawer-slide {

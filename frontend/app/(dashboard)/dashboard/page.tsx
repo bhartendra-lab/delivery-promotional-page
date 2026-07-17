@@ -118,45 +118,47 @@ export default function DashboardHomePage() {
         </div>
       )}
 
-      {/* Page header + stats — collapse away (height + fade) once the list
-          scrolls past them. */}
-      <div className={`scroll-collapse ${collapsed ? "is-collapsed" : ""}`}>
-        <div className="scroll-collapse-inner">
-          <div className="scroll-collapse-fade space-y-6 pb-6">
-            <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-                  Delivery Hub · Published
-                </p>
-                <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
-                  Your events,<br className="hidden sm:block" /> in one place.
-                </h1>
-                <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
-                  Branded links for every booking. Track who opens what, when.
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-                <button
-                  type="button"
-                  onClick={openCreate}
-                  disabled={createBlocked}
-                  className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <PlusIcon />
-                  Add event
-                </button>
-                <UsagePill usage={dlpUsage} loading={dlpLoading} />
-              </div>
-            </section>
-
-            <StatsBar
-              visits={stats.visits}
-              contacts={stats.contacts}
-              reviews={stats.reviews}
-              total={stats.total}
-            />
+      {/* Page header + stats — fade away in place once the list scrolls past
+          them. Keeps its normal document height always (never collapses it)
+          — shrinking real layout height here fought short pages: with only a
+          couple of events the page barely has scroll room, so removing this
+          block's height mid-scroll could erase that overflow entirely,
+          snapping scrollTop back to 0 and re-expanding the block — an
+          endless tug of war against the user's own scroll gesture. Fading in
+          place has no such feedback loop. */}
+      <div className={`scroll-fade space-y-6 pb-6 ${collapsed ? "is-collapsed" : ""}`}>
+        <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
+              Delivery Hub · Published
+            </p>
+            <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
+              Your events,<br className="hidden sm:block" /> in one place.
+            </h1>
+            <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
+              Branded links for every booking. Track who opens what, when.
+            </p>
           </div>
-        </div>
+          <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+            <button
+              type="button"
+              onClick={openCreate}
+              disabled={createBlocked}
+              className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <PlusIcon />
+              Add event
+            </button>
+            <UsagePill usage={dlpUsage} loading={dlpLoading} />
+          </div>
+        </section>
+
+        <StatsBar
+          visits={stats.visits}
+          contacts={stats.contacts}
+          reviews={stats.reviews}
+          total={stats.total}
+        />
       </div>
 
       {/* Search + count row — locks to a single compact line once the header

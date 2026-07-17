@@ -1,6 +1,9 @@
-export function formatEventDate(unix?: number): string {
-  if (!unix) return "—";
-  const date = new Date(unix * 1000);
+// `event_date` is stored as epoch milliseconds everywhere it's written
+// (AddEventModal, EventWorkspace's edit-details sheet both save `.getTime()`
+// directly) — these helpers must treat it the same way, not as epoch seconds.
+export function formatEventDate(epochMs?: number): string {
+  if (!epochMs) return "—";
+  const date = new Date(epochMs);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString(undefined, {
     year: "numeric",
@@ -24,9 +27,9 @@ export function buildShareUrl(id: string): string {
   return `${base.replace(/\/$/, "")}/c/${id}`;
 }
 
-export function toDateInputValue(unix?: number): string {
-  if (!unix) return "";
-  const date = new Date(unix * 1000);
+export function toDateInputValue(epochMs?: number): string {
+  if (!epochMs) return "";
+  const date = new Date(epochMs);
   if (Number.isNaN(date.getTime())) return "";
   const yyyy = date.getFullYear().toString().padStart(4, "0");
   const mm = (date.getMonth() + 1).toString().padStart(2, "0");
@@ -34,12 +37,13 @@ export function toDateInputValue(unix?: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/** Returns epoch milliseconds, matching how `event_date` is saved everywhere. */
 export function fromDateInputValue(value: string): number | undefined {
   if (!value) return undefined;
   const [y, m, d] = value.split("-").map(Number);
   if (!y || !m || !d) return undefined;
   const date = new Date(y, m - 1, d);
-  return Math.floor(date.getTime() / 1000);
+  return date.getTime();
 }
 
 /* ── Archive / expiry countdown ─────────────────────────────────── */
