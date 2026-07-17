@@ -245,7 +245,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
       <div ref={mediaScrollRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         {activeLocked && (
-          <div className="flex items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <WarnIcon size={14} />
             Upload in progress — please keep this tab open.
           </div>
@@ -437,7 +437,7 @@ function EventHeader({
     subtitle = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} across ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
 
   return (
-    <section className="flex flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">
+    <section className="flex shrink-0 flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
           <span className="rounded-sm bg-[var(--color-brand-navy-soft)] px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-navy)]">
@@ -559,7 +559,7 @@ function MobileFolderStrip({
   const [renaming, setRenaming] = useState(false);
 
   return (
-    <div className="border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+    <div className="shrink-0 border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
       <div className="flex items-center gap-1.5 overflow-x-auto">
         {folders.map((f) => {
           const selected = f.id === activeFolderId;

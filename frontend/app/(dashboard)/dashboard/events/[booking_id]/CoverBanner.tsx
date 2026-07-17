@@ -78,7 +78,7 @@ export function CoverBanner({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      className={`relative w-full overflow-hidden ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
+      className={`relative w-full shrink-0 overflow-hidden ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
       style={{
         height: 240,
         ...(filled
