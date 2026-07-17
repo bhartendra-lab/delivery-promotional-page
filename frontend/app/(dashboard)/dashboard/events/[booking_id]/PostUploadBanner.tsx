@@ -20,7 +20,7 @@ export function PostUploadBanner({
 
   return (
     <div
-      className="flex items-center gap-3.5 border-b px-4 py-2.5 sm:px-10"
+      className="flex shrink-0 items-center gap-3.5 border-b px-4 py-2.5 sm:px-10"
       style={{ background: "#FFFBF2", borderColor: "#F0D9B5" }}
     >
       <span

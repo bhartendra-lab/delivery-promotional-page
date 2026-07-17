@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getDlpUsage } from "@/lib/api";
 import type { DlpUsage } from "@/lib/types";
 import type { Breadcrumb } from "./Topbar";
@@ -27,6 +27,13 @@ type ChromeState = {
    * (or null on error) so callers can act on it immediately.
    */
   refreshDlpUsage: () => Promise<DlpUsage | null>;
+  /**
+   * The single app-wide scroll container (the `<main>` under the locked
+   * Topbar/Sidebar chrome). Pages read its scroll position via
+   * `useScrollCollapsed` instead of listening on `window`, since the window
+   * itself never scrolls in this layout.
+   */
+  mainRef: React.RefObject<HTMLElement | null>;
 };
 
 const ChromeCtx = createContext<ChromeState>({
@@ -39,6 +46,7 @@ const ChromeCtx = createContext<ChromeState>({
   dlpUsage: null,
   dlpLoading: true,
   refreshDlpUsage: async () => null,
+  mainRef: { current: null },
 });
 
 export function ChromeProvider({ children }: { children: React.ReactNode }) {
@@ -47,6 +55,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [topbarExtra, setTopbarExtra] = useState<React.ReactNode>(null);
   const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
   const [dlpLoading, setDlpLoading] = useState(true);
+  const mainRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     // `dlpLoading` starts true, so we only flip it false once the fetch
@@ -80,6 +89,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       dlpUsage,
       dlpLoading,
       refreshDlpUsage,
+      mainRef,
     }),
     [customBreadcrumb, locked, topbarExtra, dlpUsage, dlpLoading, refreshDlpUsage],
   );
@@ -118,4 +128,24 @@ export function usePageTopbarExtra(node: React.ReactNode) {
     setTopbarExtra(node);
     return () => setTopbarExtra(null);
   }, [node, setTopbarExtra]);
+}
+
+/**
+ * Page-level helper: true once the shared `<main>` scroll container has been
+ * scrolled past `threshold`. Drives the collapsing-header / locked-toolbar
+ * scroll animation on the Dashboard and Events list pages — the window itself
+ * never scrolls in this layout, so pages read `main`'s scrollTop instead.
+ */
+export function useScrollCollapsed(threshold = 18): boolean {
+  const { mainRef } = useContext(ChromeCtx);
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const onScroll = () => setCollapsed(el.scrollTop > threshold);
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [mainRef, threshold]);
+  return collapsed;
 }

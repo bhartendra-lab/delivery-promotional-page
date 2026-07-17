@@ -47,9 +47,9 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
     : "No liked photos yet.";
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col px-6 pb-12 pt-6 sm:px-10">
-      {/* 1 — Title bar */}
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      {/* 1 — Title bar, locked. */}
+      <div className="flex shrink-0 flex-col items-start justify-between gap-3 px-6 pt-6 sm:flex-row sm:items-center sm:px-10">
         <div>
           <h1 className="flex items-center gap-2 text-[22px] font-bold tracking-tight text-[var(--color-brand-ink)]">
             <IconStar size={19} filled className="text-[var(--color-brand-warning)]" />
@@ -73,11 +73,15 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
       </div>
 
       {loading && media.length === 0 ? (
-        <div className="mt-6">
-          <SkeletonGrid />
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+          <div className="mt-6">
+            <SkeletonGrid />
+          </div>
         </div>
       ) : noLikesAtAll ? (
-        <EmptyState />
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+          <EmptyState />
+        </div>
       ) : (
         <>
           {/* Locate Originals modal (mounts only while open — everything about a
@@ -91,36 +95,41 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
             toast={toast}
           />
 
-          {/* 2 — Filter bar (Liked / Shortlisted counts ride as pill badges) */}
-          <LikedFilters
-            bookingId={bookingId}
-            guestTypes={meta.guestTypes}
-            filters={likedFilters}
-            onChange={setLikedFilters}
-            likedCount={likedCount}
-            shortlistedCount={shortlistedCount}
-          />
+          {/* 2 — Filter bar, locked (Liked / Shortlisted counts ride as pill badges). */}
+          <div className="shrink-0 px-6 sm:px-10">
+            <LikedFilters
+              bookingId={bookingId}
+              guestTypes={meta.guestTypes}
+              filters={likedFilters}
+              onChange={setLikedFilters}
+              likedCount={likedCount}
+              shortlistedCount={shortlistedCount}
+            />
 
-          {filtersActive && (
-            <p className="mb-3 -mt-1 text-[12px] text-[var(--color-brand-muted)]">
-              {totalForView.toLocaleString("en-IN")} shown
-            </p>
-          )}
+            {filtersActive && (
+              <p className="-mt-2 mb-3 text-[12px] text-[var(--color-brand-muted)]">
+                {totalForView.toLocaleString("en-IN")} shown
+              </p>
+            )}
+          </div>
 
-          <MediaGrid
-            items={media}
-            disabled={activeLocked}
-            allowDelete={false}
-            showLikes
-            showShortlist
-            onShortlistMany={setShortlisted}
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-            onLoadMore={loadMore}
-            emptyMessage={emptyMessage}
-            archiveName={`${meta.name || "Gallery"} — Smart Selects`}
-            notify={toast}
-          />
+          {/* 3 — Grid, its own scroll region below the locked filters. */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+            <MediaGrid
+              items={media}
+              disabled={activeLocked}
+              allowDelete={false}
+              showLikes
+              showShortlist
+              onShortlistMany={setShortlisted}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={loadMore}
+              emptyMessage={emptyMessage}
+              archiveName={`${meta.name || "Gallery"} — Smart Selects`}
+              notify={toast}
+            />
+          </div>
         </>
       )}
     </section>

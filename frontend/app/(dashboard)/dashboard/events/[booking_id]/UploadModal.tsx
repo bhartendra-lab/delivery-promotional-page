@@ -141,6 +141,11 @@ export function UploadModal({
     remainingGB !== null &&
     estimateGB > remainingGB;
 
+  // True while a storage-gated selection's fit is still unknown — usage or the
+  // size estimate hasn't landed yet. Start upload stays disabled until this clears.
+  const estimatePending =
+    storageGated && files.length > 0 && (dlpLoading || estimating || estimateGB === null);
+
   // Escape closes the top-most layer (mixed popup → naming popup → modal).
   useEffect(() => {
     if (!open) return;
@@ -235,8 +240,8 @@ export function UploadModal({
 
   function start() {
     if (files.length === 0) return;
-    // Storage plans: never start an upload that overruns the remaining GB.
-    if (overStorage) return;
+    // Storage plans: never start an upload before we know it fits, or if it doesn't.
+    if (estimatePending || overStorage) return;
     if (single) {
       onStart({
         mode: "single",
@@ -419,7 +424,7 @@ export function UploadModal({
           </button>
           <button
             type="button"
-            disabled={files.length === 0 || overStorage}
+            disabled={files.length === 0 || overStorage || estimatePending}
             onClick={start}
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >

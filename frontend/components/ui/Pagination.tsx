@@ -4,12 +4,31 @@ type Props = {
   current: number;
   totalPages: number;
   onChange: (page: number) => void;
+  /** Prev/Next + a bare "current / total" label — fits a single locked toolbar line. */
+  compact?: boolean;
 };
 
-export function Pagination({ current, totalPages, onChange }: Props) {
+export function Pagination({ current, totalPages, onChange, compact = false }: Props) {
   if (totalPages <= 1) return null;
   const canPrev = current > 1;
   const canNext = current < totalPages;
+
+  if (compact) {
+    return (
+      <nav aria-label="Pagination" className="flex shrink-0 items-center gap-1">
+        <PageBtn disabled={!canPrev} onClick={() => onChange(current - 1)} aria-label="Previous page">
+          <ChevronLeft />
+        </PageBtn>
+        <span className="whitespace-nowrap px-1 text-xs text-[var(--color-brand-muted)]">
+          <span className="font-semibold text-[var(--color-brand-ink)]">{current}</span> / {totalPages}
+        </span>
+        <PageBtn disabled={!canNext} onClick={() => onChange(current + 1)} aria-label="Next page">
+          <ChevronRight />
+        </PageBtn>
+      </nav>
+    );
+  }
+
   const pages = buildPageList(current, totalPages);
 
   return (

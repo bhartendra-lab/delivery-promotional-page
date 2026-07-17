@@ -35,7 +35,7 @@ export function EventTabStrip({
       aria-label="Event workspace"
       // overflow-x-auto lets the tabs scroll on narrow screens; reset to visible
       // at md+ (tabs always fit there) so the locked-tab tooltips aren't clipped.
-      className="flex items-stretch gap-1 overflow-x-auto border-b border-[var(--color-brand-border)] bg-white px-4 sm:px-10 md:overflow-x-visible"
+      className="flex shrink-0 items-stretch gap-1 overflow-x-auto border-b border-[var(--color-brand-border)] bg-white px-4 sm:px-10 md:overflow-x-visible"
     >
       {tabs.map((t) => {
         const locked = !!t.locked;

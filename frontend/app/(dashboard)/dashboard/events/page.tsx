@@ -6,7 +6,7 @@ import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse } from "@/lib/types";
 import { isCountBasedPlan } from "@/lib/types";
 import { EventCard } from "@/components/dashboard/EventCard";
-import { useChrome } from "@/components/dashboard/ChromeContext";
+import { useChrome, useScrollCollapsed } from "@/components/dashboard/ChromeContext";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
@@ -21,6 +21,8 @@ export default function EventsListPage() {
   const { dlpUsage, locked } = useChrome();
   const createBlocked =
     isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0;
+  // Drives the hero-collapse + locked-toolbar scroll animation below.
+  const collapsed = useScrollCollapsed(24);
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,33 +98,46 @@ export default function EventsListPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
-      <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-            Events · All clients
-          </p>
-          <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
-            Your events,<br className="hidden sm:block" /> in one place.
-          </h1>
-          <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
-            Create a page per booking. Upload media, organise by folder, share with your client.
-          </p>
+      {/* Hero text — collapses away (height + fade) once the list scrolls past it. */}
+      <div className={`scroll-collapse ${collapsed ? "is-collapsed" : ""}`}>
+        <div className="scroll-collapse-inner">
+          <section className="scroll-collapse-fade dash-rise flex flex-col gap-4 pb-6 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
+                Events · All clients
+              </p>
+              <h1 className="mt-1.5 text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">
+                Your events,<br className="hidden sm:block" /> in one place.
+              </h1>
+              <p className="mt-1.5 max-w-lg text-sm text-[var(--color-brand-muted)]">
+                Create a page per booking. Upload media, organise by folder, share with your client.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                disabled={createBlocked}
+                className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <PlusIcon />
+                Add event
+              </button>
+            </div>
+          </section>
         </div>
-        <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            disabled={createBlocked}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <PlusIcon />
-            Add event
-          </button>
-        </div>
-      </section>
+      </div>
 
-      {/* Search */}
-      <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Search — locks to a single compact line once the hero above has scrolled
+          out; Pagination + Add event fold into it so both stay reachable without
+          scrolling back up or down. */}
+      <section
+        className={`sticky top-0 z-10 flex flex-col gap-3 bg-[var(--color-brand-bg)] py-3 transition-[box-shadow,border-color] duration-300 sm:flex-row sm:items-center sm:justify-between ${
+          collapsed
+            ? "border-b border-[var(--color-brand-border)] shadow-[0_6px_18px_rgba(42,34,24,0.08)]"
+            : "border-b border-transparent"
+        }`}
+      >
         <div className="relative w-full sm:max-w-sm">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
             <SearchIcon />
@@ -146,7 +161,7 @@ export default function EventsListPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => {
@@ -173,6 +188,24 @@ export default function EventsListPage() {
               </span>{" "}
               {data.bookings.length === 1 ? "event" : "events"}
             </p>
+          )}
+
+          {/* Folded in once locked — Pagination + Add event stay reachable while scrolling. */}
+          {collapsed && (
+            <div className="dash-rise flex shrink-0 items-center gap-2 border-l border-[var(--color-brand-border)] pl-3">
+              {data && data.bookings.length > 0 && (
+                <Pagination current={page} totalPages={totalPages} onChange={setPage} compact />
+              )}
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                disabled={createBlocked}
+                className="brand-focus inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <PlusIcon />
+                <span className="hidden sm:inline">Add event</span>
+              </button>
+            </div>
           )}
         </div>
       </section>

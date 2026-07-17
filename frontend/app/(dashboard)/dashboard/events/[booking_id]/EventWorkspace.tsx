@@ -776,14 +776,15 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── tab gating ─────────────────────────────────────────────── */
 
-  const galleryLocked = !mediaReady || activeLocked;
-  // Galleries are live from creation, so Access & Sharing is always available
-  // (the shared link + passcode exist as soon as the event does) — it only
-  // locks while an upload is actively running.
+  // Galleries are live from creation, so Gallery Design & Access and Sharing
+  // are always available (the shared link + passcode + design controls exist
+  // as soon as the event does) — they only lock while an upload is actively
+  // running.
+  const galleryLocked = activeLocked;
   const accessLocked = activeLocked;
-  // Smart Selects curates guest-liked photos — it needs media (likes come from
-  // the live gallery, but an empty state covers the "no likes yet" case).
-  const smartLocked = !mediaReady || activeLocked;
+  // Smart Selects curates guest-liked photos — an empty state covers the
+  // "no likes yet" case, so it's unlocked from creation too.
+  const smartLocked = activeLocked;
   // If the active tab becomes locked (media deleted, upload starts), the strip
   // and body fall back to Media without mutating `activeTab` state.
   const effectiveTab: TabId =
@@ -800,9 +801,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         id: "gallery" as TabId,
         label: "Gallery Design",
         locked: galleryLocked,
-        tooltip: !mediaReady
-          ? "Upload media to this event first to design the gallery."
-          : "Available once the current upload finishes.",
+        tooltip: "Available once the current upload finishes.",
       },
       {
         id: "access" as TabId,
@@ -814,9 +813,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         id: "smart" as TabId,
         label: "Smart Selects",
         locked: smartLocked,
-        tooltip: !mediaReady
-          ? "Upload media to this event first."
-          : "Available once the current upload finishes.",
+        tooltip: "Available once the current upload finishes.",
       },
     ],
     [mediaReady, totalCount, galleryLocked, accessLocked, smartLocked],
@@ -864,7 +861,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   return (
     <EventProvider value={ctx}>
-      <div className="relative flex min-w-0 flex-1 flex-col">
+      <div className="relative flex h-full min-w-0 flex-col">
         {/* In archived/expired states the whole editing surface is blurred + inert;
             the terminal overlay below owns the only reachable actions. The Topbar
             breadcrumb (outside this component) stays interactive so the user can
@@ -872,18 +869,21 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         <div
           className={
             isTerminal
-              ? "pointer-events-none flex max-h-[calc(100dvh-52px)] flex-1 select-none flex-col overflow-hidden [filter:blur(3px)]"
-              : "flex flex-1 flex-col"
+              ? "pointer-events-none flex h-full min-h-0 select-none flex-col overflow-hidden [filter:blur(3px)]"
+              : "flex h-full min-h-0 flex-col overflow-hidden"
           }
           aria-hidden={isTerminal || undefined}
         >
+          {/* Tab strip + (mobile) publish row + upload banner form the workspace's
+              locked chrome — they never scroll. Only the active tab's body below
+              them owns its own scroll region(s). */}
           <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
           {/* Mobile-only publish action row. The same pill is injected into the
               Topbar for desktop (usePageTopbarExtra); here it stays reachable on
               mobile where the Topbar hides it. One visible instance per breakpoint. */}
           {!isTerminal && (
-            <div className="sticky top-0 z-20 flex justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
+            <div className="flex shrink-0 justify-end border-b border-[var(--color-brand-border)] bg-white px-4 py-2.5 md:hidden">
               {pillNode}
             </div>
           )}
@@ -892,39 +892,42 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
           )}
 
-          {effectiveTab === "media" && <MediaTab loading={loading} />}
-          {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
-          {effectiveTab === "gallery" && (
-            <GalleryDesignTab
-              eventName={ctx.meta.name}
-              eventType={ctx.meta.type}
-              eventDateLabel={eventDateLabel}
-              coverUrl={ctx.meta.backgroundImage}
-              coverPosition={ctx.meta.backgroundPosition}
-              initialStyleVariant={ctx.meta.styleVariant}
-              initialCustomMessage={ctx.meta.customMessage}
-              initialIncludeBranding={ctx.meta.includeBranding}
-              initialGuestTypes={ctx.meta.guestTypes}
-              onSave={async (vals) => {
-                // Pass through current event_type/date (never event_name) so the
-                // landing-page save can't churn the shared URL or clobber the event.
-                await persistBooking({
-                  ...vals,
-                  event_type: ctx.meta.type,
-                  ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
-                });
-                toast("Gallery design saved");
-              }}
-            />
-          )}
-          {effectiveTab === "access" && (
-            <AccessSharingTab
-              eventName={ctx.meta.name}
-              uniqueIdentifier={ctx.meta.uniqueIdentifier}
-              familyPasscode={ctx.meta.familyPasscode}
-              onRegenerate={doRegeneratePasscode}
-            />
-          )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {effectiveTab === "media" && <MediaTab loading={loading} />}
+            {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
+            {effectiveTab === "gallery" && (
+              <GalleryDesignTab
+                eventName={ctx.meta.name}
+                eventType={ctx.meta.type}
+                eventDateLabel={eventDateLabel}
+                coverUrl={ctx.meta.backgroundImage}
+                coverPosition={ctx.meta.backgroundPosition}
+                initialStyleVariant={ctx.meta.styleVariant}
+                initialCustomMessage={ctx.meta.customMessage}
+                initialIncludeBranding={ctx.meta.includeBranding}
+                initialGuestTypes={ctx.meta.guestTypes}
+                onSave={async (vals) => {
+                  // Pass through current event_type/date (never event_name) so the
+                  // landing-page save can't churn the shared URL or clobber the event.
+                  await persistBooking({
+                    ...vals,
+                    event_type: ctx.meta.type,
+                    ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
+                  });
+                  toast("Gallery design saved");
+                }}
+              />
+            )}
+            {effectiveTab === "access" && (
+              <AccessSharingTab
+                bookingId={bookingId}
+                eventName={ctx.meta.name}
+                uniqueIdentifier={ctx.meta.uniqueIdentifier}
+                familyPasscode={ctx.meta.familyPasscode}
+                onRegenerate={doRegeneratePasscode}
+              />
+            )}
+          </div>
         </div>
 
         {isTerminal && (

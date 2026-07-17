@@ -249,8 +249,12 @@ export type Guest = {
   _id: string;
   name: string;
   email?: string;
+  /** Guest's contact number — either `email` or `phone` is populated, not necessarily both. */
+  phone?: string;
   guest_type: "guest" | "host";
   guest_sub_type?: string | null;
+  /** Guest's own selfie photo (set once they face-match), if any. */
+  selfie_url?: string | null;
   likes_count?: number;
 };
 

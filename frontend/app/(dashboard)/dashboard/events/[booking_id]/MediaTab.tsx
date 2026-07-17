@@ -208,18 +208,42 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setPrePickerOpen(true);
   }, []);
 
-  return (
-    <div className="flex min-h-0 flex-1 items-stretch">
-      <FoldersSidebar
-        folders={folderRows}
-        activeFolderId={activeFolderId}
-        onSelect={activeLocked ? () => {} : setActiveFolder}
-        onRename={handleRename}
-        onAddFolder={folderRows.length > 0 ? addFolder : undefined}
-        disabled={activeLocked}
-      />
+  // Folders and media scroll independently. When the cursor is over the
+  // folders column and it has no (more) room to scroll in the wheel's
+  // direction, forward the delta to the media column instead of letting the
+  // event die (or bubble past both, to the page).
+  const foldersElRef = useRef<HTMLElement | null>(null);
+  const mediaScrollRef = useRef<HTMLDivElement | null>(null);
+  const handleFoldersWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    const folders = foldersElRef.current;
+    const mediaEl = mediaScrollRef.current;
+    if (!folders || !mediaEl) return;
+    const scrollingDown = e.deltaY > 0;
+    const atTop = folders.scrollTop <= 0;
+    const atBottom = folders.scrollTop + folders.clientHeight >= folders.scrollHeight - 1;
+    const foldersCanAbsorb =
+      folders.scrollHeight > folders.clientHeight && ((scrollingDown && !atBottom) || (!scrollingDown && !atTop));
+    if (!foldersCanAbsorb) {
+      e.preventDefault();
+      mediaEl.scrollTop += e.deltaY;
+    }
+  }, []);
 
-      <div className="flex min-w-0 flex-1 flex-col">
+  return (
+    <div className="flex h-full min-h-0 flex-1 items-stretch overflow-hidden">
+      <div className="flex h-full shrink-0" onWheel={handleFoldersWheel}>
+        <FoldersSidebar
+          folders={folderRows}
+          activeFolderId={activeFolderId}
+          onSelect={activeLocked ? () => {} : setActiveFolder}
+          onRename={handleRename}
+          onAddFolder={folderRows.length > 0 ? addFolder : undefined}
+          disabled={activeLocked}
+          scrollRef={foldersElRef}
+        />
+      </div>
+
+      <div ref={mediaScrollRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         {activeLocked && (
           <div className="flex items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <WarnIcon size={14} />

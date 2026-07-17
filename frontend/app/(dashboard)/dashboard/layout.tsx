@@ -57,16 +57,18 @@ export default function DashboardLayout({
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useSidebarCollapsed();
-  const { customBreadcrumb, locked } = useChrome();
+  const { customBreadcrumb, locked, mainRef } = useChrome();
 
   const breadcrumb: Breadcrumb = customBreadcrumb ?? deriveBreadcrumb(pathname);
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]">
+    <div className="flex h-screen overflow-hidden bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]">
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} locked={locked} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar breadcrumb={breadcrumb} />
-        <main className="min-w-0 flex-1">{children}</main>
+        <main ref={mainRef as React.RefObject<HTMLElement>} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

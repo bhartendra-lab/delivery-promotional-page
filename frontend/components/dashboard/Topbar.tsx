@@ -20,7 +20,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
 
   return (
     <header
-      className="flex items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-white px-4 py-3 sm:px-10 sm:py-3.5"
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-white px-4 py-3 sm:px-10 sm:py-3.5"
       style={{ minHeight: 56 }}
     >
       {/* Mobile-only quick nav (sidebar is hidden < md) */}

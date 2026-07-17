@@ -18,6 +18,9 @@ type Props = {
   onRename: (id: string, name: string) => void | Promise<void>;
   onAddFolder?: (name: string) => void | Promise<void>;
   disabled?: boolean;
+  /** Exposes the scrollable `<aside>` node so a wheel over it that hits its
+   *  scroll boundary can be forwarded to a sibling scroll region. */
+  scrollRef?: React.RefObject<HTMLElement | null>;
 };
 
 const FOLDERS_W = 240;
@@ -29,6 +32,7 @@ export function FoldersSidebar({
   onRename,
   onAddFolder,
   disabled = false,
+  scrollRef,
 }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [addingFolder, setAddingFolder] = useState(false);
@@ -37,7 +41,8 @@ export function FoldersSidebar({
 
   return (
     <aside
-      className="hidden shrink-0 self-stretch border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] md:block"
+      ref={scrollRef}
+      className="hidden h-full shrink-0 overflow-y-auto border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] md:block"
       style={{ width: FOLDERS_W }}
     >
       <div className="flex items-center justify-between px-5 pb-3 pt-5">

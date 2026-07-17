@@ -13,6 +13,7 @@ import type {
   SocialLinks,
   GetMediaResponse,
   GetAllGuestsResponse,
+  Guest,
   LoginResponse,
   ServiceType,
   StyleVariant,
@@ -471,11 +472,59 @@ export function getMedia(
 
 /**
  * GET /deliverables/get-all-guests/:booking_id — every guest of the booking with
- * their like count. Powers the "Liked Media" per-guest filter (dashboard only).
+ * their like count. Powers the "Liked Media" per-guest filter (dashboard only)
+ * and the Access & Sharing guest list.
  */
-export function getAllGuests(bookingId: string) {
+export function getAllGuests(bookingId: string, opts?: { guestType?: "host" | "guest" }) {
+  const params = new URLSearchParams();
+  if (opts?.guestType) params.set("guest_type", opts.guestType);
+  const qs = params.toString();
   return request<GetAllGuestsResponse>(
-    `/deliverables/get-all-guests/${encodeURIComponent(bookingId)}`,
+    `/deliverables/get-all-guests/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/**
+ * Downloads the booking's guest list as a CSV (same endpoint as `getAllGuests`,
+ * `exportCsv=true`). Runs a raw authenticated `fetch` (not the JSON `request`
+ * helper) so the CSV blob and its filename survive, then triggers a browser
+ * download via a throwaway anchor.
+ */
+export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: "host" | "guest" }) {
+  const params = new URLSearchParams({ exportCsv: "true" });
+  if (opts?.guestType) params.set("guest_type", opts.guestType);
+  const token = getToken();
+  const res = await fetch(
+    `${API_BASE}/deliverables/get-all-guests/${encodeURIComponent(bookingId)}?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    },
+  );
+  if (!res.ok) {
+    throw new ApiError(res.status, `Export failed: ${res.status}`, null);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const filename = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() || `${bookingId}_guests.csv`;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * POST /deliverables/revoke-guest-access/:guest_id — demotes a host back to
+ * guest scope, revoking the family-passcode-granted full-gallery access.
+ */
+export function revokeGuestAccess(guestId: string) {
+  return request<{ message: string; guest: Guest }>(
+    `/deliverables/revoke-guest-access/${encodeURIComponent(guestId)}`,
+    { method: "POST" },
   );
 }
 
