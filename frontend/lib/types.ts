@@ -307,6 +307,10 @@ export type Booking = {
   service_type?: ServiceType | string | null;
   /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
   gallery_archived_at?: number | null;
+  /** Number of custom folders in this booking's gallery. */
+  folder_count?: number;
+  /** Number of media items (photos/videos) in this booking's gallery. */
+  media_count?: number;
 };
 
 /**
@@ -321,6 +325,9 @@ export type BookingsListResponse = {
   visitTrackings?: number;
   deliveryTrackings?: number;
   reviewTrackings?: number;
+  /** Company-wide status counts (all statuses, ignoring the current page's
+   *  status/pagination filter). Optional so older backends still type-check. */
+  summary?: { live: number; archived: number };
 };
 
 /**
