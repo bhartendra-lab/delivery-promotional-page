@@ -4,16 +4,19 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import type { AssignedEventSummary, GalleryPublishStatus, QrCode } from "@/lib/types";
 import { downloadImage } from "@/lib/media-actions";
+import { formatCreatedAt } from "@/components/dashboard/shared";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
 import { IconDownload, IconTrash } from "@/app/(dashboard)/dashboard/events/[booking_id]/icons";
 import { AssignEventModal } from "./AssignEventModal";
 
 /**
- * F1b — one full-width QR card. Cover-fronted like `EventCard` (a QR is a
- * visual/physical asset), but laid out as a horizontal row on tablet/desktop and
- * stacked on mobile. Download pulls the public `qr_image_url` directly (no
- * proxy). Assign/Change opens the picker; Delete is always visible (never
- * hover-only) and typed-confirmed.
+ * F1b — one QR card, laid out as a three-zone horizontal row: QR thumbnail ·
+ * details (colour identity + current assignment) · a right-anchored action rail.
+ * The details split into two side-by-side columns once the card itself is wide
+ * enough (a `@container` query, not a viewport one) so the row fills its width
+ * instead of clustering on the left; it stacks on narrow cards and on mobile.
+ * Download pulls the public `qr_image_url` directly (no proxy). Assign/Change
+ * opens the picker; Delete is always visible (never hover-only) and typed-confirmed.
  */
 export function QrCard({
   qr,
@@ -58,67 +61,88 @@ export function QrCard({
   }
 
   return (
-    <article className="dash-rise flex flex-col gap-4 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-4 transition-colors hover:border-[var(--color-brand-outline)] sm:flex-row sm:items-center">
-      {/* QR thumbnail on a faint tint of its own colour. */}
-      <div
-        className="flex aspect-square w-full shrink-0 items-center justify-center rounded-lg p-3 sm:h-32 sm:w-32"
-        style={{ background: tint(qr.color_code, 0.1) }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={qr.qr_image_url}
-          alt={`QR code in ${qr.color_code}`}
-          className="h-full w-full object-contain"
-          loading="lazy"
-        />
-      </div>
-
-      {/* Details + actions */}
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {/* Colour */}
-          <span className="inline-flex items-center gap-2">
-            <span
-              className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/10"
-              style={{ background: qr.color_code }}
-              aria-hidden
-            />
-            <span className="font-mono text-[12.5px] uppercase text-[var(--color-brand-muted)]">
-              {qr.color_code}
-            </span>
-          </span>
-
-          {/* Assigned-event summary, or empty state */}
-          {assigned ? (
-            <span className="inline-flex min-w-0 items-center gap-2">
-              <span
-                className="h-7 w-10 shrink-0 rounded-md ring-1 ring-black/5"
-                style={
-                  assigned.background_image
-                    ? { backgroundImage: `url(${assigned.background_image})`, backgroundSize: "cover", backgroundPosition: "center" }
-                    : { backgroundImage: "repeating-linear-gradient(45deg, #C9AFA0 0 10px, #9E8475 10px 20px)" }
-                }
-                aria-hidden
-              />
-              <span className="min-w-0">
-                <span className="block truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-                  {assigned.name}
-                </span>
-                <StatusBadge status={assigned.gallery_publish_status} isActive={assigned.is_active} />
-              </span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--color-brand-outline)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-brand-muted)]">
-              Not assigned yet
-            </span>
-          )}
+    <article className="dash-rise @container rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] transition-colors hover:border-[var(--color-brand-outline)]">
+      <div className="flex flex-col gap-4 p-4 @md:flex-row @md:items-stretch @md:gap-5">
+        {/* QR thumbnail on a faint tint of its own colour. */}
+        <div
+          className="flex aspect-square w-24 shrink-0 items-center justify-center self-start rounded-lg p-2.5 @md:h-32 @md:w-32 @md:self-center"
+          style={{ background: tint(qr.color_code, 0.1) }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={qr.qr_image_url}
+            alt={`QR code in ${qr.color_code}`}
+            className="h-full w-full object-contain"
+            loading="lazy"
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Details — colour identity + current assignment. They sit side by side
+            once the card is wide enough (container query) and stack otherwise. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-4 @3xl:flex-row @3xl:items-stretch @3xl:gap-6">
+          {/* QR identity */}
+          <div className="flex flex-col justify-center gap-1.5 @3xl:w-44 @3xl:shrink-0">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              Reusable QR
+            </p>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/10"
+                style={{ background: qr.color_code }}
+                aria-hidden
+              />
+              <span className="font-mono text-[13px] font-medium uppercase text-[var(--color-brand-ink)]">
+                {qr.color_code}
+              </span>
+            </span>
+            <p className="text-[12px] text-[var(--color-brand-muted)]">
+              Created {formatCreatedAt(qr.createdAt)}
+            </p>
+          </div>
+
+          {/* Current assignment — grows to fill; divider on the left when the
+              columns are side by side, on top when they stack. */}
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 border-t border-[var(--color-brand-border)] pt-4 @3xl:border-l @3xl:border-t-0 @3xl:pl-6 @3xl:pt-0">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              Assigned event
+            </p>
+            {assigned ? (
+              <div className="flex min-w-0 items-center gap-3">
+                <span
+                  className="h-11 w-[68px] shrink-0 rounded-md ring-1 ring-black/5"
+                  style={
+                    assigned.background_image
+                      ? { backgroundImage: `url(${assigned.background_image})`, backgroundSize: "cover", backgroundPosition: "center" }
+                      : { backgroundImage: "repeating-linear-gradient(45deg, #C9AFA0 0 10px, #9E8475 10px 20px)" }
+                  }
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-[var(--color-brand-ink)]">
+                    {assigned.name}
+                  </span>
+                  <StatusBadge status={assigned.gallery_publish_status} isActive={assigned.is_active} />
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-dashed border-[var(--color-brand-outline)] px-2.5 py-1 text-[12px] font-medium text-[var(--color-brand-muted)]">
+                  Not assigned yet
+                </span>
+                <span className="text-[12px] text-[var(--color-brand-muted)]">
+                  Point this QR at whichever event is live.
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action rail — anchored to the right on wide cards, stacked below on mobile. */}
+        <div className="flex shrink-0 flex-col gap-2 border-t border-[var(--color-brand-border)] pt-4 @md:w-40 @md:justify-center @md:border-l @md:border-t-0 @md:pl-5 @md:pt-0">
           <button
             type="button"
             onClick={() => setAssignOpen(true)}
-            className="brand-focus inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+            className="brand-focus inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
             {assigned ? "Change event" : "Assign event"}
           </button>
@@ -126,7 +150,7 @@ export function QrCard({
             type="button"
             onClick={() => void download()}
             disabled={downloading}
-            className="brand-focus inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[13px] font-medium text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
+            className="brand-focus inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[13px] font-medium text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
           >
             {downloading ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
@@ -140,9 +164,10 @@ export function QrCard({
             onClick={() => setDeleteOpen(true)}
             title="Delete QR"
             aria-label="Delete QR"
-            className="brand-focus inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] text-[var(--color-brand-danger)] transition-colors hover:border-[var(--color-brand-danger)]/60"
+            className="brand-focus inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent px-3 text-[13px] font-medium text-[var(--color-brand-danger)] transition-colors hover:border-[var(--color-brand-danger)]/30 hover:bg-[var(--color-brand-danger-soft)]"
           >
             <IconTrash size={15} />
+            Delete
           </button>
         </div>
       </div>
