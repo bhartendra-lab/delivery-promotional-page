@@ -64,6 +64,9 @@ export type EventMeta = {
   familyPasscode?: string;
   /** Guest teams / sub-types shown on the client "Which team are you in?" screen. */
   guestTypes?: string[];
+  /** Reusable QR pointed at this event, if any (joined by `getBookingById`). */
+  qrUniqueId?: string;
+  qrImageUrl?: string;
 };
 
 /**

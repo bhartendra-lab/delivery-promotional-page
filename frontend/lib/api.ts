@@ -15,6 +15,7 @@ import type {
   GetAllGuestsResponse,
   Guest,
   LoginResponse,
+  QrCode,
   ServiceType,
   StyleVariant,
   TrackingType,
@@ -165,6 +166,52 @@ export function deleteWatermarkPreset(id: string) {
       method: "DELETE",
     },
   );
+}
+
+/* ── Reusable QR ───────────────────────────────────────────────── */
+
+/**
+ * POST /deliverables/generate-qr — server composites a styled, gradient,
+ * logo-overlaid PNG for the picked hex and uploads it to public R2. Can take a
+ * couple of seconds. 400s (with a message) when the plan's QR limit is reached.
+ */
+export function generateQrCode(colorCode: string) {
+  return request<{ qr: QrCode }>("/deliverables/generate-qr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ color_code: colorCode }),
+  });
+}
+
+/**
+ * GET /deliverables/get-all-qr-codes — every QR for the studio, newest-first,
+ * each with a flattened `assigned_event` (or null). `qr_limit` is the plan cap
+ * (null = no cap on record); drives the "X of Y used" hint.
+ */
+export function getAllQrCodes() {
+  return request<{ qrs: QrCode[]; qr_limit: number | null }>("/deliverables/get-all-qr-codes");
+}
+
+/**
+ * POST /deliverables/assign-qr — point a QR at a live event's delivery landing
+ * page. Both the QR and the event must belong to the caller's studio (else 404).
+ */
+export function assignQr(qrUniqueId: string, bookingId: string) {
+  return request<{ qr: QrCode }>("/deliverables/assign-qr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId }),
+  });
+}
+
+/**
+ * DELETE /deliverables/delete-qr/:unique_id — removes the QR doc + its R2 image.
+ * Does NOT touch the event it pointed at. A printed copy stops working once gone.
+ */
+export function deleteQr(uniqueId: string) {
+  return request<{ message: string }>(`/deliverables/delete-qr/${encodeURIComponent(uniqueId)}`, {
+    method: "DELETE",
+  });
 }
 
 export function checkResetLink(userId: string) {

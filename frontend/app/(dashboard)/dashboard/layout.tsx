@@ -84,6 +84,9 @@ function deriveBreadcrumb(pathname: string): Breadcrumb {
     if (rest) items.push({ label: "Event" });
     return items;
   }
+  if (pathname.startsWith("/dashboard/reusable-qr")) {
+    return [{ label: "Reusable QR" }];
+  }
   if (pathname.startsWith("/dashboard/settings")) {
     // The settings layout overrides this via usePageBreadcrumb (adding the
     // active section); this is just the pre-hydration fallback.

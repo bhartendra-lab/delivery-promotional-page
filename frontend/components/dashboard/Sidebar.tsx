@@ -18,6 +18,7 @@ type NavItem = { id: string; label: string; href: string; Icon: React.FC<{ size?
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard", Icon: IconHome },
   { id: "events", label: "Events", href: "/dashboard/events", Icon: IconCalendar },
+  { id: "reusable-qr", label: "Reusable QR", href: "/dashboard/reusable-qr", Icon: IconQrCode },
 ];
 
 export function Sidebar({
@@ -292,6 +293,17 @@ function IconCalendar({ size = 18, className }: { size?: number; className?: str
       <line x1="3.5" y1="9.5" x2="20.5" y2="9.5" />
       <line x1="8" y1="3" x2="8" y2="6" />
       <line x1="16" y1="3" x2="16" y2="6" />
+    </svg>
+  );
+}
+
+function IconQrCode({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3.5" y="3.5" width="6" height="6" rx="1.2" />
+      <rect x="14.5" y="3.5" width="6" height="6" rx="1.2" />
+      <rect x="3.5" y="14.5" width="6" height="6" rx="1.2" />
+      <path d="M14.5 14.5h2.5v2.5M20.5 14.5v.01M14.5 20.5h.01M17 20.5h3.5V17" />
     </svg>
   );
 }

@@ -369,6 +369,10 @@ export type BookingDetail = {
   service_type?: ServiceType | string | null;
   /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
   gallery_archived_at?: number | null;
+  /** Reusable QR assigned to this event, if any (joined by `getBookingById`).
+   *  Both absent when no QR points here. */
+  qr_unique_id?: string;
+  qr_image_url?: string;
 
   /** Legacy/optional fields kept for backwards-compatible reads. */
   _id?: string;
@@ -380,6 +384,39 @@ export type BookingDetail = {
 
 export type BookingDetailResponse = {
   booking: BookingDetail;
+};
+
+/* ── Reusable QR ───────────────────────────────────────────────── */
+
+/**
+ * The event a QR currently points at, as flattened by `getAllQRCodes`. Null on
+ * the QR when it's unassigned. A "live" event is `gallery_publish_status:
+ * "published"`; `is_active: false` means published-but-temporarily-deactivated
+ * (still counts as live — badge it, don't hide it).
+ */
+export type AssignedEventSummary = {
+  booking_id: string;
+  delivery_landing_page_id: string;
+  name: string;
+  event_type?: string;
+  background_image?: string;
+  unique_identifier?: string;
+  gallery_publish_status?: GalleryPublishStatus;
+  is_active?: boolean;
+};
+
+/**
+ * A studio's reusable QR — one printed sticker/stand that can be re-pointed at
+ * whichever event is currently live. `qr_image_url` is a public R2 URL (download
+ * it client-side like any other media; no proxy). `color_code` is the picked hex.
+ */
+export type QrCode = {
+  _id: string;
+  unique_id: string;
+  qr_image_url: string;
+  color_code: string;
+  createdAt: string;
+  assigned_event: AssignedEventSummary | null;
 };
 
 export type GetMediaResponse = {

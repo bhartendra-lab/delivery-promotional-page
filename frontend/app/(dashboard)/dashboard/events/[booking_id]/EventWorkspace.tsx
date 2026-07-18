@@ -99,6 +99,8 @@ function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
     uniqueIdentifier: b.unique_identifier ?? prev?.uniqueIdentifier,
     familyPasscode: b.family_passcode ?? prev?.familyPasscode,
     guestTypes: b.guest_types ?? prev?.guestTypes,
+    qrUniqueId: b.qr_unique_id ?? prev?.qrUniqueId,
+    qrImageUrl: b.qr_image_url ?? prev?.qrImageUrl,
   };
 }
 
@@ -924,6 +926,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 eventName={ctx.meta.name}
                 uniqueIdentifier={ctx.meta.uniqueIdentifier}
                 familyPasscode={ctx.meta.familyPasscode}
+                qrUniqueId={ctx.meta.qrUniqueId}
+                qrImageUrl={ctx.meta.qrImageUrl}
                 onRegenerate={doRegeneratePasscode}
               />
             )}

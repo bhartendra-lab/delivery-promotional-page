@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { exportGuestsCsv, getAllGuests, revokeGuestAccess } from "@/lib/api";
+import { downloadImage } from "@/lib/media-actions";
 import type { Guest } from "@/lib/types";
 import {
   IconCheck,
@@ -32,12 +34,17 @@ export function AccessSharingTab({
   eventName,
   uniqueIdentifier,
   familyPasscode,
+  qrUniqueId,
+  qrImageUrl,
   onRegenerate,
 }: {
   bookingId: string;
   eventName: string;
   uniqueIdentifier?: string;
   familyPasscode?: string;
+  /** Reusable QR pointed at this event, if any (from `getBookingById`). */
+  qrUniqueId?: string;
+  qrImageUrl?: string;
   /** Mint a fresh passcode server-side; resolves to the new code. */
   onRegenerate: () => Promise<string>;
 }) {
@@ -89,7 +96,12 @@ ${shareUrl}`;
                     <span>Each guest sees only the photos they appear in — until the passcode unlocks the rest.</span>
                   </div>
 
-                  <Dispatch key={shareUrl} eventName={eventName} message={message} />
+                  {/* Compact message actions (3/4) beside a QR visibility panel
+                      (1/4). Stacks on mobile — message first, then the QR. */}
+                  <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 lg:grid-cols-[3fr_1fr]">
+                    <Dispatch key={shareUrl} eventName={eventName} message={message} />
+                    <QrPanel qrUniqueId={qrUniqueId} qrImageUrl={qrImageUrl} eventName={eventName} />
+                  </div>
                 </>
               ) : (
                 <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-3 text-[12.5px] text-[var(--color-brand-muted)]">
@@ -498,15 +510,21 @@ function Dispatch({ eventName, message }: { eventName: string; message: string }
   // Seeded once from `message`; the parent remounts this via `key` if the
   // canonical message changes (e.g. the share URL resolves late).
   const [text, setText] = useState(message);
+  const [copied, setCopied] = useState(false);
 
   const openWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
   const openEmail = () => {
     const subject = `Your photos from ${eventName} are ready`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
   };
+  const copy = () => {
+    void navigator.clipboard?.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
 
   return (
-    <div className="mt-4 border-t border-[#ECE5D8] pt-3.5">
+    <div className="min-w-0">
       <div className="mb-1.5 flex items-center justify-between">
         <Label tip="This text is pre-loaded into WhatsApp / email when you dispatch it.">Message to guests</Label>
         <button
@@ -523,33 +541,135 @@ function Dispatch({ eventName, message }: { eventName: string; message: string }
         rows={5}
         className="brand-focus block w-full resize-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 font-[inherit] text-[12.5px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
       />
+      {/* Icon-only dispatch buttons — the label reveals on hover as a desktop
+          nicety; title + aria-label are always set and tapping fires the action
+          immediately, so touch / screen-reader users never depend on hover. */}
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={openWhatsApp}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px] font-semibold text-white"
+          title="Share on WhatsApp"
+          aria-label="Share on WhatsApp"
+          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg px-3 text-[12.5px] font-semibold text-white transition-colors"
           style={{ background: "#1FA855" }}
         >
-          <IconWhatsApp size={16} /> WhatsApp
+          <IconWhatsApp size={16} />
+          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[90px] group-hover:opacity-100">
+            WhatsApp
+          </span>
         </button>
         <button
           type="button"
           onClick={openEmail}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-semibold"
+          title="Share by email"
+          aria-label="Share by email"
+          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg border px-3 text-[12.5px] font-semibold transition-colors"
           style={{ borderColor: "var(--color-brand-navy)", color: "var(--color-brand-navy)" }}
         >
-          <IconMail size={15} /> Email
+          <IconMail size={15} />
+          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[70px] group-hover:opacity-100">
+            Email
+          </span>
         </button>
         <button
           type="button"
-          onClick={() => void navigator.clipboard?.writeText(text)}
+          onClick={copy}
           title="Copy message"
-          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)]"
+          aria-label="Copy message"
+          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)]"
         >
-          <IconCopy size={15} />
+          {copied ? <IconCheck size={15} className="text-[var(--color-brand-success)]" /> : <IconCopy size={15} />}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * QR visibility panel (1/4 of the message row). Assigned → thumbnail + a single
+ * Download (public `qr_image_url`, no proxy). Unassigned → one "Assign QR" CTA
+ * that navigates to the Reusable QR tab. Deliberately NO reassign/change control
+ * here — reassignment lives exclusively on that tab (single-CTA rule).
+ */
+function QrPanel({
+  qrUniqueId,
+  qrImageUrl,
+  eventName,
+}: {
+  qrUniqueId?: string;
+  qrImageUrl?: string;
+  eventName: string;
+}) {
+  const router = useRouter();
+  const [downloading, setDownloading] = useState(false);
+  // A QR's identity (unique_id) is the "is one assigned?" signal; the image URL
+  // is how we render it. The backend always sets both together on assignment.
+  const assigned = Boolean(qrUniqueId) && Boolean(qrImageUrl);
+
+  async function download() {
+    if (!qrImageUrl) return;
+    setDownloading(true);
+    try {
+      const slug = eventName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "event";
+      await downloadImage(qrImageUrl, `qr-${slug}.png`);
+    } catch {
+      /* best-effort download; the public URL is also visible on the QR tab */
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col">
+      <Label tip="A reusable QR pointed at this event. Manage or re-point it from the Reusable QR tab.">
+        Event QR
+      </Label>
+      {assigned ? (
+        <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qrImageUrl} alt="Event QR code" className="h-24 w-24 rounded-md bg-white object-contain p-1" />
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={downloading}
+            className="brand-focus inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
+          >
+            {downloading ? (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+            ) : (
+              <IconDownload size={14} />
+            )}
+            Download
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] bg-[var(--color-brand-bg)] p-3 text-center">
+          <QrGlyph />
+          <p className="text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
+            No reusable QR points here yet.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/reusable-qr")}
+            className="brand-focus inline-flex h-9 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] px-3 text-[12.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+          >
+            Assign QR
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QrGlyph() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-brand-outline)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="3.5" width="6" height="6" rx="1.2" />
+      <rect x="14.5" y="3.5" width="6" height="6" rx="1.2" />
+      <rect x="3.5" y="14.5" width="6" height="6" rx="1.2" />
+      <path d="M14.5 14.5h2.5v2.5M20.5 14.5v.01M14.5 20.5h.01M17 20.5h3.5V17" />
+    </svg>
   );
 }
 
