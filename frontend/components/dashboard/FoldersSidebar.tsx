@@ -149,7 +149,7 @@ function FolderRowComponent({
     <div
       onClick={isRenaming || disabled ? undefined : onSelect}
       role={isRenaming || disabled ? undefined : "button"}
-      className={`relative my-px flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 ${
+      className={`group relative my-px flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 ${
         isActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-white"
       } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
     >
@@ -179,7 +179,7 @@ function FolderRowComponent({
           {folder.count.toLocaleString("en-IN")}
         </span>
       )}
-      {isActive && !isRenaming && !folder.system && (
+      {!isRenaming && !folder.system && (
         <button
           type="button"
           onClick={(e) => {
@@ -188,7 +188,9 @@ function FolderRowComponent({
           }}
           disabled={disabled}
           title="Rename folder"
-          className="brand-focus -ml-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded text-[var(--color-brand-navy)]"
+          className={`brand-focus -ml-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded text-[var(--color-brand-navy)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ${
+            isActive ? "opacity-100" : ""
+          }`}
         >
           <EditIcon size={13} />
         </button>

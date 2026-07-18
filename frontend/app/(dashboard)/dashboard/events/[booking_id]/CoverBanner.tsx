@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { IconUpload } from "./icons";
+import { IconUpload, IconDownload, IconX } from "./icons";
 import { clamp, parsePosNums } from "./coverPosition";
+import { downloadImage } from "@/lib/media-actions";
 
 const RAW_RE =
   /\.(raw|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|dng|raf|3fr|kdc|mef|mrw|pef|ptx|r3d|rwl|srw|x3f|erf|fff|iiq)$/i;
@@ -29,11 +30,10 @@ export function CoverBanner({
   onSetFromFile: (file: File) => void | Promise<void>;
   onSavePosition: (position: string) => void | Promise<void>;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [repositioning, setRepositioning] = useState(false);
   const [dragPos, setDragPos] = useState("50% 50%");
+  const [fullscreen, setFullscreen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const bannerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; bx: number; by: number } | null>(null);
   const filled = !!coverUrl;
@@ -43,7 +43,6 @@ export function CoverBanner({
   const startReposition = () => {
     setDragPos(parsePos(coverPosition));
     setRepositioning(true);
-    setMenuOpen(false);
   };
   const onPointerDown = (e: React.PointerEvent) => {
     if (!repositioning) return;
@@ -63,122 +62,202 @@ export function CoverBanner({
     dragRef.current = null;
   };
 
+  function handleDownload() {
+    if (!coverUrl) return;
+    void downloadImage(coverUrl, "cover");
+  }
+
+  return (
+    <>
+      <div
+        ref={bannerRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        className={`group relative w-full shrink-0 overflow-hidden ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
+        style={{
+          height: 240,
+          ...(filled
+            ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: shownPos }
+            : {
+                backgroundImage:
+                  "repeating-linear-gradient(45deg, #C9AFA0 0 18px, #9E8475 18px 36px)",
+              }),
+        }}
+      >
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: "linear-gradient(to bottom, rgba(42,34,24,0) 45%, rgba(42,34,24,0.4) 100%)" }}
+        />
+
+        {repositioning ? (
+          <>
+            {/* Hint — centered over the image, a subtle scrim behind the text
+                only (Notion layout), not a full bottom bar. */}
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 z-20 flex -translate-y-1/2 justify-center px-4">
+              <span className="rounded-md bg-[rgba(42,34,24,0.55)] px-3 py-1.5 text-center text-[12.5px] font-semibold text-white backdrop-blur-sm">
+                Drag the photo to choose what guests see
+              </span>
+            </div>
+
+            {/* Actions — top-right, same corner as the hover cluster below.
+                Stop pointer-down here so it doesn't reach the banner's drag
+                handler and start a drag from the controls themselves. */}
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              className="absolute right-4 top-4 z-30 flex shrink-0 items-center gap-2 sm:right-6"
+            >
+              <button
+                type="button"
+                onClick={() => setRepositioning(false)}
+                className="brand-focus cursor-pointer rounded-md bg-white/15 px-3 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm hover:bg-white/25"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void onSavePosition(dragPos);
+                  setRepositioning(false);
+                }}
+                className="brand-focus cursor-pointer rounded-md bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:bg-white/90"
+              >
+                Save position
+              </button>
+            </div>
+          </>
+        ) : filled ? (
+          /* Hover cluster — hidden at rest, revealed on hover/focus. */
+          <div className="absolute right-4 top-4 z-20 flex items-center divide-x divide-[var(--color-brand-border)] overflow-hidden rounded-md border border-[var(--color-brand-border)] bg-white/90 opacity-0 shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:right-6">
+            <CoverActionButton
+              onClick={() => fileRef.current?.click()}
+              disabled={disabled || busy}
+              busy={busy}
+              label="Change cover"
+              icon={<IconUpload size={14} />}
+            />
+            <CoverActionButton
+              onClick={startReposition}
+              disabled={disabled || busy}
+              label="Reposition"
+              icon={<MoveIcon size={14} />}
+            />
+            <CoverActionButton
+              onClick={handleDownload}
+              disabled={disabled || busy}
+              label="Download"
+              icon={<IconDownload size={14} />}
+            />
+            <CoverActionButton
+              onClick={() => setFullscreen(true)}
+              disabled={disabled}
+              label="Fullscreen"
+              icon={<IconExpand size={14} />}
+            />
+          </div>
+        ) : (
+          /* Empty state — nothing to hover over, so the CTA stays visible. */
+          <div className="absolute right-4 top-4 sm:right-6">
+            <button
+              type="button"
+              disabled={disabled || busy}
+              onClick={() => fileRef.current?.click()}
+              className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] backdrop-blur-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+              ) : (
+                <IconUpload size={14} className="text-[var(--color-brand-muted)]" />
+              )}
+              Add cover photo
+            </button>
+          </div>
+        )}
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file && !RAW_RE.test(file.name)) void onSetFromFile(file);
+          }}
+        />
+      </div>
+
+      {fullscreen && coverUrl && (
+        <FullscreenPreview url={coverUrl} onClose={() => setFullscreen(false)} />
+      )}
+    </>
+  );
+}
+
+/** One icon action inside the hover cluster / Notion-style corner control. */
+function CoverActionButton({
+  onClick,
+  disabled,
+  busy,
+  label,
+  icon,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="brand-focus flex h-8 w-8 items-center justify-center text-[var(--color-brand-muted)] transition-colors hover:bg-[var(--color-brand-bg)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {busy ? (
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+      ) : (
+        icon
+      )}
+    </button>
+  );
+}
+
+/** Minimal full-screen preview of the cover — Escape or scrim click closes it. */
+function FullscreenPreview({ url, onClose }: { url: string; onClose: () => void }) {
   useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [menuOpen]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   return (
     <div
-      ref={bannerRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      className={`relative w-full shrink-0 overflow-hidden ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
-      style={{
-        height: 240,
-        ...(filled
-          ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: shownPos }
-          : {
-              backgroundImage:
-                "repeating-linear-gradient(45deg, #C9AFA0 0 18px, #9E8475 18px 36px)",
-            }),
-      }}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-6"
+      style={{ background: "rgba(42,34,24,0.9)" }}
+      onClick={onClose}
     >
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{ background: "linear-gradient(to bottom, rgba(42,34,24,0) 45%, rgba(42,34,24,0.4) 100%)" }}
-      />
-
-      {repositioning && (
-        // Stop pointer events here from reaching the banner's drag handler —
-        // otherwise the banner captures the pointer and swallows these clicks.
-        <div
-          onPointerDown={(e) => e.stopPropagation()}
-          className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 bg-[rgba(42,34,24,0.6)] px-4 py-3 backdrop-blur-sm sm:px-6"
-        >
-          <span className="text-[12.5px] font-semibold text-white">Drag the photo to choose what guests see</span>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setRepositioning(false)}
-              className="brand-focus cursor-pointer rounded-md bg-white/15 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/25"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void onSavePosition(dragPos);
-                setRepositioning(false);
-              }}
-              className="brand-focus cursor-pointer rounded-md bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:bg-white/90"
-            >
-              Save position
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className={`absolute right-4 top-4 sm:right-6 ${repositioning ? "hidden" : ""}`} ref={wrapRef}>
-        <button
-          type="button"
-          disabled={disabled || busy}
-          onClick={() => setMenuOpen((o) => !o)}
-          className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] backdrop-blur-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {busy ? (
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
-          ) : (
-            <IconUpload size={14} className="text-[var(--color-brand-muted)]" />
-          )}
-          {filled ? "Change cover" : "Add cover photo"}
-        </button>
-
-        {menuOpen && (
-          <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-[230px] overflow-hidden rounded-[10px] border border-[var(--color-brand-border)] bg-white shadow-[0_8px_28px_rgba(42,34,24,0.16)]">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                fileRef.current?.click();
-              }}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
-            >
-              <IconUpload size={15} className="text-[var(--color-brand-muted)]" />
-              Upload a new photo
-            </button>
-            <p className="border-t border-[var(--color-brand-border)] px-3.5 py-2 text-[11px] leading-snug text-[var(--color-brand-muted)]">
-              Tip: open any photo in the grid below and use its menu to set it as the cover.
-            </p>
-            {filled && (
-              <button
-                type="button"
-                onClick={startReposition}
-                className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
-              >
-                <MoveIcon size={15} />
-                Reposition cover
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          if (file && !RAW_RE.test(file.name)) void onSetFromFile(file);
-        }}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close preview"
+        className="brand-focus absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+      >
+        <IconX size={18} />
+      </button>
+      <img
+        src={url}
+        alt="Cover photo, full size"
+        className="max-h-full max-w-full rounded-lg object-contain shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+        onClick={(e) => e.stopPropagation()}
       />
     </div>
   );
@@ -193,8 +272,19 @@ function parsePos(p?: string): string {
 
 function MoveIcon({ size = 15, className }: { size?: number; className?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className ?? "text-[var(--color-brand-muted)]"}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
+    </svg>
+  );
+}
+
+function IconExpand({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M4 9V5h4" />
+      <path d="M16 5h4v4" />
+      <path d="M20 15v4h-4" />
+      <path d="M8 19H4v-4" />
     </svg>
   );
 }

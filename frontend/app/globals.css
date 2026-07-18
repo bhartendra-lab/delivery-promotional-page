@@ -188,9 +188,11 @@ body {
   animation: shimmer-skel 1.4s linear infinite;
 }
 
-/* Terracotta focus ring */
-.brand-focus:focus-visible,
-.brand-focus:focus {
+/* Terracotta focus ring — :focus-visible only, so it never shows on mouse
+   click (Chrome retains focus-ring on click for :focus; Safari's heuristics
+   differ, which made this look browser-specific). Keyboard-only, consistent
+   across browsers. */
+.brand-focus:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 3px rgba(194, 90, 58, 0.18),

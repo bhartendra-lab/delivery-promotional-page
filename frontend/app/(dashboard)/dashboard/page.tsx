@@ -7,7 +7,7 @@ import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
 import { StatsBar } from "@/components/dashboard/StatsBar";
 import { EventCard } from "@/components/dashboard/EventCard";
-import { useChrome, useScrollCollapsed } from "@/components/dashboard/ChromeContext";
+import { useChrome } from "@/components/dashboard/ChromeContext";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
@@ -19,8 +19,6 @@ export default function DashboardHomePage() {
   // Events meter / usage shared via ChromeContext — single fetch for the whole
   // dashboard (Sidebar meter + header pill read the same value).
   const { dlpUsage, dlpLoading, locked } = useChrome();
-  // Drives the hero/stats-collapse + locked-toolbar scroll animation below.
-  const collapsed = useScrollCollapsed(24);
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,15 +116,9 @@ export default function DashboardHomePage() {
         </div>
       )}
 
-      {/* Page header + stats — fade away in place once the list scrolls past
-          them. Keeps its normal document height always (never collapses it)
-          — shrinking real layout height here fought short pages: with only a
-          couple of events the page barely has scroll room, so removing this
-          block's height mid-scroll could erase that overflow entirely,
-          snapping scrollTop back to 0 and re-expanding the block — an
-          endless tug of war against the user's own scroll gesture. Fading in
-          place has no such feedback loop. */}
-      <div className={`scroll-fade space-y-6 pb-6 ${collapsed ? "is-collapsed" : ""}`}>
+      {/* Page header + stats — scrolls away normally with the rest of the
+          page; only the search bar below stays sticky. */}
+      <div className="space-y-6 pb-6">
         <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
@@ -161,16 +153,9 @@ export default function DashboardHomePage() {
         />
       </div>
 
-      {/* Search + count row — locks to a single compact line once the header
-          above has scrolled out; Pagination + Add event fold into it so both
-          stay reachable without scrolling back up or down. */}
-      <section
-        className={`sticky top-0 z-10 flex flex-col gap-3 bg-[var(--color-brand-bg)] py-3 transition-[box-shadow,border-color] duration-300 sm:flex-row sm:items-center sm:justify-between ${
-          collapsed
-            ? "border-b border-[var(--color-brand-border)] shadow-[0_6px_18px_rgba(42,34,24,0.08)]"
-            : "border-b border-transparent"
-        }`}
-      >
+      {/* Search + count row — stays sticky under the (now normally-scrolling)
+          header, with a static bottom border. */}
+      <section className="sticky top-0 z-10 flex flex-col gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
             <SearchIcon />
@@ -195,23 +180,42 @@ export default function DashboardHomePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setShowArchived((v) => !v);
-              setPage(1);
-            }}
-            aria-pressed={showArchived}
-            title="Show archived & expired events"
-            className={`brand-focus inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors ${
-              showArchived
-                ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-                : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
-            }`}
+          <div
+            role="group"
+            aria-label="Filter by status"
+            className="inline-flex shrink-0 items-center rounded-full border border-[var(--color-brand-border)] p-0.5"
           >
-            <ArchiveIcon />
-            <span className="hidden sm:inline">{showArchived ? "Archived & expired" : "Show archived"}</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowArchived(false);
+                setPage(1);
+              }}
+              aria-pressed={!showArchived}
+              className={`brand-focus h-7 rounded-full px-3 text-xs font-semibold transition-colors ${
+                !showArchived
+                  ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                  : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              }`}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowArchived(true);
+                setPage(1);
+              }}
+              aria-pressed={showArchived}
+              className={`brand-focus h-7 rounded-full px-3 text-xs font-semibold transition-colors ${
+                showArchived
+                  ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+                  : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              }`}
+            >
+              Archived
+            </button>
+          </div>
 
           {data && (
             <p className="shrink-0 text-xs text-[var(--color-brand-muted)]">
@@ -221,24 +225,6 @@ export default function DashboardHomePage() {
               </span>{" "}
               {data.bookings.length === 1 ? "event" : "events"}
             </p>
-          )}
-
-          {/* Folded in once locked — Pagination + Add event stay reachable while scrolling. */}
-          {collapsed && (
-            <div className="dash-rise flex shrink-0 items-center gap-2 border-l border-[var(--color-brand-border)] pl-3">
-              {data && data.bookings.length > 0 && (
-                <Pagination current={page} totalPages={totalPages} onChange={(p) => setPage(p)} compact />
-              )}
-              <button
-                type="button"
-                onClick={openCreate}
-                disabled={createBlocked}
-                className="brand-focus inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 text-xs font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <PlusIcon />
-                <span className="hidden sm:inline">Add event</span>
-              </button>
-            </div>
           )}
         </div>
       </section>
@@ -378,9 +364,9 @@ function CardGridSkeleton() {
               <div className="skeleton h-8 rounded" />
               <div className="skeleton h-8 rounded" />
             </div>
-            <div className="flex gap-2 pt-1">
-              <div className="skeleton h-10 w-24 rounded-lg" />
-              <div className="skeleton h-10 flex-1 rounded-lg" />
+            <div className="flex items-center justify-between pt-1">
+              <div className="skeleton h-3 w-24 rounded" />
+              <div className="skeleton h-9 w-9 rounded-lg" />
             </div>
           </div>
         </div>

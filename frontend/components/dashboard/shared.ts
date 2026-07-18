@@ -1,9 +1,16 @@
-// `event_date` is stored as epoch milliseconds everywhere it's written
-// (AddEventModal, EventWorkspace's edit-details sheet both save `.getTime()`
-// directly) — these helpers must treat it the same way, not as epoch seconds.
+// `event_date` is written as epoch milliseconds by every known write path
+// (AddEventModal, EventWorkspace's edit-details sheet, and the Vyavasth CRM's
+// event form all save `.getTime()` directly) — but older rows may still hold
+// unix seconds (~1.7e9) from before those paths existed. Normalize to ms by
+// magnitude rather than assuming one unit: any plausible event date in
+// seconds is < 1e12; anything larger is already ms.
+function toMillis(v: number): number {
+  return v < 1e12 ? v * 1000 : v;
+}
+
 export function formatEventDate(epochMs?: number): string {
   if (!epochMs) return "—";
-  const date = new Date(epochMs);
+  const date = new Date(toMillis(epochMs));
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString(undefined, {
     year: "numeric",
@@ -29,7 +36,7 @@ export function buildShareUrl(id: string): string {
 
 export function toDateInputValue(epochMs?: number): string {
   if (!epochMs) return "";
-  const date = new Date(epochMs);
+  const date = new Date(toMillis(epochMs));
   if (Number.isNaN(date.getTime())) return "";
   const yyyy = date.getFullYear().toString().padStart(4, "0");
   const mm = (date.getMonth() + 1).toString().padStart(2, "0");

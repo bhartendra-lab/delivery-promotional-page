@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Booking, EventType, GalleryPublishStatus, ServiceType } from "@/lib/types";
 import { isStorageBasedPlan } from "@/lib/types";
 import { buildShareUrl, formatEventDate, getExpiryWarning } from "./shared";
@@ -85,12 +85,6 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
 
   const busy = acting !== null;
 
-  // Cover caption: "{slug} · {faces}f" — omit the whole caption if neither part exists.
-  const facesPart =
-    typeof row.total_faces === "number" && row.total_faces > 0 ? `${row.total_faces}f` : "";
-  const captionParts = [row.unique_identifier, facesPart].filter(Boolean);
-  const caption = captionParts.join(" · ");
-
   // Meta row: "{location} · {date}" — omit empty parts and the whole row if neither.
   const datePart = row.event_date ? formatEventDate(row.event_date) : "";
   const metaParts = [row.location, datePart].filter(Boolean);
@@ -99,7 +93,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
   const filled = Boolean(row.background_image);
 
   return (
-    <article className="dash-rise group relative flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] transition-colors hover:border-[var(--color-brand-outline)]">
+    <article className="dash-rise group relative flex flex-col rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] transition-colors hover:border-[var(--color-brand-outline)]">
       <button
         type="button"
         onClick={() => !locked && onOpen(row)}
@@ -131,15 +125,10 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
             }}
           />
           <StatusPill status={row.gallery_publish_status} />
-          {caption && (
-            <span className="absolute bottom-2 left-3 font-mono text-[11px] text-white/90">
-              {caption}
-            </span>
-          )}
         </div>
 
         {/* Body */}
-        <div className="p-4">
+        <div className="p-4 pb-0">
           <div className="flex items-start justify-between gap-3">
             <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--color-brand-ink)]">
               {row.name}
@@ -150,14 +139,19 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
           {meta && (
             <p className="mt-1 truncate text-xs text-[var(--color-brand-muted)]">{meta}</p>
           )}
-
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <Metric label="Visits" value={row.trackings?.visit ?? 0} />
-            <Metric label="Contacts" value={row.trackings?.contact ?? 0} />
-            <Metric label="Reviews" value={row.trackings?.review ?? 0} />
-          </div>
         </div>
       </button>
+
+      {/* Metrics row — sits outside the open-button (not inside it) so the info
+          icon can stopPropagation without living inside a nested <button>. */}
+      <div className="flex items-center gap-2 px-4 pb-1 pt-4">
+        <div className="grid flex-1 grid-cols-3 gap-2">
+          <Metric label="Views" value={row.trackings?.visit ?? 0} />
+          <Metric label="WhatsApp" value={row.trackings?.contact ?? 0} />
+          <Metric label="Google reviews" value={row.trackings?.review ?? 0} />
+        </div>
+        <MetricsInfo />
+      </div>
 
       {/* Mark-as-archive control — top-right of the cover, mirroring the StatusPill
           at top-left. Sits outside the open-button (no nested buttons) and above
@@ -234,31 +228,12 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
             </div>
           )
         ) : (
-          <div className="flex gap-2 p-4 pt-0">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                copy();
-              }}
-              disabled={locked}
-              className="brand-focus inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {copied ? <IconCheck size={14} /> : <IconLink size={14} />}
-              {copied ? "Copied" : "Copy link"}
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                send();
-              }}
-              disabled={locked}
-              className="brand-focus inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <IconWhatsApp size={16} />
-              Send
-            </button>
+          <div className="flex items-center justify-between gap-2 px-4 pb-4 pt-0">
+            {/* Reserved for more info later. */}
+            <p className="min-w-0 truncate text-xs text-[var(--color-brand-muted)]">
+              {pluralize(row.folder_count ?? 0, "folder")} · {pluralize(row.media_count ?? 0, "photo")}
+            </p>
+            <ShareMenu copied={copied} onCopy={copy} onSend={send} disabled={locked} />
           </div>
         ))}
 
@@ -307,13 +282,130 @@ function StatusPill({ status }: { status?: GalleryPublishStatus }) {
   );
 }
 
+function pluralize(n: number, word: string): string {
+  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+}
+
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <p className="text-base font-bold tabular-nums text-[var(--color-brand-ink)]">
         {value.toLocaleString()}
       </p>
-      <p className="mt-0.5 text-xs text-[var(--color-brand-muted)]">{label}</p>
+      <p className="mt-0.5 text-xs leading-tight text-[var(--color-brand-muted)]">{label}</p>
+    </div>
+  );
+}
+
+/** Single shared info affordance for the Views / WhatsApp / Google reviews metrics.
+ *  Shown on hover and keyboard focus via a named group, matching the dark-ink
+ *  tooltip style used by EventTabStrip. Sits outside the card's open-button so
+ *  clicking it never triggers navigation. */
+function MetricsInfo() {
+  return (
+    <div className="group/info relative shrink-0">
+      <button
+        type="button"
+        onClick={(e) => e.stopPropagation()}
+        aria-label="What these numbers mean"
+        className="brand-focus flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] transition-colors hover:bg-[var(--color-brand-border)] hover:text-[var(--color-brand-ink)]"
+      >
+        <IconInfo size={13} />
+      </button>
+      <div className="pointer-events-none absolute bottom-[calc(100%+8px)] right-0 z-20 w-[224px] rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-[11.5px] font-medium leading-relaxed text-white opacity-0 shadow-[0_6px_20px_rgba(42,34,24,0.22)] transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100">
+        <span className="absolute -bottom-[5px] right-[10px] h-2.5 w-2.5 rotate-45 bg-[var(--color-brand-ink)]" />
+        <strong className="font-semibold">Views</strong> — guests who opened the gallery ·{" "}
+        <strong className="font-semibold">WhatsApp</strong> — clicks on your &quot;Contact
+        us&quot; button (opens WhatsApp) · <strong className="font-semibold">Google
+        reviews</strong> — clicks on the &quot;Leave a review&quot; button
+      </div>
+    </div>
+  );
+}
+
+/** Single "Share" CTA that opens a small menu (Copy link, WhatsApp). Replaces
+ *  the old two-button footer. Mirrors CoverBanner's dropdown pattern: a
+ *  wrapRef + mousedown listener closes on outside click; Escape also closes. */
+function ShareMenu({
+  disabled,
+  copied,
+  onCopy,
+  onSend,
+}: {
+  disabled: boolean;
+  copied: boolean;
+  onCopy: () => void;
+  onSend: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative shrink-0" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Share"
+        title="Share"
+        className="brand-focus flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] transition-colors hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <IconShare size={15} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-[calc(100%+6px)] right-0 z-20 w-[190px] overflow-hidden rounded-[10px] border border-[var(--color-brand-border)] bg-white shadow-[0_8px_28px_rgba(42,34,24,0.16)]"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy();
+            }}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
+          >
+            {copied ? <IconCheck size={14} /> : <IconLink size={14} />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSend();
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
+          >
+            <IconWhatsApp size={16} />
+            WhatsApp
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -351,6 +443,44 @@ function IconCheck({ size = 14 }: { size?: number }) {
       strokeLinejoin="round"
     >
       <polyline points="5 12 10 17 19 7" />
+    </svg>
+  );
+}
+
+function IconInfo({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="11" x2="12" y2="16.5" />
+      <circle cx="12" cy="7.5" r=".6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconShare({ size = 15 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 15V4" />
+      <path d="M7.5 8.5 12 4l4.5 4.5" />
+      <path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" />
     </svg>
   );
 }
