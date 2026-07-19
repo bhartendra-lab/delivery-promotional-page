@@ -81,7 +81,11 @@ const POLL_MS = 20000;
 // Media grid loads one page on first paint and one more each scroll-to-end.
 const PAGE_SIZE = 100;
 
-function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
+function normalizeMeta(
+  b: BookingDetail,
+  prev: EventMeta | null,
+  opts: { qrAuthoritative?: boolean } = {},
+): EventMeta {
   const date = typeof b.event_date === "number" && Number.isFinite(b.event_date) ? b.event_date : null;
   // background_image: a non-empty string sets the cover; "" means explicitly
   // cleared; undefined/null falls back to the cached value (offline resilience).
@@ -99,8 +103,16 @@ function normalizeMeta(b: BookingDetail, prev: EventMeta | null): EventMeta {
     uniqueIdentifier: b.unique_identifier ?? prev?.uniqueIdentifier,
     familyPasscode: b.family_passcode ?? prev?.familyPasscode,
     guestTypes: b.guest_types ?? prev?.guestTypes,
-    qrUniqueId: b.qr_unique_id ?? prev?.qrUniqueId,
-    qrImageUrl: b.qr_image_url ?? prev?.qrImageUrl,
+    // getBookingById (reloadBooking) is the sole source of truth for QR
+    // linking — the QR can be relinked/deleted from the Reusable QR tab
+    // without this workspace ever mounting, so an absent field in that
+    // authoritative response means "unlinked now" and must clear the panel
+    // rather than fall back to `prev` (which can be a stale localStorage
+    // hydration from before the change). Partial-update responses like
+    // updateBooking never report QR fields at all, so they keep falling back
+    // to `prev` there to avoid wiping a real link on an unrelated edit.
+    qrUniqueId: opts.qrAuthoritative ? b.qr_unique_id : (b.qr_unique_id ?? prev?.qrUniqueId),
+    qrImageUrl: opts.qrAuthoritative ? b.qr_image_url : (b.qr_image_url ?? prev?.qrImageUrl),
   };
 }
 
@@ -356,7 +368,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const reloadBooking = useCallback(async (): Promise<PublishInfo | null> => {
     try {
       const res = await getBookingById(bookingId);
-      const next = normalizeMeta(res.booking, metaRef.current);
+      const next = normalizeMeta(res.booking, metaRef.current, { qrAuthoritative: true });
       const nextPub = normalizePublish(res.booking);
       setMeta(next);
       setPub(nextPub);

@@ -1,27 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { assignQr, getAllBookings } from "@/lib/api";
+import { linkQr, getAllBookings } from "@/lib/api";
 import type { AssignedEventSummary, Booking, QrCode } from "@/lib/types";
 
 const PAGE_SIZE = 12;
 
 /**
- * F1c — Assign / reassign a QR to a live event. Lists only `published` events
+ * F1c — Link / relink a QR to a live event. Lists only `published` events
  * (the same "live" definition the Events list uses) as cover-fronted cards with
- * search + pagination. Reassigning an already-assigned QR requires a named
- * confirm ("removed from X"); a first assignment goes straight through.
+ * search + pagination. Relinking an already-linked QR requires a named
+ * confirm ("removed from X"); a first link goes straight through.
  * Deactivated (published-but-paused) events stay selectable but are badged.
  */
-export function AssignEventModal({
+export function LinkEventModal({
   qr,
   onClose,
-  onAssigned,
+  onLinked,
 }: {
   qr: QrCode;
   onClose: () => void;
   /** Patches the QR card in place with the newly-linked event — no full reload. */
-  onAssigned: (qrUniqueId: string, assigned: AssignedEventSummary) => void;
+  onLinked: (qrUniqueId: string, assigned: AssignedEventSummary) => void;
 }) {
   const currentBookingId = qr.assigned_event?.booking_id ?? null;
   const currentName = qr.assigned_event?.name ?? "";
@@ -37,8 +37,8 @@ export function AssignEventModal({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // The "different event" the studio tapped while one is already assigned —
-  // holds the reassign confirm open until they commit or back out.
+  // The "different event" the studio tapped while one is already linked —
+  // holds the relink confirm open until they commit or back out.
   const [pending, setPending] = useState<Booking | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -121,17 +121,17 @@ export function AssignEventModal({
       onClose();
       return;
     }
-    // Replacing an existing assignment needs the named confirm; a first
-    // assignment (nothing to remove) goes straight through.
+    // Replacing an existing link needs the named confirm; a first
+    // link (nothing to remove) goes straight through.
     if (currentBookingId) setPending(row);
-    else void assign(row);
+    else void link(row);
   }
 
-  async function assign(row: Booking) {
+  async function link(row: Booking) {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await assignQr(qr.unique_id, row._id);
+      await linkQr(qr.unique_id, row._id);
       // Optimistic summary built from the picked booking (getAllBookings already
       // carries name/cover/type/status). delivery_landing_page_id isn't returned
       // there and the card doesn't render it — the canonical value arrives on the
@@ -146,12 +146,12 @@ export function AssignEventModal({
         gallery_publish_status: row.gallery_publish_status,
         is_active: row.is_active,
       };
-      onAssigned(qr.unique_id, assigned);
+      onLinked(qr.unique_id, assigned);
       onClose();
     } catch (e) {
-      // The event could have been archived, or the QR deleted/reassigned, between
+      // The event could have been archived, or the QR deleted/relinked, between
       // opening this modal and confirming — surface it inline, don't crash.
-      setSubmitError(e instanceof Error ? e.message : "Couldn't assign the QR. Please try again.");
+      setSubmitError(e instanceof Error ? e.message : "Couldn't link the QR. Please try again.");
       setPending(null);
     } finally {
       setSubmitting(false);
@@ -163,7 +163,7 @@ export function AssignEventModal({
       className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:px-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Assign QR to an event"
+      aria-label="Link QR to an event"
     >
       <button
         type="button"
@@ -176,7 +176,7 @@ export function AssignEventModal({
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-brand-border)] px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-[17px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-              {currentBookingId ? "Change assigned event" : "Assign to a live event"}
+              {currentBookingId ? "Change linked event" : "Link to a live event"}
             </h2>
             <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-brand-muted)]">
               {currentBookingId ? `Currently pointing at ${currentName}` : "Point this QR at whichever event is live now."}
@@ -251,7 +251,12 @@ export function AssignEventModal({
                   <EventOption
                     key={row._id}
                     row={row}
+                    // "Current" always stays on the actual current link — it
+                    // doesn't move just because a different event was tapped.
+                    // The tapped-but-not-yet-confirmed pick gets its own
+                    // "Selected" badge/border instead.
                     isCurrent={row._id === currentBookingId}
+                    isSelected={row._id === pending?._id}
                     disabled={submitting}
                     onClick={() => onPick(row)}
                   />
@@ -280,11 +285,11 @@ export function AssignEventModal({
           )}
         </div>
 
-        {/* Reassign confirm — slides over the footer area when replacing. */}
+        {/* Relink confirm — slides over the footer area when replacing. */}
         {pending && (
           <div className="border-t border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-5 py-4">
             <p className="text-[13px] leading-relaxed text-[var(--color-brand-ink)]">
-              Reassign this QR to{" "}
+              Relink this QR to{" "}
               <span className="font-semibold">{pending.name}</span>? It will be removed from{" "}
               <span className="font-semibold">{currentName}</span>.
             </p>
@@ -299,17 +304,17 @@ export function AssignEventModal({
               </button>
               <button
                 type="button"
-                onClick={() => void assign(pending)}
+                onClick={() => void link(pending)}
                 disabled={submitting}
                 className="brand-focus inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
               >
                 {submitting ? (
                   <>
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
-                    Reassigning…
+                    Relinking…
                   </>
                 ) : (
-                  "Reassign"
+                  "Relink"
                 )}
               </button>
             </div>
@@ -323,26 +328,30 @@ export function AssignEventModal({
 function EventOption({
   row,
   isCurrent,
+  isSelected,
   disabled,
   onClick,
 }: {
   row: Booking;
   isCurrent: boolean;
+  /** The tapped-but-unconfirmed reassign target — distinct from `isCurrent`. */
+  isSelected: boolean;
   disabled: boolean;
   onClick: () => void;
 }) {
   const filled = Boolean(row.background_image);
   const deactivated = row.is_active === false;
+  const highlighted = isCurrent || isSelected;
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-pressed={isCurrent}
+      aria-pressed={highlighted}
       className="brand-focus group relative flex flex-col overflow-hidden rounded-xl border bg-[var(--color-brand-surface-raised)] text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
       style={{
-        borderColor: isCurrent ? "var(--color-brand-navy)" : "var(--color-brand-border)",
-        boxShadow: isCurrent ? "0 0 0 1px var(--color-brand-navy)" : undefined,
+        borderColor: highlighted ? "var(--color-brand-navy)" : "var(--color-brand-border)",
+        boxShadow: highlighted ? "0 0 0 1px var(--color-brand-navy)" : undefined,
       }}
     >
       <div
@@ -353,10 +362,16 @@ function EventOption({
             : { backgroundImage: "repeating-linear-gradient(45deg, #C9AFA0 0 18px, #9E8475 18px 36px)" }
         }
       >
-        {isCurrent && (
+        {isCurrent ? (
           <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand-navy)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
             Current
           </span>
+        ) : (
+          isSelected && (
+            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand-navy)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              Selected
+            </span>
+          )
         )}
         {deactivated && (
           <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
@@ -368,7 +383,7 @@ function EventOption({
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--color-brand-ink)]">
           {row.name}
         </span>
-        {!isCurrent && (
+        {!highlighted && (
           <span className="shrink-0 text-[11.5px] font-semibold text-[var(--color-brand-navy)] opacity-0 transition-opacity group-hover:opacity-100">
             Select
           </span>

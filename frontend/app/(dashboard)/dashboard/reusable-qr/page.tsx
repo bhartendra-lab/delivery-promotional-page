@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteQr, generateQrCode, getAllQrCodes } from "@/lib/api";
+import { deleteQr, generateQrCode, getAllQrCodes, unlinkQr } from "@/lib/api";
 import type { AssignedEventSummary, QrCode } from "@/lib/types";
 import { QrColorPicker } from "@/components/dashboard/reusable-qr/QrColorPicker";
 import { QrCard } from "@/components/dashboard/reusable-qr/QrCard";
@@ -10,7 +10,7 @@ import { QrCardSkeleton } from "@/components/dashboard/reusable-qr/QrCardSkeleto
 /**
  * Reusable QR dashboard tab. Studios print one QR per stand and re-point it at
  * whichever event is currently live, instead of reprinting for every booking:
- * generate a colour-picked QR, view all QRs as full-width cards, assign/reassign
+ * generate a colour-picked QR, view all QRs as full-width cards, link/relink
  * each to a live event, and delete with a typed confirm.
  */
 export default function ReusableQrPage() {
@@ -55,17 +55,33 @@ export default function ReusableQrPage() {
     async (colorCode: string) => {
       const { qr } = await generateQrCode(colorCode);
       setQrs((prev) => (prev ? [qr, ...prev] : [qr]));
-      notify("QR generated — assign it to a live event whenever you're ready.");
+      notify("QR generated — link it to a live event whenever you're ready.");
     },
     [notify],
   );
 
-  const handleAssigned = useCallback(
+  const handleLinked = useCallback(
     (qrUniqueId: string, assigned: AssignedEventSummary) => {
       setQrs((prev) =>
         prev ? prev.map((q) => (q.unique_id === qrUniqueId ? { ...q, assigned_event: assigned } : q)) : prev,
       );
       notify(`QR now points at ${assigned.name}.`);
+    },
+    [notify],
+  );
+
+  const handleUnlink = useCallback(
+    async (qr: QrCode) => {
+      try {
+        await unlinkQr(qr.unique_id);
+        setQrs((prev) =>
+          prev ? prev.map((q) => (q.unique_id === qr.unique_id ? { ...q, assigned_event: null } : q)) : prev,
+        );
+        notify("QR unlinked.");
+      } catch (err) {
+        notify(err instanceof Error ? err.message : "Couldn't unlink the QR", "error");
+        throw err; // keep the inline confirm open for a retry
+      }
     },
     [notify],
   );
@@ -161,7 +177,8 @@ export default function ReusableQrPage() {
                 <QrCard
                   key={qr.unique_id}
                   qr={qr}
-                  onAssigned={handleAssigned}
+                  onLinked={handleLinked}
+                  onUnlink={handleUnlink}
                   onDelete={handleDelete}
                   notify={notify}
                 />

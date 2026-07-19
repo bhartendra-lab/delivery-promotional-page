@@ -193,14 +193,27 @@ export function getAllQrCodes() {
 }
 
 /**
- * POST /deliverables/assign-qr — point a QR at a live event's delivery landing
+ * POST /deliverables/assign-qr — link a QR to a live event's delivery landing
  * page. Both the QR and the event must belong to the caller's studio (else 404).
+ * Also 409s if the event is already linked to a different QR.
  */
-export function assignQr(qrUniqueId: string, bookingId: string) {
+export function linkQr(qrUniqueId: string, bookingId: string) {
   return request<{ qr: QrCode }>("/deliverables/assign-qr", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId }),
+  });
+}
+
+/**
+ * POST /deliverables/unassign-qr — clears a QR's event link without deleting
+ * the QR itself or touching the event/DLP it pointed at.
+ */
+export function unlinkQr(qrUniqueId: string) {
+  return request<{ qr: QrCode }>("/deliverables/unassign-qr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_unique_id: qrUniqueId }),
   });
 }
 

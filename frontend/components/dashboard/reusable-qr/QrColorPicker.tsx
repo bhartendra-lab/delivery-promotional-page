@@ -17,7 +17,7 @@ import { useCompany } from "@/lib/useCompany";
  * and a "colours you've already used" row derived from the existing QRs. Guards
  * against near-white customs that won't scan, and against the plan's QR cap.
  *
- * Portaled to `document.body` (like `AssignEventModal`) rather than rendered
+ * Portaled to `document.body` (like `LinkEventModal`) rather than rendered
  * where it's triggered from, so its `fixed inset-0` overlay isn't trapped by a
  * `dash-rise`-animated ancestor — that animation's `transform` never fully
  * clears (fill-mode `both`), which makes the ancestor a containing block/
@@ -104,7 +104,7 @@ export function QrColorPicker({
   const [error, setError] = useState<string | null>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
-  // Body scroll lock + Esc-to-close (gated on generating), mirroring AssignEventModal.
+  // Body scroll lock + Esc-to-close (gated on generating), mirroring LinkEventModal.
   useEffect(() => {
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
@@ -149,8 +149,7 @@ export function QrColorPicker({
     setError(null);
     try {
       await onGenerate(selected);
-      // Keep the picked colour so the studio can quickly make another in the
-      // same hue if they want; nothing to reset.
+      onClose();
     } catch (e) {
       // Surface the backend message (e.g. the hard 400 cap) without losing the pick.
       setError(e instanceof Error ? e.message : "Could not generate the QR. Please try again.");
@@ -329,7 +328,7 @@ export function QrColorPicker({
           )}
           {atCap && (
             <Hint tone="warning">
-              You&apos;ve used every QR on your plan. Reassign or delete an existing QR to make room for a new colour.
+              You&apos;ve used every QR on your plan. Relink or delete an existing QR to make room for a new colour.
             </Hint>
           )}
           {!hasLogo && (

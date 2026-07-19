@@ -376,7 +376,7 @@ export type BookingDetail = {
   service_type?: ServiceType | string | null;
   /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
   gallery_archived_at?: number | null;
-  /** Reusable QR assigned to this event, if any (joined by `getBookingById`).
+  /** Reusable QR linked to this event, if any (joined by `getBookingById`).
    *  Both absent when no QR points here. */
   qr_unique_id?: string;
   qr_image_url?: string;
@@ -397,7 +397,7 @@ export type BookingDetailResponse = {
 
 /**
  * The event a QR currently points at, as flattened by `getAllQRCodes`. Null on
- * the QR when it's unassigned. A "live" event is `gallery_publish_status:
+ * the QR when it's unlinked. A "live" event is `gallery_publish_status:
  * "published"`; `is_active: false` means published-but-temporarily-deactivated
  * (still counts as live — badge it, don't hide it).
  */

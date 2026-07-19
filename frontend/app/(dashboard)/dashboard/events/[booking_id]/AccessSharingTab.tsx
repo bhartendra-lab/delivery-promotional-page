@@ -587,10 +587,10 @@ function Dispatch({ eventName, message }: { eventName: string; message: string }
 }
 
 /**
- * QR visibility panel (1/4 of the message row). Assigned → thumbnail + a single
- * Download (public `qr_image_url`, no proxy). Unassigned → one "Assign QR" CTA
- * that navigates to the Reusable QR tab. Deliberately NO reassign/change control
- * here — reassignment lives exclusively on that tab (single-CTA rule).
+ * QR visibility panel (1/4 of the message row). Linked → thumbnail + a single
+ * Download (public `qr_image_url`, no proxy). Unlinked → one "Link QR" CTA
+ * that navigates to the Reusable QR tab. Deliberately NO relink/change control
+ * here — relinking lives exclusively on that tab (single-CTA rule).
  */
 function QrPanel({
   qrUniqueId,
@@ -603,8 +603,8 @@ function QrPanel({
 }) {
   const router = useRouter();
   const [downloading, setDownloading] = useState(false);
-  // A QR's identity (unique_id) is the "is one assigned?" signal; the image URL
-  // is how we render it. The backend always sets both together on assignment.
+  // A QR's identity (unique_id) is the "is one linked?" signal; the image URL
+  // is how we render it. The backend always sets both together on linking.
   const assigned = Boolean(qrUniqueId) && Boolean(qrImageUrl);
 
   async function download() {
@@ -654,7 +654,7 @@ function QrPanel({
             onClick={() => router.push("/dashboard/reusable-qr")}
             className="brand-focus inline-flex h-9 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] px-3 text-[12.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
-            Assign QR
+            Link QR
           </button>
         </div>
       )}
