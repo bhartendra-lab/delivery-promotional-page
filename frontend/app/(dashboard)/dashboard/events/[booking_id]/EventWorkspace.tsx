@@ -149,6 +149,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
   const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
+  // Manual display-order override for the plain Media view (see `mediaSort` doc
+  // in EventContext). Shared across folders, not per-folder.
+  const [mediaSort, setMediaSort] = useState<"recent" | "oldest">("recent");
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("media");
@@ -205,6 +208,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const totalForViewRef = useRef(totalForView);
   const totalCountRef = useRef(totalCount);
   const likedFiltersRef = useRef(likedFilters);
+  const mediaSortRef = useRef(mediaSort);
   const loadingMoreRef = useRef(false);
   useEffect(() => {
     metaRef.current = meta;
@@ -214,6 +218,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     activeTabRef.current = activeTab;
     viewIdRef.current = viewId;
     totalForViewRef.current = totalForView;
+    mediaSortRef.current = mediaSort;
     totalCountRef.current = totalCount;
     likedFiltersRef.current = likedFilters;
   });
@@ -252,6 +257,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
         skip,
         limit,
+        sort: mediaSortRef.current === "oldest" ? "oldest" : undefined,
       });
     },
     [bookingId],
@@ -351,11 +357,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   }, []);
 
   // Load the first page whenever the view changes (initial paint, folder switch,
-  // or switching to/from the Smart Selects tab). Clearing the grid on a tab switch
-  // is handled in `onTabChange` (an event) so this effect stays a pure load.
+  // switching to/from the Smart Selects tab, or a `mediaSort` change — the latter
+  // is a no-op for the Liked view, which has its own independent sort).
+  // Clearing the grid on a tab switch is handled in `onTabChange` (an event) so
+  // this effect stays a pure load.
   useEffect(() => {
     void loadView(viewId);
-  }, [viewId, loadView]);
+  }, [viewId, mediaSort, loadView]);
 
   // Re-fetch the Smart Selects view when its filters change (only while active).
   useEffect(() => {
@@ -843,6 +851,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       reload,
       activeFolderId,
       setActiveFolder,
+      mediaSort,
+      setMediaSort,
       folderCounts,
       likedCount,
       shortlistedCount,
@@ -868,7 +878,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, finalizingStorage, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, finalizingStorage, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

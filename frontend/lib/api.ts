@@ -500,8 +500,8 @@ export function getMedia(
     limit?: number;
     /** "Liked Media" view — only photos with at least one like. */
     onlyLiked?: boolean;
-    /** "likes" → most-liked first (the Liked Media order); default is newest-first. */
-    sort?: "likes" | "recent";
+    /** "likes" → most-liked first (the Liked Media order); "oldest" → oldest-first (manual folder ordering); default is newest-first. */
+    sort?: "likes" | "recent" | "oldest";
     /** Restrict likes to hosts / guests. */
     likedGuestType?: "host" | "guest";
     /** Restrict likes to guests in these teams (guest_sub_type). */

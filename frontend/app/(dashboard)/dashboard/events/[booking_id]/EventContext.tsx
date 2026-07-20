@@ -87,6 +87,15 @@ export type EventContextValue = {
   activeFolderId: string;
   /** Switch the active folder — triggers a fresh first-page load for that view. */
   setActiveFolder: (folderId: string) => void;
+  /**
+   * Display order for the plain Media view (All Media + named folders) —
+   * driven by `createdAt`, since the upload engine's concurrent, non-sequential
+   * uploads mean completion order doesn't reliably match local file order.
+   * Independent of the Smart Selects (Liked) view's own `likedFilters.sort`.
+   * Persists across folder switches; changing it resets the view to page 1.
+   */
+  mediaSort: "recent" | "oldest";
+  setMediaSort: React.Dispatch<React.SetStateAction<"recent" | "oldest">>;
   /** Per-folder media counts (server-derived), keyed by folder id. */
   folderCounts: Record<string, number>;
   /** Count of liked media in the booking (drives the Smart Selects header). */

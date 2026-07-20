@@ -10,6 +10,7 @@ import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
+import { IconCaretDown, IconCheck } from "./icons";
 
 /** A cover pick awaiting position adjustment in `CoverPositionModal` before it's persisted. */
 type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "existing"; url: string };
@@ -28,6 +29,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setFolders,
     activeFolderId,
     setActiveFolder,
+    mediaSort,
+    setMediaSort,
     folderCounts,
     totalCount,
     totalForView,
@@ -320,6 +323,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
                 }
               }
             }}
+            mediaSort={mediaSort}
+            onSortChange={setMediaSort}
           />
         )}
       </div>
@@ -647,6 +652,8 @@ function PopulatedBody({
   coverUrl,
   onSetCover,
   notify,
+  mediaSort,
+  onSortChange,
 }: {
   activeFolderLabel: string;
   activeIsSystem: boolean;
@@ -665,12 +672,26 @@ function PopulatedBody({
   onSetCover: (item: MediaItem) => void | Promise<void>;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
+  /** Display order for this view, driven by `createdAt` (see EventContext). */
+  mediaSort: "recent" | "oldest";
+  onSortChange: (next: "recent" | "oldest") => void;
 }) {
   return (
     <section className="px-6 pb-12 pt-6 sm:px-10">
       <div className="mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-baseline">
         <div className="flex flex-wrap items-baseline gap-2.5">
           <h2 className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">{activeFolderLabel}</h2>
+          {!activeIsSystem && (
+            <button
+              type="button"
+              onClick={onRename}
+              aria-label="Rename folder"
+              title="Rename folder"
+              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+            >
+              <EditIcon size={14} />
+            </button>
+          )}
           <span className="text-[12.5px] text-[var(--color-brand-muted)]">
             {count.toLocaleString("en-IN")} photo{count === 1 ? "" : "s"}
             {activeIsSystem && folderCount > 0 && (
@@ -681,16 +702,7 @@ function PopulatedBody({
             )}
           </span>
         </div>
-        {!activeIsSystem && (
-          <button
-            type="button"
-            onClick={onRename}
-            className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-          >
-            <EditIcon size={13} />
-            Rename
-          </button>
-        )}
+        <SortDropdown value={mediaSort} onChange={onSortChange} />
       </div>
       <MediaGrid
         items={items}
@@ -705,6 +717,94 @@ function PopulatedBody({
         notify={notify}
       />
     </section>
+  );
+}
+
+/* ── media sort dropdown ────────────────────────────────────────── */
+
+const SORT_LABEL: Record<"recent" | "oldest", string> = {
+  recent: "Newest first",
+  oldest: "Oldest first",
+};
+
+/**
+ * "Newest first" / "Oldest first", both driven by `createdAt`. Manual
+ * workaround for the upload engine's concurrent, non-sequential uploads,
+ * which mean completion order (and thus `createdAt`) doesn't reliably match
+ * the original local file order — studio members can flip it here per event.
+ */
+function SortDropdown({
+  value,
+  onChange,
+}: {
+  value: "recent" | "oldest";
+  onChange: (next: "recent" | "oldest") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => setOpen((v) => !v)}
+        className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      >
+        Sort: {SORT_LABEL[value]}
+        <IconCaretDown size={12} className="opacity-60" />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="dash-rise absolute right-0 z-30 mt-1.5 w-[172px] overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
+        >
+          {(["recent", "oldest"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              role="option"
+              aria-selected={value === opt}
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+              className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-brand-surface)]"
+            >
+              <span
+                className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-colors ${
+                  value === opt
+                    ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
+                    : "border-[var(--color-brand-outline)] bg-white text-transparent"
+                }`}
+              >
+                <IconCheck size={12} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--color-brand-ink)]">
+                {SORT_LABEL[opt]}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
