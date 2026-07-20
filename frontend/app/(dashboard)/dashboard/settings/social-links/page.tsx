@@ -13,7 +13,7 @@ const PLATFORMS: { key: PlatformKey; label: string; placeholder: string }[] = [
   { key: "facebook", label: "Facebook", placeholder: "facebook.com/yourstudio" },
   { key: "youtube", label: "YouTube", placeholder: "@yourstudio or full URL" },
   { key: "vimeo", label: "Vimeo", placeholder: "vimeo.com/yourstudio" },
-  { key: "linkedin", label: "LinkedIn", placeholder: "linkedin.com/company/yourstudio" },
+  { key: "pinterest", label: "Pinterest", placeholder: "pinterest.com/yourstudio" },
   { key: "x", label: "X (Twitter)", placeholder: "@yourstudio or full URL" },
 ];
 
@@ -28,7 +28,7 @@ function initialValues(company: Company): Record<PlatformKey, string> {
     facebook: sl.facebook ?? company.facebook_link ?? "",
     youtube: sl.youtube ?? "",
     vimeo: sl.vimeo ?? "",
-    linkedin: sl.linkedin ?? "",
+    pinterest: sl.pinterest ?? "",
     x: sl.x ?? "",
   };
 }

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { MediaGrid } from "./MediaGrid";
 import { LikedFilters } from "./LikedFilters";
 import { LocateOriginals } from "./LocateOriginals";
-import { useEvent, hasActiveLikedFilters } from "./EventContext";
-import { IconHeart, IconStar, IconTarget } from "./icons";
+import { useEvent, hasActiveLikedFilters, resetLikedScope } from "./EventContext";
+import { IconHeart, IconTarget } from "./icons";
 
 /**
  * Smart Selects — a top-level section (sibling of Media / Gallery Design /
@@ -40,24 +40,37 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
   // first-run empty state instead of the filter bar.
   const noLikesAtAll = !loading && likedCount === 0 && media.length === 0 && !filtersActive;
 
-  const emptyMessage = likedFilters.shortlistedOnly
-    ? "No shortlisted photos yet — select liked photos and tap Shortlist."
-    : filtersActive
-    ? "No liked photos match these filters."
-    : "No liked photos yet.";
+  const emptyMessage: React.ReactNode = !filtersActive
+    ? "No liked photos yet."
+    : (
+      <div className="flex flex-col items-center gap-2">
+        <p>
+          {likedFilters.shortlistedOnly
+            ? "No shortlisted photos match these filters yet."
+            : "No liked photos match these filters."}
+        </p>
+        <button
+          type="button"
+          onClick={() => setLikedFilters(resetLikedScope)}
+          className="brand-focus text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:underline"
+        >
+          Clear filters to see all liked photos
+        </button>
+      </div>
+    );
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {/* 1 — Title bar, locked. */}
       <div className="flex shrink-0 flex-col items-start justify-between gap-3 px-6 pt-6 sm:flex-row sm:items-center sm:px-10">
         <div>
-          <h1 className="flex items-center gap-2 text-[22px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            <IconStar size={19} filled className="text-[var(--color-brand-warning)]" />
+          <h1 className="text-[22px] font-bold tracking-tight text-[var(--color-brand-ink)]">
             Smart Selects
           </h1>
-          <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-            The photos your clients loved. Filter by who liked them, shortlist the best with the
-            host, then locate the originals.
+          <p className="mt-1 max-w-[560px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
+            Every like here comes from a guest who scanned their face to find their own photos — no
+            manual sorting needed. Flag the best with Host picks or Shortlisted, then jump to Locate
+            Originals when you&apos;re ready to edit.
           </p>
         </div>
         <button
@@ -65,10 +78,10 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
           onClick={() => setLocateOpen(true)}
           disabled={shortlistedCount === 0}
           title={shortlistedCount === 0 ? "Shortlist photos first to locate their originals." : undefined}
-          className="brand-focus inline-flex shrink-0 items-center gap-2 rounded-lg border border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <IconTarget size={15} />
-          Locate Originals
+          <IconTarget size={16} />
+          Locate Originals{shortlistedCount > 0 ? ` (${shortlistedCount.toLocaleString("en-IN")})` : ""}
         </button>
       </div>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 
@@ -8,8 +9,10 @@ import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
  * studio can later choose the presentation without touching LoungeGallery.
  *
  * - "masonry" (default): CSS multi-column layout that preserves each photo's
- *   native aspect ratio (GuestMediaItem carries no width/height, so we rely on
- *   the image's intrinsic ratio via `h-auto` rather than dimension data).
+ *   native aspect ratio. When GuestMediaItem carries width/height (captured at
+ *   upload), the tile reserves that aspect ratio up front — no column growth
+ *   as the image loads. Legacy media without dimensions falls back to sizing
+ *   from the loaded image via `h-auto`.
  *   NOTE: CSS columns fill COLUMN-MAJOR — items flow top-to-bottom down the
  *   first column, then the next. This means visual order is not strictly the
  *   API order; that's the accepted Pinterest-style trade-off for a gapless wall.
@@ -100,6 +103,18 @@ function PhotoTile({
   // photos stay the focus. Mobile keeps everything tappable (opacity-100 below sm).
   const revealCls = "sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100";
 
+  // Masonry tiles with known dimensions reserve their aspect ratio up front —
+  // no column growth as the image loads, so the absolutely-positioned like
+  // button never stacks near the top before snapping into place. Mirrors the
+  // dashboard's GridImage skeleton-shimmer + fade-in-on-load pattern. Legacy
+  // media without dimensions falls back to the old h-auto behaviour untouched.
+  const hasDims = isMasonry && !!item.width && !!item.height;
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    if (imgRef.current?.complete) setLoaded(true);
+  }, []);
+
   return (
     <div
       className={`group tile-in relative cursor-pointer ${
@@ -121,18 +136,24 @@ function PhotoTile({
                 padding: pad,
                 background: selectMode && isSel ? t.brand : "transparent",
                 borderRadius: selectMode && isSel ? 12 : 10,
+                ...(hasDims ? { aspectRatio: `${item.width} / ${item.height}` } : {}),
               }
             : { inset: pad, borderRadius: selectMode && isSel ? 9 : 8 }
         }
       >
+        {hasDims && !loaded && <span aria-hidden className="skeleton absolute inset-0 rounded-[8px]" />}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={item.url}
           alt=""
           loading="lazy"
+          onLoad={() => setLoaded(true)}
           className={
             isMasonry
-              ? "block h-auto w-full rounded-[8px] transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
+              ? hasDims
+                ? `absolute inset-0 h-full w-full rounded-[8px] object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`
+                : "block h-auto w-full rounded-[8px] transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
               : "h-full w-full object-cover transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
           }
         />

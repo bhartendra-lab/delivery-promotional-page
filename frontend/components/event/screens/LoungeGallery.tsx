@@ -411,7 +411,7 @@ export function LoungeGallery({
   return (
     <div className="relative flex h-[100dvh] overflow-hidden" style={{ background: t.bg, fontFamily: t.font, color: t.text }}>
       <SideRail t={t} event={event} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {view === "home" ? (
         <LoungeHome
           t={t}
@@ -829,7 +829,7 @@ function SocialRow({ event, t }: { event: ReturnType<typeof useEventTheme>["even
     (sl.facebook ?? event.company_facebook_link) && { label: "Facebook", url: ensureHttp(sl.facebook ?? event.company_facebook_link ?? "") },
     sl.youtube && { label: "YouTube", url: ensureHttp(sl.youtube) },
     sl.vimeo && { label: "Vimeo", url: ensureHttp(sl.vimeo) },
-    sl.linkedin && { label: "LinkedIn", url: ensureHttp(sl.linkedin) },
+    sl.pinterest && { label: "Pinterest", url: ensureHttp(sl.pinterest) },
     sl.x && { label: "X", url: ensureHttp(sl.x) },
   ].filter(Boolean) as { label: string; url: string }[];
   if (links.length === 0) return null;
@@ -888,7 +888,7 @@ function GalleryView(props: {
   const countLabel = `${totalForView.toLocaleString("en-IN")} photo${totalForView === 1 ? "" : "s"}`;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="fx-rise relative z-20 mx-auto w-full max-w-[760px] px-4 pt-4">
         <div className="flex items-center gap-3">
           <h1 className="flex-1 text-[18px] font-extrabold" style={{ color: t.text }}>{title}</h1>

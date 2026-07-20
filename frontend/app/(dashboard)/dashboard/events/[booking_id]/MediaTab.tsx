@@ -10,7 +10,7 @@ import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
-import { IconCaretDown, IconCheck } from "./icons";
+import { SortDropdown } from "./SortDropdown";
 
 /** A cover pick awaiting position adjustment in `CoverPositionModal` before it's persisted. */
 type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "existing"; url: string };
@@ -702,7 +702,7 @@ function PopulatedBody({
             )}
           </span>
         </div>
-        <SortDropdown value={mediaSort} onChange={onSortChange} />
+        <SortDropdown value={mediaSort} onChange={onSortChange} options={MEDIA_SORT_OPTIONS} />
       </div>
       <MediaGrid
         items={items}
@@ -720,12 +720,7 @@ function PopulatedBody({
   );
 }
 
-/* ── media sort dropdown ────────────────────────────────────────── */
-
-const SORT_LABEL: Record<"recent" | "oldest", string> = {
-  recent: "Newest first",
-  oldest: "Oldest first",
-};
+/* ── media sort options ─────────────────────────────────────────── */
 
 /**
  * "Newest first" / "Oldest first", both driven by `createdAt`. Manual
@@ -733,80 +728,10 @@ const SORT_LABEL: Record<"recent" | "oldest", string> = {
  * which mean completion order (and thus `createdAt`) doesn't reliably match
  * the original local file order — studio members can flip it here per event.
  */
-function SortDropdown({
-  value,
-  onChange,
-}: {
-  value: "recent" | "oldest";
-  onChange: (next: "recent" | "oldest") => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointer = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => setOpen((v) => !v)}
-        className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-      >
-        Sort: {SORT_LABEL[value]}
-        <IconCaretDown size={12} className="opacity-60" />
-      </button>
-      {open && (
-        <div
-          role="listbox"
-          className="dash-rise absolute right-0 z-30 mt-1.5 w-[172px] overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
-        >
-          {(["recent", "oldest"] as const).map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              role="option"
-              aria-selected={value === opt}
-              onClick={() => {
-                onChange(opt);
-                setOpen(false);
-              }}
-              className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-brand-surface)]"
-            >
-              <span
-                className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-colors ${
-                  value === opt
-                    ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
-                    : "border-[var(--color-brand-outline)] bg-white text-transparent"
-                }`}
-              >
-                <IconCheck size={12} />
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--color-brand-ink)]">
-                {SORT_LABEL[opt]}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+const MEDIA_SORT_OPTIONS = [
+  { value: "recent" as const, label: "Newest first" },
+  { value: "oldest" as const, label: "Oldest first" },
+];
 
 function LoadingBody() {
   return (

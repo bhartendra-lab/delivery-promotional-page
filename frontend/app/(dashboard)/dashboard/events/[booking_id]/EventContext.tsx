@@ -35,15 +35,28 @@ export const EMPTY_LIKED_FILTERS: LikedFilters = {
   sort: "likes",
 };
 
-/** True when any Smart Selects filter is active (drives the "Clear" affordance).
- *  Sort is a refinement, not a scope filter, so it's included so Clear resets it. */
+/**
+ * Clears the Smart Selects narrowing filters (Host picks / Team / Guests /
+ * Shortlisted) back to "All liked". Sort is left untouched — it's ordering,
+ * not scope. Shaped as a pure `(prev) => next` updater so callers can pass it
+ * straight to `setLikedFilters`.
+ */
+export function resetLikedScope(f: LikedFilters): LikedFilters {
+  return { ...f, audience: "all", subTypes: [], guestIds: [], shortlistedOnly: false };
+}
+
+/**
+ * True when any Smart Selects *scope* filter narrows the liked pool (drives
+ * the "All liked" reset affordance and the filtered-empty-state copy). Sort
+ * is ordering, not scope — it always has a value and never counts as "active"
+ * (see the Sort control's own no-Clear behaviour).
+ */
 export function hasActiveLikedFilters(f: LikedFilters): boolean {
   return (
     f.audience !== "all" ||
     f.subTypes.length > 0 ||
     f.guestIds.length > 0 ||
-    f.shortlistedOnly ||
-    f.sort !== "likes"
+    f.shortlistedOnly
   );
 }
 

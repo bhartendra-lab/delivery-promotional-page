@@ -433,6 +433,10 @@ export type MediaMetadataItem = {
   /** Original client-side filename (raw file.name). Persisted so "Locate Original
    *  Images" can read the clean name without parsing it back out of media_id. */
   filename?: string;
+  /** Decoded pixel dimensions of the compressed photo, when the browser could
+   *  determine them. Powers the guest gallery's aspect-ratio-reserved tiles. */
+  width?: number;
+  height?: number;
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published

@@ -39,8 +39,9 @@ Discrepancies, assumptions, and follow-ups encountered while building the fronte
 
 ## Env vars
 
-- Public: `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_BASE_URL`.
+- Public: `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 - Server-only: `CF_ACCOUNT_ID`, `CF_KV_NAMESPACE_ID`, `CF_KV_AUTH_TOKEN`. The `CF_KV_AUTH_TOKEN` value should be copied from the backend `.env` `CF_R2_KV_AUTH_TOKEN`; it is intentionally blank in `.env.local` and must be filled in locally.
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`: browser key (HTTP referrer restricted) for the Places JS library, used only by the Address field on Settings → Online Presence (`AddressField` in `settings/SettingsUI.tsx`) to resolve a `place_id` from an address/business-name search — this is what drives the Google reviews link on delivery pages. The field falls back to a plain text input if the key is unset.
 
 ## Next.js 16 specifics
 

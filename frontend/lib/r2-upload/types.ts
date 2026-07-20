@@ -34,6 +34,10 @@ export type UploadRecord = {
   publicUrl?: string;
   /** R2 object key (layout owned by the backend's presign endpoint). */
   key?: string;
+  /** Decoded pixel dimensions of the compressed photo (set alongside
+   *  `status: "compressed"`); absent if the browser couldn't decode them. */
+  width?: number;
+  height?: number;
   attempts: number;
   lastError?: string;
   updatedAt: number;

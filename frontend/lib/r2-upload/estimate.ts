@@ -53,7 +53,7 @@ export async function estimateCompressedGB(files: File[]): Promise<number> {
   const sizes: number[] = [];
   for (const file of sample) {
     try {
-      const blob = await compressWithExif(file, null);
+      const { blob } = await compressWithExif(file, null);
       sizes.push(blob.size);
     } catch {
       // A single un-compressible file shouldn't skew or break the estimate;

@@ -107,7 +107,7 @@ export type SocialLinks = {
   facebook?: string;
   youtube?: string;
   vimeo?: string;
-  linkedin?: string;
+  pinterest?: string;
   x?: string;
 };
 
@@ -239,6 +239,10 @@ export type MediaItem = {
   /** True when at least one host liked this photo (drives the filled heart in Smart
    *  Selects). Independent of the active who-filter; present only on smart loads. */
   host_liked?: boolean;
+  /** Decoded pixel dimensions, captured client-side at upload. Absent on media
+   *  uploaded before dimension capture landed — readers must fall back gracefully. */
+  width?: number;
+  height?: number;
 };
 
 /**
@@ -492,6 +496,11 @@ export type GuestMediaItem = {
   likes_count?: number;
   /** True when the current guest has liked this photo (drives persisted hearts). */
   liked_by_me?: boolean;
+  /** Decoded pixel dimensions, captured client-side at upload. Absent on media
+   *  uploaded before dimension capture landed — the gallery falls back to its
+   *  legacy no-reserved-height masonry behavior for those. */
+  width?: number;
+  height?: number;
 };
 
 export type GuestMediaResponse = {

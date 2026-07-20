@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 /**
  * Shared presentational primitives for the sectioned Settings area.
  * Extracted from the original single-page settings form so every section
@@ -7,6 +9,183 @@
  */
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
+
+/* ── Google Places Autocomplete (address → place_id) ─────────────── */
+
+type GoogleMapsPlace = {
+  place_id?: string;
+  formatted_address?: string;
+};
+
+type GoogleAutocompleteInstance = {
+  addListener: (event: string, handler: () => void) => void;
+  getPlace: () => GoogleMapsPlace;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      maps: {
+        places: {
+          Autocomplete: new (
+            input: HTMLInputElement,
+            opts?: Record<string, unknown>,
+          ) => GoogleAutocompleteInstance;
+        };
+      };
+    };
+  }
+}
+
+const PLACES_SCRIPT_ID = "google-places-script";
+
+/**
+ * Address input backed by the Google Places Autocomplete widget. As the
+ * studio owner types, Google suggests matching businesses; selecting one
+ * fills in the formatted address and hands back the `place_id`, which is
+ * what powers the Google reviews link on delivery pages — no manual place
+ * ID lookup required. Degrades to a plain text input if no
+ * `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured, or while the script loads.
+ */
+export function AddressField({
+  label = "Business address",
+  value,
+  onChange,
+  onPlaceSelect,
+  placeholder,
+  className = "",
+}: {
+  label?: string;
+  value: string;
+  onChange: (v: string) => void;
+  onPlaceSelect?: (place: { address: string; placeId: string }) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<GoogleAutocompleteInstance | null>(null);
+  // Lazy initializer so an already-loaded script (e.g. a second AddressField
+  // on the page) doesn't need a synchronous setState from inside the effect.
+  const [scriptReady, setScriptReady] = useState(
+    () => typeof window !== "undefined" && !!window.google?.maps?.places,
+  );
+
+  useEffect(() => {
+    if (scriptReady) return;
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) return;
+    const existing = document.getElementById(PLACES_SCRIPT_ID) as HTMLScriptElement | null;
+    if (existing) {
+      existing.addEventListener("load", () => setScriptReady(true));
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = PLACES_SCRIPT_ID;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+    script.async = true;
+    script.onload = () => setScriptReady(true);
+    document.head.appendChild(script);
+  }, [scriptReady]);
+
+  useEffect(() => {
+    if (!scriptReady || !inputRef.current || autocompleteRef.current || !window.google) return;
+    const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
+      fields: ["place_id", "formatted_address"],
+      types: ["establishment"],
+    });
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      const formatted = place.formatted_address ?? inputRef.current?.value ?? "";
+      onChange(formatted);
+      if (place.place_id) {
+        onPlaceSelect?.({ address: formatted, placeId: place.place_id });
+      }
+    });
+    autocompleteRef.current = autocomplete;
+  }, [scriptReady, onChange, onPlaceSelect]);
+
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+        {label}
+      </span>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+      />
+    </label>
+  );
+}
+
+/**
+ * Read-only display for a value the user shouldn't hand-edit but does need to
+ * grab — the Google Place ID once `AddressField` has resolved one. Shown as a
+ * monospace chip with a one-tap copy button, styled to sit next to `Field`s.
+ */
+export function CopyableIdField({
+  label,
+  value,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — the ID is still
+      // visible and selectable by hand, so this is a silent no-op.
+    }
+  }
+
+  return (
+    <div className={className}>
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+        {label}
+      </span>
+      <div className="flex h-10 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] pl-3 pr-1.5">
+        <code className="flex-1 truncate font-mono text-[13px] text-[var(--color-brand-ink)]">{value}</code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="brand-focus inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-semibold text-[var(--color-brand-navy)] transition-colors hover:bg-[var(--color-brand-navy-soft)]"
+        >
+          {copied ? (
+            <>
+              <CheckIcon className="h-3.5 w-3.5 text-[var(--color-brand-success)]" />
+              Copied
+            </>
+          ) : (
+            <>
+              <CopyIcon className="h-3.5 w-3.5" />
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** True when a trimmed input differs from its persisted value. */
 export function changed(next: string, prev: string | undefined) {
@@ -213,6 +392,15 @@ export function WatermarkIcon() {
       <rect x="3" y="3" width="18" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
       <path d="M14 14h4v4h-4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       <circle cx="8.5" cy="8.5" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+export function CopyIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

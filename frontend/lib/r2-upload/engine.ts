@@ -400,7 +400,7 @@ export class UploadEngineCore {
    * `background_image`. `keyFolderId` only seeds the R2 key path.
    */
   async uploadCover(file: File, keyFolderId: string): Promise<string> {
-    const blob = await this.compressorPool.run(file);
+    const { blob } = await this.compressorPool.run(file);
     const res = await presignUploads(this.bookingId, [
       { filename: file.name, content_type: "image/jpeg", custom_folder_id: keyFolderId },
     ]);
@@ -522,12 +522,13 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const blob = await this.compressorPool.run(input.file, this.watermarkRenderer);
+      const { blob, width, height } = await this.compressorPool.run(input.file, this.watermarkRenderer);
       if (this.abort.signal.aborted) return;
       console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
-      this.queueIdbUpdate(recordId, { status: "compressed" });
+      const dims = width != null && height != null ? { width, height } : {};
+      this.queueIdbUpdate(recordId, { status: "compressed", ...dims });
       const rec = this.records.get(recordId);
-      if (rec) this.records.set(recordId, { ...rec, status: "compressed" });
+      if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims });
       this.compressedBlobs.set(recordId, blob);
       this.compressedQueue.push(recordId);
     } catch (err) {
@@ -878,6 +879,8 @@ export class UploadEngineCore {
       custom_folder_id: r.customFolderId,
       media_id: r.id,
       filename: r.filename,
+      ...(r.width != null ? { width: r.width } : {}),
+      ...(r.height != null ? { height: r.height } : {}),
     }));
 
     try {

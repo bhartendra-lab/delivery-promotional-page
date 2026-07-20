@@ -75,8 +75,8 @@ export function MediaGrid({
   onShortlistMany?: (ids: string[], shortlisted: boolean) => Promise<void>;
   /** Whether Delete is offered (false on Smart Selects). */
   allowDelete?: boolean;
-  /** Custom empty-state copy for this view. */
-  emptyMessage?: string;
+  /** Custom empty-state content for this view (text, or a richer node with a next-step action). */
+  emptyMessage?: React.ReactNode;
   /** Base name for the multi-select ZIP (e.g. the folder or event name). */
   archiveName?: string;
   /** Current event cover URL — flags the matching tile. */

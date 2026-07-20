@@ -3,26 +3,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAllGuests } from "@/lib/api";
 import type { Guest } from "@/lib/types";
-import {
-  EMPTY_LIKED_FILTERS,
-  hasActiveLikedFilters,
-  type LikedFilters as LikedFiltersState,
-} from "./EventContext";
-import { IconCaretDown, IconCheck, IconHeart, IconSearch, IconStar, IconUsers, IconX } from "./icons";
+import { hasActiveLikedFilters, resetLikedScope, type LikedFilters as LikedFiltersState } from "./EventContext";
+import { IconCaretDown, IconCheck, IconHeart, IconSearch, IconStar, IconUsers } from "./icons";
+import { SortDropdown, type SortOption } from "./SortDropdown";
 
-const SORT_LABEL: Record<LikedFiltersState["sort"], string> = {
-  likes: "Most liked",
-  recent: "Newest",
-};
+const SORT_OPTIONS: SortOption<LikedFiltersState["sort"]>[] = [
+  { value: "likes", label: "Most liked" },
+  { value: "recent", label: "Newest" },
+];
 
 /**
- * Filter bar for the Smart Selects view — a single compact, wrapping row: quick
- * scope pills (All liked / Host picks / Shortlisted, each carrying its own
- * count badge) followed by the refinement controls — guest teams (only when
- * the event has `guest_types`), specific guests (lazy-loaded), and Sort. Pills
- * just set the underlying filter fields, so they stay in sync with the
- * refinement controls. All constraints AND-combine; changing any re-fetches
- * (via EventWorkspace).
+ * Filter bar for the Smart Selects view — a single compact, wrapping row.
+ * "All liked" is the default/reset state, not a pill alongside the others: it
+ * clears the narrowing filters (Host picks, Shortlisted, Team, Guests) rather
+ * than competing with them as an exclusive option. Host picks and Shortlisted
+ * are independent toggles that AND-combine with each other and with Team /
+ * Guests. Team is small (2-3 people) so it's inline chips, not a dropdown;
+ * Guests stays a searchable dropdown but only lists people who've actually
+ * liked something. Sort is ordering, not scope — it's a single-select control
+ * that always has a value (see `SortDropdown`) and carries no "Clear".
  */
 export function LikedFilters({
   bookingId,
@@ -41,7 +40,7 @@ export function LikedFilters({
   shortlistedCount?: number;
 }) {
   const showTeams = !!guestTypes && guestTypes.length > 0;
-  const active = hasActiveLikedFilters(filters);
+  const narrowingActive = hasActiveLikedFilters(filters);
 
   // Guests are lazy-loaded the first time the guests dropdown opens.
   const [guests, setGuests] = useState<Guest[] | null>(null);
@@ -62,6 +61,12 @@ export function LikedFilters({
     }
   }, [bookingId, guests, guestsLoading]);
 
+  // Only guests who've actually liked something belong in this picker — the
+  // full face-scanned roster lives in Access & Sharing, not here. The backend
+  // already returns guests sorted by likes_count desc, so filtering preserves
+  // that order.
+  const likingGuests = useMemo(() => (guests ?? []).filter((g) => (g.likes_count ?? 0) > 0), [guests]);
+
   const setSort = (sort: LikedFiltersState["sort"]) => onChange((f) => ({ ...f, sort }));
   const toggleSubType = (t: string) =>
     onChange((f) => ({
@@ -74,24 +79,10 @@ export function LikedFilters({
       guestIds: f.guestIds.includes(id) ? f.guestIds.filter((x) => x !== id) : [...f.guestIds, id],
     }));
 
-  // ── Quick pills. Each maps to underlying filter fields (so pill state derives
-  // from the same fields the refinement row edits — they can't drift apart).
-  const scopeAll =
-    filters.audience === "all" &&
-    filters.subTypes.length === 0 &&
-    filters.guestIds.length === 0;
-  const allLikedOn = scopeAll && !filters.shortlistedOnly;
   const hostPicksOn = filters.audience === "host";
   const shortlistedOn = filters.shortlistedOnly;
 
-  const setAllLiked = () =>
-    onChange((f) => ({
-      ...f,
-      audience: "all",
-      subTypes: [],
-      guestIds: [],
-      shortlistedOnly: false,
-    }));
+  const resetToAllLiked = () => onChange(resetLikedScope);
   const toggleHostPicks = () =>
     onChange((f) => ({ ...f, audience: f.audience === "host" ? "all" : "host" }));
   const toggleShortlisted = () =>
@@ -109,32 +100,36 @@ export function LikedFilters({
 
   return (
     <div className="mb-4 mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-brand-border)] bg-white px-3 py-2">
-      <QuickPill active={allLikedOn} onClick={setAllLiked} count={likedCount}>
-        All liked
-      </QuickPill>
-      <QuickPill active={hostPicksOn} onClick={toggleHostPicks}>
+      <AllLikedReset active={narrowingActive} count={likedCount} onClick={resetToAllLiked} />
+
+      <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-[var(--color-brand-border)] sm:block" aria-hidden />
+
+      <QuickPill
+        active={hostPicksOn}
+        onClick={toggleHostPicks}
+        title="Flagged as a favourite by the couple"
+      >
         Host picks
       </QuickPill>
-      <QuickPill active={shortlistedOn} onClick={toggleShortlisted} count={shortlistedCount}>
+      <QuickPill
+        active={shortlistedOn}
+        onClick={toggleShortlisted}
+        count={shortlistedCount}
+        title="Your team's picks for the final edit"
+      >
         <IconStar size={12} filled={shortlistedOn} />
         Shortlisted
       </QuickPill>
 
-      <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-[var(--color-brand-border)] sm:block" aria-hidden />
-
       {showTeams && (
-        <FilterDropdown label="Team" count={filters.subTypes.length}>
-          <div className="max-h-[280px] overflow-y-auto py-1">
-            {guestTypes!.map((t) => (
-              <CheckRow
-                key={t}
-                label={t}
-                checked={filters.subTypes.includes(t)}
-                onToggle={() => toggleSubType(t)}
-              />
-            ))}
-          </div>
-        </FilterDropdown>
+        <>
+          <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-[var(--color-brand-border)] sm:block" aria-hidden />
+          {guestTypes!.map((t) => (
+            <QuickPill key={t} active={filters.subTypes.includes(t)} onClick={() => toggleSubType(t)}>
+              {t}
+            </QuickPill>
+          ))}
+        </>
       )}
 
       <FilterDropdown
@@ -144,7 +139,7 @@ export function LikedFilters({
         onOpen={loadGuests}
       >
         <GuestPicker
-          guests={guests}
+          guests={likingGuests}
           loading={guestsLoading}
           error={guestsError}
           selected={filters.guestIds}
@@ -153,53 +148,77 @@ export function LikedFilters({
         />
       </FilterDropdown>
 
-      {/* Sort — pushed to the right; Clear follows it. */}
-      <FilterDropdown
-        label={`Sort: ${SORT_LABEL[filters.sort]}`}
-        count={0}
+      <SortDropdown
+        value={filters.sort}
+        options={SORT_OPTIONS}
+        onChange={setSort}
         className="sm:ml-auto"
         align="right"
-      >
-        <div className="py-1">
-          <CheckRow
-            label="Most liked"
-            checked={filters.sort === "likes"}
-            onToggle={() => setSort("likes")}
-          />
-          <CheckRow
-            label="Newest"
-            checked={filters.sort === "recent"}
-            onToggle={() => setSort("recent")}
-          />
-        </div>
-      </FilterDropdown>
-
-      {active && (
-        <button
-          type="button"
-          onClick={() => onChange(EMPTY_LIKED_FILTERS)}
-          className="brand-focus inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-        >
-          <IconX size={12} />
-          Clear
-        </button>
-      )}
+      />
     </div>
   );
 }
 
-/* ── quick scope pill ───────────────────────────────────────────── */
+/* ── "All liked" reset ──────────────────────────────────────────── */
+
+/**
+ * The default/reset state — not one of the exclusive-looking pills, since
+ * Host picks / Shortlisted / Team / Guests all AND-combine rather than
+ * competing with "All liked" for a single selection. Disabled (inert) once
+ * nothing is narrowed; clicking it while active clears back to the full
+ * liked pool.
+ */
+function AllLikedReset({
+  active,
+  count,
+  onClick,
+}: {
+  /** True while a narrowing filter is applied — enables the reset action. */
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!active}
+      title={active ? "Clear Host picks, Shortlisted, Team and Guest filters" : "Showing every liked photo"}
+      className={`brand-focus inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+        active
+          ? "text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
+          : "cursor-default text-[var(--color-brand-muted)]"
+      }`}
+    >
+      <IconHeart size={12} filled={!active} />
+      All liked
+      {count > 0 && (
+        <span
+          className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+            active ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]" : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
+          }`}
+        >
+          {count.toLocaleString("en-IN")}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── quick toggle pill (Host picks / Shortlisted / Team) ───────────── */
 
 function QuickPill({
   active,
   count,
   onClick,
+  title,
   children,
 }: {
   active: boolean;
   /** Optional count badge; hidden when 0. */
   count?: number;
   onClick: () => void;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -207,6 +226,7 @@ function QuickPill({
       type="button"
       aria-pressed={active}
       onClick={onClick}
+      title={title}
       className={`brand-focus inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
         active
           ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
@@ -227,7 +247,7 @@ function QuickPill({
   );
 }
 
-/* ── dropdown shell ─────────────────────────────────────────────── */
+/* ── dropdown shell (Guests) ────────────────────────────────────── */
 
 function FilterDropdown({
   label,
@@ -352,7 +372,8 @@ function GuestPicker({
   onToggle,
   onRetry,
 }: {
-  guests: Guest[] | null;
+  /** Pre-scoped to guests with at least one like (see `likingGuests`). */
+  guests: Guest[];
   loading: boolean;
   error: string | null;
   selected: string[];
@@ -361,10 +382,9 @@ function GuestPicker({
 }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
-    const list = guests ?? [];
     const needle = q.trim().toLowerCase();
-    if (!needle) return list;
-    return list.filter(
+    if (!needle) return guests;
+    return guests.filter(
       (g) =>
         g.name.toLowerCase().includes(needle) ||
         (g.email ?? "").toLowerCase().includes(needle),
@@ -378,7 +398,7 @@ function GuestPicker({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search guests…"
+          placeholder="Search guests who liked…"
           className="min-w-0 flex-1 bg-transparent py-1 text-[13px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]"
         />
       </div>
@@ -404,7 +424,7 @@ function GuestPicker({
         )}
         {!loading && !error && filtered.length === 0 && (
           <div className="px-3 py-6 text-center text-[12.5px] text-[var(--color-brand-muted)]">
-            {(guests?.length ?? 0) === 0 ? "No guests yet." : "No matching guests."}
+            {guests.length === 0 ? "No one has liked a photo yet." : "No matching guests."}
           </div>
         )}
         {!loading &&

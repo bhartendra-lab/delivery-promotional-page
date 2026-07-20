@@ -50,7 +50,7 @@ export class CompressorPool {
   }
 
   /** Run a compression task, waiting if all slots are busy. */
-  async run(file: File, watermark?: WatermarkRenderer | null): Promise<Blob> {
+  async run(file: File, watermark?: WatermarkRenderer | null): Promise<CompressResult> {
     await this.acquire();
     try {
       return await compressWithExif(file, watermark);
@@ -81,10 +81,14 @@ export class CompressorPool {
 
 /* ── compression core ─────────────────────────────────────────────── */
 
+/** Compressed output plus its decoded pixel dimensions (undefined if the
+ *  browser couldn't decode them — callers must treat that as "unknown"). */
+export type CompressResult = { blob: Blob; width?: number; height?: number };
+
 export async function compressWithExif(
   file: File,
   watermark?: WatermarkRenderer | null,
-): Promise<Blob> {
+): Promise<CompressResult> {
   // Read source EXIF before compression destroys it. Only meaningful for JPEG
   // sources (PNG/HEIC don't carry EXIF the same way). We read just the header
   // slice — EXIF sits right after the SOI marker — and keep the serialized
@@ -130,18 +134,36 @@ export async function compressWithExif(
     }
   }
 
+  // Decode the final (post-downscale, post-watermark) blob once to capture its
+  // pixel dimensions — cheap, since it's already ≤MAX_DIM on its long edge. A
+  // failure here must never fail the upload; callers treat missing dimensions
+  // as "unknown" and fall back to their legacy behaviour.
+  const { width, height } = await readDimensions(compressedBlob);
+
   if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
-    return compressedBlob;
+    return { blob: compressedBlob, width, height };
   }
 
   // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
   // must never fail the upload — losing metadata beats losing the photo.
   try {
     const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
-    return spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
+    const blob = spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
+    return { blob, width, height };
   } catch {
-    return compressedBlob;
+    return { blob: compressedBlob, width, height };
+  }
+}
+
+async function readDimensions(blob: Blob): Promise<{ width?: number; height?: number }> {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const { width, height } = bmp;
+    bmp.close();
+    return { width, height };
+  } catch {
+    return {};
   }
 }
 
