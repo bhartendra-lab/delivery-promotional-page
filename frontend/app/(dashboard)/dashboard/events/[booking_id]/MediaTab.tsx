@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createCustomFolder, updateCustomFolder } from "@/lib/api";
+import { ApiError, createCustomFolder, deleteCustomFolder, reorderCustomFolders, updateCustomFolder } from "@/lib/api";
 import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
 import { FoldersSidebar, InlineFolderInput, type FolderRow } from "@/components/dashboard/FoldersSidebar";
 import { UploadModal } from "./UploadModal";
@@ -135,6 +135,49 @@ export function MediaTab({ loading }: { loading: boolean }) {
     [bookingId, setFolders, toast],
   );
 
+  const handleDeleteFolder = useCallback(
+    async (folderId: string) => {
+      try {
+        await deleteCustomFolder(folderId);
+        setFolders((prev) => prev.filter((f) => f._id !== folderId));
+        if (activeFolderId === folderId) setActiveFolder(ALL_MEDIA_ID);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 400) {
+          const count = (err.body as { mediaCount?: number } | null)?.mediaCount;
+          toast(
+            typeof count === "number"
+              ? `This folder has ${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"} — remove them first.`
+              : "This folder isn't empty — remove its photos first.",
+            "error",
+          );
+        } else {
+          toast(err instanceof Error ? err.message : "Could not delete folder", "error");
+        }
+      }
+    },
+    [activeFolderId, setActiveFolder, setFolders, toast],
+  );
+
+  // Drag-and-drop reorder: apply the new order immediately (dnd-kit already
+  // reflects it visually mid-drag) and revert only if the persist call fails.
+  const handleReorderFolders = useCallback(
+    async (orderedIds: string[]) => {
+      const prevFolders = folders;
+      const byId = new Map(prevFolders.map((f) => [f._id, f]));
+      const reordered = orderedIds
+        .map((id) => byId.get(id))
+        .filter((f): f is CustomFolder => Boolean(f));
+      setFolders(reordered);
+      try {
+        await reorderCustomFolders(bookingId, orderedIds);
+      } catch (err) {
+        setFolders(prevFolders);
+        toast(err instanceof Error ? err.message : "Could not save folder order", "error");
+      }
+    },
+    [bookingId, folders, setFolders, toast],
+  );
+
   // A new file was picked as the cover — park it for position adjustment
   // instead of uploading/persisting right away.
   const pickCoverFile = useCallback((file: File) => {
@@ -241,6 +284,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
           onSelect={activeLocked ? () => {} : setActiveFolder}
           onRename={handleRename}
           onAddFolder={folderRows.length > 0 ? addFolder : undefined}
+          onDelete={handleDeleteFolder}
+          onReorder={handleReorderFolders}
           disabled={activeLocked}
           scrollRef={foldersElRef}
         />

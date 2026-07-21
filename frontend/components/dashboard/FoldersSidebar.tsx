@@ -1,6 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
 
 export type FolderRow = {
   id: string;
@@ -13,10 +28,18 @@ export type FolderRow = {
 
 type Props = {
   folders: FolderRow[];
-  activeFolderId: string | null;
+  activeFolderId: string;
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void | Promise<void>;
   onAddFolder?: (name: string) => void | Promise<void>;
+  /**
+   * Delete a folder. The caller owns error handling/toasting (e.g. the
+   * backend refusing a non-empty folder) — this always resolves, so the
+   * confirm dialog closes regardless of outcome.
+   */
+  onDelete?: (id: string) => void | Promise<void>;
+  /** Persist a full reordering of the non-system folders after a drag. */
+  onReorder?: (orderedIds: string[]) => void | Promise<void>;
   disabled?: boolean;
   /** Exposes the scrollable `<aside>` node so a wheel over it that hits its
    *  scroll boundary can be forwarded to a sibling scroll region. */
@@ -31,13 +54,43 @@ export function FoldersSidebar({
   onSelect,
   onRename,
   onAddFolder,
+  onDelete,
+  onReorder,
   disabled = false,
   scrollRef,
 }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [addingFolder, setAddingFolder] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FolderRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const empty = folders.length === 0;
+  // "All Media" (and any other system row) always renders first, pinned, and
+  // is excluded from the draggable set entirely.
+  const systemFolders = folders.filter((f) => f.system);
+  const userFolders = folders.filter((f) => !f.system);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !onReorder) return;
+    const oldIndex = userFolders.findIndex((f) => f.id === active.id);
+    const newIndex = userFolders.findIndex((f) => f.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    void onReorder(arrayMove(userFolders, oldIndex, newIndex).map((f) => f.id));
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || !onDelete) return;
+    setDeleting(true);
+    try {
+      await onDelete(deleteTarget.id);
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
 
   return (
     <aside
@@ -51,7 +104,7 @@ export function FoldersSidebar({
         </span>
         {!empty && (
           <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">
-            {folders.filter((f) => !f.system).length}
+            {userFolders.length}
           </span>
         )}
       </div>
@@ -66,33 +119,51 @@ export function FoldersSidebar({
         </div>
       ) : (
         <div className="px-2.5">
-          {folders.map((f, idx) => {
-            const isActive = f.id === activeFolderId;
-            const prevWasSystem = idx > 0 && folders[idx - 1].system;
-            const showDivider = !f.system && prevWasSystem;
-            const isRenaming = renamingId === f.id;
-            return (
-              <div key={f.id}>
-                {showDivider && (
-                  <div className="my-2 h-px bg-[var(--color-brand-border)]" aria-hidden />
-                )}
-                <FolderRowComponent
-                  folder={f}
-                  isActive={isActive}
-                  isRenaming={isRenaming}
-                  disabled={disabled}
-                  onSelect={() => onSelect(f.id)}
-                  onStartRename={() => setRenamingId(f.id)}
-                  onCommitRename={async (name) => {
-                    setRenamingId(null);
-                    const trimmed = name.trim();
-                    if (trimmed && trimmed !== f.label) await onRename(f.id, trimmed);
-                  }}
-                  onCancelRename={() => setRenamingId(null)}
-                />
-              </div>
-            );
-          })}
+          {systemFolders.map((f) => (
+            <FolderRowComponent
+              key={f.id}
+              folder={f}
+              isActive={f.id === activeFolderId}
+              isRenaming={false}
+              disabled={disabled}
+              onSelect={() => onSelect(f.id)}
+              onStartRename={() => {}}
+              onCommitRename={() => {}}
+              onCancelRename={() => {}}
+            />
+          ))}
+
+          {systemFolders.length > 0 && userFolders.length > 0 && (
+            <div className="my-2 h-px bg-[var(--color-brand-border)]" aria-hidden />
+          )}
+
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={userFolders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+              {userFolders.map((f) => {
+                const isActive = f.id === activeFolderId;
+                const isRenaming = renamingId === f.id;
+                return (
+                  <SortableFolderRow
+                    key={f.id}
+                    folder={f}
+                    isActive={isActive}
+                    isRenaming={isRenaming}
+                    disabled={disabled}
+                    dragDisabled={disabled || isRenaming}
+                    onSelect={() => onSelect(f.id)}
+                    onStartRename={() => setRenamingId(f.id)}
+                    onCommitRename={async (name) => {
+                      setRenamingId(null);
+                      const trimmed = name.trim();
+                      if (trimmed && trimmed !== f.label) await onRename(f.id, trimmed);
+                    }}
+                    onCancelRename={() => setRenamingId(null)}
+                    onDeleteRequest={onDelete ? () => setDeleteTarget(f) : undefined}
+                  />
+                );
+              })}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
@@ -120,9 +191,89 @@ export function FoldersSidebar({
           )}
         </div>
       )}
+
+      {deleteTarget && (
+        <TypeConfirmModal
+          action="delete"
+          requireTyping={false}
+          busy={deleting}
+          title="Delete this folder?"
+          description={`“${deleteTarget.label}” will be removed. This can't be undone.`}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+        />
+      )}
     </aside>
   );
 }
+
+/** Wraps a folder row with dnd-kit's sortable behaviour; the drag handle
+ *  inside `FolderRowComponent` is the only element wired to the drag listeners
+ *  so a plain click elsewhere on the row still selects it. */
+function SortableFolderRow({
+  folder,
+  isActive,
+  isRenaming,
+  disabled,
+  dragDisabled,
+  onSelect,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onDeleteRequest,
+}: {
+  folder: FolderRow;
+  isActive: boolean;
+  isRenaming: boolean;
+  disabled: boolean;
+  dragDisabled: boolean;
+  onSelect: () => void;
+  onStartRename: () => void;
+  onCommitRename: (name: string) => void | Promise<void>;
+  onCancelRename: () => void;
+  onDeleteRequest?: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: folder.id, disabled: dragDisabled });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        transition,
+      }}
+      className={isDragging ? "relative z-10 opacity-70" : undefined}
+    >
+      <FolderRowComponent
+        folder={folder}
+        isActive={isActive}
+        isRenaming={isRenaming}
+        disabled={disabled}
+        onSelect={onSelect}
+        onStartRename={onStartRename}
+        onCommitRename={onCommitRename}
+        onCancelRename={onCancelRename}
+        onDeleteRequest={onDeleteRequest}
+        dragHandle={{ ref: setActivatorNodeRef, attributes, listeners }}
+      />
+    </div>
+  );
+}
+
+/** Structurally derived from `useSortable`'s own return type instead of
+ *  reaching into dnd-kit's internal type paths. */
+type SortableDragProps = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
+
+type FolderMenuItem = {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  destructive?: boolean;
+  onSelect: () => void;
+};
 
 function FolderRowComponent({
   folder,
@@ -133,6 +284,8 @@ function FolderRowComponent({
   onStartRename,
   onCommitRename,
   onCancelRename,
+  onDeleteRequest,
+  dragHandle,
 }: {
   folder: FolderRow;
   isActive: boolean;
@@ -142,20 +295,56 @@ function FolderRowComponent({
   onStartRename: () => void;
   onCommitRename: (name: string) => void | Promise<void>;
   onCancelRename: () => void;
+  onDeleteRequest?: () => void;
+  dragHandle?: SortableDragProps & { ref: (node: HTMLElement | null) => void };
 }) {
   const Icon =
     folder.icon === "heart" ? HeartIcon : folder.system ? ImageStackIcon : FolderIcon;
+  const showRowActions = !isRenaming && !folder.system;
+
+  const menuItems: FolderMenuItem[] = [
+    { key: "rename", label: "Rename", icon: <EditIcon size={12} />, onSelect: onStartRename },
+    ...(onDeleteRequest
+      ? [
+          {
+            key: "delete",
+            label: "Delete",
+            icon: <TrashIcon size={12} />,
+            destructive: true,
+            onSelect: onDeleteRequest,
+          } as FolderMenuItem,
+        ]
+      : []),
+  ];
+
   return (
     <div
       onClick={isRenaming || disabled ? undefined : onSelect}
       role={isRenaming || disabled ? undefined : "button"}
-      className={`group relative my-px flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 ${
+      className={`group relative my-px flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 ${
         isActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-white"
       } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
     >
+      {showRowActions && (
+        <button
+          type="button"
+          ref={dragHandle?.ref}
+          {...dragHandle?.attributes}
+          {...dragHandle?.listeners}
+          onClick={(e) => e.stopPropagation()}
+          disabled={disabled}
+          aria-label="Drag to reorder"
+          title="Drag to reorder"
+          className={`brand-focus flex h-[22px] w-[14px] shrink-0 cursor-grab touch-none items-center justify-center text-[var(--color-brand-muted)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing ${
+            disabled ? "cursor-not-allowed" : ""
+          }`}
+        >
+          <DragHandleIcon size={12} />
+        </button>
+      )}
       <Icon
         size={15}
-        className={isActive ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"}
+        className={`shrink-0 ${isActive ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"}`}
       />
       {isRenaming ? (
         <InlineFolderInput
@@ -179,21 +368,88 @@ function FolderRowComponent({
           {folder.count.toLocaleString("en-IN")}
         </span>
       )}
-      {!isRenaming && !folder.system && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onStartRename();
-          }}
-          disabled={disabled}
-          title="Rename folder"
-          className={`brand-focus -ml-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded text-[var(--color-brand-navy)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ${
-            isActive ? "opacity-100" : ""
-          }`}
+      {showRowActions && menuItems.length > 0 && (
+        <FolderMenu isActive={isActive} disabled={disabled} items={menuItems} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Hover-revealed "⋮" menu per folder row. Takes a plain item list so a third
+ * action (e.g. a visibility toggle) can be appended later without touching
+ * this component — any item flagged `destructive` gets a divider above it and
+ * renders in the danger colour, so Delete stays visually separated at the
+ * bottom regardless of how many safe actions precede it.
+ */
+function FolderMenu({
+  isActive,
+  disabled,
+  items,
+}: {
+  isActive: boolean;
+  disabled?: boolean;
+  items: FolderMenuItem[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        aria-label="Folder actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        className={`brand-focus -mr-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded text-[var(--color-brand-navy)] opacity-0 transition-opacity hover:bg-white group-hover:opacity-100 focus-visible:opacity-100 ${
+          isActive || open ? "opacity-100" : ""
+        }`}
+      >
+        <KebabIcon size={14} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="dash-rise absolute right-0 top-[calc(100%+2px)] z-30 w-[136px] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
         >
-          <EditIcon size={13} />
-        </button>
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] font-medium ${
+                item.destructive
+                  ? "mt-1 border-t border-[var(--color-brand-border)] pt-[9px] text-[var(--color-brand-danger)] hover:bg-[var(--color-brand-danger-soft)]"
+                  : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]"
+              }`}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -284,6 +540,39 @@ function EditIcon({ size = 14 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
       <path d="M16 4l4 4-11 11H5v-4z" />
       <line x1="13" y1="7" x2="17" y2="11" />
+    </svg>
+  );
+}
+
+function TrashIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
+    </svg>
+  );
+}
+
+function KebabIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="12" cy="19" r="2" />
+    </svg>
+  );
+}
+
+function DragHandleIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="8" cy="5" r="1.6" />
+      <circle cx="16" cy="5" r="1.6" />
+      <circle cx="8" cy="12" r="1.6" />
+      <circle cx="16" cy="12" r="1.6" />
+      <circle cx="8" cy="19" r="1.6" />
+      <circle cx="16" cy="19" r="1.6" />
     </svg>
   );
 }

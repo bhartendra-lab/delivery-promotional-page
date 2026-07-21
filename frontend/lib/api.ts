@@ -421,6 +421,30 @@ export function updateCustomFolder(customFolderId: string, name: string) {
 }
 
 /**
+ * The backend refuses to delete a non-empty folder — it responds 400 with
+ * `{ message: "Folder is not empty", mediaCount }` (caught via `ApiError.body`
+ * by the caller) instead of deleting anything.
+ */
+export function deleteCustomFolder(customFolderId: string) {
+  return request<{ message: string }>(
+    `/deliverables/delete-custom-folder/${encodeURIComponent(customFolderId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** `folderIds` is the full ordered list — each folder's `order` becomes its index. */
+export function reorderCustomFolders(bookingId: string, folderIds: string[]) {
+  return request<{ message: string }>(
+    `/deliverables/reorder-custom-folders/${encodeURIComponent(bookingId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder_ids: folderIds }),
+    },
+  );
+}
+
+/**
  * Batch metadata save. Backend persists ALL media for the event in one call.
  * On failure, the caller (engine) keeps the in-memory results and offers a
  * retry — the IndexedDB-backed state means a crash/refresh doesn't lose them.

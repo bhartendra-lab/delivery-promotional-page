@@ -217,6 +217,8 @@ export type CustomFolder = {
   name: string;
   booking_id: string;
   createdAt: string;
+  /** Manual display order within the booking (drives sidebar + guest lounge order). */
+  order?: number;
 };
 
 export type MediaItem = {
