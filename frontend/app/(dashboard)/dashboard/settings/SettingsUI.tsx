@@ -79,16 +79,21 @@ export function AddressField({
       existing.addEventListener("load", () => setScriptReady(true));
       return;
     }
+    // Classic bootstrap: `libraries=places` eagerly loads the Places library
+    // alongside the core API, so it's available by the time `onload` fires —
+    // no `loading=async` / `importLibrary` dance needed. Google still fully
+    // supports this; it just logs a console suggestion to use the newer
+    // async loader, which is harmless for a single settings-page widget.
     const script = document.createElement("script");
     script.id = PLACES_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.onload = () => setScriptReady(true);
     document.head.appendChild(script);
   }, [scriptReady]);
 
   useEffect(() => {
-    if (!scriptReady || !inputRef.current || autocompleteRef.current || !window.google) return;
+    if (!scriptReady || !inputRef.current || autocompleteRef.current || !window.google?.maps?.places) return;
     const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
       fields: ["place_id", "formatted_address"],
       types: ["establishment"],
