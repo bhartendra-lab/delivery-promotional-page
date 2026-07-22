@@ -23,22 +23,26 @@ export const EVENT_TYPES: EventType[] = [
 export type StyleVariant =
   | "Ivory & Rose"
   | "Blush Minimal"
+  | "Sage Sanctuary"
   | "Marigold Bright"
   | "Festive Bloom"
   | "Maroon Velvet"
   | "Fine-Art Warm"
   | "Emerald Royal"
-  | "Charcoal Editorial";
+  | "Charcoal Editorial"
+  | "Indigo Dusk";
 
 export const STYLE_VARIANTS: StyleVariant[] = [
   "Ivory & Rose",
   "Blush Minimal",
+  "Sage Sanctuary",
   "Marigold Bright",
   "Festive Bloom",
   "Maroon Velvet",
   "Fine-Art Warm",
   "Emerald Royal",
   "Charcoal Editorial",
+  "Indigo Dusk",
 ];
 
 /** Face-embedding job status carried on the booking. */
@@ -219,6 +223,8 @@ export type CustomFolder = {
   createdAt: string;
   /** Manual display order within the booking (drives sidebar + guest lounge order). */
   order?: number;
+  /** "Highlights": a public folder is visible to guests without the family passcode. */
+  visibility?: "private" | "public";
 };
 
 export type MediaItem = {

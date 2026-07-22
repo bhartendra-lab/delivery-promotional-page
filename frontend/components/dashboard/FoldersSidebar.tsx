@@ -24,6 +24,8 @@ export type FolderRow = {
   system?: boolean;
   /** Which glyph to show. Defaults to a folder (or the stack for `system` rows). */
   icon?: "images" | "heart";
+  /** "Highlights": a public folder is visible to guests without the family passcode. */
+  visibility?: "private" | "public";
 };
 
 type Props = {
@@ -40,6 +42,8 @@ type Props = {
   onDelete?: (id: string) => void | Promise<void>;
   /** Persist a full reordering of the non-system folders after a drag. */
   onReorder?: (orderedIds: string[]) => void | Promise<void>;
+  /** Flip a folder between "Highlights" (public) and private. */
+  onToggleVisibility?: (id: string) => void | Promise<void>;
   disabled?: boolean;
   /** Exposes the scrollable `<aside>` node so a wheel over it that hits its
    *  scroll boundary can be forwarded to a sibling scroll region. */
@@ -56,6 +60,7 @@ export function FoldersSidebar({
   onAddFolder,
   onDelete,
   onReorder,
+  onToggleVisibility,
   disabled = false,
   scrollRef,
 }: Props) {
@@ -159,6 +164,7 @@ export function FoldersSidebar({
                     }}
                     onCancelRename={() => setRenamingId(null)}
                     onDeleteRequest={onDelete ? () => setDeleteTarget(f) : undefined}
+                    onToggleVisibility={onToggleVisibility ? () => onToggleVisibility(f.id) : undefined}
                   />
                 );
               })}
@@ -223,6 +229,7 @@ function SortableFolderRow({
   onCommitRename,
   onCancelRename,
   onDeleteRequest,
+  onToggleVisibility,
 }: {
   folder: FolderRow;
   isActive: boolean;
@@ -234,6 +241,7 @@ function SortableFolderRow({
   onCommitRename: (name: string) => void | Promise<void>;
   onCancelRename: () => void;
   onDeleteRequest?: () => void;
+  onToggleVisibility?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: folder.id, disabled: dragDisabled });
@@ -257,6 +265,7 @@ function SortableFolderRow({
         onCommitRename={onCommitRename}
         onCancelRename={onCancelRename}
         onDeleteRequest={onDeleteRequest}
+        onToggleVisibility={onToggleVisibility}
         dragHandle={{ ref: setActivatorNodeRef, attributes, listeners }}
       />
     </div>
@@ -285,6 +294,7 @@ function FolderRowComponent({
   onCommitRename,
   onCancelRename,
   onDeleteRequest,
+  onToggleVisibility,
   dragHandle,
 }: {
   folder: FolderRow;
@@ -296,14 +306,26 @@ function FolderRowComponent({
   onCommitRename: (name: string) => void | Promise<void>;
   onCancelRename: () => void;
   onDeleteRequest?: () => void;
+  onToggleVisibility?: () => void;
   dragHandle?: SortableDragProps & { ref: (node: HTMLElement | null) => void };
 }) {
   const Icon =
     folder.icon === "heart" ? HeartIcon : folder.system ? ImageStackIcon : FolderIcon;
   const showRowActions = !isRenaming && !folder.system;
+  const isPublic = folder.visibility === "public";
 
   const menuItems: FolderMenuItem[] = [
     { key: "rename", label: "Rename", icon: <EditIcon size={12} />, onSelect: onStartRename },
+    ...(onToggleVisibility
+      ? [
+          {
+            key: "visibility",
+            label: isPublic ? "Remove from Highlights" : "Make public",
+            icon: <StarIcon size={12} filled={isPublic} />,
+            onSelect: onToggleVisibility,
+          } as FolderMenuItem,
+        ]
+      : []),
     ...(onDeleteRequest
       ? [
           {
@@ -540,6 +562,23 @@ function EditIcon({ size = 14 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
       <path d="M16 4l4 4-11 11H5v-4z" />
       <line x1="13" y1="7" x2="17" y2="11" />
+    </svg>
+  );
+}
+
+function StarIcon({ size = 14, filled }: { size?: number; filled?: boolean }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.8z" />
     </svg>
   );
 }

@@ -317,6 +317,21 @@ body {
 }
 .cta-shine:hover::after { animation: cta-shine 0.85s ease; }
 
+@keyframes nudge-rise {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes scroll-cue-bob {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, 5px); }
+}
+.nudge-rise { animation: nudge-rise 0.3s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.scroll-cue { animation: scroll-cue-bob 2s ease-in-out infinite; }
+
+/* Studio-menu rows — tint on hover using the row's own currentColor so the
+   hover stays themed without threading another token through. */
+.menu-row:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+
 /* ---------------------------------------------------------------- */
 /* Guest flow — shared motion language (loader → login → scan →      */
 /* team → lounge). Additive polish; layout/structure unchanged.     */

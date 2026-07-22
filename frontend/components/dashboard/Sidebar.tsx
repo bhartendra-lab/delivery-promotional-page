@@ -9,7 +9,7 @@ import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
 
 const SIDEBAR_W_EXPANDED = 240;
-const SIDEBAR_W_COLLAPSED = 88;
+const SIDEBAR_W_COLLAPSED = 80;
 const LS_COLLAPSED = "sidebar_collapsed";
 const COLLAPSE_EVENT = "sidebar:collapsed-change";
 
@@ -59,37 +59,48 @@ export function Sidebar({
       {/* Logo + collapse toggle.
           Expanded: the toggle gets its own fixed slot (shrink-0) and the
           wordmark lives in a min-w-0 box, so the logo can never grow into the
-          toggle — no overlap at any width.
-          Collapsed: the toggle cross-fades in over the icon on hover/focus. */}
+          toggle — no overlap at any width. The wordmark is a plain <a> (not
+          next/link) so a click forces a full page reload, not a soft nav.
+          Collapsed: icon on top, toggle always visible below it — no
+          hover-only reveal, since that never surfaces on touch devices. */}
       <div
-        className={`group flex items-center ${
-          collapsed ? "relative justify-center px-3 py-4" : "justify-between gap-2 px-4 py-4"
-        }`}
-        style={{ minHeight: 64 }}
+        className={
+          collapsed
+            ? "flex flex-col items-center justify-center gap-1 px-2 py-1.5"
+            : "flex items-center justify-between gap-2 px-4 py-3"
+        }
+        style={{ minHeight: collapsed ? 46 : 52 }}
       >
         {collapsed ? (
           <>
-            <img
-              src="/vyavasth-icon.svg"
-              alt="Vyavasth"
-              height={22}
-              className="transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
-            />
+            <a
+              href="/dashboard"
+              onClick={attemptNav}
+              aria-label="Vyavasth — go to dashboard"
+              className="brand-focus flex items-center justify-center rounded-md p-1"
+            >
+              <img src="/vyavasth-icon.svg" alt="Vyavasth" style={{ height: 40, width: "auto" }} />
+            </a>
             <button
               type="button"
               onClick={() => setCollapsed(false)}
               title="Expand sidebar"
               aria-label="Expand sidebar"
-              className="brand-focus absolute inset-0 m-auto flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] opacity-0 transition-opacity duration-150 hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+              className="brand-focus flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
-              <IconSidebar size={16} />
+              <IconSidebar size={14} />
             </button>
           </>
         ) : (
           <>
-            <span className="flex min-w-0 flex-1 items-center overflow-hidden">
-              <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={22} />
-            </span>
+            <a
+              href="/dashboard"
+              onClick={attemptNav}
+              aria-label="Vyavasth — go to dashboard"
+              className="brand-focus flex min-w-0 flex-1 items-center overflow-hidden rounded-md"
+            >
+              <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={18} />
+            </a>
             <button
               type="button"
               onClick={() => setCollapsed(true)}
@@ -115,7 +126,7 @@ export function Sidebar({
                 href={item.href}
                 onClick={attemptNav}
                 aria-current={active ? "page" : undefined}
-                className={`mx-2.5 my-0.5 flex flex-col items-center gap-1.5 rounded-lg px-1.5 py-3 text-[11px] font-semibold no-underline ${
+                className={`mx-1.5 my-0.5 flex flex-col items-center gap-2 rounded-lg px-1 py-2 text-[9.5px] font-semibold tracking-tight whitespace-nowrap no-underline ${
                   active
                     ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
                     : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
@@ -145,9 +156,13 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Footer: events meter + account chip (identity + Settings + Sign out) */}
-      <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2.5 py-3" : "px-3.5 py-3"}`}>
-        {!collapsed && <EventsMeter usage={dlpUsage} loading={dlpLoading} />}
+      {/* Footer: usage meter + account chip (identity + Settings + Sign out) */}
+      <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2 py-3" : "px-3.5 py-3"}`}>
+        {collapsed ? (
+          <CollapsedUsageMeter usage={dlpUsage} loading={dlpLoading} />
+        ) : (
+          <EventsMeter usage={dlpUsage} loading={dlpLoading} />
+        )}
         <AccountMenu variant={collapsed ? "icon" : "chip"} />
       </div>
     </aside>
@@ -272,6 +287,66 @@ function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: bool
         <span className="text-[11.5px] font-semibold text-[var(--color-brand-ink)]">Events</span>
         <span className="text-[11px] tabular-nums text-[var(--color-brand-muted)]">{used}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Collapsed-rail counterpart to `EventsMeter`: a small ring showing percent
+ * filled (green/orange/red for storage plans, navy/red for count plans) with
+ * the used value printed underneath. Same data, same severity thresholds —
+ * just compact enough for the 96px rail.
+ */
+function CollapsedUsageMeter({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
+  if (loading) {
+    return <div className="skeleton mx-auto mb-2 h-[26px] w-[26px] rounded-full" />;
+  }
+  if (!usage) return null;
+
+  const used = usage.used ?? 0;
+  const R = 9;
+  const CIRC = 2 * Math.PI * R;
+
+  let pct = 0;
+  let ringColor = "var(--color-brand-navy)";
+  let valueLabel = `${used}`;
+
+  if (isCountBasedPlan(usage.service_type) && typeof usage.limit === "number") {
+    const limit = usage.limit;
+    const remaining = usage.remaining ?? Math.max(limit - used, 0);
+    pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+    ringColor = remaining <= 2 ? "var(--color-brand-danger)" : "var(--color-brand-navy)";
+    valueLabel = `${used}/${limit}`;
+  } else if (isStorageBasedPlan(usage.service_type) && typeof usage.limit === "number") {
+    const limit = usage.limit;
+    pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+    const severity = getUsageSeverity(pct);
+    ringColor =
+      severity === "danger"
+        ? "var(--color-brand-danger)"
+        : severity === "warning"
+          ? "var(--color-brand-warning)"
+          : "var(--color-brand-success)";
+    valueLabel = `${used.toFixed(1)}GB`;
+  }
+
+  return (
+    <div className="mb-1.5 flex flex-col items-center gap-1 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-2" title={`Storage: ${valueLabel}`}>
+      <svg width="26" height="26" viewBox="0 0 24 24" className="-rotate-90">
+        <circle cx="12" cy="12" r={R} fill="none" stroke="var(--color-brand-border)" strokeWidth="3" />
+        <circle
+          cx="12"
+          cy="12"
+          r={R}
+          fill="none"
+          stroke={ringColor}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={CIRC}
+          strokeDashoffset={CIRC - (pct / 100) * CIRC}
+        />
+      </svg>
+      <span className="text-[9px] font-semibold tabular-nums tracking-tight text-[var(--color-brand-muted)]">{valueLabel}</span>
     </div>
   );
 }

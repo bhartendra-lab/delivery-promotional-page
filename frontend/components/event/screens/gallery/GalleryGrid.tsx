@@ -1,21 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
+import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
 
 /**
  * The guest gallery's photo layout — isolated behind a `layout` prop so the
  * studio can later choose the presentation without touching LoungeGallery.
  *
- * - "masonry" (default): CSS multi-column layout that preserves each photo's
- *   native aspect ratio. When GuestMediaItem carries width/height (captured at
- *   upload), the tile reserves that aspect ratio up front — no column growth
- *   as the image loads. Legacy media without dimensions falls back to sizing
- *   from the loaded image via `h-auto`.
- *   NOTE: CSS columns fill COLUMN-MAJOR — items flow top-to-bottom down the
- *   first column, then the next. This means visual order is not strictly the
- *   API order; that's the accepted Pinterest-style trade-off for a gapless wall.
+ * - "justified" (default): a row-packed layout (Pic-Time/Samaro style) that
+ *   fills each row to a target height using every item's aspect ratio, then
+ *   scales the row to fill the container width exactly. Preserves API order
+ *   (row-major), unlike CSS-column masonry which flows column-major. Legacy
+ *   media without captured width/height falls back to a 3:2 aspect ratio so
+ *   it still lays out — see `justifyRows.ts`.
  * - "grid": the original square-cropped grid, kept as a fallback so the seam
  *   exists for future layouts.
  *
@@ -24,7 +23,7 @@ import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
  */
 export function GalleryGrid({
   t,
-  layout = "masonry",
+  layout = "justified",
   items,
   selectMode,
   selected,
@@ -35,7 +34,7 @@ export function GalleryGrid({
   onEnterSelectWith,
 }: {
   t: ClientTheme;
-  layout?: "masonry" | "grid";
+  layout?: "justified" | "grid";
   items: GuestMediaItem[];
   selectMode: boolean;
   selected: Set<string>;
@@ -45,28 +44,114 @@ export function GalleryGrid({
   onToggleLike: (item: GuestMediaItem) => void;
   onEnterSelectWith: (item: GuestMediaItem) => void;
 }) {
-  const containerClass =
-    layout === "masonry"
-      ? "columns-2 gap-[14px] lg:columns-3 xl:columns-4"
-      : "grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5";
+  if (layout === "grid") {
+    return (
+      <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5">
+        {items.map((item, index) => (
+          <PhotoTile
+            key={item._id}
+            t={t}
+            layout="grid"
+            item={item}
+            index={index}
+            selectMode={selectMode}
+            isSel={selected.has(item._id)}
+            isLiked={liked.has(item._id)}
+            onOpen={() => onOpen(index)}
+            onToggleSelect={() => onToggleSelect(item)}
+            onToggleLike={() => onToggleLike(item)}
+            onEnterSelectWith={() => onEnterSelectWith(item)}
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className={containerClass}>
-      {items.map((item, index) => (
-        <PhotoTile
-          key={item._id}
-          t={t}
-          layout={layout}
-          item={item}
-          index={index}
-          selectMode={selectMode}
-          isSel={selected.has(item._id)}
-          isLiked={liked.has(item._id)}
-          onOpen={() => onOpen(index)}
-          onToggleSelect={() => onToggleSelect(item)}
-          onToggleLike={() => onToggleLike(item)}
-          onEnterSelectWith={() => onEnterSelectWith(item)}
-        />
+    <JustifiedGrid
+      t={t}
+      items={items}
+      selectMode={selectMode}
+      selected={selected}
+      liked={liked}
+      onOpen={onOpen}
+      onToggleSelect={onToggleSelect}
+      onToggleLike={onToggleLike}
+      onEnterSelectWith={onEnterSelectWith}
+    />
+  );
+}
+
+/** Measures its own width (initial synchronous read + ResizeObserver for
+ *  later changes — sidebar toggles, window resize) so the packing algorithm
+ *  always runs against the real available width. */
+function useContainerWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w != null) setWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
+
+function JustifiedGrid({
+  t,
+  items,
+  selectMode,
+  selected,
+  liked,
+  onOpen,
+  onToggleSelect,
+  onToggleLike,
+  onEnterSelectWith,
+}: {
+  t: ClientTheme;
+  items: GuestMediaItem[];
+  selectMode: boolean;
+  selected: Set<string>;
+  liked: Set<string>;
+  onOpen: (index: number) => void;
+  onToggleSelect: (item: GuestMediaItem) => void;
+  onToggleLike: (item: GuestMediaItem) => void;
+  onEnterSelectWith: (item: GuestMediaItem) => void;
+}) {
+  const [containerRef, width] = useContainerWidth();
+  // Flatten the index onto each item (rather than wrapping) so it still carries
+  // its own width/height for justifyRows to read.
+  const indexed = items.map((item, index) => ({ ...item, _index: index }));
+  const rows = justifyRows(indexed, width, targetRowHeightFor(width), JUSTIFY_GAP);
+
+  return (
+    <div ref={containerRef} className="flex flex-col" style={{ gap: JUSTIFY_GAP, minHeight: width > 0 ? undefined : 1 }}>
+      {rows.map((row, ri) => (
+        <div key={ri} className="flex" style={{ gap: JUSTIFY_GAP, height: row.height }}>
+          {row.items.map((tile) => (
+            <PhotoTile
+              key={tile._id}
+              t={t}
+              layout="justified"
+              item={tile}
+              index={tile._index}
+              boxWidth={tile.boxWidth}
+              boxHeight={tile.boxHeight}
+              selectMode={selectMode}
+              isSel={selected.has(tile._id)}
+              isLiked={liked.has(tile._id)}
+              onOpen={() => onOpen(tile._index)}
+              onToggleSelect={() => onToggleSelect(tile)}
+              onToggleLike={() => onToggleLike(tile)}
+              onEnterSelectWith={() => onEnterSelectWith(tile)}
+            />
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -77,6 +162,8 @@ function PhotoTile({
   layout,
   item,
   index,
+  boxWidth,
+  boxHeight,
   selectMode,
   isSel,
   isLiked,
@@ -86,9 +173,11 @@ function PhotoTile({
   onEnterSelectWith,
 }: {
   t: ClientTheme;
-  layout: "masonry" | "grid";
+  layout: "justified" | "grid";
   item: GuestMediaItem;
   index: number;
+  boxWidth?: number;
+  boxHeight?: number;
   selectMode: boolean;
   isSel: boolean;
   isLiked: boolean;
@@ -97,18 +186,16 @@ function PhotoTile({
   onToggleLike: () => void;
   onEnterSelectWith: () => void;
 }) {
-  const isMasonry = layout === "masonry";
+  const isJustified = layout === "justified";
   const pad = selectMode && isSel ? 4 : 0;
   // Keep a liked heart visible on desktop; other controls reveal on hover so the
   // photos stay the focus. Mobile keeps everything tappable (opacity-100 below sm).
   const revealCls = "sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100";
 
-  // Masonry tiles with known dimensions reserve their aspect ratio up front —
-  // no column growth as the image loads, so the absolutely-positioned like
-  // button never stacks near the top before snapping into place. Mirrors the
-  // dashboard's GridImage skeleton-shimmer + fade-in-on-load pattern. Legacy
-  // media without dimensions falls back to the old h-auto behaviour untouched.
-  const hasDims = isMasonry && !!item.width && !!item.height;
+  // Every tile carries a resolved box size in justified mode (real dims or the
+  // 3:2 fallback from justifyRows), so the box is reserved up front — no
+  // layout shift as the image loads. Mirrors the dashboard's GridImage
+  // skeleton-shimmer + fade-in-on-load pattern.
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   useEffect(() => {
@@ -117,31 +204,29 @@ function PhotoTile({
 
   return (
     <div
-      className={`group tile-in relative cursor-pointer ${
-        isMasonry ? "mb-3 w-full break-inside-avoid" : "aspect-square transition-colors"
-      }`}
+      className={`group tile-in relative cursor-pointer ${isJustified ? "shrink-0" : "aspect-square transition-colors"}`}
       style={{
-        // grid uses the wrapper as the selected-state frame; masonry frames the inner box.
-        background: !isMasonry && selectMode && isSel ? t.brand : "transparent",
-        borderRadius: isMasonry ? 12 : undefined,
+        // grid uses the wrapper as the selected-state frame; justified frames the inner box.
+        background: !isJustified && selectMode && isSel ? t.brand : "transparent",
+        width: isJustified ? boxWidth : undefined,
+        height: isJustified ? boxHeight : undefined,
         animationDelay: `${(index % 14) * 0.03}s`,
       }}
       onClick={() => (selectMode ? onToggleSelect() : onOpen())}
     >
       <div
-        className={`overflow-hidden transition-all ${isMasonry ? "relative" : "absolute"}`}
+        className={`overflow-hidden transition-all ${isJustified ? "relative h-full w-full" : "absolute"}`}
         style={
-          isMasonry
+          isJustified
             ? {
                 padding: pad,
                 background: selectMode && isSel ? t.brand : "transparent",
                 borderRadius: selectMode && isSel ? 12 : 10,
-                ...(hasDims ? { aspectRatio: `${item.width} / ${item.height}` } : {}),
               }
             : { inset: pad, borderRadius: selectMode && isSel ? 9 : 8 }
         }
       >
-        {hasDims && !loaded && <span aria-hidden className="skeleton absolute inset-0 rounded-[8px]" />}
+        {isJustified && !loaded && <span aria-hidden className="skeleton absolute inset-0 rounded-[8px]" />}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imgRef}
@@ -150,17 +235,15 @@ function PhotoTile({
           loading="lazy"
           onLoad={() => setLoaded(true)}
           className={
-            isMasonry
-              ? hasDims
-                ? `absolute inset-0 h-full w-full rounded-[8px] object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`
-                : "block h-auto w-full rounded-[8px] transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
+            isJustified
+              ? `absolute inset-0 h-full w-full rounded-[8px] object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`
               : "h-full w-full object-cover transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
           }
         />
         {/* soft theme-tinted wash on hover (replaces the old zoom) */}
         <div
           className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-          style={{ background: t.accentWash, borderRadius: isMasonry ? 8 : undefined }}
+          style={{ background: t.accentWash, borderRadius: isJustified ? 8 : undefined }}
         />
       </div>
 

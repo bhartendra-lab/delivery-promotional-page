@@ -22,6 +22,7 @@ export function PhotoViewer({
   selected,
   onToggleSelect,
   onToast,
+  onDownloaded,
 }: {
   items: GuestMediaItem[];
   index: number;
@@ -33,6 +34,8 @@ export function PhotoViewer({
   selected: Set<string>;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToast: (msg: string) => void;
+  /** Fired after a successful single-photo download — drives the post-download review nudge. */
+  onDownloaded?: () => void;
 }) {
   const { theme: t, event } = useEventTheme();
   const item = items[index];
@@ -65,6 +68,7 @@ export function PhotoViewer({
   async function onDownload() {
     onToast("Downloading…");
     await downloadImage(item.url);
+    onDownloaded?.();
   }
 
   return (

@@ -89,6 +89,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
       id: f._id,
       label: f.name,
       count: folderCounts[f._id] ?? 0,
+      visibility: f.visibility,
     }));
     return [allRow, ...userRows];
   }, [folders, totalCount, folderCounts]);
@@ -102,7 +103,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const handleRename = useCallback(
     async (folderId: string, name: string) => {
       try {
-        await updateCustomFolder(folderId, name);
+        await updateCustomFolder(folderId, { name });
         setFolders((prev) => prev.map((f) => (f._id === folderId ? { ...f, name } : f)));
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not rename folder", "error");
@@ -176,6 +177,33 @@ export function MediaTab({ loading }: { loading: boolean }) {
       }
     },
     [bookingId, folders, setFolders, toast],
+  );
+
+  // "Highlights": toggle a folder's public/private visibility (kebab menu).
+  // Optimistic, matching the delete/reorder pattern above.
+  const handleToggleVisibility = useCallback(
+    async (folderId: string) => {
+      const current = folders.find((f) => f._id === folderId);
+      if (!current) return;
+      const next: "private" | "public" = current.visibility === "public" ? "private" : "public";
+      setFolders((prev) => prev.map((f) => (f._id === folderId ? { ...f, visibility: next } : f)));
+      try {
+        await updateCustomFolder(folderId, { visibility: next });
+      } catch (err) {
+        setFolders((prev) =>
+          prev.map((f) => (f._id === folderId ? { ...f, visibility: current.visibility } : f)),
+        );
+        toast(
+          err instanceof Error
+            ? err.message
+            : next === "public"
+            ? "Could not make folder public"
+            : "Could not remove folder from Highlights",
+          "error",
+        );
+      }
+    },
+    [folders, setFolders, toast],
   );
 
   // A new file was picked as the cover — park it for position adjustment
@@ -286,6 +314,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           onAddFolder={folderRows.length > 0 ? addFolder : undefined}
           onDelete={handleDeleteFolder}
           onReorder={handleReorderFolders}
+          onToggleVisibility={handleToggleVisibility}
           disabled={activeLocked}
           scrollRef={foldersElRef}
         />

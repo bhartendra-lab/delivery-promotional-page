@@ -409,13 +409,21 @@ export function createCustomFolder(bookingId: string, name: string) {
   );
 }
 
-export function updateCustomFolder(customFolderId: string, name: string) {
+/**
+ * Partial update — only the fields present in `updates` are sent, so a
+ * visibility-only toggle (the kebab's "Make public" / "Remove from
+ * Highlights") never touches `name` and vice versa.
+ */
+export function updateCustomFolder(
+  customFolderId: string,
+  updates: { name?: string; visibility?: "private" | "public" },
+) {
   return request<{ message: string; customFolder: CustomFolder }>(
     `/deliverables/update-custom-folder/${encodeURIComponent(customFolderId)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(updates),
     },
   );
 }

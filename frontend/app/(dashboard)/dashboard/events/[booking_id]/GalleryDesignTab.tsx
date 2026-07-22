@@ -1,29 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { STYLE_VARIANTS, type StyleVariant } from "@/lib/types";
-import { IconArrowRight, IconCheck, IconInfo, IconLink, IconMobile, IconMonitor, IconX } from "./icons";
+import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
+import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
+import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "@/components/event/screens/gallery/GalleryControls";
+import { IconArrowRight, IconCheck, IconDownload, IconHeart, IconInfo, IconLink, IconMobile, IconMonitor, IconX } from "./icons";
 
 /** Season grouping over the backend `style_variant` enum. */
 const SEASONS = ["Spring", "Summer", "Autumn", "Winter"] as const;
 type Season = (typeof SEASONS)[number];
 
 const SEASON_VARIANTS: Record<Season, StyleVariant[]> = {
-  Spring: ["Ivory & Rose", "Blush Minimal"],
+  Spring: ["Ivory & Rose", "Blush Minimal", "Sage Sanctuary"],
   Summer: ["Marigold Bright", "Festive Bloom"],
   Autumn: ["Maroon Velvet", "Fine-Art Warm"],
-  Winter: ["Emerald Royal", "Charcoal Editorial"],
-};
-
-const VARIANT_THEME: Record<StyleVariant, { bg: string; accent: string; text: string; cover: [string, string] }> = {
-  "Ivory & Rose": { bg: "#FBF7F4", accent: "#C07A7A", text: "#3A322E", cover: ["#E8D5CE", "#D6B6AC"] },
-  "Blush Minimal": { bg: "#FAF8F6", accent: "#B07F77", text: "#2E2926", cover: ["#EADFD8", "#D6C3B8"] },
-  "Marigold Bright": { bg: "#FFFBF3", accent: "#DC842A", text: "#3A2E1E", cover: ["#F1CE8C", "#E3A658"] },
-  "Festive Bloom": { bg: "#FFF6F0", accent: "#CF6230", text: "#3A271E", cover: ["#EEB28C", "#DC885A"] },
-  "Maroon Velvet": { bg: "#F8F2F1", accent: "#8C2F3A", text: "#2E1F22", cover: ["#B97E86", "#97525E"] },
-  "Fine-Art Warm": { bg: "#F7F3EE", accent: "#947751", text: "#332B22", cover: ["#CDBBA0", "#B29A7A"] },
-  "Emerald Royal": { bg: "#F1F6F3", accent: "#2E6B52", text: "#1F2A24", cover: ["#9CC0AD", "#6C9A82"] },
-  "Charcoal Editorial": { bg: "#F4F4F3", accent: "#3C3C3A", text: "#22221F", cover: ["#B8B8B3", "#8C8C86"] },
+  Winter: ["Emerald Royal", "Charcoal Editorial", "Indigo Dusk"],
 };
 
 function seasonOf(variant: StyleVariant): Season {
@@ -84,7 +75,10 @@ export function GalleryDesignTab({
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
 
-  const theme = VARIANT_THEME[variant];
+  // Single source of truth — the exact same theme the guest gallery resolves,
+  // so this preview can never drift from what guests actually see (it used to
+  // keep its own duplicate palette dict, hand-copied from client-theme.ts).
+  const theme = resolveTheme(variant);
   const copyLabel = COPY_LABEL[eventType] ?? "Message to Guests";
 
   // Trimmed, non-empty teams — what we actually save and compare for dirty.
@@ -146,7 +140,7 @@ export function GalleryDesignTab({
           />
           <div className="mt-3 flex items-center gap-2">
             <span className="text-[11.5px] text-[var(--color-brand-muted)]">Palette</span>
-            {[...theme.cover, theme.accent].map((c, i) => (
+            {[...theme.cover, theme.brand].map((c, i) => (
               <span
                 key={i}
                 className="h-5 w-5 rounded-[5px] border border-[rgba(42,34,24,0.1)]"
@@ -364,7 +358,7 @@ function ClientPagePreview({
   scope,
   compact = false,
 }: {
-  theme: { bg: string; accent: string; text: string; cover: [string, string] };
+  theme: ClientTheme;
   eventName: string;
   eventType: string;
   eventDateLabel: string | null;
@@ -380,56 +374,7 @@ function ClientPagePreview({
     : { backgroundImage: `repeating-linear-gradient(40deg, ${theme.cover[0]} 0 22px, ${theme.cover[1]} 22px 44px)` };
 
   if (scope === "gallery") {
-    const cols = compact ? 2 : 4;
-    const tiles = compact ? 8 : 12;
-    return (
-      <div style={{ background: theme.bg, minHeight: "100%", fontFamily: "var(--font-plus-jakarta), sans-serif" }}>
-        <div
-          className="flex items-center justify-between"
-          style={{ padding: compact ? "14px 18px" : "18px 40px", borderBottom: `1px solid ${theme.accent}22` }}
-        >
-          <span style={{ fontSize: compact ? 14 : 17, fontWeight: 700, color: theme.text }}>{eventName}</span>
-          <span style={{ fontSize: compact ? 10 : 12, fontWeight: 600, color: theme.accent }}>Photos</span>
-        </div>
-        <div className="flex flex-wrap gap-2" style={{ padding: compact ? "12px 18px 0" : "16px 40px 0" }}>
-          {["All", "Ceremony", "Reception", "Portraits"].map((c, i) => (
-            <span
-              key={c}
-              style={{
-                fontSize: compact ? 10 : 12,
-                fontWeight: 600,
-                color: i === 0 ? "#FFFFFF" : theme.text,
-                background: i === 0 ? theme.accent : "transparent",
-                border: `1px solid ${i === 0 ? theme.accent : theme.accent + "44"}`,
-                borderRadius: 999,
-                padding: compact ? "4px 10px" : "5px 13px",
-              }}
-            >
-              {c}
-            </span>
-          ))}
-        </div>
-        <div
-          className="grid"
-          style={{
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gap: compact ? 6 : 10,
-            padding: compact ? "12px 18px 18px" : "16px 40px 40px",
-          }}
-        >
-          {Array.from({ length: tiles }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                aspectRatio: "1 / 1",
-                borderRadius: 4,
-                backgroundImage: `repeating-linear-gradient(${(i * 27) % 180}deg, ${theme.cover[0]} 0 9px, ${theme.cover[1]} 9px 18px)`,
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    );
+    return <GalleryScopePreview theme={theme} compact={compact} />;
   }
 
   return (
@@ -460,7 +405,7 @@ function ClientPagePreview({
           className="inline-flex items-center gap-2"
           style={{
             marginTop: message.trim() ? (compact ? 20 : 28) : 0,
-            background: theme.accent,
+            background: theme.brand,
             color: "#FFFFFF",
             border: "none",
             borderRadius: 999,
@@ -477,7 +422,7 @@ function ClientPagePreview({
         {branding && (
           <div
             className="flex flex-col items-center gap-3"
-            style={{ marginTop: compact ? 22 : 36, paddingTop: compact ? 18 : 28, borderTop: `1px solid ${theme.accent}22` }}
+            style={{ marginTop: compact ? 22 : 36, paddingTop: compact ? 18 : 28, borderTop: `1px solid ${theme.brand}22` }}
           >
             <div className="flex gap-2">
               {["IG", "FB", "YT"].map((s) => (
@@ -487,8 +432,8 @@ function ClientPagePreview({
                   style={{
                     width: compact ? 30 : 36,
                     height: compact ? 30 : 36,
-                    border: `1px solid ${theme.accent}55`,
-                    color: theme.accent,
+                    border: `1px solid ${theme.brand}55`,
+                    color: theme.brand,
                     fontSize: compact ? 10 : 11,
                     fontWeight: 700,
                   }}
@@ -497,9 +442,118 @@ function ClientPagePreview({
                 </span>
               ))}
             </div>
-            <span style={{ fontSize: compact ? 11 : 12.5, fontWeight: 600, color: theme.accent }}>★ Leave us a Google review</span>
+            <span style={{ fontSize: compact ? 11 : 12.5, fontWeight: 600, color: theme.brand }}>★ Leave us a Google review</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The gallery-scope half of the preview — rebuilt to reuse the guest gallery's
+ * real toolbar chrome (`UnlockAwareSwitcher` / `FolderPillsRow` /
+ * `ActionsCluster`) instead of a hand-rolled, independently-styled copy. It
+ * used to fake its own pill row (no counts, no My/All switcher, no lock, no
+ * Liked/Select/Download) that had already drifted from what guests actually
+ * see — reusing the real components means it can't drift again: any future
+ * change to the toolbar shows up here automatically. Only the photo tiles stay
+ * decorative (gradient placeholders) — the real `GalleryGrid`/`PhotoTile` load
+ * actual images and own real selection/like state, which this static preview
+ * has no need for and shouldn't take on the risk of embedding.
+ */
+function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: boolean }) {
+  const [tab, setTab] = useState<"mine" | "all">("all");
+  const [folder, setFolder] = useState(ALL);
+  const [likedView, setLikedView] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  // Demonstrates the real "Private" behaviour: hidden once "unlocked", which
+  // also reveals Download — exactly like the live gallery.
+  const [previewUnlocked, setPreviewUnlocked] = useState(false);
+
+  const mockFolders: CustomFolder[] = useMemo(
+    () => [
+      { _id: "f1", name: "Ceremony", booking_id: "", createdAt: "" },
+      { _id: "f2", name: "Reception", booking_id: "", createdAt: "" },
+      { _id: "f3", name: "Portraits", booking_id: "", createdAt: "" },
+    ],
+    [],
+  );
+  const mockFolderCounts: Record<string, number> = { f1: 412, f2: 298, f3: 187 };
+  const tileCount = compact ? 8 : 12;
+
+  return (
+    <div style={{ background: theme.bg, minHeight: "100%", fontFamily: "var(--font-plus-jakarta), sans-serif" }}>
+      <div
+        className="flex flex-col gap-2"
+        style={{ padding: compact ? "14px 18px 0" : "16px 40px 0" }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <UnlockAwareSwitcher t={theme} tab={tab} setTab={setTab} dimmed={likedView} />
+          <ActionsCluster
+            t={theme}
+            likedView={likedView}
+            onSelectLiked={() => setLikedView((v) => !v)}
+            selectMode={selectMode}
+            onToggleSelectMode={() => setSelectMode((v) => !v)}
+            canDownloadAll={previewUnlocked}
+            zipping={false}
+            onDownloadAll={() => {}}
+            unlocked={previewUnlocked}
+            onOpenPrivate={() => setPreviewUnlocked(true)}
+            iconOnly={compact}
+          />
+        </div>
+        {!likedView && (
+          <FolderPillsRow
+            t={theme}
+            folders={mockFolders}
+            folderCounts={mockFolderCounts}
+            folder={folder}
+            setFolder={setFolder}
+            likedView={likedView}
+            allCount={897}
+          />
+        )}
+      </div>
+
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${compact ? 2 : 4}, 1fr)`,
+          gap: compact ? 6 : 10,
+          // Extra breathing room under the toolbar, matching the real
+          // gallery's sticky-bar-to-grid gap.
+          padding: compact ? "20px 18px 18px" : "28px 40px 40px",
+        }}
+      >
+        {Array.from({ length: tileCount }).map((_, i) => (
+          <div
+            key={i}
+            className="relative overflow-hidden"
+            style={{
+              aspectRatio: "1 / 1",
+              borderRadius: 8,
+              backgroundImage: `repeating-linear-gradient(${(i * 27) % 180}deg, ${theme.cover[0]} 0 9px, ${theme.cover[1]} 9px 18px)`,
+            }}
+          >
+            {/* Static hints of the real tile's hover affordances (select
+                top-left, heart + download bottom-right) — always-on here
+                since a static mockup has no hover state to reveal them. */}
+            <span
+              className="absolute left-1 top-1 rounded-full"
+              style={{ width: 14, height: 14, border: "1.5px solid rgba(255,255,255,0.9)", background: "rgba(20,16,8,0.25)" }}
+            />
+            <span className="absolute bottom-1 right-1 flex items-center gap-1">
+              <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
+                <IconHeart size={9} className="text-white" />
+              </span>
+              <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
+                <IconDownload size={9} className="text-white" />
+              </span>
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

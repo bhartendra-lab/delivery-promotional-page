@@ -1,12 +1,13 @@
 /**
  * Client gallery theme registry — the single source of truth for guest-facing
- * colours.
+ * colours, and for the dashboard's Gallery Design preview (`GalleryDesignTab`
+ * calls `resolveTheme()` too, rather than keeping its own duplicate palette
+ * dict, so the preview can never drift from what guests actually see).
  *
- * Per the build spec §6, the palette is driven by the event's `style_variant`
- * using EXACTLY the dashboard's `VARIANT_THEME` values (bg / accent / text /
- * cover pair). Those four base values are mapped onto the fuller hub2 token
- * shape the client screens consume (card / sunken / border / muted / brandDeep /
- * heroScrim / …) by deriving the rest with simple colour maths.
+ * Those four base values (bg / accent / text / cover pair) per variant are
+ * mapped onto the fuller hub2 token shape the client screens consume (card /
+ * sunken / border / muted / brandDeep / heroScrim / …) by deriving the rest
+ * with simple colour maths.
  *
  * The Sunburst mock palette is intentionally ignored. The never-themed signals
  * (like-heart red, success green, error red, viewer near-black, signature ring)
@@ -115,6 +116,38 @@ function luminance(hex: string): number {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
+/** WCAG contrast ratio between two colours (1–21). */
+function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Secondary/tertiary text used to be a fixed linear blend of `text` toward
+ * `bg` (mix(text, bg, 0.38/0.55)) — hand-tuned once after an earlier, lighter
+ * pass tested as washed out, but with no actual guardrail: every one of the
+ * original 8 variants' "muted" measured 3.8–4.4:1 against its background
+ * (below the 4.5:1 WCAG AA bar for normal text) and "faint" measured
+ * 2.5–2.7:1 (below even the 3:1 large-text/UI-component bar). This binary
+ * searches the lightest mix ratio (up to `maxT`) whose contrast against `bg`
+ * still clears `minContrast`, so every variant — including any future one —
+ * gets text that's visibly lighter than the heading colour without ever
+ * reading as washed out on a light, low-contrast background.
+ */
+function tintTowardBg(text: string, bg: string, maxT: number, minContrast: number): string {
+  let lo = 0;
+  let hi = maxT;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(mix(text, bg, mid), bg) >= minContrast) lo = mid;
+    else hi = mid;
+  }
+  return mix(text, bg, lo);
+}
+
 /** Build a full theme from the four dashboard base values. */
 function buildTheme(base: { bg: string; accent: string; text: string; cover: [string, string] }): ClientTheme {
   const { bg, accent, text, cover } = base;
@@ -127,8 +160,11 @@ function buildTheme(base: { bg: string; accent: string; text: string; cover: [st
     sunken: mix(bg, text, 0.06),
     border: mix(bg, text, 0.14),
     text,
-    muted: mix(text, bg, 0.45),
-    faint: mix(text, bg, 0.72),
+    // Contrast-guaranteed rather than a fixed blend — see `tintTowardBg`.
+    // Targets mirror WCAG AA: 4.5:1 for secondary text, 3:1 for tertiary/
+    // placeholder text (the relaxed large-text/UI-component minimum).
+    muted: tintTowardBg(text, bg, 0.55, 4.5),
+    faint: tintTowardBg(text, bg, 0.72, 3.0),
     brand: accent,
     brandDeep,
     onBrand,
@@ -147,17 +183,29 @@ function buildTheme(base: { bg: string; accent: string; text: string; cover: [st
   };
 }
 
-/* ── the 8 dashboard palettes (source of truth = GalleryDesignTab VARIANT_THEME) ── */
+/* ── the 10 dashboard palettes (source of truth for the whole app — the
+   Gallery Design tab reads these via `resolveTheme()`, it no longer keeps its
+   own copy) ──────────────────────────────────────────────────────────────── */
 
 const VARIANT_BASE: Record<StyleVariant, { bg: string; accent: string; text: string; cover: [string, string] }> = {
   "Ivory & Rose": { bg: "#FBF7F4", accent: "#C07A7A", text: "#3A322E", cover: ["#E8D5CE", "#D6B6AC"] },
   "Blush Minimal": { bg: "#FAF8F6", accent: "#B07F77", text: "#2E2926", cover: ["#EADFD8", "#D6C3B8"] },
-  "Marigold Bright": { bg: "#FFFBF3", accent: "#DC842A", text: "#3A2E1E", cover: ["#F1CE8C", "#E3A658"] },
+  // New — a fresh, garden-toned Spring option (muted forest green rather than
+  // the more saturated teal-green of Emerald Royal).
+  "Sage Sanctuary": { bg: "#F5F7F2", accent: "#5B7A5E", text: "#26302A", cover: ["#C9D6C2", "#A8BFA0"] },
+  // Accent deepened from the original #DC842A (2.76:1 against `bg` — the only
+  // one of the original 8 that failed even the relaxed 3:1 UI-component
+  // contrast bar) to #B5651D (4.20:1), same name/hue family so no existing
+  // booking's saved `style_variant` changes meaning, just gets legible.
+  "Marigold Bright": { bg: "#FFFBF3", accent: "#B5651D", text: "#3A2E1E", cover: ["#F1CE8C", "#E3A658"] },
   "Festive Bloom": { bg: "#FFF6F0", accent: "#CF6230", text: "#3A271E", cover: ["#EEB28C", "#DC885A"] },
   "Maroon Velvet": { bg: "#F8F2F1", accent: "#8C2F3A", text: "#2E1F22", cover: ["#B97E86", "#97525E"] },
   "Fine-Art Warm": { bg: "#F7F3EE", accent: "#947751", text: "#332B22", cover: ["#CDBBA0", "#B29A7A"] },
   "Emerald Royal": { bg: "#F1F6F3", accent: "#2E6B52", text: "#1F2A24", cover: ["#9CC0AD", "#6C9A82"] },
   "Charcoal Editorial": { bg: "#F4F4F3", accent: "#3C3C3A", text: "#22221F", cover: ["#B8B8B3", "#8C8C86"] },
+  // New — a moody indigo Winter option alongside Emerald Royal/Charcoal
+  // Editorial, for studios wanting something deeper/more formal.
+  "Indigo Dusk": { bg: "#F4F5F8", accent: "#47528C", text: "#22232E", cover: ["#C3C8DE", "#9AA3C9"] },
 };
 
 const THEMES: Record<StyleVariant, ClientTheme> = STYLE_VARIANTS.reduce(
