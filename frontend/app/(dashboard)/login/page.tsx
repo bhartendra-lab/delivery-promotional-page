@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { login } from "@/lib/api";
 import { setToken, setCompany } from "@/lib/auth";
+import { IconMail, IconLock, IconWarningCircle, IconArrowRight } from "@/components/ui/icons";
 
 export default function LoginPage() {
   return (
@@ -142,7 +143,7 @@ function LoginForm() {
               required
               value={email}
               onChange={setEmail}
-              icon={<MailIcon />}
+              icon={<IconMail size={16} />}
             />
             <Field
               label="Password"
@@ -151,7 +152,7 @@ function LoginForm() {
               required
               value={password}
               onChange={setPassword}
-              icon={<LockIcon />}
+              icon={<IconLock size={16} />}
             />
 
             {error && (
@@ -159,7 +160,7 @@ function LoginForm() {
                 role="alert"
                 className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
               >
-                <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{error}</span>
               </p>
             )}
@@ -172,7 +173,7 @@ function LoginForm() {
               {submitting ? (
                 <><Spinner />Signing in…</>
               ) : (
-                <>Sign in<ArrowRight /></>
+                <>Sign in<IconArrowRight size={15} /></>
               )}
             </button>
 
@@ -208,41 +209,6 @@ function Field({ label, type, autoComplete, required, value, onChange, icon }: {
         />
       </div>
     </label>
-  );
-}
-
-function MailIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M4 7l8 6 8-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8 10V7a4 4 0 118 0v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function AlertIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ArrowRight() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 

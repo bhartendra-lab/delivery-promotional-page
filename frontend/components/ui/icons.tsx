@@ -18,6 +18,7 @@ import {
   ArrowsOutCardinal,
   Bell,
   Broadcast,
+  Building,
   CalendarBlank,
   CaretDown,
   CaretLeft,
@@ -32,15 +33,21 @@ import {
   DownloadSimple,
   EnvelopeSimple,
   Export,
+  Eye,
+  EyeSlash,
+  FloppyDisk,
   Folder,
   FolderPlus,
   Gear,
+  Globe,
   Heart,
   HouseSimple,
   Image,
   Images,
   Info,
+  Key,
   Link,
+  LinkBreak,
   Lock,
   MagnifyingGlass,
   MagnifyingGlassMinus,
@@ -53,6 +60,7 @@ import {
   QrCode,
   Question,
   ScanSmiley,
+  ShareNetwork,
   ShieldCheck,
   SidebarSimple,
   SignOut,
@@ -160,3 +168,13 @@ export const IconMove = wrapPhosphor(ArrowsOutCardinal, 15, "IconMove");
 export const IconExpand = wrapPhosphor(ArrowsOut, 14, "IconExpand");
 export const IconRefresh = wrapPhosphor(ArrowsClockwise, 13, "IconRefresh");
 export const IconOpen = wrapPhosphor(ArrowSquareOut, 16, "IconOpen");
+
+/* ── A4: settings & auth ───────────────────────────────────────── */
+export const IconBuilding = wrapPhosphor(Building, 15, "IconBuilding");
+export const IconGlobe = wrapPhosphor(Globe, 15, "IconGlobe");
+export const IconShareNetwork = wrapPhosphor(ShareNetwork, 15, "IconShareNetwork");
+export const IconSave = wrapPhosphor(FloppyDisk, 16, "IconSave");
+export const IconKey = wrapPhosphor(Key, 18, "IconKey");
+export const IconEye = wrapPhosphor(Eye, 18, "IconEye");
+export const IconEyeOff = wrapPhosphor(EyeSlash, 18, "IconEyeOff");
+export const IconLinkBroken = wrapPhosphor(LinkBreak, 18, "IconLinkBroken");

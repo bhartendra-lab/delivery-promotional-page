@@ -9,6 +9,7 @@ import {
 import type { WatermarkPreset } from "@/lib/types";
 import { SectionHeading, SectionSkeleton, FetchError, Spinner } from "../SettingsUI";
 import { WatermarkEditorModal, WatermarkPreview } from "./WatermarkEditorModal";
+import { IconPlus } from "@/components/ui/icons";
 
 const MAX_PRESETS = 20;
 
@@ -84,9 +85,7 @@ export default function WatermarkPresetsPage() {
           className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
           title={atLimit ? "Preset limit reached" : undefined}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
+          <IconPlus size={16} />
           Add watermark
         </button>
       </div>

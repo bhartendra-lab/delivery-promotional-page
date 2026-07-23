@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import type { WatermarkPosition, WatermarkPreset } from "@/lib/types";
 import { Spinner } from "../SettingsUI";
+import { IconX } from "@/components/ui/icons";
 
 export const WATERMARK_POSITIONS: WatermarkPosition[] = [
   "top-left",
@@ -239,9 +240,7 @@ export function WatermarkEditorModal({
             className="brand-focus flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
             aria-label="Close"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
+            <IconX size={18} />
           </button>
         </div>
 

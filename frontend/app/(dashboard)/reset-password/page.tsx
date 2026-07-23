@@ -4,6 +4,17 @@ import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { checkResetLink, resetPassword } from "@/lib/api";
 import { setToken } from "@/lib/auth";
+import {
+  IconLock,
+  IconKey,
+  IconEye,
+  IconEyeOff,
+  IconWarningCircle,
+  IconCheck,
+  IconArrowRight,
+  IconLinkBroken,
+  IconShieldCheck,
+} from "@/components/ui/icons";
 
 export default function ResetPasswordPage() {
   return (
@@ -218,7 +229,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
         <div className="rounded-2xl border border-[var(--color-brand-border)] bg-white p-8 shadow-[0_24px_60px_-30px_rgba(15,45,92,0.25)] sm:p-10">
           <div className="space-y-2 text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-brand-navy)]/8">
-              <KeyIcon className="h-6 w-6 text-[var(--color-brand-navy)]" />
+              <IconKey className="h-6 w-6 text-[var(--color-brand-navy)]" />
             </div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-gold)]">
               Account setup
@@ -295,7 +306,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
                 role="alert"
                 className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
               >
-                <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{error}</span>
               </p>
             )}
@@ -317,7 +328,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
               ) : (
                 <>
                   Activate my account
-                  <ArrowRight />
+                  <IconArrowRight size={16} />
                 </>
               )}
             </button>
@@ -346,7 +357,7 @@ function SuccessView() {
       <div className="w-full max-w-md dash-rise">
         <div className="rounded-2xl border border-[var(--color-brand-border)] bg-white p-10 text-center shadow-[0_24px_60px_-30px_rgba(15,45,92,0.25)]">
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#38a169]/10">
-            <CheckIcon className="h-8 w-8 text-[#38a169]" />
+            <IconCheck className="h-8 w-8 text-[#38a169]" />
           </div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-gold)]">
             All set
@@ -378,21 +389,21 @@ function InvalidLinkView({
 }) {
   const content = {
     "no-id": {
-      icon: <LinkBrokenIcon className="h-8 w-8 text-[var(--color-brand-danger)]" />,
+      icon: <IconLinkBroken className="h-8 w-8 text-[var(--color-brand-danger)]" />,
       iconBg: "bg-[var(--color-brand-danger)]/10",
       badge: "Invalid link",
       heading: "This link isn't valid",
       body: "The password setup link appears to be malformed or incomplete. Please use the link from your invitation email, or contact your account manager.",
     },
     used: {
-      icon: <ShieldCheckIcon className="h-8 w-8 text-[var(--color-brand-gold)]" />,
+      icon: <IconShieldCheck className="h-8 w-8 text-[var(--color-brand-gold)]" />,
       iconBg: "bg-[var(--color-brand-gold)]/10",
       badge: "Link expired",
       heading: "Password already set",
       body: "This setup link has already been used. Your account is active — sign in with your existing password.",
     },
     deactivated: {
-      icon: <LinkBrokenIcon className="h-8 w-8 text-[var(--color-brand-danger)]" />,
+      icon: <IconLinkBroken className="h-8 w-8 text-[var(--color-brand-danger)]" />,
       iconBg: "bg-[var(--color-brand-danger)]/10",
       badge: "Account inactive",
       heading: "Account deactivated",
@@ -424,7 +435,7 @@ function InvalidLinkView({
             className="brand-focus mt-8 inline-flex items-center gap-2 rounded-xl bg-[var(--color-brand-navy)] px-6 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_-12px_rgba(15,45,92,0.5)] transition-transform hover:-translate-y-0.5 active:translate-y-0"
           >
             Go to sign in
-            <ArrowRight />
+            <IconArrowRight size={16} />
           </a>
           <p className="mt-4 text-xs text-[var(--color-brand-muted)]">
             Need help? Reach out to your account manager.
@@ -467,7 +478,7 @@ function PasswordField({
         }`}
       >
         <span className="pointer-events-none flex h-full w-11 items-center justify-center text-[var(--color-brand-muted)] transition-colors group-focus-within:text-[var(--color-brand-navy)]">
-          <LockIcon />
+          <IconLock size={18} />
         </span>
         <input
           type={show ? "text" : "password"}
@@ -484,7 +495,7 @@ function PasswordField({
           className="flex h-full w-11 shrink-0 items-center justify-center text-[var(--color-brand-muted)] transition-colors hover:text-[var(--color-brand-navy)]"
           aria-label={show ? "Hide password" : "Show password"}
         >
-          {show ? <EyeOffIcon /> : <EyeIcon />}
+          {show ? <IconEyeOff /> : <IconEye />}
         </button>
       </div>
     </label>
@@ -512,85 +523,6 @@ function getStrength(p: string): StrengthResult {
 }
 
 /* ─── Icons ────────────────────────────────────────────────────────── */
-
-function LockIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8 10V7a4 4 0 118 0v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function KeyIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="8" cy="15" r="4" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 11l8-8M18 6l2 2M15 9l2 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 7 11 7a18.5 18.5 0 01-2.16 3.19M3 3l18 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M10.73 10.73a3 3 0 004.24 4.24" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function AlertIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ArrowRight() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function LinkBrokenIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M9 15l6-6M11 6H7a5 5 0 000 10h1M13 18h4a5 5 0 000-10h-1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ShieldCheckIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11.38C16.5 22.15 20 17.25 20 12V6l-8-4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function Spinner({ className }: { className?: string }) {
   return (
