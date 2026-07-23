@@ -115,10 +115,11 @@ export function Sidebar({
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 pt-3">
+      <nav className={`flex-1 pt-2 ${collapsed ? "w-[72px] px-1" : "w-[240px] px-3"}`}>
         {NAV_ITEMS.map((item) => {
           const active = item.id === activeId;
           const Icon = item.Icon;
+
           if (collapsed) {
             return (
               <Link
@@ -126,31 +127,42 @@ export function Sidebar({
                 href={item.href}
                 onClick={attemptNav}
                 aria-current={active ? "page" : undefined}
-                className={`mx-1.5 my-0.5 flex flex-col items-center gap-2 rounded-lg px-1 py-2 text-[9.5px] font-semibold tracking-tight whitespace-nowrap no-underline ${
+                className={`my-1 flex flex-col items-center justify-center gap-1.5 rounded-xl px-1 py-3.5 no-underline transition-colors ${
                   active
-                    ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-                    : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
+                    ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)] font-medium"
+                    : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60 font-normal"
                 } ${locked ? "pointer-events-none opacity-50" : ""}`}
               >
-                <Icon size={22} className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} />
-                <span>{item.label}</span>
+                {/* YouTube keeps icons at 24px in collapsed mode */}
+                <Icon 
+                  size={24} 
+                  className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} 
+                />
+                <span className="max-w-[64px] truncate text-center text-[10px] leading-tight">
+                  {item.label}
+                </span>
               </Link>
             );
           }
+
           return (
             <Link
               key={item.id}
               href={item.href}
               onClick={attemptNav}
               aria-current={active ? "page" : undefined}
-              className={`mx-2.5 my-0.5 flex items-center gap-2.5 rounded-md px-3 py-2 text-[13.5px] no-underline ${
+              className={`my-0.5 flex h-10 items-center gap-6 rounded-xl px-3 no-underline transition-colors ${
                 active
-                  ? "bg-[var(--color-brand-navy-soft)] font-semibold text-[var(--color-brand-navy)]"
-                  : "font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
+                  ? "bg-[var(--color-brand-navy-soft)] font-medium text-[var(--color-brand-navy)]"
+                  : "font-normal text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
               } ${locked ? "pointer-events-none opacity-50" : ""}`}
             >
-              <Icon size={17} className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} />
-              <span>{item.label}</span>
+              {/* YouTube uses 24px icons and a 24px (gap-6) spacing to the label */}
+              <Icon 
+                size={24} 
+                className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} 
+              />
+              <span className="truncate text-[14px] leading-none">{item.label}</span>
             </Link>
           );
         })}
