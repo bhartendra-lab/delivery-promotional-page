@@ -5,6 +5,15 @@ import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
 import { downloadImage, shareImage } from "@/lib/media-actions";
 import { useEventTheme } from "../../EventThemeContext";
+import {
+  IconX,
+  IconHeart,
+  IconDownload,
+  IconShare,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@/components/ui/icons";
 
 /**
  * Immersive fullscreen viewer (near-black ground — never themed). Carries Like
@@ -76,7 +85,7 @@ export function PhotoViewer({
       {/* top chrome */}
       <div className="flex items-center justify-between px-4 pt-4">
         <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(255,255,255,0.14)" }}>
-          <XIcon size={18} />
+          <IconX size={18} />
         </button>
         <span className="text-[12.5px] font-extrabold tabular-nums" style={{ color: "rgba(255,253,245,0.7)" }}>
           {String(index + 1).padStart(2, "0")} / {String(items.length).padStart(2, "0")}
@@ -89,19 +98,19 @@ export function PhotoViewer({
             className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full"
             style={{ background: isSel ? t.brand : "rgba(255,255,255,0.14)", color: t.onBrand }}
           >
-            {isSel ? <CheckIcon size={18} /> : <span className="h-4 w-4 rounded-full border-2" style={{ borderColor: "rgba(255,253,245,0.75)" }} />}
+            {isSel ? <IconCheck size={18} weight="bold" /> : <span className="h-4 w-4 rounded-full border-2" style={{ borderColor: "rgba(255,253,245,0.75)" }} />}
           </button>
         ) : (
           <div className="flex items-center gap-2">
             <ChipButton label="Like" onClick={() => onToggleLike(item)}>
-              <HeartIcon size={19} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
+              <IconHeart size={19} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
             </ChipButton>
             <ChipButton label="Download" onClick={onDownload}>
-              <DownloadIcon size={19} />
+              <IconDownload size={19} />
             </ChipButton>
             {/* Web Share is a mobile affordance — hide it on desktop. */}
             <ChipButton label="Share" onClick={onShare} className="lg:hidden">
-              <ShareIcon size={19} />
+              <IconShare size={19} />
             </ChipButton>
           </div>
         )}
@@ -113,10 +122,10 @@ export function PhotoViewer({
         {items.length > 1 && (
           <>
             <button type="button" onClick={() => step(-1)} aria-label="Previous" className="absolute left-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
-              <ChevronIcon size={20} dir="left" />
+              <IconChevronLeft size={20} weight="bold" />
             </button>
             <button type="button" onClick={() => step(1)} aria-label="Next" className="absolute right-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
-              <ChevronIcon size={20} dir="right" />
+              <IconChevronRight size={20} weight="bold" />
             </button>
           </>
         )}
@@ -308,46 +317,3 @@ function ChipButton({ label, onClick, children, className = "" }: { label: strin
   );
 }
 
-function XIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}
-function HeartIcon({ size = 19, filled, color = "#fff" }: { size?: number; filled?: boolean; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth={2} strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-function DownloadIcon({ size = 19 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
-    </svg>
-  );
-}
-function ShareIcon({ size = 19 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v13M8 7l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" />
-    </svg>
-  );
-}
-function CheckIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-function ChevronIcon({ size = 20, dir }: { size?: number; dir: "left" | "right" }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === "left" ? "rotate(180deg)" : undefined }}>
-      <polyline points="9 6 15 12 9 18" />
-    </svg>
-  );
-}

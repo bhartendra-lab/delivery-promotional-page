@@ -3,6 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { HeroSubtitle } from "./HeroSubtitle";
+import { IconArrowRight, IconCaretDown } from "@/components/ui/icons";
 
 /**
  * DESKTOP-ONLY full-screen editorial cover. Mobile keeps `CoverMasthead`
@@ -113,7 +114,7 @@ export function DesktopCover({
             className="transition-transform duration-300 group-hover:translate-x-1"
             style={{ color: t.brand }}
           >
-            <ArrowRightIcon size={19} />
+            <IconArrowRight size={19} weight="bold" />
           </span>
         </button>
       </div>
@@ -126,23 +127,8 @@ export function DesktopCover({
         className="scroll-cue absolute bottom-6 left-1/2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-white/80"
         style={{ background: "rgba(255,255,255,0.16)" }}
       >
-        <ChevronDownIcon size={17} />
+        <IconCaretDown size={17} weight="bold" />
       </button>
     </div>
-  );
-}
-
-function ArrowRightIcon({ size = 19 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 12h15M13 6l6 6-6 6" />
-    </svg>
-  );
-}
-function ChevronDownIcon({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
   );
 }

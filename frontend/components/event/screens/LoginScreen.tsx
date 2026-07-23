@@ -3,6 +3,7 @@
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
+import { IconLock, IconShieldCheck } from "@/components/ui/icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -83,7 +84,7 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
           {/* event context */}
           {studio && (
             <div className="mb-4 flex items-center justify-center gap-2" style={{ color: t.muted }}>
-              <LockIcon size={13} />
+              <IconLock size={13} />
               <span className="text-[12px] font-bold">A private gallery by {studio}</span>
             </div>
           )}
@@ -109,7 +110,7 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
 
           {/* trust line */}
           <div className="mt-4 flex items-start gap-2 px-1.5">
-            <ShieldIcon size={16} style={{ color: t.brand, marginTop: 1, flex: "none" }} />
+            <IconShieldCheck size={16} style={{ color: t.brand, marginTop: 1, flex: "none" }} />
             <span className="text-[12px] font-semibold leading-[1.45]" style={{ color: t.muted }}>
               We use Google only to confirm it’s really you. We never post, message, or share anything.
             </span>
@@ -134,6 +135,9 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
 
 /* ── icons ──────────────────────────────────────────────────────────────── */
 
+// Official Google 4-color "G" mark for the sign-in button — Google's brand
+// guidelines require this exact multi-color asset, which no monochrome icon
+// library (Phosphor/lucide/simple-icons) carries, so it stays hand-drawn.
 function GoogleG({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
@@ -141,24 +145,6 @@ function GoogleG({ size = 20 }: { size?: number }) {
       <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7A20 20 0 0 0 6.3 14.7z" />
       <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A12 12 0 0 1 12.7 28l-6.5 5A20 20 0 0 0 24 44z" />
       <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C39.9 41.3 44 35.4 44 24c0-1.3-.1-2.3-.4-3.5z" />
-    </svg>
-  );
-}
-
-function LockIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  );
-}
-
-function ShieldIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={style}>
-      <path d="M12 3l8 3v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6z" />
-      <path d="M9 12l2 2 4-4" />
     </svg>
   );
 }

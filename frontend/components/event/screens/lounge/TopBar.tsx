@@ -3,6 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { StudioMenu } from "./StudioMenu";
+import { IconMegaphone, IconShare } from "@/components/ui/icons";
 
 /**
  * Desktop sticky top bar — replaces the SideRail. Studio identity + menu on
@@ -80,7 +81,7 @@ export function TopBar({
             className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors"
             style={{ color: t.brand }}
           >
-            <MegaphoneIcon size={18} />
+            <IconMegaphone size={18} />
             <span className="hidden xl:inline">Review us</span>
           </a>
         )}
@@ -91,7 +92,7 @@ export function TopBar({
           className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors"
           style={{ color: t.muted }}
         >
-          <ShareIcon size={18} />
+          <IconShare size={18} />
         </button>
         <button
           type="button"
@@ -114,18 +115,3 @@ export function TopBar({
   );
 }
 
-function MegaphoneIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 11l18-5v12L3 14v-3z" />
-      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-    </svg>
-  );
-}
-function ShareIcon({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v13M8 7l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" />
-    </svg>
-  );
-}

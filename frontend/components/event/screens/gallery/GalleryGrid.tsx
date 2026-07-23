@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
+import { IconHeart, IconCheck, IconDownload } from "@/components/ui/icons";
 
 /**
  * The guest gallery's photo layout — isolated behind a `layout` prop so the
@@ -274,7 +275,7 @@ function PhotoTile({
           color: t.onBrand,
         }}
       >
-        {isSel && <CheckIcon size={13} />}
+        {isSel && <IconCheck size={13} weight="bold" />}
       </button>
 
       {/* like + download, together bottom-right. Like stays visible when liked;
@@ -293,7 +294,7 @@ function PhotoTile({
             }`}
             style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.38)" }}
           >
-            <HeartIcon size={14} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
+            <IconHeart size={14} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
             {(item.likes_count ?? 0) > 0 && (
               <span className="pr-0.5 text-[11px] font-bold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
                 {item.likes_count}
@@ -310,7 +311,7 @@ function PhotoTile({
             className={`flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95 ${revealCls}`}
             style={{ background: "rgba(20,16,8,0.38)" }}
           >
-            <DownloadIcon size={12} color="#fff" />
+            <IconDownload size={12} style={{ color: "#fff" }} />
           </button>
         </div>
       )}
@@ -318,28 +319,3 @@ function PhotoTile({
   );
 }
 
-/* ── icons (local copies so the gallery layout stays self-contained) ──────── */
-
-function HeartIcon({ size = 18, filled, color = "currentColor" }: { size?: number; filled?: boolean; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth={2} strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-function CheckIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-/** Same path as `GalleryControls.tsx`'s `DownloadIcon` — kept as a local copy
- *  for visual consistency without importing across the toolbar/tile split. */
-function DownloadIcon({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
-    </svg>
-  );
-}

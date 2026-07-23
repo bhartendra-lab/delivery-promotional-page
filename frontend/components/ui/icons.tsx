@@ -18,13 +18,16 @@ import {
   ArrowsOutCardinal,
   Bell,
   Broadcast,
+  Browser,
   Building,
   CalendarBlank,
+  CameraSlash,
   CaretDown,
   CaretLeft,
   CaretRight,
   CaretUpDown,
   Check,
+  CheckSquare,
   Clock,
   Copy,
   DeviceMobile,
@@ -52,6 +55,7 @@ import {
   MagnifyingGlass,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
+  Megaphone,
   Monitor,
   Pause,
   PencilSimple,
@@ -64,6 +68,9 @@ import {
   ShieldCheck,
   SidebarSimple,
   SignOut,
+  Smiley,
+  Square,
+  SquaresFour,
   Star,
   Target,
   Trash,
@@ -75,7 +82,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type { IconType } from "react-icons";
-import { SiWhatsapp } from "react-icons/si";
+import { SiWhatsapp, SiInstagram, SiFacebook, SiYoutube, SiVimeo, SiPinterest, SiX } from "react-icons/si";
 
 export type IconProps = {
   size?: number;
@@ -125,6 +132,13 @@ export const IconTrash = wrapPhosphor(Trash, 15, "IconTrash");
 export const IconChevronLeft = wrapPhosphor(CaretLeft, 20, "IconChevronLeft");
 export const IconChevronRight = wrapPhosphor(CaretRight, 20, "IconChevronRight");
 export const IconWhatsApp = wrapBrandMark(SiWhatsapp, 16, "IconWhatsApp");
+export const IconInstagram = wrapBrandMark(SiInstagram, 16, "IconInstagram");
+export const IconFacebook = wrapBrandMark(SiFacebook, 16, "IconFacebook");
+export const IconYoutube = wrapBrandMark(SiYoutube, 16, "IconYoutube");
+export const IconVimeo = wrapBrandMark(SiVimeo, 16, "IconVimeo");
+export const IconPinterest = wrapBrandMark(SiPinterest, 16, "IconPinterest");
+// Named IconXLogo (not IconX) to avoid colliding with the generic close-glyph IconX.
+export const IconXLogo = wrapBrandMark(SiX, 16, "IconXLogo");
 export const IconMail = wrapPhosphor(EnvelopeSimple, 15, "IconMail");
 export const IconScanFace = wrapPhosphor(ScanSmiley, 18, "IconScanFace");
 export const IconShieldCheck = wrapPhosphor(ShieldCheck, 15, "IconShieldCheck");
@@ -178,3 +192,12 @@ export const IconKey = wrapPhosphor(Key, 18, "IconKey");
 export const IconEye = wrapPhosphor(Eye, 18, "IconEye");
 export const IconEyeOff = wrapPhosphor(EyeSlash, 18, "IconEyeOff");
 export const IconLinkBroken = wrapPhosphor(LinkBreak, 18, "IconLinkBroken");
+
+/* ── A5: guest side ────────────────────────────────────────────── */
+export const IconMegaphone = wrapPhosphor(Megaphone, 18, "IconMegaphone");
+export const IconSquare = wrapPhosphor(Square, 15, "IconSquare");
+export const IconCheckSquare = wrapPhosphor(CheckSquare, 15, "IconCheckSquare");
+export const IconGrid = wrapPhosphor(SquaresFour, 18, "IconGrid");
+export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");
+export const IconBrowser = wrapPhosphor(Browser, 30, "IconBrowser");
+export const IconSmiley = wrapPhosphor(Smiley, 44, "IconSmiley");

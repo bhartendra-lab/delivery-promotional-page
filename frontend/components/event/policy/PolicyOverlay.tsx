@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy, type PolicyView } from "./PolicyContext";
+import { IconX } from "@/components/ui/icons";
 
 const FULL_DOC: Record<PolicyView, { title: string; href: string; label: string }> = {
   terms: { title: "Terms", href: "https://vyavasth.in/terms", label: "full Terms" },
@@ -81,7 +82,7 @@ export function PolicyOverlay() {
           className="flex h-9 w-9 items-center justify-center rounded-full transition-colors"
           style={{ background: t.card, border: `1px solid ${t.border}`, color: t.text }}
         >
-          <CloseIcon size={16} />
+          <IconX size={16} />
         </button>
       </div>
 
@@ -215,10 +216,3 @@ function CookiesDoc({ link, muted, text }: Omit<DocProps, "studio">) {
   );
 }
 
-function CloseIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  );
-}

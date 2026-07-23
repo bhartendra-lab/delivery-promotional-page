@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { initials, SocialRow } from "./StudioCard";
+import { IconStar, IconX } from "@/components/ui/icons";
 
 export type NudgeReason = "download" | "likes" | "load";
 
@@ -58,7 +59,7 @@ export function ReviewNudge({
           style={{ background: t.card, boxShadow: t.shadow }}
         >
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: t.accentWash, color: t.brand }}>
-            <StarIcon size={18} />
+            <IconStar size={18} weight="fill" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-bold" style={{ color: t.text }}>{copy.title}</div>
@@ -81,7 +82,7 @@ export function ReviewNudge({
             className="absolute right-2 top-2 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full"
             style={{ color: t.faint }}
           >
-            <XIcon size={12} />
+            <IconX size={12} />
           </button>
         </div>
       </div>
@@ -100,10 +101,10 @@ export function ReviewNudge({
         className="absolute right-2.5 top-2.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full"
         style={{ color: t.faint }}
       >
-        <XIcon size={12} />
+        <IconX size={12} />
       </button>
       <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: t.accentWash, color: t.brand }}>
-        <StarIcon size={17} />
+        <IconStar size={17} weight="fill" />
       </span>
       <div className="mt-2.5 text-[13.5px] font-bold" style={{ color: t.text }}>{copy.title}</div>
       <div className="mt-0.5 text-[12px] font-medium" style={{ color: t.muted }}>{copy.body}</div>
@@ -187,18 +188,3 @@ export function OutroBand({
   );
 }
 
-function StarIcon({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 2.5l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17.6l-6.1 3.3 1.5-6.8-5.2-4.6 6.9-.7z" />
-    </svg>
-  );
-}
-function XIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}

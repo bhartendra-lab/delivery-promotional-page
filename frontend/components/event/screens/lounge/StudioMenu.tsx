@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { SocialRow, socialLinksFor, ensureHttp, initials } from "./StudioCard";
+import { IconCaretDown, IconWhatsApp, IconGlobe, IconOpen } from "@/components/ui/icons";
 
 /**
  * Desktop top-bar studio cluster. The logo and the menu are SEPARATE controls:
@@ -96,7 +97,7 @@ export function StudioMenu({
             {event.company_name}
           </span>
           <span style={{ color: t.muted }}>
-            <CaretDownIcon size={14} open={open} />
+            <IconCaretDown size={14} style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 0.2s ease" }} />
           </span>
         </button>
       ) : (
@@ -147,7 +148,7 @@ export function StudioMenu({
                 href={contactUrl}
                 onClick={onContactClick}
                 onDone={() => setOpen(false)}
-                icon={<ChatIcon size={16} />}
+                icon={<IconWhatsApp size={16} />}
                 label="Talk to us"
                 hint="WhatsApp"
               />
@@ -157,7 +158,7 @@ export function StudioMenu({
                 t={t}
                 href={websiteUrl}
                 onDone={() => setOpen(false)}
-                icon={<GlobeIcon size={16} />}
+                icon={<IconGlobe size={16} />}
                 label="Portfolio"
                 hint="Website"
               />
@@ -223,49 +224,9 @@ function MenuLink({
         )}
       </span>
       <span style={{ color: t.faint }}>
-        <ExternalIcon size={13} />
+        <IconOpen size={13} />
       </span>
     </a>
   );
 }
 
-function CaretDownIcon({ size = 14, open }: { size?: number; open?: boolean }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 0.2s ease" }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-function ChatIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-2.8-.4L3 21l1.6-4.6A8.1 8.1 0 0 1 3.6 11 8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z" />
-    </svg>
-  );
-}
-function GlobeIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z" />
-    </svg>
-  );
-}
-function ExternalIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 15L19 5M13 5h6v6" />
-      <path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
-    </svg>
-  );
-}

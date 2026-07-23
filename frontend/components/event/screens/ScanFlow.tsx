@@ -8,6 +8,17 @@ import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 import { POLICY_VERSION, usePolicy } from "../policy/PolicyContext";
+import {
+  IconScanFace,
+  IconCameraOff,
+  IconBrowser,
+  IconCopy,
+  IconSmiley,
+  IconCheck,
+  IconImages,
+  IconLock,
+  IconInfo,
+} from "@/components/ui/icons";
 
 type Phase = "intro" | "camera" | "processing" | "matched" | "error";
 
@@ -205,10 +216,10 @@ export function ScanFlow({
             <span className="fx-ring-ping absolute inset-0 rounded-full" style={{ border: `2px solid ${t.brand}` }} />
             <span className="brand-pulse relative flex h-32 w-32 items-center justify-center rounded-full" style={{ background: t.ring, padding: 5 }}>
               <span className="flex h-full w-full items-center justify-center rounded-full" style={{ background: t.sunken, border: "3px solid #fff" }}>
-                <FaceIcon size={44} color={t.faint} />
+                <IconSmiley size={44} style={{ color: t.faint }} />
               </span>
               <span className="absolute -bottom-1 -right-1 flex h-11 w-11 items-center justify-center rounded-full" style={{ background: t.brand, border: `3px solid ${t.bg}`, color: t.onBrand }}>
-                <ScanIcon size={20} />
+                <IconScanFace size={20} />
               </span>
             </span>
           </div>
@@ -263,7 +274,7 @@ export function ScanFlow({
               cursor: agreed ? "pointer" : "not-allowed",
             }}
           >
-            <ScanIcon size={18} /> Scan my face
+            <IconScanFace size={18} /> Scan my face
           </button>
           <div className="text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
             Verifying your face is required to view your photos.
@@ -272,7 +283,7 @@ export function ScanFlow({
           {/* Accuracy note (not an age gate): face matching is less reliable for children. */}
           <div className="flex items-start justify-center gap-1.5 px-1" style={{ color: t.faint }}>
             <span className="mt-px flex-none">
-              <InfoIcon size={13} />
+              <IconInfo size={13} />
             </span>
             <span className="text-[11px] font-semibold leading-[1.4]" style={{ color: t.faint }}>
               Face recognition is trained predominantly on adult faces and is therefore less reliable
@@ -307,7 +318,7 @@ export function ScanFlow({
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{ background: t.brand, color: t.onBrand }}
           >
-            <ScanIcon size={18} /> Capture selfie
+            <IconScanFace size={18} /> Capture selfie
           </button>
         </div>
         <PoweredBy />
@@ -349,7 +360,7 @@ export function ScanFlow({
           </div>
         </div>
         <div className="flex items-center justify-center gap-2 px-7 pb-2" style={{ color: t.faint }}>
-          <LockIcon size={13} />
+          <IconLock size={13} />
           <span className="text-center text-[12px] font-semibold">Your selfie is saved to your gallery profile to match your photos — rescan anytime.</span>
         </div>
         <PoweredBy />
@@ -366,7 +377,7 @@ export function ScanFlow({
             <span className="fx-ring-ping absolute inset-0 rounded-full" style={{ border: `2px solid ${t.success}` }} />
             <span className="relative flex h-28 w-28 items-center justify-center rounded-full" style={{ background: t.ring, padding: 5 }}>
               <span className="flex h-full w-full items-center justify-center rounded-full text-white" style={{ background: t.success, border: "3px solid #fff" }}>
-                <CheckIcon size={44} />
+                <IconCheck size={44} weight="bold" />
               </span>
             </span>
           </div>
@@ -386,7 +397,7 @@ export function ScanFlow({
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{ background: t.brand, color: t.onBrand }}
           >
-            <ImagesIcon size={18} /> See my photos
+            <IconImages size={18} /> See my photos
           </button>
           <button
             type="button"
@@ -411,7 +422,7 @@ export function ScanFlow({
     <Shell guestName={guestName}>
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
         <span className="fx-pop flex h-20 w-20 items-center justify-center rounded-full" style={{ background: t.errorSoft, color: t.error }}>
-          <FaceIcon size={36} color={t.error} />
+          <IconSmiley size={36} style={{ color: t.error }} />
         </span>
         <h1 className="text-[22px] font-extrabold tracking-[-0.02em]" style={{ color: t.text }}>Let’s try that again</h1>
         <p className="max-w-[340px] text-[14px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
@@ -429,7 +440,7 @@ export function ScanFlow({
           className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
           style={{ background: t.brand, color: t.onBrand }}
         >
-          <ScanIcon size={18} /> Retake
+          <IconScanFace size={18} /> Retake
         </button>
       </div>
       <PoweredBy />
@@ -655,7 +666,7 @@ function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRet
           className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
           style={{ background: t.errorSoft, color: t.error }}
         >
-          {unsupported ? <BrowserIcon size={30} /> : <CameraOffIcon size={30} />}
+          {unsupported ? <IconBrowser size={30} /> : <IconCameraOff size={30} />}
         </div>
         <h2 className="text-center text-[19px] font-extrabold tracking-[-0.02em]" style={{ color: t.text }}>
           {title}
@@ -686,7 +697,7 @@ function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRet
               className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
               style={{ background: t.brand, color: t.onBrand }}
             >
-              <CopyIcon size={16} /> {copied ? "Link copied!" : "Copy link"}
+              <IconCopy size={16} /> {copied ? "Link copied!" : "Copy link"}
             </button>
           ) : (
             <button
@@ -695,7 +706,7 @@ function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRet
               className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
               style={{ background: t.brand, color: t.onBrand }}
             >
-              <ScanIcon size={16} /> Enable camera &amp; try again
+              <IconScanFace size={16} /> Enable camera &amp; try again
             </button>
           )}
           <button
@@ -733,79 +744,8 @@ function Checkbox({ checked }: { checked: boolean }) {
       className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
       style={{ background: checked ? t.brand : "transparent", border: `1.5px solid ${checked ? t.brand : t.border}`, color: t.onBrand }}
     >
-      {checked && <CheckIcon size={12} />}
+      {checked && <IconCheck size={12} weight="bold" />}
     </span>
   );
 }
 
-function ScanIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2" />
-      <path d="M9 10h.01M15 10h.01M9.5 14.5a3.5 3.5 0 0 0 5 0" />
-    </svg>
-  );
-}
-function CameraOffIcon({ size = 30 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 16H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1m3-2h4l2 2h2a2 2 0 0 1 2 2v6m-7-2.5a2.5 2.5 0 0 0 3 3" />
-      <path d="M2 2l20 20" />
-    </svg>
-  );
-}
-function BrowserIcon({ size = 30 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 9h18M7 6.5h.01M10 6.5h.01" />
-    </svg>
-  );
-}
-function CopyIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-function FaceIcon({ size = 44, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M8.5 10h.01M15.5 10h.01M8.5 14.5a4.5 4.5 0 0 0 7 0" />
-    </svg>
-  );
-}
-function CheckIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-function ImagesIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="5" width="14" height="14" rx="2" />
-      <path d="M7 19l5-5 4 4M21 8v11a2 2 0 0 1-2 2H8" />
-    </svg>
-  );
-}
-function LockIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  );
-}
-function InfoIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 11v5M12 8h.01" />
-    </svg>
-  );
-}

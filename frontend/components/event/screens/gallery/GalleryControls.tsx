@@ -2,6 +2,7 @@
 
 import type { CustomFolder } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
+import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare } from "@/components/ui/icons";
 
 /** Sentinel folder id meaning "no specific folder" — shared by every screen
  *  that reads/sets the active folder pill. */
@@ -183,7 +184,7 @@ export function ActionsCluster({
     <div className="flex shrink-0 items-center gap-1">
       <ActionItem
         t={t}
-        icon={<HeartIcon size={15} filled={likedView} />}
+        icon={<IconHeart size={15} filled={likedView} />}
         label="Liked"
         active={likedView}
         underline
@@ -193,7 +194,7 @@ export function ActionsCluster({
       {!selectMode && canDownloadAll && (
         <ActionItem
           t={t}
-          icon={<DownloadIcon size={16} />}
+          icon={<IconDownload size={16} />}
           label={zipping ? "Preparing…" : "Download"}
           onClick={onDownloadAll}
           disabled={zipping}
@@ -202,7 +203,7 @@ export function ActionsCluster({
       )}
       <ActionItem
         t={t}
-        icon={<SelectIcon size={15} checked={selectMode} />}
+        icon={selectMode ? <IconCheckSquare size={15} weight="fill" /> : <IconSquare size={15} />}
         label={selectMode ? "Cancel" : "Select"}
         active={selectMode}
         underline
@@ -212,7 +213,7 @@ export function ActionsCluster({
       {!unlocked && (
         <ActionItem
           t={t}
-          icon={<LockIcon size={14} />}
+          icon={<IconLock size={14} />}
           label="Private"
           onClick={onOpenPrivate}
           iconOnly={iconOnly}
@@ -264,33 +265,3 @@ function ActionItem({
   );
 }
 
-function HeartIcon({ size = 12, filled }: { size?: number; filled?: boolean }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2.2} strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-function LockIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  );
-}
-function DownloadIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
-    </svg>
-  );
-}
-function SelectIcon({ size = 15, checked }: { size?: number; checked?: boolean }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="4" width="16" height="16" rx="4" />
-      {checked && <polyline points="8 12.5 11 15.5 16.5 9" />}
-    </svg>
-  );
-}
