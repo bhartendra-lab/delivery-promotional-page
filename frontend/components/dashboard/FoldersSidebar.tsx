@@ -16,6 +16,16 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
+import {
+  IconFolder,
+  IconFolderPlus,
+  IconImages,
+  IconHeart,
+  IconEdit,
+  IconTrash,
+  IconDotsVertical,
+  IconDragHandle,
+} from "@/components/ui/icons";
 
 export type FolderRow = {
   id: string;
@@ -122,7 +132,7 @@ export function FoldersSidebar({
 
       {empty ? (
         <div className="mx-4 mt-2 rounded-lg border border-dashed border-[var(--color-brand-border)] bg-white px-4 py-5 text-center">
-          <FolderIcon size={22} className="mx-auto mb-2 text-[#B5ADA4]" />
+          <IconFolder size={22} className="mx-auto mb-2 text-[#B5ADA4]" />
           <div className="text-[12.5px] font-semibold text-[var(--color-brand-ink)]">No folders yet</div>
           <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
             Upload a folder of photos to organise this event.
@@ -197,7 +207,7 @@ export function FoldersSidebar({
               disabled={disabled}
               className="brand-focus flex w-full items-center gap-2 rounded-md border border-dashed border-[var(--color-brand-border)] bg-transparent px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <FolderPlusIcon size={15} />
+              <IconFolderPlus size={15} />
               <span>Add folder</span>
             </button>
           )}
@@ -318,16 +328,16 @@ function FolderRowComponent({
   const isPublic = folder.visibility === "public";
   const Icon =
     folder.icon === "heart"
-      ? HeartIcon
+      ? IconHeart
       : folder.system
-        ? ImageStackIcon
+        ? IconImages
         : isPublic
           ? FolderStarIcon
-          : FolderIcon;
+          : IconFolder;
   const showRowActions = !isRenaming && !folder.system;
 
   const menuItems: FolderMenuItem[] = [
-    { key: "rename", label: "Rename", icon: <EditIcon size={12} />, onSelect: onStartRename },
+    { key: "rename", label: "Rename", icon: <IconEdit size={12} />, onSelect: onStartRename },
     ...(onToggleVisibility
       ? [
           {
@@ -343,7 +353,7 @@ function FolderRowComponent({
           {
             key: "delete",
             label: "Delete",
-            icon: <TrashIcon size={12} />,
+            icon: <IconTrash size={12} />,
             destructive: true,
             onSelect: onDeleteRequest,
           } as FolderMenuItem,
@@ -373,7 +383,7 @@ function FolderRowComponent({
             disabled ? "cursor-not-allowed" : ""
           }`}
         >
-          <DragHandleIcon size={12} />
+          <IconDragHandle size={12} />
         </button>
       )}
       <Icon
@@ -457,7 +467,7 @@ function FolderMenu({
           isActive || open ? "opacity-100" : ""
         }`}
       >
-        <KebabIcon size={14} />
+        <IconDotsVertical size={14} />
       </button>
       {open && (
         <div
@@ -532,78 +542,38 @@ export function InlineFolderInput({
 
 /* ── Icons ──────────────────────────────────────────────────────── */
 
-function FolderIcon({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-    </svg>
-  );
-}
-
-function FolderPlusIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-      <line x1="12" y1="11" x2="12" y2="16" />
-      <line x1="9.5" y1="13.5" x2="14.5" y2="13.5" />
-    </svg>
-  );
-}
-
-function ImageStackIcon({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <rect x="6" y="3" width="14" height="14" rx="1.5" />
-      <path d="M4 6v14a1 1 0 0 0 1 1h14" />
-      <circle cx="11" cy="8" r="1.2" fill="currentColor" />
-      <path d="M6 14l4-4 6 6" />
-    </svg>
-  );
-}
-
-function HeartIcon({ size = 16, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-
-function EditIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 4l4 4-11 11H5v-4z" />
-      <line x1="13" y1="7" x2="17" y2="11" />
-    </svg>
-  );
-}
-
 /** Folder glyph with a small filled star badge — flags a folder as
- *  "Highlight" (public) right on the row, no menu needed to tell. */
+ *  "Highlight" (public) right on the row, no menu needed to tell. A bespoke
+ *  composite (base glyph + badge overlay): no single library icon carries
+ *  this two-tone marker, so it's built from IconFolder + a star badge. */
 function FolderStarIcon({ size = 16, className }: { size?: number; className?: string }) {
+  const badgeSize = Math.round(size * 0.55);
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" className={className}>
-      <path
-        d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 12.6l1 2.1 2.3.3-1.65 1.6.4 2.3-2.05-1.1-2.05 1.1.4-2.3-1.65-1.6 2.3-.3z"
-        fill="var(--color-brand-warning)"
-        stroke="var(--color-brand-warning)"
-        strokeWidth={0.6}
-        strokeLinejoin="round"
-      />
-    </svg>
+    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
+      <IconFolder size={size} className={className} />
+      <svg
+        width={badgeSize}
+        height={badgeSize}
+        viewBox="0 0 24 24"
+        className="absolute -bottom-0.5 -right-0.5"
+        aria-hidden
+      >
+        <path
+          d="M12 3.2l2.6 5.27 5.82.85-4.21 4.1.99 5.79L12 16.9l-5.2 2.31.99-5.79-4.21-4.1 5.82-.85L12 3.2z"
+          fill="var(--color-brand-warning)"
+          stroke="var(--color-brand-warning)"
+          strokeWidth={0.6}
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
   );
 }
 
 /** Empty box / filled-with-tick box used for the "Highlight" menu item —
- *  reads as a toggle at a glance, no icon-meaning to learn (unlike a star). */
+ *  reads as a toggle at a glance, no icon-meaning to learn (unlike a star).
+ *  Bespoke: the two-tone navy-fill + white-tick look isn't something a
+ *  single-color library glyph can reproduce, so it stays hand-drawn. */
 function CheckboxIcon({ size = 14, checked }: { size?: number; checked?: boolean }) {
   if (checked) {
     return (
@@ -616,39 +586,6 @@ function CheckboxIcon({ size = 14, checked }: { size?: number; checked?: boolean
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
-    </svg>
-  );
-}
-
-function TrashIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7h16" />
-      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-      <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
-    </svg>
-  );
-}
-
-function KebabIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="12" cy="5" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="12" cy="19" r="2" />
-    </svg>
-  );
-}
-
-function DragHandleIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="8" cy="5" r="1.6" />
-      <circle cx="16" cy="5" r="1.6" />
-      <circle cx="8" cy="12" r="1.6" />
-      <circle cx="16" cy="12" r="1.6" />
-      <circle cx="8" cy="19" r="1.6" />
-      <circle cx="16" cy="19" r="1.6" />
     </svg>
   );
 }

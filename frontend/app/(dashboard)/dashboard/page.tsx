@@ -12,6 +12,14 @@ import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
+import {
+  IconArchive,
+  IconPlus,
+  IconSearch,
+  IconX,
+  IconWarningCircle,
+  IconArticle,
+} from "@/components/ui/icons";
 
 const PAGE_SIZE = 20;
 
@@ -113,7 +121,7 @@ export default function DashboardHomePage() {
           role="alert"
           className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"
         >
-          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             You&apos;ve used all your events for this plan. New events cannot be created until your plan is upgraded or renewed. Contact your account manager.
           </span>
@@ -142,7 +150,7 @@ export default function DashboardHomePage() {
               disabled={createBlocked}
               className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <PlusIcon />
+              <IconPlus />
               Add event
             </button>
             <UsagePill usage={dlpUsage} loading={dlpLoading} />
@@ -162,7 +170,7 @@ export default function DashboardHomePage() {
       <section className="sticky top-0 z-10 flex flex-col gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
-            <SearchIcon />
+            <IconSearch size={15} />
           </span>
           <input
             type="search"
@@ -178,7 +186,7 @@ export default function DashboardHomePage() {
               className="absolute inset-y-0 right-2 my-auto flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-border)]"
               aria-label="Clear search"
             >
-              <ClearIcon />
+              <IconX size={13} />
             </button>
           )}
         </div>
@@ -238,7 +246,7 @@ export default function DashboardHomePage() {
           role="alert"
           className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"
         >
-          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
@@ -287,7 +295,7 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <PageIcon />
+        <IconArticle size={28} />
       </div>
       <div className="space-y-1">
         <p className="text-xl font-bold text-[var(--color-brand-ink)]">No events yet</p>
@@ -301,7 +309,7 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
         disabled={disabled}
         className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <PlusIcon />
+        <IconPlus />
         Create your first event
       </button>
     </div>
@@ -312,7 +320,7 @@ function ArchivedEmpty({ onClear }: { onClear: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <ArchiveIcon size={26} />
+        <IconArchive size={26} />
       </div>
       <div className="space-y-1">
         <p className="text-xl font-bold text-[var(--color-brand-ink)]">No archived or expired events</p>
@@ -328,25 +336,6 @@ function ArchivedEmpty({ onClear }: { onClear: () => void }) {
         Back to live events
       </button>
     </div>
-  );
-}
-
-function ArchiveIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-      <path d="M10 12h4" />
-    </svg>
   );
 }
 
@@ -398,7 +387,7 @@ function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolea
             : { color: "var(--color-brand-navy)", background: "var(--color-brand-navy-soft)" }
         }
       >
-        {isExhausted ? <WarnDot /> : <CountDot />}
+        {isExhausted ? <IconWarningCircle size={12} /> : <CountDot />}
         {remaining} remaining
       </span>
     );
@@ -442,56 +431,4 @@ function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolea
 
 function CountDot() {
   return <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />;
-}
-
-function WarnDot() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ClearIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function AlertIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PageIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M3 8h18M9 14h6M9 17h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
 }

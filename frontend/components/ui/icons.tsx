@@ -9,20 +9,31 @@ import type { CSSProperties } from "react";
 import type { Icon as PhosphorIcon, IconWeight } from "@phosphor-icons/react";
 import {
   Archive,
+  Article,
+  ArrowCounterClockwise,
   ArrowRight,
+  Bell,
   Broadcast,
+  CalendarBlank,
   CaretDown,
   CaretLeft,
   CaretRight,
+  CaretUpDown,
   Check,
   Copy,
   DeviceMobile,
+  DotsSixVertical,
   DotsThreeVertical,
   DownloadSimple,
   EnvelopeSimple,
+  Export,
   Folder,
+  FolderPlus,
+  Gear,
   Heart,
+  HouseSimple,
   Image,
+  Images,
   Info,
   Link,
   Lock,
@@ -33,14 +44,20 @@ import {
   Pause,
   PencilSimple,
   Play,
+  Plus,
+  QrCode,
+  Question,
   ScanSmiley,
   ShieldCheck,
+  SidebarSimple,
+  SignOut,
   Star,
   Target,
   Trash,
   UploadSimple,
   Users,
   Warning,
+  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import type { IconType } from "react-icons";
@@ -112,3 +129,22 @@ export const IconUsers = wrapPhosphor(Users, 15, "IconUsers");
 export const IconStar = wrapPhosphor(Star, 14, "IconStar");
 export const IconArchive = wrapPhosphor(Archive, 15, "IconArchive");
 export const IconTarget = wrapPhosphor(Target, 15, "IconTarget");
+
+/* ── A2: dashboard chrome ──────────────────────────────────────── */
+export const IconHome = wrapPhosphor(HouseSimple, 18, "IconHome");
+export const IconCalendar = wrapPhosphor(CalendarBlank, 18, "IconCalendar");
+export const IconQrCode = wrapPhosphor(QrCode, 18, "IconQrCode");
+export const IconSidebar = wrapPhosphor(SidebarSimple, 16, "IconSidebar");
+export const IconBell = wrapPhosphor(Bell, 16, "IconBell");
+export const IconHelp = wrapPhosphor(Question, 16, "IconHelp");
+export const IconGear = wrapPhosphor(Gear, 16, "IconGear");
+export const IconLogout = wrapPhosphor(SignOut, 16, "IconLogout");
+export const IconCaretUpDown = wrapPhosphor(CaretUpDown, 14, "IconCaretUpDown");
+export const IconShare = wrapPhosphor(Export, 15, "IconShare");
+export const IconRestore = wrapPhosphor(ArrowCounterClockwise, 15, "IconRestore");
+export const IconFolderPlus = wrapPhosphor(FolderPlus, 16, "IconFolderPlus");
+export const IconImages = wrapPhosphor(Images, 16, "IconImages");
+export const IconDragHandle = wrapPhosphor(DotsSixVertical, 12, "IconDragHandle");
+export const IconPlus = wrapPhosphor(Plus, 15, "IconPlus");
+export const IconWarningCircle = wrapPhosphor(WarningCircle, 14, "IconWarningCircle");
+export const IconArticle = wrapPhosphor(Article, 28, "IconArticle");

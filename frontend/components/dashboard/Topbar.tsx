@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { IconChevronRight, IconBell, IconHelp } from "@/components/ui/icons";
 import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
 
@@ -51,7 +52,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
       <div className="hidden items-center gap-1.5 text-[12.5px] text-[var(--color-brand-muted)] md:flex">
         {breadcrumb.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1.5">
-            {i > 0 && <IconCaretRight size={12} />}
+            {i > 0 && <IconChevronRight size={12} />}
             {crumb.href ? (
               <Link
                 href={crumb.href}
@@ -109,32 +110,5 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         </div>
       </div>
     </header>
-  );
-}
-
-function IconCaretRight({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 6 15 12 9 18" />
-    </svg>
-  );
-}
-
-function IconBell({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z" />
-      <path d="M10 19a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
-function IconHelp({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.5V14" />
-      <circle cx="12" cy="17" r=".7" fill="currentColor" />
-    </svg>
   );
 }
