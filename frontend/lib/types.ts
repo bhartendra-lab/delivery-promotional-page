@@ -274,6 +274,13 @@ export type GetAllGuestsResponse = {
   guests: Guest[];
 };
 
+/** POST /auth/verify-otp success body. */
+export type GuestOtpVerifyResponse = {
+  message: string;
+  token: string;
+  guest: Guest;
+};
+
 export type CreateBookingResponse = {
   message: string;
   booking_id: string;

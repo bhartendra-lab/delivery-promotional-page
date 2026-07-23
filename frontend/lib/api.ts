@@ -14,6 +14,7 @@ import type {
   GetMediaResponse,
   GetAllGuestsResponse,
   Guest,
+  GuestOtpVerifyResponse,
   LoginResponse,
   QrCode,
   ServiceType,
@@ -824,6 +825,56 @@ export function refreshGuestToken(token: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
+    auth: false,
+  });
+}
+
+/**
+ * WhatsApp OTP guest login — the primary sign-in path, Google being the
+ * secondary fallback. All three calls run before a guest token exists, so
+ * they're unauthenticated (`auth: false`) like `refreshGuestToken` above.
+ * `phone` is always the plain 10-digit national number; the backend
+ * normalizes it identically for all three endpoints (see
+ * `normalizePhoneNumber`), so they resolve to the same guest doc.
+ */
+
+/** POST /auth/guest-otp-login — sends the first code. 429 on cooldown. */
+export function requestGuestOtp(input: { uniqueIdentifier: string; name: string; phone: string }) {
+  return request<{ message: string }>("/auth/guest-otp-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: input.name,
+      phone: input.phone,
+      unique_identifier: input.uniqueIdentifier,
+    }),
+    auth: false,
+  });
+}
+
+/** POST /auth/resend-otp — requires the guest to already exist (i.e. requestGuestOtp already ran). */
+export function resendGuestOtp(input: { uniqueIdentifier: string; phone: string }) {
+  return request<{ message: string }>("/auth/resend-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone: input.phone,
+      unique_identifier: input.uniqueIdentifier,
+    }),
+    auth: false,
+  });
+}
+
+/** POST /auth/verify-otp — on success returns a guest JWT identical in shape to the Google-SSO path. */
+export function verifyGuestOtp(input: { uniqueIdentifier: string; phone: string; code: string }) {
+  return request<GuestOtpVerifyResponse>("/auth/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone: input.phone,
+      unique_identifier: input.uniqueIdentifier,
+      code: input.code,
+    }),
     auth: false,
   });
 }
