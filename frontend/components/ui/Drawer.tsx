@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { IconX } from "@/components/ui/icons";
 
 type Props = {
   open: boolean;
@@ -47,9 +48,7 @@ export function Drawer({ open, onClose, title, subtitle, children, footer }: Pro
             className="brand-focus flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-brand-muted)] transition-colors hover:bg-[var(--color-brand-border)] hover:text-[var(--color-brand-ink)]"
             aria-label="Close"
           >
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
+            <IconX size={16} />
           </button>
         </header>
 

@@ -360,6 +360,7 @@ function CollapsedUsageMeter({
       className="mb-1.5 flex flex-col items-center gap-1 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-2"
       title={syncing ? `Storage: ${valueLabel} — updating…` : `Storage: ${valueLabel}`}
     >
+      {/* Usage progress ring — a live data-viz meter, not an icon. */}
       <svg width="26" height="26" viewBox="0 0 24 24" className="-rotate-90">
         <circle cx="12" cy="12" r={R} fill="none" stroke="var(--color-brand-border)" strokeWidth="3" />
         <circle

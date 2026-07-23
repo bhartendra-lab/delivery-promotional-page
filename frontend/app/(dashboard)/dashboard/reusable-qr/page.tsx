@@ -6,6 +6,7 @@ import type { AssignedEventSummary, QrCode } from "@/lib/types";
 import { QrColorPicker } from "@/components/dashboard/reusable-qr/QrColorPicker";
 import { QrCard } from "@/components/dashboard/reusable-qr/QrCard";
 import { QrCardSkeleton } from "@/components/dashboard/reusable-qr/QrCardSkeleton";
+import { IconQrCode, IconPlus } from "@/components/ui/icons";
 
 /**
  * Reusable QR dashboard tab. Studios print one QR per stand and re-point it at
@@ -122,7 +123,7 @@ export default function ReusableQrPage() {
           onClick={() => setGenerateOpen(true)}
           className="brand-focus inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
         >
-          <PlusIcon />
+          <IconPlus />
           Generate new QR
         </button>
       </section>
@@ -207,7 +208,7 @@ function EmptyState({ onGenerate }: { onGenerate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-12 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <QrGlyph />
+        <IconQrCode size={28} />
       </div>
       <div className="space-y-1">
         <p className="text-lg font-bold text-[var(--color-brand-ink)]">No QR codes yet</p>
@@ -221,28 +222,10 @@ function EmptyState({ onGenerate }: { onGenerate: () => void }) {
         onClick={onGenerate}
         className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
-        <PlusIcon />
+        <IconPlus />
         Generate new QR
       </button>
     </div>
   );
 }
 
-function QrGlyph() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3.5" y="3.5" width="6" height="6" rx="1.2" />
-      <rect x="14.5" y="3.5" width="6" height="6" rx="1.2" />
-      <rect x="3.5" y="14.5" width="6" height="6" rx="1.2" />
-      <path d="M14.5 14.5h2.5v2.5M20.5 14.5v.01M14.5 20.5h.01M17 20.5h3.5V17" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}

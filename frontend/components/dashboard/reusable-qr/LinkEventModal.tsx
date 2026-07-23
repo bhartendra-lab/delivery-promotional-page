@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { linkQr, getAllBookings } from "@/lib/api";
 import type { AssignedEventSummary, Booking, QrCode } from "@/lib/types";
+import { IconX, IconSearch } from "@/components/ui/icons";
 
 const PAGE_SIZE = 12;
 
@@ -189,10 +190,7 @@ export function LinkEventModal({
             aria-label="Close"
             className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="6" y1="18" x2="18" y2="6" />
-            </svg>
+            <IconX size={16} />
           </button>
         </div>
 
@@ -200,7 +198,7 @@ export function LinkEventModal({
         <div className="border-b border-[var(--color-brand-border)] px-5 py-3">
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
-              <SearchIcon />
+              <IconSearch size={15} />
             </span>
             <input
               type="search"
@@ -408,11 +406,3 @@ function EventGridSkeleton() {
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}

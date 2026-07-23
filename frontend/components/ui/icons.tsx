@@ -11,6 +11,7 @@ import {
   Archive,
   Article,
   ArrowCounterClockwise,
+  ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
   ArrowsClockwise,
@@ -57,6 +58,7 @@ import {
   MagnifyingGlassPlus,
   Megaphone,
   Monitor,
+  Palette,
   Pause,
   PencilSimple,
   Play,
@@ -148,6 +150,7 @@ export const IconFolder = wrapPhosphor(Folder, 16, "IconFolder");
 export const IconMonitor = wrapPhosphor(Monitor, 14, "IconMonitor");
 export const IconMobile = wrapPhosphor(DeviceMobile, 14, "IconMobile");
 export const IconArrowRight = wrapPhosphor(ArrowRight, 14, "IconArrowRight");
+export const IconArrowLeft = wrapPhosphor(ArrowLeft, 14, "IconArrowLeft");
 export const IconEdit = wrapPhosphor(PencilSimple, 13, "IconEdit");
 export const IconDownload = wrapPhosphor(DownloadSimple, 15, "IconDownload");
 export const IconDotsVertical = wrapPhosphor(DotsThreeVertical, 15, "IconDotsVertical");
@@ -198,6 +201,7 @@ export const IconMegaphone = wrapPhosphor(Megaphone, 18, "IconMegaphone");
 export const IconSquare = wrapPhosphor(Square, 15, "IconSquare");
 export const IconCheckSquare = wrapPhosphor(CheckSquare, 15, "IconCheckSquare");
 export const IconGrid = wrapPhosphor(SquaresFour, 18, "IconGrid");
+export const IconPalette = wrapPhosphor(Palette, 26, "IconPalette");
 export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");
 export const IconBrowser = wrapPhosphor(Browser, 30, "IconBrowser");
 export const IconSmiley = wrapPhosphor(Smiley, 44, "IconSmiley");

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { QrCode } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
+import { IconX, IconPlus, IconCheck, IconPalette } from "@/components/ui/icons";
 
 /**
  * F1a — the "paint style" generate modal, opened from the "Generate new QR"
@@ -195,10 +196,7 @@ export function QrColorPicker({
               aria-label="Close"
               className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-                <line x1="6" y1="6" x2="18" y2="18" />
-                <line x1="6" y1="18" x2="18" y2="6" />
-              </svg>
+              <IconX size={16} />
             </button>
           </div>
         </div>
@@ -217,7 +215,7 @@ export function QrColorPicker({
                 }
                 aria-hidden
               >
-                {!selected && <PaletteIcon />}
+                {!selected && <IconPalette size={26} className="text-[var(--color-brand-outline)]" />}
               </span>
               <span className="font-mono text-[12px] uppercase text-[var(--color-brand-muted)]">
                 {selected ?? "Pick one"}
@@ -355,7 +353,7 @@ export function QrColorPicker({
                 </>
               ) : (
                 <>
-                  <PlusIcon />
+                  <IconPlus size={15} />
                   Generate QR
                 </>
               )}
@@ -400,7 +398,11 @@ function Swatch({
     >
       {selected && (
         <span className="absolute inset-0 flex items-center justify-center">
-          <CheckIcon />
+          <IconCheck
+            size={16}
+            weight="bold"
+            style={{ color: "#FFFFFF", filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.35))" }}
+          />
         </span>
       )}
     </button>
@@ -432,29 +434,3 @@ function Hint({ tone, children }: { tone: "info" | "warning" | "danger"; childre
   );
 }
 
-function PlusIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.35))" }}>
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-
-function PaletteIcon() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--color-brand-outline)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3a9 9 0 0 0 0 18c1.4 0 2-1 2-2 0-1.2-1-1.6-1-2.6 0-.8.7-1.4 1.6-1.4H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z" />
-      <circle cx="7.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none" />
-      <circle cx="16.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}

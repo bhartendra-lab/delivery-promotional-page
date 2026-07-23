@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IconUpload } from "@/components/ui/icons";
 
 type Props = {
   label?: string;
@@ -75,7 +76,7 @@ export function ImageUpload({
         ) : (
           <div className="flex flex-col items-center gap-2 text-center text-[var(--color-brand-muted)]">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-              <UploadIcon />
+              <IconUpload size={20} />
             </span>
             <p className="text-sm font-medium text-[var(--color-brand-ink)]">
               {isDragging ? "Drop to upload" : "Click or drag to upload"}
@@ -112,16 +113,3 @@ export function ImageUpload({
   );
 }
 
-function UploadIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 16V4M7 9l5-5 5 5M4 18v1a2 2 0 002 2h12a2 2 0 002-2v-1"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
