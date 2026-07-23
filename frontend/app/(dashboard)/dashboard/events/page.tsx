@@ -7,6 +7,7 @@ import type { Booking, BookingsListResponse } from "@/lib/types";
 import { isCountBasedPlan } from "@/lib/types";
 import { EventCard } from "@/components/dashboard/EventCard";
 import { useChrome } from "@/components/dashboard/ChromeContext";
+import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
@@ -18,7 +19,11 @@ export default function EventsListPage() {
   // Mirror the dashboard-home gating: count-based plans (Free/Event-based)
   // block new events once the allowance is used up. Storage plans are never
   // gated on creation.
-  const { dlpUsage, locked } = useChrome();
+  const { dlpUsage } = useChrome();
+  // Uploads keep running as you move around the dashboard, so cards stay fully
+  // openable. Only the event that's actually uploading holds back its
+  // lifecycle actions (archive / restore / clear data).
+  const uploadingIds = useUploadingBookingIds();
   const createBlocked =
     isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0;
   const [data, setData] = useState<BookingsListResponse | null>(null);
@@ -237,7 +242,7 @@ export default function EventsListPage() {
                   key={row._id}
                   row={row}
                   onOpen={openEvent}
-                  locked={locked}
+                  locked={uploadingIds.has(row._id)}
                   onArchive={onArchive}
                   onRestore={onRestore}
                   onClearData={onClearData}

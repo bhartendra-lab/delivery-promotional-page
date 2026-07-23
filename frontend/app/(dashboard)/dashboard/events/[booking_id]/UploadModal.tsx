@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChrome } from "@/components/dashboard/ChromeContext";
+import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
 import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
 
@@ -10,24 +11,37 @@ export type UploadPlan =
   | { mode: "grouped"; groups: Array<{ name: string; files: File[] }> }
   | { mode: "single"; files: File[]; targetFolderId: string; targetFolderName: string };
 
+/** A destination folder the picker can send photos to. */
+export type UploadFolderOption = { id: string; name: string };
+
+/**
+ * Which step the dialog opens on:
+ *  - "picker" — choose a destination first (Upload more from All Media).
+ *  - "select" — straight to picking files (a folder tab, or the empty-state CTA).
+ */
+export type UploadModalStep = "picker" | "select";
+
 type Props = {
   open: boolean;
   onClose: () => void;
   onStart: (plan: UploadPlan) => void;
-  /** Single-folder mode: every image goes here, no subfolder parsing / popups. */
-  targetFolderId?: string;
-  targetFolderName?: string;
+  /** Step the dialog opens on. Defaults to going straight to file selection. */
+  initialStep?: UploadModalStep;
+  /** Pre-selected destination for single-folder mode (opening on "select"). */
+  initialTarget?: UploadFolderOption | null;
   /**
-   * Folder-upload only (hide the "Or select photos" option). Used by the
-   * "Create new folder" path, where the intent is explicitly a subfoldered
-   * folder pick. Ignored in single-folder mode.
+   * Open directly into the import-with-subfolders flow (hides "Or select
+   * photos"). Ignored once a single-folder destination is chosen.
    */
-  folderOnly?: boolean;
+  initialFolderOnly?: boolean;
+  /** Existing folders offered as destinations in the picker step. */
+  folders: UploadFolderOption[];
   /**
-   * When provided in single-folder mode, renders a "Change" action in the
-   * "Uploading to" banner so the user can re-pick the destination folder.
+   * Create a folder from the picker's inline "+ New folder" chip. Resolves with
+   * the created (or reused) folder so we can drop straight into uploading to
+   * it; resolves null if the create failed — the caller owns the error toast.
    */
-  onChangeFolder?: () => void;
+  onCreateFolder: (name: string) => Promise<UploadFolderOption | null>;
 };
 
 type Analysis = {
@@ -45,16 +59,29 @@ export function UploadModal({
   open,
   onClose,
   onStart,
-  targetFolderId,
-  targetFolderName,
-  folderOnly = false,
-  onChangeFolder,
+  initialStep = "select",
+  initialTarget = null,
+  initialFolderOnly = false,
+  folders,
+  onCreateFolder,
 }: Props) {
+  // One dialog, several views. The destination picker used to be a separate
+  // modal that unmounted to make way for this one — that double backdrop
+  // animation is why it felt like two different decisions. It's now a step.
+  const [step, setStep] = useState<UploadModalStep>(initialStep);
+  const [target, setTarget] = useState<UploadFolderOption | null>(initialTarget);
+  const [folderOnly, setFolderOnly] = useState(initialFolderOnly);
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [directName, setDirectName] = useState<string | null>(null);
   const [naming, setNaming] = useState(false);
   const [mixedOpen, setMixedOpen] = useState(false);
+  /**
+   * Files dropped from the selection because we can't publish them — RAW
+   * originals and macOS sidecar/dotfiles. Silently discarding them made photos
+   * "go missing"; the count is surfaced in the content panel instead.
+   */
+  const [skipped, setSkipped] = useState(0);
   // Root folder name (parts[0]) of the FIRST folder picked this session. The
   // first folder is parsed with first-level subfolder grouping; any folders
   // added afterwards are flattened under their own name (see analyze()).
@@ -67,7 +94,7 @@ export function UploadModal({
     () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
   );
 
-  const single = !!targetFolderId;
+  const single = !!target;
 
   // Storage-plan gating: on Monthly/Yearly plans, estimate the compressed upload
   // size and block if it would exceed the remaining GB. Inert (and absent) for
@@ -82,7 +109,11 @@ export function UploadModal({
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
+    setStep(initialStep);
+    setTarget(initialTarget);
+    setFolderOnly(initialFolderOnly);
     setFiles([]);
+    setSkipped(0);
     setDragOver(false);
     setDirectName(null);
     setNaming(false);
@@ -94,6 +125,9 @@ export function UploadModal({
     return () => {
       document.body.style.overflow = "";
     };
+    // Re-running on every `initialTarget` identity change would wipe a live
+    // selection; the open transition is the only moment these should apply.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Fingerprint the selection by name+size so the estimate re-runs when photos
@@ -146,7 +180,9 @@ export function UploadModal({
   const estimatePending =
     storageGated && files.length > 0 && (dlpLoading || estimating || estimateGB === null);
 
-  // Escape closes the top-most layer (mixed popup → naming popup → modal).
+  // Escape unwinds one layer at a time: mixed popup → naming popup → close.
+  // Stepping back to the destination picker is an explicit footer action, so
+  // Escape stays predictable and always means "close this dialog".
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -171,8 +207,42 @@ export function UploadModal({
 
   if (!open) return null;
 
+  /** Back to the destination step — clears the in-progress selection, since it
+   *  was gathered for a destination the user is now changing. */
+  function goToPicker() {
+    setStep("picker");
+    setTarget(null);
+    setFolderOnly(false);
+    setFiles([]);
+    setSkipped(0);
+    setDirectName(null);
+    setNaming(false);
+    setFirstRoot(null);
+  }
+
+  /** Chose an existing (or just-created) folder → straight into single-folder mode. */
+  function pickTarget(folder: UploadFolderOption) {
+    setTarget(folder);
+    setFolderOnly(false);
+    setFiles([]);
+    setSkipped(0);
+    setFirstRoot(null);
+    setStep("select");
+  }
+
+  /** "Import folder with subfolders" → the multi-destination flow. */
+  function pickImportWithSubfolders() {
+    setTarget(null);
+    setFolderOnly(true);
+    setFiles([]);
+    setSkipped(0);
+    setFirstRoot(null);
+    setStep("select");
+  }
+
   function addFiles(picked: File[]) {
-    const filtered = filterImages(picked);
+    const { kept: filtered, skipped: dropped } = filterImages(picked);
+    if (dropped > 0) setSkipped((n) => n + dropped);
     if (filtered.length === 0) return;
     const merged = [...files, ...filtered];
     setFiles(merged);
@@ -219,14 +289,14 @@ export function UploadModal({
   const hasSelection = files.length > 0;
 
   const headingName = single
-    ? targetFolderName ?? "Folder"
+    ? target?.name ?? "Folder"
     : analysis.kind === "direct"
       ? directName ?? "New folder"
       : analysis.folderName || "Selected photos";
 
   // Groups to preview in the right panel (loose photos shown as a pending row).
   const previewGroups: Array<{ name: string; files: File[]; pending?: boolean }> = single
-    ? [{ name: targetFolderName ?? "Folder", files }]
+    ? [{ name: target?.name ?? "Folder", files }]
     : analysis.kind === "direct"
       ? [{ name: directName ?? "New folder", files: analysis.looseFiles }]
       : analysis.kind === "mixed"
@@ -242,12 +312,12 @@ export function UploadModal({
     if (files.length === 0) return;
     // Storage plans: never start an upload before we know it fits, or if it doesn't.
     if (estimatePending || overStorage) return;
-    if (single) {
+    if (single && target) {
       onStart({
         mode: "single",
         files,
-        targetFolderId: targetFolderId as string,
-        targetFolderName: targetFolderName ?? "Folder",
+        targetFolderId: target.id,
+        targetFolderName: target.name,
       });
       onClose();
       return;
@@ -295,19 +365,26 @@ export function UploadModal({
         onClick={onClose}
         className="drawer-fade absolute inset-0 bg-[var(--color-brand-ink)]/40 backdrop-blur-[1px]"
       />
-      <div className="dash-rise relative flex max-h-[90vh] w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white shadow-[0_12px_40px_rgba(42,34,24,0.12)]">
+      <div
+        className={`dash-rise relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white shadow-[0_12px_40px_rgba(42,34,24,0.12)] ${
+          step === "picker" ? "max-w-[480px]" : "max-w-[760px]"
+        }`}
+        style={{ transition: "max-width 220ms ease" }}
+      >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-brand-border)] px-6 py-4">
           <div>
             <h2 className="text-[18px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-              Upload media
+              {step === "picker" ? "Where should these photos go?" : "Upload media"}
             </h2>
             <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-              {single
-                ? "Pick photos to add to this folder."
-                : dirSupported
-                  ? "Pick the folder from your computer. We'll preserve the subfolder structure."
-                  : "Add photos to this event."}
+              {step === "picker"
+                ? "Pick a folder, start a new one, or bring across a folder that already has subfolders."
+                : !dirSupported
+                  ? "Uploading needs a desktop browser."
+                  : single
+                    ? "Pick photos to add to this folder."
+                    : "Drop the folder from your computer — we'll rebuild its subfolders here."}
             </p>
           </div>
           <button
@@ -320,117 +397,150 @@ export function UploadModal({
           </button>
         </div>
 
-        {/* Single-folder banner (§6) */}
-        {single && (
-          <div className="flex items-center gap-2 border-b border-[var(--color-brand-navy)]/20 bg-[var(--color-brand-navy-soft)] px-6 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)]">
-            <FolderIcon size={14} />
-            <span>Uploading to: {targetFolderName ?? "Folder"}</span>
-            {onChangeFolder && (
-              <button
-                type="button"
-                onClick={onChangeFolder}
-                className="brand-focus ml-auto shrink-0 rounded-md px-2 py-1 text-[12px] font-semibold text-[var(--color-brand-navy)] underline decoration-[var(--color-brand-navy)]/40 underline-offset-2 hover:decoration-[var(--color-brand-navy)]"
-              >
-                Change
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Body */}
-        <div className={`grid min-h-0 flex-1 grid-cols-1 overflow-hidden ${single ? "" : "sm:grid-cols-[280px_1fr]"}`}>
-          {/* Left: how-it-works illustration — only on the first (folder) upload.
-              "Upload more" goes to a single folder, where the subfolder guide isn't
-              relevant, so it's hidden there. (Also hidden on mobile per the brief.) */}
-          {!single && (
+        {step === "picker" ? (
+          <DestinationPicker
+            folders={folders}
+            onPick={pickTarget}
+            onCreateFolder={onCreateFolder}
+            onImportWithSubfolders={pickImportWithSubfolders}
+            dirSupported={dirSupported}
+          />
+        ) : !dirSupported ? (
+          <DesktopOnlyNotice onClose={onClose} />
+        ) : (
+          <>
+          {/* Body — same two-column shape in both modes: context on the left,
+              the drop zone on the right. (Single-folder mode used to announce its
+              destination in a tinted banner above a full-width drop zone, which
+              read as a different screen for no reason.) */}
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[280px_1fr]">
+            {/* Left: the destination, or the subfolder guide when importing.
+                (Hidden on mobile — the guard replaces the whole body there.) */}
             <div className="hidden flex-col border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-6 sm:flex">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-                How it works
-              </div>
-              <UploadIllustration />
-              <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
-                <strong>One-shot upload.</strong> Drop a folder that already has your subfolders inside it (e.g.{" "}
-                <i>Ceremony</i>, <i>Reception</i>, <i>Portraits</i>) and we&apos;ll create matching folders on the
-                event page.
-              </p>
-              <div className="mt-2.5 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
-                You can rename folders after upload — they show up in the folders sidebar.
-              </div>
+              {single ? (
+                <>
+                  <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+                    Uploading to
+                  </div>
+                  <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-3">
+                    <span className="mt-px inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+                      <FolderIcon size={16} />
+                    </span>
+                    <span className="min-w-0 break-words text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
+                      {target?.name ?? "Folder"}
+                    </span>
+                  </div>
+                  <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+                    <strong>Straight in, no sorting.</strong> Every photo you pick lands in this folder,
+                    exactly as it is.
+                  </p>
+                  <div className="mt-2.5 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+                    Wrong folder? Change the destination from the bottom-left.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+                    How it works
+                  </div>
+                  <UploadIllustration />
+                  <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+                    <strong>Your folders, exactly as you filed them.</strong> Drop a folder with
+                    subfolders inside and each one arrives here as its own folder.
+                  </p>
+                  <div className="mt-2.5 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+                    Names aren&apos;t final — rename any folder later from the sidebar.
+                  </div>
+                </>
+              )}
             </div>
+
+            {/* Right: drop zone OR content panel */}
+            <div className="flex min-h-0 flex-col overflow-y-auto px-7 py-6">
+              {!hasSelection ? (
+                <DropZone
+                  dragOver={dragOver}
+                  setDragOver={setDragOver}
+                  onDrop={handleDrop}
+                  onBrowseFolder={() => folderInputRef.current?.click()}
+                  onBrowseFiles={() => fileInputRef.current?.click()}
+                  single={single}
+                  folderOnly={folderOnly}
+                  skipped={skipped}
+                />
+              ) : (
+                <ContentPanel
+                  headingName={headingName}
+                  totalImages={files.length}
+                  groups={previewGroups}
+                  skipped={skipped}
+                  onAddMore={() => (single ? fileInputRef.current?.click() : folderInputRef.current?.click())}
+                />
+              )}
+
+              <input
+                ref={folderInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFolderPick}
+                className="hidden"
+                {...({ webkitdirectory: "true", directory: "true" } as Record<string, string>)}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFilePick}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {/* Storage estimate / overrun warning (Monthly / Yearly plans only) */}
+          {storageGated && hasSelection && !dlpLoading && (
+            <StorageEstimateNotice
+              estimating={estimating}
+              estimateGB={estimateGB}
+              remainingGB={remainingGB}
+              over={overStorage}
+            />
           )}
 
-          {/* Right: drop zone OR content panel */}
-          <div className="flex min-h-0 flex-col overflow-y-auto px-7 py-6">
-            {!hasSelection ? (
-              <DropZone
-                dragOver={dragOver}
-                setDragOver={setDragOver}
-                onDrop={handleDrop}
-                onBrowseFolder={() => folderInputRef.current?.click()}
-                onBrowseFiles={() => fileInputRef.current?.click()}
-                single={single}
-                folderOnly={folderOnly}
-                dirSupported={dirSupported}
-              />
-            ) : (
-              <ContentPanel
-                headingName={headingName}
-                totalImages={files.length}
-                groups={previewGroups}
-                onAddMore={() =>
-                  single || !dirSupported ? fileInputRef.current?.click() : folderInputRef.current?.click()
-                }
-              />
-            )}
-
-            <input
-              ref={folderInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleFolderPick}
-              className="hidden"
-              {...({ webkitdirectory: "true", directory: "true" } as Record<string, string>)}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleFilePick}
-              className="hidden"
-            />
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2.5 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
+            {/* Always available on this step — the destination picker is reachable
+                from any entry point (a folder tab, the banner's old "Change", or
+                after switching into the subfolder import). */}
+            <button
+              type="button"
+              onClick={goToPicker}
+              className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+            >
+              <BackIcon size={15} />
+              Change destination
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={files.length === 0 || overStorage || estimatePending}
+              onClick={start}
+              className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {files.length > 0
+                ? `Start upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`
+                : "Start upload"}
+            </button>
           </div>
-        </div>
-
-        {/* Storage estimate / overrun warning (Monthly / Yearly plans only) */}
-        {storageGated && hasSelection && !dlpLoading && (
-          <StorageEstimateNotice
-            estimating={estimating}
-            estimateGB={estimateGB}
-            remainingGB={remainingGB}
-            over={overStorage}
-          />
+          </>
         )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
-          <button
-            type="button"
-            onClick={onClose}
-            className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={files.length === 0 || overStorage || estimatePending}
-            onClick={start}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Start upload
-          </button>
-        </div>
 
         {/* §5d — name this folder (direct image selection) */}
         {naming && (
@@ -474,7 +584,7 @@ function DropZone({
   onBrowseFiles,
   single,
   folderOnly,
-  dirSupported,
+  skipped,
 }: {
   dragOver: boolean;
   setDragOver: (v: boolean) => void;
@@ -483,15 +593,16 @@ function DropZone({
   onBrowseFiles: () => void;
   single: boolean;
   folderOnly: boolean;
-  dirSupported: boolean;
+  /** Files dropped from the last pick because we can't publish them. */
+  skipped: number;
 }) {
-  // Folder browsing is only possible off the directory input on desktop.
-  const canBrowseFolder = !single && dirSupported;
-  // The file picker is the main CTA whenever folder browsing isn't available
-  // (single mode, or mobile) — otherwise it's the secondary "Or select photos".
-  const showFileButton = single || !dirSupported || !folderOnly;
+  // Single-folder mode picks loose photos; the import flow picks a directory.
+  const canBrowseFolder = !single;
+  // In the import flow, individual photos are the secondary route — unless the
+  // caller asked for folders only.
+  const showFileButton = single || !folderOnly;
   const fileButtonPrimary = !canBrowseFolder;
-  const fileButtonLabel = single ? "Browse photos" : canBrowseFolder ? "Or select photos" : "Add photos";
+  const fileButtonLabel = single ? "Browse photos" : "Or pick photos";
 
   return (
     <>
@@ -519,7 +630,7 @@ function DropZone({
           <UploadIcon size={26} />
         </div>
         <div className="text-center text-[15px] font-semibold text-[var(--color-brand-ink)]">
-          {single ? "Drag photos here" : canBrowseFolder ? "Drag a folder here" : "Add photos"}
+          {single ? "Drop your photos here" : "Drop your folder here"}
         </div>
         <div className="max-w-[280px] text-center text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
           JPG · PNG · HEIC · WebP · no size limit
@@ -548,14 +659,170 @@ function DropZone({
             </button>
           )}
         </div>
-        {/* Mobile can't preserve subfolder structure — point users to desktop. */}
-        {!single && !dirSupported && (
-          <p className="max-w-[280px] text-center text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
-            Folder uploads with subfolders are available on desktop.
+        {/* A pick can end up empty — say why rather than looking broken. */}
+        {skipped > 0 && (
+          <p className="max-w-[300px] text-center text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+            {skipped.toLocaleString("en-IN")} file{skipped === 1 ? " was" : "s were"} skipped — RAW
+            originals and system files can&apos;t be shown in a gallery.
           </p>
         )}
       </div>
     </>
+  );
+}
+
+/* ── desktop-only guard (§C) ───────────────────────────────────── */
+
+/**
+ * Uploading needs `<input webkitdirectory>` and a real filesystem drag-and-drop
+ * — neither of which mobile browsers give us. The entry points are already
+ * desktop-only, so this is the belt to that pair of braces: if the dialog is
+ * ever opened on an unsupported device, it says so instead of offering a drop
+ * zone and file input that would half-work.
+ */
+function DesktopOnlyNotice({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-7 py-12 text-center">
+      <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+        <DesktopIcon size={26} />
+      </div>
+      <h3 className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+        Uploading works on your laptop
+      </h3>
+      <p className="max-w-[340px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
+        Phone browsers can&apos;t hand over a folder with its subfolders intact, and event uploads are
+        far too big for a mobile connection. Open this event on your computer and the whole shoot goes
+        up in one drop.
+      </p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="brand-focus mt-2 inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      >
+        Got it
+      </button>
+    </div>
+  );
+}
+
+/* ── destination picker (step 1) ───────────────────────────────── */
+
+/**
+ * Choose where photos land. Two genuinely different things live here, so
+ * they're kept apart by a divider:
+ *   - a destination folder (existing chip, or "+ New folder" — one folder,
+ *     created empty and uploaded into immediately), and
+ *   - importing a folder that already has subfolders, which fans out into
+ *     several destination folders at once.
+ */
+function DestinationPicker({
+  folders,
+  onPick,
+  onCreateFolder,
+  onImportWithSubfolders,
+  dirSupported,
+}: {
+  folders: UploadFolderOption[];
+  onPick: (folder: UploadFolderOption) => void;
+  onCreateFolder: (name: string) => Promise<UploadFolderOption | null>;
+  onImportWithSubfolders: () => void;
+  dirSupported: boolean;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const hasFolders = folders.length > 0;
+
+  // Same inline-input pattern as the folders sidebar: type, press Enter, and
+  // you're already uploading into the new folder — no second dialog.
+  async function commitNewFolder(name: string) {
+    const trimmed = name.trim();
+    setCreating(false);
+    if (!trimmed || busy) return;
+    setBusy(true);
+    try {
+      const created = await onCreateFolder(trimmed);
+      if (created) onPick(created);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+      <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+        Upload to an existing folder
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {folders.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            disabled={busy}
+            onClick={() => onPick(f)}
+            className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <FolderIcon size={13} className="text-[var(--color-brand-muted)]" />
+            {f.name}
+          </button>
+        ))}
+
+        {creating ? (
+          <span className="inline-flex h-[34px] w-[170px] items-center rounded-full border border-[var(--color-brand-navy)] bg-white px-2">
+            <InlineFolderInput
+              placeholder="New folder name"
+              onCommit={commitNewFolder}
+              onCancel={() => setCreating(false)}
+            />
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setCreating(true)}
+            className="brand-focus inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-brand-border)] px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span className="text-[14px] leading-none">+</span>
+            New folder
+          </button>
+        )}
+      </div>
+
+      <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+        {hasFolders
+          ? "Every photo lands in the one folder you pick — nothing gets re-sorted."
+          : "No folders yet. Name one above and you'll go straight to picking photos."}
+      </p>
+
+      <div className="my-5 flex items-center gap-3">
+        <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+        <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+          Or
+        </span>
+        <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+      </div>
+
+      <button
+        type="button"
+        disabled={busy || !dirSupported}
+        onClick={onImportWithSubfolders}
+        className="brand-focus flex w-full items-start gap-3 rounded-lg border border-[var(--color-brand-border)] bg-white p-3.5 text-left hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+          <FolderTreeIcon size={17} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
+            Import a folder with subfolders
+          </span>
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+            {dirSupported
+              ? "Drop one folder — each subfolder inside it (Ceremony, Reception, Portraits…) becomes its own folder here."
+              : "Available on desktop."}
+          </span>
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -565,11 +832,14 @@ function ContentPanel({
   headingName,
   totalImages,
   groups,
+  skipped,
   onAddMore,
 }: {
   headingName: string;
   totalImages: number;
   groups: Array<{ name: string; files: File[]; pending?: boolean }>;
+  /** Files we filtered out of the pick (RAW originals, macOS sidecars/dotfiles). */
+  skipped: number;
   onAddMore: () => void;
 }) {
   return (
@@ -593,9 +863,19 @@ function ContentPanel({
           {headingName}
         </h3>
         <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-          {totalImages.toLocaleString("en-IN")} image{totalImages === 1 ? "" : "s"} found ·{" "}
+          {totalImages.toLocaleString("en-IN")} photo{totalImages === 1 ? "" : "s"} ready ·{" "}
           {groups.length} {groups.length === 1 ? "folder" : "folders"}
         </p>
+        {skipped > 0 && (
+          <p
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-bg)] px-2 py-1 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]"
+            title="RAW camera files and macOS sidecar/system files can't be displayed in a gallery."
+          >
+            <AlertIcon size={13} className="shrink-0" />
+            {skipped.toLocaleString("en-IN")} file{skipped === 1 ? "" : "s"} skipped — RAW originals
+            and system files aren&apos;t supported.
+          </p>
+        )}
       </div>
 
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
@@ -879,12 +1159,18 @@ function isJunkFile(name: string): boolean {
   return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
 }
 
-function filterImages(files: File[]): File[] {
-  return files.filter((f) => {
+/**
+ * Keep only what we can actually publish, and report how much was dropped —
+ * silently discarding files is what made photos appear to "go missing" between
+ * the picker and the gallery.
+ */
+function filterImages(files: File[]): { kept: File[]; skipped: number } {
+  const kept = files.filter((f) => {
     if (isJunkFile(f.name)) return false; // macOS AppleDouble / dotfiles
     if (RAW_EXTENSIONS.test(f.name)) return false; // block RAW
     return f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|gif|webp)$/i.test(f.name);
   });
+  return { kept, skipped: files.length - kept.length };
 }
 
 function defaultFolderName(): string {
@@ -1007,37 +1293,39 @@ async function walkEntry(entry: FsEntry, out: File[], prefix: string): Promise<v
 
 /* ── illustration + icons ──────────────────────────────────────── */
 
+/**
+ * Parent folder → child folders, built from the same `FolderIcon` and brand
+ * tokens as the rest of the modal (it used to be a hand-drawn SVG in a
+ * terracotta palette that appears nowhere else in this dialog).
+ */
 function UploadIllustration() {
   return (
-    <svg viewBox="0 0 280 220" width="100%" className="block">
-      <g transform="translate(110, 18)">
-        <rect x="0" y="8" width="60" height="44" rx="4" fill="#FFFFFF" stroke="#C25A3A" strokeWidth="1.5" />
-        <path d="M0 12 L0 8 a4 4 0 0 1 4 -4 h14 l4 4 h38 a4 4 0 0 1 4 4 v4 z" fill="#F7E8E3" stroke="#C25A3A" strokeWidth="1.5" />
-        <line x1="10" y1="28" x2="50" y2="28" stroke="#C25A3A" strokeWidth="1" opacity="0.45" />
-        <line x1="10" y1="36" x2="40" y2="36" stroke="#C25A3A" strokeWidth="1" opacity="0.45" />
-      </g>
-      <line x1="140" y1="70" x2="140" y2="115" stroke="#C25A3A" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
-      <line x1="40" y1="115" x2="240" y2="115" stroke="#C25A3A" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
-      <line x1="40" y1="115" x2="40" y2="138" stroke="#C25A3A" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
-      <line x1="140" y1="115" x2="140" y2="138" stroke="#C25A3A" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
-      <line x1="240" y1="115" x2="240" y2="138" stroke="#C25A3A" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.6" />
-      {[10, 110, 210].map((x, i) => (
-        <g key={i} transform={`translate(${x}, 138)`}>
-          <rect x="0" y="8" width="60" height="44" rx="4" fill="#FFFFFF" stroke="#7A6F63" strokeWidth="1.2" />
-          <path d="M0 12 L0 8 a4 4 0 0 1 4 -4 h14 l4 4 h38 a4 4 0 0 1 4 4 v4 z" fill="#FAFAF8" stroke="#7A6F63" strokeWidth="1.2" />
-          <line x1="10" y1="28" x2="50" y2="28" stroke="#7A6F63" strokeWidth="1" opacity="0.35" />
-          <line x1="10" y1="36" x2="44" y2="36" stroke="#7A6F63" strokeWidth="1" opacity="0.35" />
-        </g>
-      ))}
-      <text x="140" y="90" textAnchor="middle" fontFamily="Plus Jakarta Sans, sans-serif" fontSize="10" fontWeight="600" letterSpacing="0.06em" fill="#C25A3A">
-        PARENT FOLDER
-      </text>
-      {["Ceremony", "Reception", "Portraits"].map((label, i) => (
-        <text key={label} x={[40, 140, 240][i]} y="202" textAnchor="middle" fontFamily="Plus Jakarta Sans, sans-serif" fontSize="11" fontWeight="500" fill="#7A6F63">
-          {label}
-        </text>
-      ))}
-    </svg>
+    <div className="rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-4">
+      <div className="flex flex-col items-center">
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-navy-soft)] px-2.5 py-1.5 text-[11.5px] font-semibold text-[var(--color-brand-navy)]">
+          <FolderIcon size={14} />
+          Your event folder
+        </span>
+        <span className="h-3 w-px bg-[var(--color-brand-border)]" aria-hidden />
+      </div>
+      <div className="flex items-start justify-center">
+        {["Ceremony", "Reception", "Portraits"].map((label, i) => (
+          <div key={label} className="flex min-w-0 flex-1 flex-col items-center">
+            {/* Connector: a horizontal rail across the three children, with the
+                outer halves trimmed so it reads as a bracket, not a full line. */}
+            <span className="flex h-px w-full items-center" aria-hidden>
+              <span className={`h-px flex-1 ${i === 0 ? "bg-transparent" : "bg-[var(--color-brand-border)]"}`} />
+              <span className={`h-px flex-1 ${i === 2 ? "bg-transparent" : "bg-[var(--color-brand-border)]"}`} />
+            </span>
+            <span className="h-3 w-px bg-[var(--color-brand-border)]" aria-hidden />
+            <FolderIcon size={16} className="text-[var(--color-brand-muted)]" />
+            <span className="mt-1 max-w-full truncate text-[10.5px] font-medium text-[var(--color-brand-muted)]">
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1064,6 +1352,36 @@ function CloseIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
       <line x1="6" y1="6" x2="18" y2="18" />
       <line x1="6" y1="18" x2="18" y2="6" />
+    </svg>
+  );
+}
+
+function BackIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="14 6 8 12 14 18" />
+    </svg>
+  );
+}
+
+function FolderTreeIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 4.5a1 1 0 0 1 1-1h3l1.4 1.6H13a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+      <path d="M6.5 10.5v7.5a1 1 0 0 0 1 1H10" />
+      <path d="M6.5 14h3.5" />
+      <rect x="13.5" y="11.5" width="7" height="5" rx="1" />
+      <rect x="13.5" y="17" width="7" height="5" rx="1" />
+    </svg>
+  );
+}
+
+function DesktopIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="4" width="19" height="12.5" rx="1.5" />
+      <path d="M8.5 20.5h7" />
+      <path d="M12 16.5v4" />
     </svg>
   );
 }

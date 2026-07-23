@@ -35,8 +35,12 @@ export type UploadEngineHook = {
      */
     onFoldersEnsured?: (folders: Array<{ id: string; name: string }>) => void;
   }) => Promise<void>;
-  /** Cancel the in-flight run; flushes create-media for completed uploads first. */
-  cancelUpload: () => Promise<void>;
+  /**
+   * Cancel the in-flight run; flushes create-media for completed uploads first.
+   * Resolves with how many photos are confirmed in the gallery, for the
+   * post-cancel summary.
+   */
+  cancelUpload: () => Promise<{ savedCount: number }>;
   /** Pause the active run — new work stops, in-flight chunks settle, state persists. */
   pause: () => void;
   /** Resume a paused run from exactly where it left off (no re-upload). */
@@ -265,9 +269,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
     [engine, bookingId],
   );
 
-  const cancelUpload = useCallback(async () => {
-    await engine.cancel();
-  }, [engine]);
+  const cancelUpload = useCallback(() => engine.cancel(), [engine]);
 
   const pause = useCallback(() => {
     engine.pause();
@@ -351,8 +353,14 @@ function isJunkFile(name: string): boolean {
   return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
 }
 
+/**
+ * Defence in depth for any caller that bypasses the upload modal. The modal
+ * does its own filtering and is the one that surfaces a skipped count to the
+ * user; here we only log a summary, so a silent drop at this boundary is still
+ * traceable.
+ */
 function filterImages(files: File[]): File[] {
-  return files.filter((f) => {
+  const kept = files.filter((f) => {
     if (isJunkFile(f.name)) {
       console.warn("[upload:filter] skipping macOS sidecar/dotfile", { name: f.name, type: f.type || "(no type)", sizeMB: (f.size / 1024 / 1024).toFixed(2) });
       return false;
@@ -367,6 +375,11 @@ function filterImages(files: File[]): File[] {
     }
     return keep;
   });
+  const skipped = files.length - kept.length;
+  if (skipped > 0) {
+    console.warn(`[upload:filter] ${skipped} of ${files.length} file(s) skipped at the engine boundary`);
+  }
+  return kept;
 }
 
 type Group = { name: string; files: File[] };

@@ -32,6 +32,7 @@ export function GalleryGrid({
   onToggleSelect,
   onToggleLike,
   onEnterSelectWith,
+  onDownload,
 }: {
   t: ClientTheme;
   layout?: "justified" | "grid";
@@ -43,6 +44,7 @@ export function GalleryGrid({
   onToggleSelect: (item: GuestMediaItem) => void;
   onToggleLike: (item: GuestMediaItem) => void;
   onEnterSelectWith: (item: GuestMediaItem) => void;
+  onDownload: (item: GuestMediaItem) => void;
 }) {
   if (layout === "grid") {
     return (
@@ -61,6 +63,7 @@ export function GalleryGrid({
             onToggleSelect={() => onToggleSelect(item)}
             onToggleLike={() => onToggleLike(item)}
             onEnterSelectWith={() => onEnterSelectWith(item)}
+            onDownload={() => onDownload(item)}
           />
         ))}
       </div>
@@ -78,6 +81,7 @@ export function GalleryGrid({
       onToggleSelect={onToggleSelect}
       onToggleLike={onToggleLike}
       onEnterSelectWith={onEnterSelectWith}
+      onDownload={onDownload}
     />
   );
 }
@@ -112,6 +116,7 @@ function JustifiedGrid({
   onToggleSelect,
   onToggleLike,
   onEnterSelectWith,
+  onDownload,
 }: {
   t: ClientTheme;
   items: GuestMediaItem[];
@@ -122,6 +127,7 @@ function JustifiedGrid({
   onToggleSelect: (item: GuestMediaItem) => void;
   onToggleLike: (item: GuestMediaItem) => void;
   onEnterSelectWith: (item: GuestMediaItem) => void;
+  onDownload: (item: GuestMediaItem) => void;
 }) {
   const [containerRef, width] = useContainerWidth();
   // Flatten the index onto each item (rather than wrapping) so it still carries
@@ -149,6 +155,7 @@ function JustifiedGrid({
               onToggleSelect={() => onToggleSelect(tile)}
               onToggleLike={() => onToggleLike(tile)}
               onEnterSelectWith={() => onEnterSelectWith(tile)}
+              onDownload={() => onDownload(tile)}
             />
           ))}
         </div>
@@ -171,6 +178,7 @@ function PhotoTile({
   onToggleSelect,
   onToggleLike,
   onEnterSelectWith,
+  onDownload,
 }: {
   t: ClientTheme;
   layout: "justified" | "grid";
@@ -185,6 +193,7 @@ function PhotoTile({
   onToggleSelect: () => void;
   onToggleLike: () => void;
   onEnterSelectWith: () => void;
+  onDownload: () => void;
 }) {
   const isJustified = layout === "justified";
   const pad = selectMode && isSel ? 4 : 0;
@@ -268,27 +277,42 @@ function PhotoTile({
         {isSel && <CheckIcon size={13} />}
       </button>
 
-      {/* like — visible when liked; otherwise reveals on desktop hover, lighter on mobile */}
+      {/* like + download, together bottom-right. Like stays visible when liked;
+          both reveal on desktop hover otherwise, lighter on mobile. */}
       {!selectMode && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleLike();
-          }}
-          aria-label={isLiked ? "Unlike photo" : "Like photo"}
-          className={`absolute bottom-1.5 left-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 transition-transform active:scale-95 ${
-            isLiked ? "" : revealCls
-          }`}
-          style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.38)" }}
-        >
-          <HeartIcon size={14} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
-          {(item.likes_count ?? 0) > 0 && (
-            <span className="pr-0.5 text-[11px] font-bold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
-              {item.likes_count}
-            </span>
-          )}
-        </button>
+        <div className="absolute bottom-1.5 right-1.5 z-10 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLike();
+            }}
+            aria-label={isLiked ? "Unlike photo" : "Like photo"}
+            className={`flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 transition-transform active:scale-95 ${
+              isLiked ? "" : revealCls
+            }`}
+            style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.38)" }}
+          >
+            <HeartIcon size={14} filled={isLiked} color={isLiked ? SIGNAL.liked : "#fff"} />
+            {(item.likes_count ?? 0) > 0 && (
+              <span className="pr-0.5 text-[11px] font-bold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
+                {item.likes_count}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload();
+            }}
+            aria-label="Download photo"
+            className={`flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95 ${revealCls}`}
+            style={{ background: "rgba(20,16,8,0.38)" }}
+          >
+            <DownloadIcon size={12} color="#fff" />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -307,6 +331,15 @@ function CheckIcon({ size = 13 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="5 12 10 17 19 7" />
+    </svg>
+  );
+}
+/** Same path as `GalleryControls.tsx`'s `DownloadIcon` — kept as a local copy
+ *  for visual consistency without importing across the toolbar/tile split. */
+function DownloadIcon({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
     </svg>
   );
 }

@@ -372,6 +372,19 @@ export function LoungeGallery({
     [zipping, onReauth, triggerNudge],
   );
 
+  // Per-tile hover download (item 7) — same single-photo path as the select
+  // bar's one-item case, just triggered straight from the tile instead of
+  // going through select mode.
+  const downloadOne = useCallback(
+    async (item: GuestMediaItem) => {
+      setToast("Downloading 1 photo…");
+      await downloadMany([item.url]);
+      setToast("Download started");
+      triggerNudge("download");
+    },
+    [triggerNudge],
+  );
+
   async function downloadSelected() {
     const chosen = displayed.filter((i) => selected.has(i._id));
     if (!chosen.length) return;
@@ -666,6 +679,7 @@ export function LoungeGallery({
                   onToggleSelect={toggleSel}
                   onToggleLike={toggleLike}
                   onEnterSelectWith={enterSelectWith}
+                  onDownload={downloadOne}
                 />
                 {loadingMore && (
                   <div className="flex justify-center py-6">
@@ -765,6 +779,7 @@ export function LoungeGallery({
             onToggleSelect={toggleSel}
             onToggleLike={toggleLike}
             onEnterSelectWith={enterSelectWith}
+            onDownload={downloadOne}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             canDownloadAll={canDownloadAll}
@@ -945,6 +960,7 @@ function MobileGalleryView(props: {
   onToggleSelect: (i: GuestMediaItem) => void;
   onToggleLike: (i: GuestMediaItem) => void;
   onEnterSelectWith: (i: GuestMediaItem) => void;
+  onDownload: (i: GuestMediaItem) => void;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
   canDownloadAll: boolean;
@@ -1017,14 +1033,14 @@ function MobileGalleryView(props: {
       </div>
 
       {/* grid */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-[130px] pt-3" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-[130px] pt-6" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
         <div className="mx-auto w-full max-w-[760px] px-4">
           {loading ? (
             <LoadingSkeleton />
           ) : props.loadError && items.length === 0 ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            <EmptyState t={t} likedView={likedView} tab={tab} />
+            <EmptyState t={t} likedView={likedView} tab={tab} unlocked={unlocked} />
           ) : (
             <>
               <GalleryGrid
@@ -1037,6 +1053,7 @@ function MobileGalleryView(props: {
                 onToggleSelect={props.onToggleSelect}
                 onToggleLike={props.onToggleLike}
                 onEnterSelectWith={props.onEnterSelectWith}
+                onDownload={props.onDownload}
               />
               {loadingMore && (
                 <div className="flex justify-center py-6">

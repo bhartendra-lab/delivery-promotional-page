@@ -6,6 +6,7 @@ import { getCompany, setCompany, isAuthenticated } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import { Sidebar, useSidebarCollapsed } from "@/components/dashboard/Sidebar";
 import { Topbar, type Breadcrumb } from "@/components/dashboard/Topbar";
+import { ActiveUploadsIndicator } from "@/components/dashboard/ActiveUploadsIndicator";
 import { ChromeProvider, useChrome } from "@/components/dashboard/ChromeContext";
 
 export default function DashboardLayout({
@@ -57,19 +58,22 @@ export default function DashboardLayout({
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useSidebarCollapsed();
-  const { customBreadcrumb, locked, mainRef } = useChrome();
+  const { customBreadcrumb, mainRef } = useChrome();
 
   const breadcrumb: Breadcrumb = customBreadcrumb ?? deriveBreadcrumb(pathname);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]">
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} locked={locked} />
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar breadcrumb={breadcrumb} />
         <main ref={mainRef as React.RefObject<HTMLElement>} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {children}
         </main>
       </div>
+      {/* Floats above every dashboard page: uploads keep running when you
+          navigate away, so they need a permanent, reachable home. */}
+      <ActiveUploadsIndicator />
     </div>
   );
 }

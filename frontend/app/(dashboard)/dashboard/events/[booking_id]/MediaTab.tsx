@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createCustomFolder, deleteCustomFolder, reorderCustomFolders, updateCustomFolder } from "@/lib/api";
 import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
 import { FoldersSidebar, InlineFolderInput, type FolderRow } from "@/components/dashboard/FoldersSidebar";
-import { UploadModal } from "./UploadModal";
+import { UploadModal, type UploadFolderOption, type UploadModalStep } from "./UploadModal";
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
@@ -39,7 +39,6 @@ export function MediaTab({ loading }: { loading: boolean }) {
     loadMore,
     engine,
     activeLocked,
-    finalizingStorage,
     pauseUpload,
     publishedEver,
     saveMeta,
@@ -51,18 +50,22 @@ export function MediaTab({ loading }: { loading: boolean }) {
     toast,
   } = useEvent();
 
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadTarget, setUploadTarget] = useState<{ id: string; name: string } | null>(null);
+  // One upload dialog for the whole flow. `uploadIntent` is only the state it
+  // opens on — the dialog owns every step after that (destination picker →
+  // file selection) internally, so switching steps never unmounts it.
+  const [uploadIntent, setUploadIntent] = useState<{
+    step: UploadModalStep;
+    target: UploadFolderOption | null;
+    folderOnly: boolean;
+  } | null>(null);
   // Directory (folder) uploads need <input webkitdirectory>, which mobile
   // browsers don't support — steer those to the plain multi-file picker.
   const [dirSupported] = useState(
     () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
   );
-  const [prePickerOpen, setPrePickerOpen] = useState(false);
-  // Folder-only upload (the "Create new folder" path): opens the first-time
-  // folder flow with the subfolder guide, minus the "Or select photos" option.
-  const [folderOnly, setFolderOnly] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  /** Set once a cancelled run has fully settled — drives the summary card. */
+  const [cancelSummary, setCancelSummary] = useState<{ saved: number } | null>(null);
   // A cover pick (upload or "Set as cover photo") parked here until the studio
   // confirms its position in `CoverPositionModal` — nothing is persisted until then.
   const [pendingCover, setPendingCover] = useState<PendingCover | null>(null);
@@ -71,12 +74,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
   // "populated" vs "empty" is event-level (does the booking have any media),
   // not view-level — an empty folder still shows the populated chrome with an
-  // empty grid, mirroring the prior behaviour. `finalizingStorage` keeps this
-  // "uploading" a beat longer on cancel/complete, until the storage
-  // recalculation for that transition has settled.
+  // empty grid, mirroring the prior behaviour. This follows the engine alone:
+  // the storage recalculation that used to hold it here has nothing to do with
+  // whether the upload is over, and waiting on it made pause/cancel feel slow.
   const state: "loading" | "uploading" | "populated" | "empty" = loading
     ? "loading"
-    : engineActive || finalizingStorage
+    : engineActive
     ? "uploading"
     : totalCount > 0
     ? "populated"
@@ -93,6 +96,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
     }));
     return [allRow, ...userRows];
   }, [folders, totalCount, folderCounts]);
+
+  /** Destination options for the upload dialog's picker step. */
+  const uploadFolderOptions: UploadFolderOption[] = useMemo(
+    () => folders.map((f) => ({ id: f._id, name: f.name })),
+    [folders],
+  );
 
   const activeFolderLabel =
     activeFolderId === ALL_MEDIA_ID
@@ -115,8 +124,14 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // Folder create needs the bookingId — read it from context.
   const bookingId = ctxBookingId;
 
-  const addFolder = useCallback(
-    async (name: string) => {
+  /**
+   * Create a folder and merge it into the sidebar list. Returns the folder so
+   * callers that need to act on it next (the upload dialog's "+ New folder"
+   * chip, which drops straight into uploading to it) don't have to re-find it;
+   * null means the create failed and the error has already been toasted.
+   */
+  const createFolder = useCallback(
+    async (name: string): Promise<UploadFolderOption | null> => {
       try {
         const res = await createCustomFolder(bookingId, name);
         setFolders((prev) => {
@@ -129,11 +144,20 @@ export function MediaTab({ loading }: { loading: boolean }) {
             { _id: res.custom_folder_id, name, booking_id: bookingId, createdAt: new Date().toISOString() },
           ];
         });
+        return { id: res.custom_folder_id, name };
       } catch (err) {
         toast(err instanceof Error ? err.message : "Could not create folder", "error");
+        return null;
       }
     },
     [bookingId, setFolders, toast],
+  );
+
+  const addFolder = useCallback(
+    async (name: string) => {
+      await createFolder(name);
+    },
+    [createFolder],
   );
 
   const handleDeleteFolder = useCallback(
@@ -240,47 +264,30 @@ export function MediaTab({ loading }: { loading: boolean }) {
   );
 
   const handleUploadMore = useCallback(() => {
-    // System views (All Media / Liked Media) aren't real upload targets — pick a
-    // folder first. A real folder tab uploads straight into it (single mode).
-    if (activeIsSystem) setPrePickerOpen(true);
-    else {
-      setUploadTarget({ id: activeFolderId, name: activeFolderLabel });
-      setFolderOnly(false);
-      setUploadModalOpen(true);
-    }
+    // System views (All Media / Liked Media) aren't real upload targets — open
+    // on the destination step. A real folder tab uploads straight into it.
+    setUploadIntent(
+      activeIsSystem
+        ? { step: "picker", target: null, folderOnly: false }
+        : { step: "select", target: { id: activeFolderId, name: activeFolderLabel }, folderOnly: false },
+    );
   }, [activeIsSystem, activeFolderId, activeFolderLabel]);
 
+  // First upload for the event (empty state): no folders exist yet, so go
+  // straight to picking — folders are created by name at upload time.
   const handleBulkUpload = useCallback(() => {
-    setUploadTarget(null);
-    setFolderOnly(false);
-    setUploadModalOpen(true);
+    setUploadIntent({ step: "select", target: null, folderOnly: false });
   }, []);
 
-  // Pick an existing folder from the pre-picker → upload into it (single mode).
-  const pickExistingTarget = useCallback((folder: { id: string; name: string }) => {
-    setPrePickerOpen(false);
-    setUploadTarget({ id: folder.id, name: folder.name });
-    setFolderOnly(false);
-    setUploadModalOpen(true);
-  }, []);
+  const closeUploadModal = useCallback(() => setUploadIntent(null), []);
 
-  // "Create new folder" from the pre-picker → open the first-time folder flow
-  // (folder-only). Folders are created/reused by subfolder name at upload time
-  // via `ensureFolders`, so no folder is created here.
-  const openCreateNewFolderUpload = useCallback(() => {
-    setPrePickerOpen(false);
-    setUploadTarget(null);
-    setFolderOnly(true);
-    setUploadModalOpen(true);
-  }, []);
-
-  // "Change" from the upload modal's "Uploading to" banner → reopen the picker.
-  const changeFolder = useCallback(() => {
-    setUploadModalOpen(false);
-    setUploadTarget(null);
-    setFolderOnly(false);
-    setPrePickerOpen(true);
-  }, []);
+  // Cancel, then tell the studio exactly where it landed. `savedCount` comes
+  // from the engine and counts only photos whose metadata save confirmed — a
+  // create-media batch that failed on the way out is not "delivered".
+  const handleCancelUpload = useCallback(async () => {
+    const { savedCount } = await engine.cancelUpload();
+    setCancelSummary({ saved: savedCount });
+  }, [engine]);
 
   // Folders and media scroll independently. When the cursor is over the
   // folders column and it has no (more) room to scroll in the wheel's
@@ -309,7 +316,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         <FoldersSidebar
           folders={folderRows}
           activeFolderId={activeFolderId}
-          onSelect={activeLocked ? () => {} : setActiveFolder}
+          onSelect={setActiveFolder}
           onRename={handleRename}
           onAddFolder={folderRows.length > 0 ? addFolder : undefined}
           onDelete={handleDeleteFolder}
@@ -324,7 +331,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
         {activeLocked && (
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <WarnIcon size={14} />
-            Upload in progress — please keep this tab open.
+            Uploading — carry on working anywhere in the studio, just keep this tab open. Folder edits
+            wait until it&apos;s done.
           </div>
         )}
 
@@ -357,7 +365,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           <MobileFolderStrip
             folders={folderRows}
             activeFolderId={activeFolderId}
-            onSelect={activeLocked ? () => {} : setActiveFolder}
+            onSelect={setActiveFolder}
             onAddFolder={addFolder}
             onRename={handleRename}
             disabled={activeLocked}
@@ -369,9 +377,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
         {state === "uploading" && (
           <UploadProgress
             progress={engine.progress}
-            onCancel={() => void engine.cancelUpload()}
+            onCancel={handleCancelUpload}
             onTogglePause={() => (paused ? engine.resume() : pauseUpload())}
-            finalizingStorage={finalizingStorage}
           />
         )}
         {state === "populated" && (
@@ -404,16 +411,13 @@ export function MediaTab({ loading }: { loading: boolean }) {
       </div>
 
       <UploadModal
-        open={uploadModalOpen}
-        onClose={() => {
-          setUploadModalOpen(false);
-          setUploadTarget(null);
-          setFolderOnly(false);
-        }}
-        targetFolderId={uploadTarget?.id}
-        targetFolderName={uploadTarget?.name}
-        folderOnly={folderOnly}
-        onChangeFolder={changeFolder}
+        open={!!uploadIntent}
+        onClose={closeUploadModal}
+        initialStep={uploadIntent?.step ?? "select"}
+        initialTarget={uploadIntent?.target ?? null}
+        initialFolderOnly={uploadIntent?.folderOnly ?? false}
+        folders={uploadFolderOptions}
+        onCreateFolder={createFolder}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -444,13 +448,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
         }}
       />
 
-      {prePickerOpen && (
-        <UploadFolderPicker
-          folders={folders}
-          onPickExisting={pickExistingTarget}
-          onCreateNew={openCreateNewFolderUpload}
-          onClose={() => setPrePickerOpen(false)}
-        />
+      {cancelSummary && (
+        <CancelSummaryCard saved={cancelSummary.saved} onClose={() => setCancelSummary(null)} />
       )}
 
       {editOpen && (
@@ -665,9 +664,10 @@ function MobileFolderStrip({
               key={f.id}
               type="button"
               onClick={() => {
-                if (disabled) return;
-                // Tapping the already-active user folder switches it into rename.
-                if (selected && !f.system) setRenaming(true);
+                // Tapping the already-active user folder switches it into
+                // rename — but renaming is a mutation, so it waits for the
+                // upload. Switching folders never does.
+                if (selected && !f.system && !disabled) setRenaming(true);
                 else onSelect(f.id);
               }}
               aria-pressed={selected}
@@ -675,11 +675,11 @@ function MobileFolderStrip({
                 selected
                   ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
                   : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)]"
-              } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+              }`}
             >
               <span>{f.label}</span>
               <span className="tabular-nums opacity-70">{f.count.toLocaleString("en-IN")}</span>
-              {selected && !f.system && <EditIcon size={12} />}
+              {selected && !f.system && !disabled && <EditIcon size={12} />}
             </button>
           );
         })}
@@ -1021,19 +1021,18 @@ function EditMetaSheet({
   );
 }
 
-/* ── pre-upload folder picker ───────────────────────────────────── */
+/* ── cancel summary (§D3) ───────────────────────────────────────── */
 
-function UploadFolderPicker({
-  folders,
-  onPickExisting,
-  onCreateNew,
-  onClose,
-}: {
-  folders: CustomFolder[];
-  onPickExisting: (folder: { id: string; name: string }) => void;
-  onCreateNew: () => void;
-  onClose: () => void;
-}) {
+/**
+ * Shown once a cancelled run has fully settled. Cancelling mid-upload is
+ * unnerving — "what happened to the photos that were already going up?" — so
+ * this answers it with a number, and closes the loop on the obvious next
+ * worry: re-uploading the same folder is safe.
+ *
+ * `saved` counts only records the backend confirmed (status "saved"), not
+ * everything that reached R2, so it can never overstate what's in the gallery.
+ */
+function CancelSummaryCard({ saved, onClose }: { saved: number; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -1042,14 +1041,12 @@ function UploadFolderPicker({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const hasFolders = folders.length > 0;
-
   return (
     <div
       className="fixed inset-0 z-[55] flex items-end justify-center sm:items-center"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="pick-folder-title"
+      aria-labelledby="cancel-summary-title"
     >
       <button
         type="button"
@@ -1057,61 +1054,42 @@ function UploadFolderPicker({
         onClick={onClose}
         className="drawer-fade absolute inset-0 bg-[var(--color-brand-ink)]/40 backdrop-blur-[1px]"
       />
-      <div className="dash-rise relative max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--color-brand-border)] bg-white p-5 shadow-[0_-8px_40px_rgba(42,34,24,0.18)] sm:w-full sm:max-w-[460px] sm:rounded-2xl sm:p-6 sm:shadow-[0_18px_50px_rgba(42,34,24,0.18)]">
-        <div className="mb-1 flex items-start justify-between gap-4">
-          <h3 id="pick-folder-title" className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Select Existing Folder
-          </h3>
+      <div className="dash-rise relative max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--color-brand-border)] bg-white p-5 shadow-[0_-8px_40px_rgba(42,34,24,0.18)] sm:w-full sm:max-w-[420px] sm:rounded-2xl sm:p-6 sm:shadow-[0_18px_50px_rgba(42,34,24,0.18)]">
+        <span
+          className="mb-3.5 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-brand-success-soft)] text-[var(--color-brand-success)]"
+          aria-hidden
+        >
+          <CheckIcon size={20} />
+        </span>
+        <h3 id="cancel-summary-title" className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+          Upload stopped
+        </h3>
+        <p className="mt-1.5 text-[13.5px] leading-relaxed text-[var(--color-brand-muted)]">
+          {saved > 0 ? (
+            <>
+              <strong className="tabular-nums text-[var(--color-brand-ink)]">
+                {saved.toLocaleString("en-IN")} photo{saved === 1 ? "" : "s"}
+              </strong>{" "}
+              made it into the gallery and {saved === 1 ? "is" : "are"} live for guests. The rest
+              weren&apos;t uploaded.
+            </>
+          ) : (
+            <>Nothing was added to the gallery — the upload stopped before any photos landed.</>
+          )}
+        </p>
+        <p className="mt-3 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+          Pick the same folder again whenever you&apos;re ready — we recognise what&apos;s already
+          here and upload only what&apos;s missing. No duplicates.
+        </p>
+        <div className="mt-5 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+            className="brand-focus inline-flex h-10 items-center rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
           >
-            <CloseIcon size={16} />
+            Done
           </button>
         </div>
-        <p className="mb-4 text-[12.5px] text-[var(--color-brand-muted)]">
-          Photos will go straight into the folder you pick — no subfolder sorting.
-        </p>
-
-        {hasFolders ? (
-          <div className="flex flex-wrap gap-2">
-            {folders.map((f) => (
-              <button
-                key={f._id}
-                type="button"
-                onClick={() => onPickExisting({ id: f._id, name: f.name })}
-                className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
-              >
-                <FolderMiniIcon size={13} />
-                {f.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[12.5px] text-[var(--color-brand-muted)]">
-            No folders yet — upload a new one below.
-          </p>
-        )}
-
-        {/* Or ── divider */}
-        <div className="my-4 flex items-center gap-3">
-          <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
-          <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-            Or
-          </span>
-          <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
-        </div>
-
-        <button
-          type="button"
-          onClick={onCreateNew}
-          className="brand-focus inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
-        >
-          <UploadIcon size={16} />
-          Upload new folder
-        </button>
       </div>
     </div>
   );
@@ -1146,14 +1124,6 @@ function CloseIcon({ size }: { size: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
       <line x1="6" y1="6" x2="18" y2="18" />
       <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}
-
-function FolderMiniIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="text-[var(--color-brand-muted)]">
-      <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
     </svg>
   );
 }

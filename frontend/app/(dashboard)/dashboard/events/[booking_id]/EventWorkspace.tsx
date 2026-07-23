@@ -24,7 +24,7 @@ import type {
   ServiceType,
 } from "@/lib/types";
 import { setBookingName } from "@/lib/r2-upload/registry";
-import { usePageBreadcrumb, usePageLock, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
+import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
 import {
   EventProvider,
@@ -159,35 +159,20 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  // True while a pause/cancel/complete-triggered storage recalculation is in
-  // flight — keeps the upload card from handing off to its resting state (and
-  // the sidebar meter stale) until the fresh number lands.
-  const [finalizingStorage, setFinalizingStorage] = useState(false);
 
-  const { refreshDlpUsage } = useChrome();
+  // `settleStorage` re-walks R2 usage after a storage-changing upload
+  // transition (pause, cancel, completion) and refreshes the shared meter. It
+  // lives in the chrome so its "updating…" note lands on the sidebar meter —
+  // nothing in the upload UI waits on it, since it has no bearing on whether
+  // the upload itself stopped.
+  const { refreshDlpUsage, settleStorage } = useChrome();
 
   const engine = useUploadEngine(bookingId);
 
-  // Re-walk R2 usage after a storage-changing upload transition (pause, cancel,
-  // completion). A failure here must never strand the UI on a spinner — the
-  // triggering action (pause/cancel/complete) already succeeded independently.
-  const settleStorage = useCallback(async () => {
-    setFinalizingStorage(true);
-    try {
-      try {
-        await recalculateStudioStorage();
-      } catch (err) {
-        console.warn("[upload] recalculate-studio-storage failed", err);
-      }
-      await refreshDlpUsage();
-    } finally {
-      setFinalizingStorage(false);
-    }
-  }, [refreshDlpUsage]);
-
   // Pause needs its own trigger point — unlike cancel/completion it never
   // flips `isUploading` false, so it doesn't pass through the run-completion
-  // effect below.
+  // effect below. The pause itself is instant; the storage number catches up
+  // quietly behind it.
   const pauseUpload = useCallback(() => {
     engine.pause();
     void settleStorage();
@@ -515,9 +500,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
     if (wasActiveRef.current && !isActive) {
       void (async () => {
-        // Runs alongside reload/reloadBooking (not after) so `finalizingStorage`
-        // flips true in the same tick `isActive` flips false — no gap where the
-        // upload card could hand off before the storage number is fresh.
+        // All three run together: the media/booking refresh drives the visible
+        // hand-off, while the storage re-walk settles alongside it.
         const [list, fresh] = await Promise.all([reload(), reloadBooking(), settleStorage()]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
@@ -531,13 +515,19 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   /* ── derived ────────────────────────────────────────────────── */
 
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
+  /**
+   * True while a run is genuinely transferring (paused runs unlock everything).
+   * This no longer freezes the workspace — the engine is module-scoped per
+   * booking and survives route changes, so the Member can navigate and keep
+   * working. It now gates only the two things that would actually race the
+   * run: folder mutations (rename/delete/reorder, which `ensureFolders` is
+   * concurrently creating into) and Locate Originals' full-disk scan.
+   */
   const activeLocked = engineActive && !engine.progress.paused;
   const mediaReady = totalCount > 0;
   const hasMore = media.length < totalForView;
   const pillState = computePillState(pub);
 
-  // Lock the global chrome only while actively uploading (paused unlocks it).
-  usePageLock(activeLocked);
   usePageBreadcrumb([
     { label: "Events", href: "/dashboard/events" },
     { label: meta?.name ?? "Event" },
@@ -798,47 +788,28 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── tab gating ─────────────────────────────────────────────── */
 
-  // Galleries are live from creation, so Gallery Design & Access and Sharing
-  // are always available (the shared link + passcode + design controls exist
-  // as soon as the event does) — they only lock while an upload is actively
-  // running.
-  const galleryLocked = activeLocked;
-  const accessLocked = activeLocked;
-  // Smart Selects curates guest-liked photos — an empty state covers the
-  // "no likes yet" case, so it's unlocked from creation too.
-  const smartLocked = activeLocked;
-  // If the active tab becomes locked (media deleted, upload starts), the strip
-  // and body fall back to Media without mutating `activeTab` state.
-  const effectiveTab: TabId =
-    (activeTab === "gallery" && galleryLocked) ||
-    (activeTab === "access" && accessLocked) ||
-    (activeTab === "smart" && smartLocked)
-      ? "media"
-      : activeTab;
+  /**
+   * No tab is gated on an upload any more — each was checked against what a
+   * live run actually touches:
+   *  - Gallery Design writes style/message/branding fields via update-booking.
+   *    Galleries are live from creation and there is no publish action, so
+   *    nothing here can submit an incomplete photo set for processing.
+   *  - Access & Sharing (guest link, passcode, guest list, QR) has no data
+   *    dependency on upload state at all.
+   *  - Smart Selects flips per-media shortlist flags on existing rows. Only
+   *    its Locate Originals scan is held back (see `activeLocked`), since that
+   *    walks the whole disk while the compressor pool is already saturated.
+   */
+  const effectiveTab: TabId = activeTab;
 
   const tabs = useMemo(
     () => [
       { id: "media" as TabId, label: "Media", count: mediaReady ? totalCount : null },
-      {
-        id: "gallery" as TabId,
-        label: "Gallery Design",
-        locked: galleryLocked,
-        tooltip: "Available once the current upload finishes.",
-      },
-      {
-        id: "access" as TabId,
-        label: "Access & Sharing",
-        locked: accessLocked,
-        tooltip: "Available once the current upload finishes.",
-      },
-      {
-        id: "smart" as TabId,
-        label: "Smart Selects",
-        locked: smartLocked,
-        tooltip: "Available once the current upload finishes.",
-      },
+      { id: "gallery" as TabId, label: "Gallery Design" },
+      { id: "access" as TabId, label: "Access & Sharing" },
+      { id: "smart" as TabId, label: "Smart Selects" },
     ],
-    [mediaReady, totalCount, galleryLocked, accessLocked, smartLocked],
+    [mediaReady, totalCount],
   );
 
   const ctx = useMemo(
@@ -866,7 +837,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       loadMore,
       engine,
       activeLocked,
-      finalizingStorage,
       pauseUpload,
       publishedEver: pub.hasBeenPublished,
       saveMeta,
@@ -878,7 +848,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, finalizingStorage, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

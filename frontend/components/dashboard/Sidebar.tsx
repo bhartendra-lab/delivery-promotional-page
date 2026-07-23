@@ -24,28 +24,18 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar({
   collapsed,
   setCollapsed,
-  locked = false,
 }: {
   collapsed: boolean;
   setCollapsed: (next: boolean) => void;
-  /** When true, nav links are disabled (e.g. upload in progress). */
-  locked?: boolean;
 }) {
   const pathname = usePathname();
-  const { dlpUsage, dlpLoading } = useChrome();
+  const { dlpUsage, dlpLoading, storageSyncing } = useChrome();
 
   const activeId =
     NAV_ITEMS.slice()
       .sort((a, b) => b.href.length - a.href.length)
       .find((item) => pathname === item.href || pathname.startsWith(item.href + "/"))
       ?.id ?? null;
-
-  function attemptNav(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (locked) {
-      e.preventDefault();
-      window.alert("Upload in progress — please wait or cancel before leaving this page.");
-    }
-  }
 
   return (
     <aside
@@ -75,7 +65,6 @@ export function Sidebar({
           <>
             <a
               href="/dashboard"
-              onClick={attemptNav}
               aria-label="Vyavasth — go to dashboard"
               className="brand-focus flex items-center justify-center rounded-md p-1"
             >
@@ -95,7 +84,6 @@ export function Sidebar({
           <>
             <a
               href="/dashboard"
-              onClick={attemptNav}
               aria-label="Vyavasth — go to dashboard"
               className="brand-focus flex min-w-0 flex-1 items-center overflow-hidden rounded-md"
             >
@@ -125,13 +113,12 @@ export function Sidebar({
               <Link
                 key={item.id}
                 href={item.href}
-                onClick={attemptNav}
                 aria-current={active ? "page" : undefined}
                 className={`my-1 flex flex-col items-center justify-center gap-1.5 rounded-xl px-1 py-3.5 no-underline transition-colors ${
                   active
                     ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)] font-medium"
                     : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60 font-normal"
-                } ${locked ? "pointer-events-none opacity-50" : ""}`}
+                }`}
               >
                 {/* YouTube keeps icons at 24px in collapsed mode */}
                 <Icon 
@@ -149,13 +136,12 @@ export function Sidebar({
             <Link
               key={item.id}
               href={item.href}
-              onClick={attemptNav}
               aria-current={active ? "page" : undefined}
               className={`my-0.5 flex h-10 items-center gap-6 rounded-xl px-3 no-underline transition-colors ${
                 active
                   ? "bg-[var(--color-brand-navy-soft)] font-medium text-[var(--color-brand-navy)]"
                   : "font-normal text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
-              } ${locked ? "pointer-events-none opacity-50" : ""}`}
+              }`}
             >
               {/* YouTube uses 24px icons and a 24px (gap-6) spacing to the label */}
               <Icon 
@@ -171,9 +157,9 @@ export function Sidebar({
       {/* Footer: usage meter + account chip (identity + Settings + Sign out) */}
       <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2 py-3" : "px-3.5 py-3"}`}>
         {collapsed ? (
-          <CollapsedUsageMeter usage={dlpUsage} loading={dlpLoading} />
+          <CollapsedUsageMeter usage={dlpUsage} loading={dlpLoading} syncing={storageSyncing} />
         ) : (
-          <EventsMeter usage={dlpUsage} loading={dlpLoading} />
+          <EventsMeter usage={dlpUsage} loading={dlpLoading} syncing={storageSyncing} />
         )}
         <AccountMenu variant={collapsed ? "icon" : "chip"} />
       </div>
@@ -221,8 +207,20 @@ export function useSidebarCollapsed(): [boolean, (next: boolean) => void] {
  *    green < 70% → orange ≥ 70% → red ≥ 90%.
  *  - null service type / no limit / no data → bare "{used}" count, no bar.
  *  - Loading → skeleton; fetch error (no usage) → hidden.
+ *
+ * `syncing` shows a quiet "Updating…" note while an upload transition's storage
+ * re-walk is in flight. It's informational only — the number on screen stays
+ * readable and simply refreshes when the new one lands.
  */
-function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
+function EventsMeter({
+  usage,
+  loading,
+  syncing,
+}: {
+  usage: DlpUsage | null;
+  loading: boolean;
+  syncing?: boolean;
+}) {
   if (loading) {
     return <div className="skeleton mb-1.5 h-[58px] rounded-md" />;
   }
@@ -285,8 +283,14 @@ function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: bool
             style={{ width: `${pct}%`, background: barColor }}
           />
         </div>
-        <p className="mt-1 text-[10.5px] text-[var(--color-brand-muted)]">
-          {remaining.toFixed(1)} GB left
+        <p className="mt-1 flex items-center gap-1.5 text-[10.5px] text-[var(--color-brand-muted)]">
+          <span>{remaining.toFixed(1)} GB left</span>
+          {syncing && (
+            <span className="inline-flex items-center gap-1 text-[var(--color-brand-muted)]">
+              <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+              updating…
+            </span>
+          )}
         </p>
       </div>
     );
@@ -309,7 +313,15 @@ function EventsMeter({ usage, loading }: { usage: DlpUsage | null; loading: bool
  * the used value printed underneath. Same data, same severity thresholds —
  * just compact enough for the 96px rail.
  */
-function CollapsedUsageMeter({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
+function CollapsedUsageMeter({
+  usage,
+  loading,
+  syncing,
+}: {
+  usage: DlpUsage | null;
+  loading: boolean;
+  syncing?: boolean;
+}) {
   if (loading) {
     return <div className="skeleton mx-auto mb-2 h-[26px] w-[26px] rounded-full" />;
   }
@@ -343,7 +355,10 @@ function CollapsedUsageMeter({ usage, loading }: { usage: DlpUsage | null; loadi
   }
 
   return (
-    <div className="mb-1.5 flex flex-col items-center gap-1 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-2" title={`Storage: ${valueLabel}`}>
+    <div
+      className="mb-1.5 flex flex-col items-center gap-1 rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-2"
+      title={syncing ? `Storage: ${valueLabel} — updating…` : `Storage: ${valueLabel}`}
+    >
       <svg width="26" height="26" viewBox="0 0 24 24" className="-rotate-90">
         <circle cx="12" cy="12" r={R} fill="none" stroke="var(--color-brand-border)" strokeWidth="3" />
         <circle
@@ -358,7 +373,9 @@ function CollapsedUsageMeter({ usage, loading }: { usage: DlpUsage | null; loadi
           strokeDashoffset={CIRC - (pct / 100) * CIRC}
         />
       </svg>
-      <span className="text-[9px] font-semibold tabular-nums tracking-tight text-[var(--color-brand-muted)]">{valueLabel}</span>
+      <span className="text-[9px] font-semibold tabular-nums tracking-tight text-[var(--color-brand-muted)]">
+        {syncing ? "updating…" : valueLabel}
+      </span>
     </div>
   );
 }

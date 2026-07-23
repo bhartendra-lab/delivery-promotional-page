@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { EngineProgress } from "@/lib/r2-upload/types";
+import { useUploadStalled } from "@/lib/r2-upload/useUploadStall";
 
 const RING_SIZE = 220;
 const RING_STROKE = 4;
@@ -11,27 +13,30 @@ export function UploadProgress({
   progress,
   onCancel,
   onTogglePause,
-  finalizingStorage = false,
 }: {
   progress: EngineProgress;
-  onCancel: () => void;
+  /** Resolves once the run has fully settled (the caller shows the summary). */
+  onCancel: () => void | Promise<void>;
   onTogglePause: () => void;
-  /**
-   * True while the storage recalculation triggered by this pause/cancel/
-   * complete transition is settling. Swaps in transitional copy so the
-   * resting Paused/done state doesn't appear before the fresh usage number
-   * has landed.
-   */
-  finalizingStorage?: boolean;
 }) {
   const dashOffset = RING_CIRC * (1 - progress.percent / 100);
   const paused = progress.paused;
   const playState = paused ? "paused" : "running";
-  // Pause keeps `isUploading` true; cancel/complete flip it false — that
-  // distinguishes "settling right after Pause" from "settling right after
-  // Cancel/Complete" without a separate prop.
-  const finalizingPause = finalizingStorage && paused;
-  const finalizingExit = finalizingStorage && !progress.isUploading;
+  /**
+   * Cancelling is not instant: the engine waits for in-flight PUTs to settle
+   * and flushes their metadata before it lets go. That's correct, but the
+   * button used to sit there looking untouched the whole time. This is the
+   * optimistic acknowledgement — it flips the moment the click lands and is
+   * driven by nothing but the click.
+   */
+  const [cancelling, setCancelling] = useState(false);
+  // Nothing has moved for a while (most often: this tab was backgrounded and
+  // the browser throttled it). Say so instead of spinning a stalled ring.
+  const stalled = useUploadStalled(progress.isUploading, paused, progress.photosDone);
+
+  // No reset needed when the run ends: this card only renders while the engine
+  // is active, so it unmounts (taking `cancelling` with it) the moment cancel
+  // resolves.
 
   return (
     <section className="px-6 pb-12 pt-10 sm:px-10">
@@ -90,31 +95,33 @@ export function UploadProgress({
               </div>
             </div>
           </div>
+          {/* Headline follows the engine and nothing else — the moment it says
+              paused, this says paused. (It used to wait on a storage
+              recalculation that has nothing to do with the pause itself.) */}
           <h3 className="mt-6 text-[22px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-            {finalizingPause
-              ? "Pausing…"
-              : finalizingExit
-              ? "Finishing up…"
+            {cancelling
+              ? "Stopping the upload…"
               : paused
-              ? `Upload paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
+              ? `Paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : progress.isSavingMetadata
-              ? "Saving photo metadata…"
+              ? "Filing the last photos…"
               : `Uploading ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`}
           </h3>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-            {finalizingPause ? (
-              <>Wrapping up before pausing…</>
-            ) : finalizingExit ? (
-              <>Syncing your storage usage — almost done.</>
+            {cancelling ? (
+              <>Finishing the photos already in flight so none are left half-uploaded.</>
             ) : paused ? (
               <>
-                Transfer is on hold — the workspace is unlocked.{" "}
-                <strong className="text-[var(--color-brand-ink)]">Resume</strong> to continue.
+                Nothing is transferring right now.{" "}
+                <strong className="text-[var(--color-brand-ink)]">Resume</strong> whenever you&apos;re
+                ready — we pick up exactly where we stopped.
               </>
+            ) : stalled ? (
+              <>Nothing has moved for a while — browsers slow down tabs left in the background.</>
             ) : (
               <>
                 <strong className="text-[var(--color-brand-ink)]">{progress.etaLabel}</strong>
-                {progress.speedLabel && <> · upload speed {progress.speedLabel}</>}
+                {progress.speedLabel && <> · {progress.speedLabel}</>}
               </>
             )}
           </p>
@@ -179,23 +186,26 @@ export function UploadProgress({
             {paused ? <LockIcon size={15} /> : <ClockIcon size={15} />}
             <span>
               {paused
-                ? "Make your changes, then resume — nothing transfers while paused."
-                : "Keep this tab open. We'll let you know when it's done — feel free to grab some chai."}
+                ? "Paused. Rename, reorder, delete folders — then hit resume."
+                : "Keep this tab open and go do something else — the upload follows you around the studio."}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={onCancel}
-              disabled={finalizingExit}
+              onClick={() => {
+                setCancelling(true);
+                void onCancel();
+              }}
+              disabled={cancelling}
               className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Cancel upload
+              {cancelling ? "Stopping…" : "Stop upload"}
             </button>
             <button
               type="button"
               onClick={onTogglePause}
-              disabled={finalizingExit}
+              disabled={cancelling}
               className="brand-focus inline-flex items-center gap-1.5 rounded-md border px-4 py-2 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60"
               style={
                 paused

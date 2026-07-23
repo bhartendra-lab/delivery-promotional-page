@@ -44,6 +44,12 @@ type Props = {
   onReorder?: (orderedIds: string[]) => void | Promise<void>;
   /** Flip a folder between "Highlights" (public) and private. */
   onToggleVisibility?: (id: string) => void | Promise<void>;
+  /**
+   * Locks folder *mutations* (rename, delete, reorder, visibility, add) — used
+   * while an upload is running, since `ensureFolders` is creating and targeting
+   * folders concurrently. Switching folders stays live: reading the gallery is
+   * never a conflict.
+   */
   disabled?: boolean;
   /** Exposes the scrollable `<aside>` node so a wheel over it that hits its
    *  scroll boundary can be forwarded to a sibling scroll region. */
@@ -309,10 +315,16 @@ function FolderRowComponent({
   onToggleVisibility?: () => void;
   dragHandle?: SortableDragProps & { ref: (node: HTMLElement | null) => void };
 }) {
-  const Icon =
-    folder.icon === "heart" ? HeartIcon : folder.system ? ImageStackIcon : FolderIcon;
-  const showRowActions = !isRenaming && !folder.system;
   const isPublic = folder.visibility === "public";
+  const Icon =
+    folder.icon === "heart"
+      ? HeartIcon
+      : folder.system
+        ? ImageStackIcon
+        : isPublic
+          ? FolderStarIcon
+          : FolderIcon;
+  const showRowActions = !isRenaming && !folder.system;
 
   const menuItems: FolderMenuItem[] = [
     { key: "rename", label: "Rename", icon: <EditIcon size={12} />, onSelect: onStartRename },
@@ -320,8 +332,8 @@ function FolderRowComponent({
       ? [
           {
             key: "visibility",
-            label: isPublic ? "Remove from Highlights" : "Make public",
-            icon: <StarIcon size={12} filled={isPublic} />,
+            label: "Highlight",
+            icon: <CheckboxIcon size={13} checked={isPublic} />,
             onSelect: onToggleVisibility,
           } as FolderMenuItem,
         ]
@@ -341,11 +353,11 @@ function FolderRowComponent({
 
   return (
     <div
-      onClick={isRenaming || disabled ? undefined : onSelect}
-      role={isRenaming || disabled ? undefined : "button"}
+      onClick={isRenaming ? undefined : onSelect}
+      role={isRenaming ? undefined : "button"}
       className={`group relative my-px flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 ${
         isActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-white"
-      } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+      }`}
     >
       {showRowActions && (
         <button
@@ -566,19 +578,44 @@ function EditIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-function StarIcon({ size = 14, filled }: { size?: number; filled?: boolean }) {
+/** Folder glyph with a small filled star badge — flags a folder as
+ *  "Highlight" (public) right on the row, no menu needed to tell. */
+function FolderStarIcon({ size = 16, className }: { size?: number; className?: string }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.8z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className}>
+      <path
+        d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 12.6l1 2.1 2.3.3-1.65 1.6.4 2.3-2.05-1.1-2.05 1.1.4-2.3-1.65-1.6 2.3-.3z"
+        fill="var(--color-brand-warning)"
+        stroke="var(--color-brand-warning)"
+        strokeWidth={0.6}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Empty box / filled-with-tick box used for the "Highlight" menu item —
+ *  reads as a toggle at a glance, no icon-meaning to learn (unlike a star). */
+function CheckboxIcon({ size = 14, checked }: { size?: number; checked?: boolean }) {
+  if (checked) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="var(--color-brand-navy)" />
+        <path d="M7.5 12.5l3 3 6-6.5" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
     </svg>
   );
 }

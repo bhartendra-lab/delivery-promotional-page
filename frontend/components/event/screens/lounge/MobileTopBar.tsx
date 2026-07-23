@@ -74,7 +74,7 @@ export function MobileTopBar({
       {centerName && (
         <div className="hidden min-w-0 flex-1 items-center justify-center overflow-hidden sm:flex">
           <span
-            className="truncate text-[13.5px] font-semibold italic"
+            className="truncate text-[14px] font-semibold italic"
             style={{ fontFamily: "var(--font-playfair), Georgia, serif", color: t.text }}
           >
             {event.event_name}
@@ -93,7 +93,7 @@ export function MobileTopBar({
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full"
             style={{ color: t.brand }}
           >
-            <StarIcon size={16} />
+            <MegaphoneIcon size={16} />
           </a>
         )}
         <button
@@ -109,7 +109,7 @@ export function MobileTopBar({
           type="button"
           onClick={onOpenProfile}
           aria-label="Your profile"
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[12px] font-semibold transition-transform active:scale-95"
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[13px] font-semibold transition-transform active:scale-95"
           style={{ background: t.ring, padding: 2 }}
         >
           <span
@@ -129,10 +129,11 @@ export function MobileTopBar({
   );
 }
 
-function StarIcon({ size = 16 }: { size?: number }) {
+function MegaphoneIcon({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 2.5l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17.6l-6.1 3.3 1.5-6.8-5.2-4.6 6.9-.7z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11l18-5v12L3 14v-3z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
     </svg>
   );
 }

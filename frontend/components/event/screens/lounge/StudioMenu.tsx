@@ -65,8 +65,8 @@ export function StudioMenu({
         onClick={onResetToTop}
         aria-label="Back to top of gallery"
         title="Back to top"
-        className={`flex shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg text-[12.5px] font-semibold transition-opacity hover:opacity-80 ${
-          compact ? "h-8 w-8" : "h-9 w-9"
+        className={`flex shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg font-semibold transition-opacity hover:opacity-80 ${
+          compact ? "h-8 w-8 text-[12px]" : "h-9 w-9 text-[13px]"
         }`}
         style={{ background: t.ink, color: t.brand }}
       >
@@ -90,7 +90,7 @@ export function StudioMenu({
           style={{ background: open ? t.sunken : "transparent" }}
         >
           <span
-            className={`truncate font-semibold ${compact ? "hidden text-[13px] min-[380px]:inline" : "hidden text-[13.5px] sm:inline"}`}
+            className={`truncate font-semibold ${compact ? "hidden text-[13px] min-[380px]:inline" : "hidden text-[14px] sm:inline"}`}
             style={{ color: t.text }}
           >
             {event.company_name}

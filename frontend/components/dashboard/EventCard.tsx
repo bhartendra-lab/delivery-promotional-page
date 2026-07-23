@@ -10,7 +10,12 @@ import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id
 type Props = {
   row: Booking;
   onOpen: (row: Booking) => void;
-  /** Upload-in-progress lock — disables navigation and every action. */
+  /**
+   * True when *this* event has an upload running. Opening and sharing stay
+   * live — the upload keeps going wherever you navigate — but the lifecycle
+   * actions (archive / restore / clear data) are held back, since they'd pull
+   * the gallery out from under a run that's still writing to it.
+   */
   locked?: boolean;
   /**
    * Lifecycle actions. When provided they perform the API call + list refresh
@@ -96,10 +101,9 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
     <article className="dash-rise group relative flex flex-col rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] transition-colors hover:border-[var(--color-brand-outline)]">
       <button
         type="button"
-        onClick={() => !locked && onOpen(row)}
-        disabled={locked}
+        onClick={() => onOpen(row)}
         aria-label={`Open ${row.name}`}
-        className="brand-focus block w-full text-left disabled:cursor-not-allowed"
+        className="brand-focus block w-full text-left"
       >
         {/* Cover */}
         <div
@@ -164,7 +168,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
             setConfirm("archive");
           }}
           disabled={locked}
-          title="Mark as archive"
+          title={locked ? "Finish or stop this event's upload first" : "Mark as archive"}
           aria-label="Mark as archive"
           className="group/archive brand-focus absolute right-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-white backdrop-blur-sm transition-colors hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -233,7 +237,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
             <p className="min-w-0 truncate text-xs text-[var(--color-brand-muted)]">
               {pluralize(row.folder_count ?? 0, "folder")} · {pluralize(row.media_count ?? 0, "photo")}
             </p>
-            <ShareMenu copied={copied} onCopy={copy} onSend={send} disabled={locked} />
+            <ShareMenu copied={copied} onCopy={copy} onSend={send} />
           </div>
         ))}
 
@@ -327,12 +331,10 @@ function MetricsInfo() {
  *  the old two-button footer. Mirrors CoverBanner's dropdown pattern: a
  *  wrapRef + mousedown listener closes on outside click; Escape also closes. */
 function ShareMenu({
-  disabled,
   copied,
   onCopy,
   onSend,
 }: {
-  disabled: boolean;
   copied: boolean;
   onCopy: () => void;
   onSend: () => void;
@@ -364,12 +366,11 @@ function ShareMenu({
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Share"
         title="Share"
-        className="brand-focus flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] transition-colors hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="brand-focus flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] transition-colors hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
       >
         <IconShare size={15} />
       </button>

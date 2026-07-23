@@ -73,11 +73,21 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
             Originals when you&apos;re ready to edit.
           </p>
         </div>
+        {/* Locate Originals walks your whole photo drive and copies files out.
+            Running that against a saturated compressor pool would crawl and
+            slow the upload down with it — so it waits, while everything else
+            on this tab stays usable mid-upload. */}
         <button
           type="button"
           onClick={() => setLocateOpen(true)}
-          disabled={shortlistedCount === 0}
-          title={shortlistedCount === 0 ? "Shortlist photos first to locate their originals." : undefined}
+          disabled={shortlistedCount === 0 || activeLocked}
+          title={
+            activeLocked
+              ? "Available once the upload finishes — scanning your drive mid-upload would slow both down."
+              : shortlistedCount === 0
+                ? "Shortlist photos first to locate their originals."
+                : undefined
+          }
           className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <IconTarget size={16} />
@@ -130,7 +140,6 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
             <MediaGrid
               items={media}
-              disabled={activeLocked}
               allowDelete={false}
               showLikes
               showShortlist

@@ -132,15 +132,13 @@ export type EventContextValue = {
   /** Append the next page of media for the active view. */
   loadMore: () => void;
   engine: UploadEngineHook;
-  /** True once the active upload run is genuinely running (not paused). */
-  activeLocked: boolean;
   /**
-   * True while a pause/cancel/complete-triggered `recalculate-studio-storage`
-   * call (+ usage refresh) is settling. The Media tab treats this like
-   * "still uploading" so the upload card doesn't hand off to its resting
-   * state with a stale storage number.
+   * True while an upload run is genuinely transferring (paused runs unlock).
+   * Deliberately narrow: it gates folder mutations (which race
+   * `ensureFolders`) and Locate Originals' disk scan — not navigation, not
+   * tabs, and not the workspace at large.
    */
-  finalizingStorage: boolean;
+  activeLocked: boolean;
   /** Pause the upload, then kick off the storage recalculation for it. */
   pauseUpload: () => void;
   /**

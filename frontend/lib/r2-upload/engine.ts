@@ -283,9 +283,14 @@ export class UploadEngineCore {
    * persisted + in-memory state. Unlike `pause`, a cancelled run leaves nothing
    * behind — re-selecting the folder starts clean and re-checks the backend for
    * what's already uploaded, skipping those silently.
+   *
+   * Resolves with `savedCount`: how many photos are genuinely in the gallery at
+   * the moment of cancellation. Only records that reached `saved` (create-media
+   * confirmed) are counted — a photo whose bytes are on R2 but whose metadata
+   * batch failed on the way out is deliberately NOT counted as delivered.
    */
-  async cancel(): Promise<void> {
-    if (this.cancelling) return; // already cancelling — avoid a second concurrent wipe
+  async cancel(): Promise<{ savedCount: number }> {
+    if (this.cancelling) return { savedCount: 0 }; // already cancelling — avoid a second concurrent wipe
     const wasRunning = this.state.isUploading;
     this.cancelling = true;
     this.paused = false;
@@ -294,7 +299,11 @@ export class UploadEngineCore {
       // Wait for the active run's `finally` to persist metadata for bytes already
       // on R2 before wiping — otherwise we'd orphan those objects.
       if (wasRunning) await this.runDone;
+      // Counted after the drain (so late saves are included) and before the
+      // wipe (which clears `records` outright).
+      const savedCount = Array.from(this.records.values()).filter((r) => r.status === "saved").length;
       await this.wipeAll();
+      return { savedCount };
     } finally {
       this.cancelling = false;
       this.scheduleEmit({ isUploading: false, paused: false }, true);

@@ -5,9 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, clearCompany } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
-import { useChrome } from "./ChromeContext";
+import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 
-const UPLOAD_GUARD = "Upload in progress — please wait or cancel before leaving this page.";
+/**
+ * Signing out clears the token the running upload needs for its presign +
+ * create-media calls, so an in-flight run really would die with it. Unlike
+ * navigation (which the engine survives — it lives in a module-level registry),
+ * this one still warrants a stop-and-think — but it's the studio's call to make,
+ * not ours, so it's a confirm rather than a block.
+ */
+const SIGN_OUT_GUARD =
+  "An upload is still running. Signing out now will stop it — photos already uploaded stay in the gallery. Sign out anyway?";
 
 /**
  * Trigger flavours for the shared account popover:
@@ -21,13 +29,13 @@ type Variant = "chip" | "icon" | "avatar";
  * One account menu, two responsive triggers. Holds the identity header (logo or
  * initials + company name), a Settings link, and Sign out. Closes on
  * outside-click and Esc (mirrors CoverBanner's outside-click effect). Settings
- * and Sign out respect the upload `locked` state exactly like the old Sidebar
- * footer did — visually disabled + an "Upload in progress" guard.
+ * navigates freely during an upload (the engine keeps running across routes);
+ * only Sign out confirms first, since it revokes the token mid-run.
  */
 export function AccountMenu({ variant }: { variant: Variant }) {
   const router = useRouter();
   const company = useCompany();
-  const { locked } = useChrome();
+  const uploadingIds = useUploadingBookingIds();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -53,20 +61,8 @@ export function AccountMenu({ variant }: { variant: Variant }) {
     };
   }, [open]);
 
-  function guardNav(e: React.MouseEvent) {
-    if (locked) {
-      e.preventDefault();
-      window.alert(UPLOAD_GUARD);
-      return;
-    }
-    setOpen(false);
-  }
-
   function signOut() {
-    if (locked) {
-      window.alert(UPLOAD_GUARD);
-      return;
-    }
+    if (uploadingIds.size > 0 && !window.confirm(SIGN_OUT_GUARD)) return;
     setOpen(false);
     clearToken();
     clearCompany();
@@ -77,7 +73,6 @@ export function AccountMenu({ variant }: { variant: Variant }) {
   const menuPos = `${upward ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} ${
     variant === "avatar" ? "right-0" : "left-0"
   }`;
-  const lockedCls = locked ? "pointer-events-none opacity-50" : "";
 
   return (
     <div className="relative" ref={wrapRef}>
@@ -126,8 +121,8 @@ export function AccountMenu({ variant }: { variant: Variant }) {
           <Link
             href="/dashboard/settings"
             role="menuitem"
-            onClick={guardNav}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-[var(--color-brand-ink)] no-underline hover:bg-[var(--color-brand-bg)] ${lockedCls}`}
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-medium text-[var(--color-brand-ink)] no-underline hover:bg-[var(--color-brand-bg)]"
           >
             <IconGear size={16} className="text-[var(--color-brand-muted)]" />
             Settings
@@ -136,7 +131,7 @@ export function AccountMenu({ variant }: { variant: Variant }) {
             type="button"
             role="menuitem"
             onClick={signOut}
-            className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] ${lockedCls}`}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
           >
             <IconLogout size={16} className="text-[var(--color-brand-muted)]" />
             Sign out

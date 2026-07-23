@@ -1,15 +1,13 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getDlpUsage } from "@/lib/api";
+import { getDlpUsage, recalculateStudioStorage } from "@/lib/api";
 import type { DlpUsage } from "@/lib/types";
 import type { Breadcrumb } from "./Topbar";
 
 type ChromeState = {
   customBreadcrumb: Breadcrumb | null;
   setCustomBreadcrumb: (b: Breadcrumb | null) => void;
-  locked: boolean;
-  setLocked: (next: boolean) => void;
   /** Page-injected node rendered top-right in the Topbar (e.g. the LivePill). */
   topbarExtra: React.ReactNode;
   setTopbarExtra: (node: React.ReactNode) => void;
@@ -28,6 +26,20 @@ type ChromeState = {
    */
   refreshDlpUsage: () => Promise<DlpUsage | null>;
   /**
+   * True while a storage re-walk kicked off by an upload transition (pause,
+   * cancel, completion) is still settling. Nothing waits on this — it only
+   * drives a quiet "syncing…" note on the usage meter, so the upload UI can
+   * hand off to its resting state the instant the engine says it's done.
+   */
+  storageSyncing: boolean;
+  /**
+   * Re-walk the studio's R2 usage and refresh the shared meter. Safe to call
+   * from anywhere (event page, floating upload indicator); overlapping calls
+   * are ref-counted so the "syncing…" note clears only once the last settles.
+   * Never throws — a failed recalculation must not strand a UI transition.
+   */
+  settleStorage: () => Promise<void>;
+  /**
    * The single app-wide scroll container (the `<main>` under the locked
    * Topbar/Sidebar chrome). Pages read its scroll position via
    * `useScrollCollapsed` instead of listening on `window`, since the window
@@ -39,22 +51,23 @@ type ChromeState = {
 const ChromeCtx = createContext<ChromeState>({
   customBreadcrumb: null,
   setCustomBreadcrumb: () => {},
-  locked: false,
-  setLocked: () => {},
   topbarExtra: null,
   setTopbarExtra: () => {},
   dlpUsage: null,
   dlpLoading: true,
   refreshDlpUsage: async () => null,
+  storageSyncing: false,
+  settleStorage: async () => {},
   mainRef: { current: null },
 });
 
 export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [customBreadcrumb, setCustomBreadcrumb] = useState<Breadcrumb | null>(null);
-  const [locked, setLocked] = useState(false);
   const [topbarExtra, setTopbarExtra] = useState<React.ReactNode>(null);
   const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
   const [dlpLoading, setDlpLoading] = useState(true);
+  const [storageSyncing, setStorageSyncing] = useState(false);
+  const settleDepth = useRef(0);
   const mainRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -78,20 +91,39 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const settleStorage = useCallback(async () => {
+    settleDepth.current += 1;
+    setStorageSyncing(true);
+    try {
+      try {
+        await recalculateStudioStorage();
+      } catch (err) {
+        console.warn("[storage] recalculate-studio-storage failed", err);
+      }
+      await refreshDlpUsage();
+    } finally {
+      settleDepth.current -= 1;
+      if (settleDepth.current <= 0) {
+        settleDepth.current = 0;
+        setStorageSyncing(false);
+      }
+    }
+  }, [refreshDlpUsage]);
+
   const value = useMemo<ChromeState>(
     () => ({
       customBreadcrumb,
       setCustomBreadcrumb,
-      locked,
-      setLocked,
       topbarExtra,
       setTopbarExtra,
       dlpUsage,
       dlpLoading,
       refreshDlpUsage,
+      storageSyncing,
+      settleStorage,
       mainRef,
     }),
-    [customBreadcrumb, locked, topbarExtra, dlpUsage, dlpLoading, refreshDlpUsage],
+    [customBreadcrumb, topbarExtra, dlpUsage, dlpLoading, refreshDlpUsage, storageSyncing, settleStorage],
   );
 
   return <ChromeCtx.Provider value={value}>{children}</ChromeCtx.Provider>;
@@ -110,15 +142,6 @@ export function usePageBreadcrumb(items: Breadcrumb | null) {
     return () => setCustomBreadcrumb(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-}
-
-/** Page-level helper: lock global chrome (used during active uploads). */
-export function usePageLock(locked: boolean) {
-  const { setLocked } = useContext(ChromeCtx);
-  useEffect(() => {
-    setLocked(locked);
-    return () => setLocked(false);
-  }, [locked, setLocked]);
 }
 
 /** Page-level helper: inject a node into the Topbar's top-right cluster. */

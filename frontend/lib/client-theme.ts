@@ -187,20 +187,29 @@ function buildTheme(base: { bg: string; accent: string; text: string; cover: [st
    Gallery Design tab reads these via `resolveTheme()`, it no longer keeps its
    own copy) ──────────────────────────────────────────────────────────────── */
 
+/**
+ * Every accent below is deepened (same hue family, just darker) so it clears
+ * 5:1 contrast against its own `bg` — brand now doubles as bare label text
+ * (gallery folder pills / My-All switcher / action items), not just button
+ * fills on `card`/`accentWash`, so 3-4:1 was legible on a button but washed
+ * out as text straight on the page background. No existing booking's saved
+ * `style_variant` changes meaning, just gets more legible.
+ */
 const VARIANT_BASE: Record<StyleVariant, { bg: string; accent: string; text: string; cover: [string, string] }> = {
-  "Ivory & Rose": { bg: "#FBF7F4", accent: "#C07A7A", text: "#3A322E", cover: ["#E8D5CE", "#D6B6AC"] },
-  "Blush Minimal": { bg: "#FAF8F6", accent: "#B07F77", text: "#2E2926", cover: ["#EADFD8", "#D6C3B8"] },
+  "Ivory & Rose": { bg: "#FBF7F4", accent: "#925C5C", text: "#3A322E", cover: ["#E8D5CE", "#D6B6AC"] },
+  "Blush Minimal": { bg: "#FAF8F6", accent: "#88625C", text: "#2E2926", cover: ["#EADFD8", "#D6C3B8"] },
   // New — a fresh, garden-toned Spring option (muted forest green rather than
   // the more saturated teal-green of Emerald Royal).
-  "Sage Sanctuary": { bg: "#F5F7F2", accent: "#5B7A5E", text: "#26302A", cover: ["#C9D6C2", "#A8BFA0"] },
+  "Sage Sanctuary": { bg: "#F5F7F2", accent: "#557157", text: "#26302A", cover: ["#C9D6C2", "#A8BFA0"] },
   // Accent deepened from the original #DC842A (2.76:1 against `bg` — the only
   // one of the original 8 that failed even the relaxed 3:1 UI-component
-  // contrast bar) to #B5651D (4.20:1), same name/hue family so no existing
+  // contrast bar) to #B5651D (4.20:1), then again to #A35B1A (5.00:1) once
+  // brand started doubling as bare text, same name/hue family so no existing
   // booking's saved `style_variant` changes meaning, just gets legible.
-  "Marigold Bright": { bg: "#FFFBF3", accent: "#B5651D", text: "#3A2E1E", cover: ["#F1CE8C", "#E3A658"] },
-  "Festive Bloom": { bg: "#FFF6F0", accent: "#CF6230", text: "#3A271E", cover: ["#EEB28C", "#DC885A"] },
+  "Marigold Bright": { bg: "#FFFBF3", accent: "#A35B1A", text: "#3A2E1E", cover: ["#F1CE8C", "#E3A658"] },
+  "Festive Bloom": { bg: "#FFF6F0", accent: "#AA5128", text: "#3A271E", cover: ["#EEB28C", "#DC885A"] },
   "Maroon Velvet": { bg: "#F8F2F1", accent: "#8C2F3A", text: "#2E1F22", cover: ["#B97E86", "#97525E"] },
-  "Fine-Art Warm": { bg: "#F7F3EE", accent: "#947751", text: "#332B22", cover: ["#CDBBA0", "#B29A7A"] },
+  "Fine-Art Warm": { bg: "#F7F3EE", accent: "#7D6444", text: "#332B22", cover: ["#CDBBA0", "#B29A7A"] },
   "Emerald Royal": { bg: "#F1F6F3", accent: "#2E6B52", text: "#1F2A24", cover: ["#9CC0AD", "#6C9A82"] },
   "Charcoal Editorial": { bg: "#F4F4F3", accent: "#3C3C3A", text: "#22221F", cover: ["#B8B8B3", "#8C8C86"] },
   // New — a moody indigo Winter option alongside Emerald Royal/Charcoal

@@ -61,16 +61,18 @@ function SwitchSeg({
   // weight/colour, so the Liked pill clearly reads as the live filter. The
   // undimmed path stays byte-identical to the original (mobile renders it).
   const filled = on && !dimmed;
-  const color = filled ? t.brand : dimmed ? (on ? t.muted : t.faint) : t.muted;
+  // const color = filled ? t.brand : dimmed ? (on ? t.muted : t.faint) : t.muted;
+  const color = t.brand;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-4 py-1.5 text-[12.5px] transition-colors"
+      className="flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-4 py-1.5 text-[14px] transition-colors"
       style={{
         background: filled ? t.card : "transparent",
         color,
-        fontWeight: on ? 600 : 500,
+        // fontWeight: on ? 600 : 500,
+        fontWeight: 700,
         boxShadow: filled ? t.shadowSm : "none",
       }}
     >
@@ -119,12 +121,14 @@ export function FolderPillsRow({
             key={f._id}
             type="button"
             onClick={() => setFolder(f._id)}
-            className="shrink-0 cursor-pointer rounded-md px-3.5 py-1.5 text-[12px] transition-colors"
+            className="shrink-0 cursor-pointer rounded-md px-3.5 py-1.5 text-[14px] transition-colors"
             style={{
               background: active ? t.accentWash : "transparent",
-              color: active ? t.brand : t.muted,
+              // color: active ? t.brand : t.muted,
+              color: t.brand,
               border: `1px solid ${active ? "transparent" : t.border}`,
-              fontWeight: active ? 600 : 500,
+              // fontWeight: active ? 600 : 500,
+              fontWeight: 700,
             }}
           >
             {f.name}
@@ -245,10 +249,12 @@ function ActionItem({
       disabled={disabled}
       aria-label={label}
       aria-pressed={underline ? active : undefined}
-      className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-1.5 py-1.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-1.5 py-1.5 text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       style={{
-        color: active ? t.brand : t.muted,
-        fontWeight: active ? 600 : 500,
+        // color: active ? t.brand : t.muted,
+        color: t.brand,
+        // fontWeight: active ? 600 : 500,
+        fontWeight: 700,
         borderBottom: `2px solid ${underline && active ? t.brand : "transparent"}`,
       }}
     >

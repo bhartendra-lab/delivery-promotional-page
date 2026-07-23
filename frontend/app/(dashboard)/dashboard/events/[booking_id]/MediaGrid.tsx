@@ -357,6 +357,11 @@ export function MediaGrid({
                     void downloadImage(m.url).catch(() => notify?.("Download failed — please try again"))
                   }
                   onSetCover={() => void onSetCover(m)}
+                  onDelete={
+                    allowDelete && onDeleteMany
+                      ? () => setConfirm({ ids: [m._id], fromLightbox: false })
+                      : undefined
+                  }
                 />
               ) : (
                 <button
@@ -567,10 +572,12 @@ function PhotoMenu({
   isCover,
   onDownload,
   onSetCover,
+  onDelete,
 }: {
   isCover: boolean;
   onDownload: () => void;
   onSetCover: () => void;
+  onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -635,6 +642,21 @@ function PhotoMenu({
             <IconImage size={14} className="text-[var(--color-brand-muted)]" />
             {isCover ? "Current cover photo" : "Set as cover photo"}
           </button>
+          {onDelete && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onDelete();
+              }}
+              className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[12.5px] font-medium text-[var(--color-brand-danger)] hover:bg-[var(--color-brand-danger-soft)]"
+            >
+              <IconTrash size={14} />
+              Delete
+            </button>
+          )}
         </div>
       )}
     </div>

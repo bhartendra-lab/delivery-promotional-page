@@ -62,7 +62,7 @@ export function TopBar({
         style={{ opacity: showName ? 1 : 0, pointerEvents: showName ? "auto" : "none" }}
       >
         <span
-          className="truncate text-[15px] font-semibold italic"
+          className="truncate text-[40px] font- italic"
           style={{ fontFamily: "var(--font-playfair), Georgia, serif", color: t.text }}
         >
           {event.event_name}
@@ -77,10 +77,10 @@ export function TopBar({
             rel="noopener noreferrer"
             onClick={onReviewClick}
             aria-label="Leave a Google review"
-            className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors"
+            className="flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors"
             style={{ color: t.brand }}
           >
-            <StarIcon size={15} />
+            <MegaphoneIcon size={18} />
             <span className="hidden xl:inline">Review us</span>
           </a>
         )}
@@ -91,13 +91,13 @@ export function TopBar({
           className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors"
           style={{ color: t.muted }}
         >
-          <ShareIcon size={17} />
+          <ShareIcon size={18} />
         </button>
         <button
           type="button"
           onClick={onOpenProfile}
           aria-label="Your profile"
-          className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[13px] font-semibold transition-transform active:scale-95"
+          className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[14px] font-semibold transition-transform active:scale-95"
           style={{ background: t.ring, padding: 2 }}
         >
           <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: t.card, color: t.brand }}>
@@ -114,10 +114,11 @@ export function TopBar({
   );
 }
 
-function StarIcon({ size = 15 }: { size?: number }) {
+function MegaphoneIcon({ size = 18 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 2.5l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17.6l-6.1 3.3 1.5-6.8-5.2-4.6 6.9-.7z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11l18-5v12L3 14v-3z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
     </svg>
   );
 }

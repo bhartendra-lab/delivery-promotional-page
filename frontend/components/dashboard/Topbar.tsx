@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useChrome } from "./ChromeContext";
-import { ActiveUploadsIndicator } from "./ActiveUploadsIndicator";
 import { AccountMenu } from "./AccountMenu";
 
 export type Breadcrumb = {
@@ -13,7 +12,7 @@ export type Breadcrumb = {
 
 export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
   const pathname = usePathname();
-  const { topbarExtra, locked } = useChrome();
+  const { topbarExtra } = useChrome();
 
   const dashActive = pathname === "/dashboard";
   const eventsActive = pathname.startsWith("/dashboard/events");
@@ -53,7 +52,7 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         {breadcrumb.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && <IconCaretRight size={12} />}
-            {crumb.href && !locked ? (
+            {crumb.href ? (
               <Link
                 href={crumb.href}
                 className={
@@ -66,11 +65,9 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
               </Link>
             ) : (
               <span
-                className={`${
-                  i === breadcrumb.length - 1
-                    ? "font-semibold text-[var(--color-brand-ink)]"
-                    : ""
-                }${locked && crumb.href ? " opacity-50" : ""}`}
+                className={
+                  i === breadcrumb.length - 1 ? "font-semibold text-[var(--color-brand-ink)]" : ""
+                }
               >
                 {crumb.label}
               </span>
@@ -79,7 +76,6 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <ActiveUploadsIndicator />
         {/* Page-injected pill (LivePill) — desktop only; mobile shows it inline
             beneath the tab strip to avoid a cramped, overflowing header. */}
         {topbarExtra && (

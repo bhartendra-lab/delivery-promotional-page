@@ -8,6 +8,7 @@ import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/ty
 import { StatsBar } from "@/components/dashboard/StatsBar";
 import { EventCard } from "@/components/dashboard/EventCard";
 import { useChrome } from "@/components/dashboard/ChromeContext";
+import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
@@ -18,7 +19,10 @@ export default function DashboardHomePage() {
   const router = useRouter();
   // Events meter / usage shared via ChromeContext — single fetch for the whole
   // dashboard (Sidebar meter + header pill read the same value).
-  const { dlpUsage, dlpLoading, locked } = useChrome();
+  const { dlpUsage, dlpLoading } = useChrome();
+  // Uploads survive navigation, so cards stay openable while one runs. Only
+  // the uploading event holds back its own lifecycle actions.
+  const uploadingIds = useUploadingBookingIds();
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +261,7 @@ export default function DashboardHomePage() {
                   key={row._id}
                   row={row}
                   onOpen={openEvent}
-                  locked={locked}
+                  locked={uploadingIds.has(row._id)}
                   onArchive={onArchive}
                   onRestore={onRestore}
                   onClearData={onClearData}
