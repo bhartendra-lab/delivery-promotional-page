@@ -5,6 +5,15 @@ import { useChrome } from "@/components/dashboard/ChromeContext";
 import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
 import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
+import {
+  IconUpload,
+  IconFolder,
+  IconX,
+  IconChevronLeft,
+  IconMonitor,
+  IconWarningCircle,
+  IconFolderTree,
+} from "./icons";
 
 /** What the modal hands back once the user commits a selection. */
 export type UploadPlan =
@@ -393,7 +402,7 @@ export function UploadModal({
             className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             aria-label="Close"
           >
-            <CloseIcon />
+            <IconX />
           </button>
         </div>
 
@@ -424,7 +433,7 @@ export function UploadModal({
                   </div>
                   <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-3">
                     <span className="mt-px inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-                      <FolderIcon size={16} />
+                      <IconFolder size={16} />
                     </span>
                     <span className="min-w-0 break-words text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
                       {target?.name ?? "Folder"}
@@ -518,7 +527,7 @@ export function UploadModal({
               onClick={goToPicker}
               className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
             >
-              <BackIcon size={15} />
+              <IconChevronLeft size={15} />
               Change destination
             </button>
             <button
@@ -627,7 +636,7 @@ function DropZone({
         }`}
       >
         <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-          <UploadIcon size={26} />
+          <IconUpload size={26} />
         </div>
         <div className="text-center text-[15px] font-semibold text-[var(--color-brand-ink)]">
           {single ? "Drop your photos here" : "Drop your folder here"}
@@ -684,7 +693,7 @@ function DesktopOnlyNotice({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-7 py-12 text-center">
       <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-        <DesktopIcon size={26} />
+        <IconMonitor size={26} />
       </div>
       <h3 className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
         Uploading works on your laptop
@@ -762,7 +771,7 @@ function DestinationPicker({
             onClick={() => onPick(f)}
             className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <FolderIcon size={13} className="text-[var(--color-brand-muted)]" />
+            <IconFolder size={13} className="text-[var(--color-brand-muted)]" />
             {f.name}
           </button>
         ))}
@@ -809,7 +818,7 @@ function DestinationPicker({
         className="brand-focus flex w-full items-start gap-3 rounded-lg border border-[var(--color-brand-border)] bg-white p-3.5 text-left hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-          <FolderTreeIcon size={17} />
+          <IconFolderTree size={17} />
         </span>
         <span className="min-w-0">
           <span className="block text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
@@ -852,12 +861,12 @@ function ContentPanel({
         aria-label="Add more photos"
         className="brand-focus absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] bg-white text-[var(--color-brand-navy)] hover:border-[var(--color-brand-outline)]"
       >
-        <UploadIcon size={16} />
+        <IconUpload size={16} />
       </button>
 
       <div className="pr-12">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-          <FolderIcon size={20} />
+          <IconFolder size={20} />
         </div>
         <h3 className="mt-3 truncate text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
           {headingName}
@@ -871,7 +880,7 @@ function ContentPanel({
             className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-bg)] px-2 py-1 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]"
             title="RAW camera files and macOS sidecar/system files can't be displayed in a gallery."
           >
-            <AlertIcon size={13} className="shrink-0" />
+            <IconWarningCircle size={13} className="shrink-0" />
             {skipped.toLocaleString("en-IN")} file{skipped === 1 ? "" : "s"} skipped — RAW originals
             and system files aren&apos;t supported.
           </p>
@@ -883,7 +892,7 @@ function ContentPanel({
           {groups.map((g, i) => (
             <li key={`${g.name}-${i}`} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <FolderIcon size={15} className="shrink-0 text-[var(--color-brand-muted)]" />
+                <IconFolder size={15} className="shrink-0 text-[var(--color-brand-muted)]" />
                 <span className="truncate text-[13px] font-medium text-[var(--color-brand-ink)]">
                   {g.name}
                 </span>
@@ -923,7 +932,7 @@ function StorageEstimateNotice({
     return (
       <div className="border-t border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-6 py-3">
         <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-danger)]">
-          <AlertIcon size={16} className="mt-0.5 shrink-0" />
+          <IconWarningCircle size={16} className="mt-0.5 shrink-0" />
           <p>
             This upload needs about{" "}
             <strong className="tabular-nums">{formatSizeFromGB(estimateGB)}</strong>, but you only have{" "}
@@ -960,15 +969,6 @@ function StorageEstimateNotice({
         </>
       )}
     </div>
-  );
-}
-
-function AlertIcon({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -1071,7 +1071,7 @@ function MixedFolderPopup({
                 onClick={() => onPickExisting(name)}
                 className="brand-focus inline-flex items-center gap-1.5 rounded-full border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
               >
-                <FolderIcon size={13} className="text-[var(--color-brand-muted)]" />
+                <IconFolder size={13} className="text-[var(--color-brand-muted)]" />
                 {name}
               </button>
             ))}
@@ -1303,7 +1303,7 @@ function UploadIllustration() {
     <div className="rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-4">
       <div className="flex flex-col items-center">
         <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-navy-soft)] px-2.5 py-1.5 text-[11.5px] font-semibold text-[var(--color-brand-navy)]">
-          <FolderIcon size={14} />
+          <IconFolder size={14} />
           Your event folder
         </span>
         <span className="h-3 w-px bg-[var(--color-brand-border)]" aria-hidden />
@@ -1318,7 +1318,7 @@ function UploadIllustration() {
               <span className={`h-px flex-1 ${i === 2 ? "bg-transparent" : "bg-[var(--color-brand-border)]"}`} />
             </span>
             <span className="h-3 w-px bg-[var(--color-brand-border)]" aria-hidden />
-            <FolderIcon size={16} className="text-[var(--color-brand-muted)]" />
+            <IconFolder size={16} className="text-[var(--color-brand-muted)]" />
             <span className="mt-1 max-w-full truncate text-[10.5px] font-medium text-[var(--color-brand-muted)]">
               {label}
             </span>
@@ -1329,59 +1329,3 @@ function UploadIllustration() {
   );
 }
 
-function UploadIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="7 9 12 4 17 9" />
-      <line x1="12" y1="4" x2="12" y2="16" />
-      <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
-    </svg>
-  );
-}
-
-function FolderIcon({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}
-
-function BackIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="14 6 8 12 14 18" />
-    </svg>
-  );
-}
-
-function FolderTreeIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 4.5a1 1 0 0 1 1-1h3l1.4 1.6H13a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-      <path d="M6.5 10.5v7.5a1 1 0 0 0 1 1H10" />
-      <path d="M6.5 14h3.5" />
-      <rect x="13.5" y="11.5" width="7" height="5" rx="1" />
-      <rect x="13.5" y="17" width="7" height="5" rx="1" />
-    </svg>
-  );
-}
-
-function DesktopIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2.5" y="4" width="19" height="12.5" rx="1.5" />
-      <path d="M8.5 20.5h7" />
-      <path d="M12 16.5v4" />
-    </svg>
-  );
-}

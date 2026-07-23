@@ -13,6 +13,8 @@ import {
   IconLink,
   IconLock,
   IconMail,
+  IconQrCode,
+  IconRefresh,
   IconScanFace,
   IconShieldCheck,
   IconUsers,
@@ -450,7 +452,7 @@ function PasscodeCard({
             onClick={() => setConfirming(true)}
             className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
           >
-            <RefreshIcon size={13} /> Regenerate
+            <IconRefresh size={13} /> Regenerate
           </button>
         ) : (
           <span className="inline-flex items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
@@ -645,7 +647,7 @@ function QrPanel({
         </div>
       ) : (
         <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] bg-[var(--color-brand-bg)] p-3 text-center">
-          <QrGlyph />
+          <IconQrCode size={22} className="text-[var(--color-brand-outline)]" />
           <p className="text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
             No reusable QR points here yet.
           </p>
@@ -659,17 +661,6 @@ function QrPanel({
         </div>
       )}
     </div>
-  );
-}
-
-function QrGlyph() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-brand-outline)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3.5" y="3.5" width="6" height="6" rx="1.2" />
-      <rect x="14.5" y="3.5" width="6" height="6" rx="1.2" />
-      <rect x="3.5" y="14.5" width="6" height="6" rx="1.2" />
-      <path d="M14.5 14.5h2.5v2.5M20.5 14.5v.01M14.5 20.5h.01M17 20.5h3.5V17" />
-    </svg>
   );
 }
 
@@ -700,13 +691,3 @@ function Tip({ text }: { text: string }) {
   );
 }
 
-function RefreshIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
-}

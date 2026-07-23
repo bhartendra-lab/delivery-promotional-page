@@ -11,6 +11,7 @@ import { CoverBanner } from "./CoverBanner";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
+import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
 
 /** A cover pick awaiting position adjustment in `CoverPositionModal` before it's persisted. */
 type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "existing"; url: string };
@@ -330,7 +331,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
       <div ref={mediaScrollRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         {activeLocked && (
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
-            <WarnIcon size={14} />
+            <IconWarning size={14} />
             Uploading — carry on working anywhere in the studio, just keep this tab open. Folder edits
             wait until it&apos;s done.
           </div>
@@ -548,7 +549,7 @@ function EventHeader({
               title="Edit event details"
               className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
-              <EditIcon size={16} />
+              <IconEdit size={16} />
             </button>
           )}
         </div>
@@ -562,7 +563,7 @@ function EventHeader({
               onClick={onUploadMore}
               className="brand-focus hidden items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] md:inline-flex"
             >
-              <UploadIcon size={14} />
+              <IconUpload size={14} />
               Upload more
             </button>
             {activeIsSystem && (
@@ -580,7 +581,7 @@ function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirS
   return (
     <div className="mx-6 my-8 flex flex-col items-center gap-3.5 rounded-xl border-2 border-dashed border-[var(--color-brand-outline)] bg-white px-8 py-12 text-center sm:mx-10">
       <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-        <UploadIcon size={30} />
+        <IconUpload size={30} />
       </div>
       <h3 className="text-[20px] font-bold tracking-tight text-[var(--color-brand-ink)]">Upload media to get started</h3>
       <p className="max-w-[480px] text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
@@ -601,7 +602,7 @@ function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirS
         onClick={onUpload}
         className="brand-focus mt-1.5 hidden h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] md:inline-flex"
       >
-        <UploadIcon size={16} />
+        <IconUpload size={16} />
         {dirSupported ? "Upload media" : "Add photos"}
       </button>
       <span className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
@@ -679,7 +680,7 @@ function MobileFolderStrip({
             >
               <span>{f.label}</span>
               <span className="tabular-nums opacity-70">{f.count.toLocaleString("en-IN")}</span>
-              {selected && !f.system && !disabled && <EditIcon size={12} />}
+              {selected && !f.system && !disabled && <IconEdit size={12} />}
             </button>
           );
         })}
@@ -763,7 +764,7 @@ function PopulatedBody({
               title="Rename folder"
               className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
             >
-              <EditIcon size={14} />
+              <IconEdit size={14} />
             </button>
           )}
           <span className="text-[12.5px] text-[var(--color-brand-muted)]">
@@ -919,7 +920,7 @@ function EditMetaSheet({
             aria-label="Close"
             className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
           >
-            <CloseIcon size={16} />
+            <IconX size={16} />
           </button>
         </div>
 
@@ -964,7 +965,7 @@ function EditMetaSheet({
                     : "border border-[var(--color-brand-border)] bg-white font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
                 }`}
               >
-                {active && <CheckIcon size={13} />}
+                {active && <IconCheck size={13} />}
                 {t}
               </button>
             );
@@ -1059,7 +1060,7 @@ function CancelSummaryCard({ saved, onClose }: { saved: number; onClose: () => v
           className="mb-3.5 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-brand-success-soft)] text-[var(--color-brand-success)]"
           aria-hidden
         >
-          <CheckIcon size={20} />
+          <IconCheck size={20} />
         </span>
         <h3 id="cancel-summary-title" className="text-[17px] font-bold tracking-tight text-[var(--color-brand-ink)]">
           Upload stopped
@@ -1111,48 +1112,3 @@ function toDateInput(epoch: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function CheckIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-
-function CloseIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}
-
-function UploadIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="7 9 12 4 17 9" />
-      <line x1="12" y1="4" x2="12" y2="16" />
-      <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
-    </svg>
-  );
-}
-
-function EditIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 4l4 4-11 11H5v-4z" />
-      <line x1="13" y1="7" x2="17" y2="11" />
-    </svg>
-  );
-}
-
-function WarnIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l10 18H2L12 3z" />
-      <line x1="12" y1="10" x2="12" y2="14" />
-      <circle cx="12" cy="17" r=".6" fill="currentColor" />
-    </svg>
-  );
-}

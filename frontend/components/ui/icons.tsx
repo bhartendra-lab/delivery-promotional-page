@@ -12,6 +12,10 @@ import {
   Article,
   ArrowCounterClockwise,
   ArrowRight,
+  ArrowSquareOut,
+  ArrowsClockwise,
+  ArrowsOut,
+  ArrowsOutCardinal,
   Bell,
   Broadcast,
   CalendarBlank,
@@ -20,6 +24,7 @@ import {
   CaretRight,
   CaretUpDown,
   Check,
+  Clock,
   Copy,
   DeviceMobile,
   DotsSixVertical,
@@ -54,6 +59,7 @@ import {
   Star,
   Target,
   Trash,
+  TreeStructure,
   UploadSimple,
   Users,
   Warning,
@@ -148,3 +154,9 @@ export const IconDragHandle = wrapPhosphor(DotsSixVertical, 12, "IconDragHandle"
 export const IconPlus = wrapPhosphor(Plus, 15, "IconPlus");
 export const IconWarningCircle = wrapPhosphor(WarningCircle, 14, "IconWarningCircle");
 export const IconArticle = wrapPhosphor(Article, 28, "IconArticle");
+export const IconFolderTree = wrapPhosphor(TreeStructure, 17, "IconFolderTree");
+export const IconClock = wrapPhosphor(Clock, 14, "IconClock");
+export const IconMove = wrapPhosphor(ArrowsOutCardinal, 15, "IconMove");
+export const IconExpand = wrapPhosphor(ArrowsOut, 14, "IconExpand");
+export const IconRefresh = wrapPhosphor(ArrowsClockwise, 13, "IconRefresh");
+export const IconOpen = wrapPhosphor(ArrowSquareOut, 16, "IconOpen");

@@ -14,6 +14,7 @@ import {
 } from "@/lib/r2-upload/registry";
 import { useUploadStalled } from "@/lib/r2-upload/useUploadStall";
 import { useChrome } from "./ChromeContext";
+import { IconCaretDown, IconOpen, IconPause, IconPlay } from "@/components/ui/icons";
 
 const RING = 34;
 const RING_R = 14;
@@ -135,7 +136,7 @@ function UploadRow({
               title="Open this event"
               className="brand-focus inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 text-[12px] font-semibold text-[var(--color-brand-ink)] no-underline hover:border-[var(--color-brand-outline)]"
             >
-              <OpenIcon size={13} />
+              <IconOpen size={13} />
               Open event
             </Link>
             <span className="flex-1" />
@@ -154,7 +155,7 @@ function UploadRow({
               }}
               className="brand-focus inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {upload.paused ? <PlayIcon size={12} /> : <PauseIcon size={12} />}
+              {upload.paused ? <IconPlay size={12} /> : <IconPause size={12} />}
               {upload.paused ? "Resume" : "Pause"}
             </button>
             <button
@@ -205,47 +206,7 @@ function ProgressRing({ percent, paused }: { percent: number; paused: boolean })
 
 /* ── icons ──────────────────────────────────────────────────────── */
 
+/** Expand/collapse caret — points up by default, flips 180° when `up` is false. */
 function CaretIcon({ size, up }: { size: number; up: boolean }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ transform: up ? "rotate(0deg)" : "rotate(180deg)" }}
-    >
-      <polyline points="6 15 12 9 18 15" />
-    </svg>
-  );
-}
-
-function OpenIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 4h6v6" />
-      <path d="M20 4l-8 8" />
-      <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-    </svg>
-  );
-}
-
-function PauseIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="6.5" y="5" width="3.5" height="14" rx="1" />
-      <rect x="14" y="5" width="3.5" height="14" rx="1" />
-    </svg>
-  );
-}
-
-function PlayIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M7 5l12 7-12 7V5z" />
-    </svg>
-  );
+  return <IconCaretDown size={size} style={{ transform: up ? "rotate(180deg)" : "none" }} />;
 }
