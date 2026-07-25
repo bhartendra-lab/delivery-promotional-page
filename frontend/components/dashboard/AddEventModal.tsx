@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBooking } from "@/lib/api";
 import { EVENT_TYPES, type EventType } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
+import { IconX, IconCheck } from "@/components/ui/icons";
 
 type Props = {
   open: boolean;
@@ -100,10 +101,7 @@ export function AddEventModal({ open, onClose }: Props) {
             className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
             aria-label="Close"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="6" y1="18" x2="18" y2="6" />
-            </svg>
+            <IconX size={16} />
           </button>
         </div>
 
@@ -144,9 +142,7 @@ export function AddEventModal({ open, onClose }: Props) {
                     }`}
                   >
                     {active && (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="5 12 10 17 19 7" />
-                      </svg>
+                      <IconCheck size={13} weight="bold" />
                     )}
                     {t}
                   </button>

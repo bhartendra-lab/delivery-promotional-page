@@ -16,12 +16,15 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@phosphor-icons/react": "^2.1.10",
     "browser-image-compression": "^2.0.2",
     "client-zip": "^2.5.0",
+    "lucide-react": "^1.26.0",
     "next": "16.2.6",
     "piexifjs": "^1.0.6",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-icons": "^5.7.0"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.19.11",

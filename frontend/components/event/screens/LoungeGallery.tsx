@@ -19,6 +19,7 @@ import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
 import { GalleryGrid } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "./gallery/GalleryControls";
+import { IconHeart, IconGrid, IconHome } from "@/components/ui/icons";
 
 const PAGE = 60;
 /** Guests who like this many photos in-session get the "loving the gallery?" nudge. */
@@ -1119,7 +1120,7 @@ function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.faint }}>
-        <GridIcon size={24} />
+        <IconGrid size={24} />
       </span>
       <p className="max-w-[280px] text-[13.5px] font-semibold" style={{ color: t.muted }}>{msg}</p>
     </div>
@@ -1130,7 +1131,7 @@ function ErrorState({ t, onRetry }: { t: Theme; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.errorSoft, color: t.error }}>
-        <GridIcon size={24} />
+        <IconGrid size={24} />
       </span>
       <p className="max-w-[300px] text-[13.5px] font-semibold" style={{ color: t.muted }}>
         Couldn’t load photos. Check your connection and try again.
@@ -1144,9 +1145,9 @@ function ErrorState({ t, onRetry }: { t: Theme; onRetry: () => void }) {
 
 function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active: "home" | "gallery" | "liked"; onHome: () => void; onGallery: () => void; onLiked: () => void }) {
   const items = [
-    { key: "home", label: "Home", icon: <HomeIcon size={18} />, on: onHome },
-    { key: "gallery", label: "Gallery", icon: <GridIcon size={18} />, on: onGallery },
-    { key: "liked", label: "Liked", icon: <HeartIcon size={18} />, on: onLiked },
+    { key: "home", label: "Home", icon: <IconHome size={18} weight={active === "home" ? "fill" : "regular"} />, on: onHome },
+    { key: "gallery", label: "Gallery", icon: <IconGrid size={18} weight={active === "gallery" ? "fill" : "regular"} />, on: onGallery },
+    { key: "liked", label: "Liked", icon: <IconHeart size={18} filled={active === "liked"} />, on: onLiked },
   ] as const;
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-5 pb-3 lg:hidden">
@@ -1180,27 +1181,3 @@ function formatDate(epoch?: number | null): string | null {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function HeartIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-function GridIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-function HomeIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 11l8-7 8 7M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" />
-    </svg>
-  );
-}

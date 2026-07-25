@@ -3,6 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { StudioMenu } from "./StudioMenu";
+import { IconMegaphone, IconShare } from "@/components/ui/icons";
 
 /** Above this length the studio name crowds the centered event name out. */
 const SHORT_STUDIO_NAME = 18;
@@ -93,7 +94,7 @@ export function MobileTopBar({
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full"
             style={{ color: t.brand }}
           >
-            <MegaphoneIcon size={16} />
+            <IconMegaphone size={16} />
           </a>
         )}
         <button
@@ -103,7 +104,7 @@ export function MobileTopBar({
           className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full"
           style={{ color: t.muted }}
         >
-          <ShareIcon size={16} />
+          <IconShare size={16} />
         </button>
         <button
           type="button"
@@ -129,18 +130,3 @@ export function MobileTopBar({
   );
 }
 
-function MegaphoneIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 11l18-5v12L3 14v-3z" />
-      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-    </svg>
-  );
-}
-function ShareIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v13M8 7l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" />
-    </svg>
-  );
-}

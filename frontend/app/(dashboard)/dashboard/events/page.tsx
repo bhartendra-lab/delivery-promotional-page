@@ -11,6 +11,14 @@ import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
+import {
+  IconPlus,
+  IconSearch,
+  IconX,
+  IconWarningCircle,
+  IconCalendar,
+  IconZoomOut,
+} from "@/components/ui/icons";
 
 const PAGE_SIZE = 20;
 
@@ -128,7 +136,7 @@ export default function EventsListPage() {
             disabled={createBlocked}
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <PlusIcon />
+            <IconPlus />
             Add event
           </button>
         </div>
@@ -139,7 +147,7 @@ export default function EventsListPage() {
       <section className="sticky top-0 z-10 flex flex-col gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
-            <SearchIcon />
+            <IconSearch size={15} />
           </span>
           <input
             type="search"
@@ -155,7 +163,7 @@ export default function EventsListPage() {
               className="absolute inset-y-0 right-2 my-auto flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-border)]"
               aria-label="Clear search"
             >
-              <ClearIcon />
+              <IconX size={13} />
             </button>
           )}
         </div>
@@ -215,7 +223,7 @@ export default function EventsListPage() {
           role="alert"
           className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"
         >
-          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
@@ -268,7 +276,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <CalendarIcon />
+        <IconCalendar size={28} />
       </div>
       <div className="space-y-1">
         <p className="text-xl font-bold text-[var(--color-brand-ink)]">No events yet</p>
@@ -281,7 +289,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         onClick={onCreate}
         className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
-        <PlusIcon />
+        <IconPlus />
         Create your first event
       </button>
     </div>
@@ -306,7 +314,7 @@ function NoResults({
   return (
     <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
-        <NoResultsIcon />
+        <IconZoomOut size={26} />
       </div>
       <div className="space-y-1">
         <p className="text-xl font-bold text-[var(--color-brand-ink)]">{title}</p>
@@ -349,60 +357,5 @@ function CardGridSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ClearIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function AlertIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M12 8v5M12 16.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function NoResultsIcon() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M20 20l-4.5-4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M8 10.5h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="3.5" y1="10" x2="20.5" y2="10" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="8" y1="3" x2="8" y2="6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="16" y1="3" x2="16" y2="6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }

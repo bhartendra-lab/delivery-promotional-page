@@ -6,6 +6,7 @@ import { usePageBreadcrumb } from "@/components/dashboard/ChromeContext";
 import { SettingsProvider } from "./SettingsContext";
 import { SettingsNav, sectionLabelFor } from "./SettingsNav";
 import { SectionSkeleton, FetchError } from "./SettingsUI";
+import { IconArrowLeft } from "@/components/ui/icons";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -44,15 +45,7 @@ function SettingsChrome({
         href="/dashboard"
         className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M19 12H5M12 19l-7-7 7-7"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <IconArrowLeft size={13} />
         Back to dashboard
       </Link>
 

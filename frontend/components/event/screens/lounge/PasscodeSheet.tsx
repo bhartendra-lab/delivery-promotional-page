@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { verifyFamilyPasscode } from "@/lib/guest-api";
 import { useEventTheme } from "../../EventThemeContext";
+import { IconX } from "@/components/ui/icons";
 
 const LEN = 6; // backend mints a 6-digit numeric family passcode.
 
@@ -78,7 +79,7 @@ export function PasscodeSheet({ onSuccess, onClose }: { onSuccess: () => void; o
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="cursor-pointer" style={{ color: t.muted }}>
-            <XIcon size={20} />
+            <IconX size={20} />
           </button>
         </div>
 
@@ -131,11 +132,3 @@ export function PasscodeSheet({ onSuccess, onClose }: { onSuccess: () => void; o
   );
 }
 
-function XIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}

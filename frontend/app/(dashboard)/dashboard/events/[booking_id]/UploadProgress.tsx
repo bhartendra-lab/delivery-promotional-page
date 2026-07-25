@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { EngineProgress } from "@/lib/r2-upload/types";
 import { useUploadStalled } from "@/lib/r2-upload/useUploadStall";
+import { IconFolder, IconCheck, IconClock, IconLock, IconPause, IconPlay } from "./icons";
 
 const RING_SIZE = 220;
 const RING_STROKE = 4;
@@ -143,7 +144,7 @@ export function UploadProgress({
                 <div className="mb-2 flex items-center gap-3">
                   {done ? (
                     <span className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-success-soft)] text-[var(--color-brand-success)]">
-                      <CheckIcon size={14} />
+                      <IconCheck size={14} />
                     </span>
                   ) : (
                     <span
@@ -155,7 +156,7 @@ export function UploadProgress({
                       }}
                     />
                   )}
-                  <FolderIcon
+                  <IconFolder
                     size={16}
                     className={done ? "text-[var(--color-brand-muted)]" : "text-[var(--color-brand-navy)]"}
                   />
@@ -183,7 +184,7 @@ export function UploadProgress({
         {/* Footer */}
         <div className="flex flex-col items-start justify-between gap-3 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-8 py-3.5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            {paused ? <LockIcon size={15} /> : <ClockIcon size={15} />}
+            {paused ? <IconLock size={15} /> : <IconClock size={15} />}
             <span>
               {paused
                 ? "Paused. Rename, reorder, delete folders — then hit resume."
@@ -215,11 +216,11 @@ export function UploadProgress({
             >
               {paused ? (
                 <>
-                  <PlayIcon size={14} /> Resume upload
+                  <IconPlay size={14} /> Resume upload
                 </>
               ) : (
                 <>
-                  <PauseIcon size={14} /> Pause upload
+                  <IconPause size={14} /> Pause upload
                 </>
               )}
             </button>
@@ -230,54 +231,4 @@ export function UploadProgress({
   );
 }
 
-function FolderIcon({ size, className }: { size: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-    </svg>
-  );
-}
-
-function CheckIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-
-function ClockIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <polyline points="12 7 12 12 15 14" />
-    </svg>
-  );
-}
-
-function LockIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="11" width="14" height="9" rx="1.6" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </svg>
-  );
-}
-
-function PauseIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="6.5" y="5" width="3.5" height="14" rx="1" />
-      <rect x="14" y="5" width="3.5" height="14" rx="1" />
-    </svg>
-  );
-}
-
-function PlayIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M7 5l12 7-12 7V5z" />
-    </svg>
-  );
-}
 

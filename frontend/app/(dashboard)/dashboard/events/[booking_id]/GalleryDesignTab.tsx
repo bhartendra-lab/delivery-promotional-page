@@ -4,7 +4,19 @@ import { useMemo, useState } from "react";
 import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
 import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "@/components/event/screens/gallery/GalleryControls";
-import { IconArrowRight, IconCheck, IconDownload, IconHeart, IconInfo, IconLink, IconMobile, IconMonitor, IconX } from "./icons";
+import {
+  IconArrowRight,
+  IconCheck,
+  IconDownload,
+  IconHeart,
+  IconInfo,
+  IconLink,
+  IconMobile,
+  IconMonitor,
+  IconX,
+  IconCaretDown,
+  IconPlus,
+} from "./icons";
 
 /** Season grouping over the backend `style_variant` enum. */
 const SEASONS = ["Spring", "Summer", "Autumn", "Winter"] as const;
@@ -205,7 +217,7 @@ export function GalleryDesignTab({
             onClick={() => setGuestTypes((prev) => [...prev, ""])}
             className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
           >
-            <PlusIcon size={14} /> Add team
+            <IconPlus size={14} /> Add team
           </button>
           {guestTypes.length === 0 && (
             <p className="mt-2 text-[12px] text-[var(--color-brand-muted)]">
@@ -692,31 +704,14 @@ function Segmented({
   );
 }
 
+/** Accordion caret — rotates 180° open, reusing the shared IconCaretDown glyph. */
 function IconChevron({ open }: { open: boolean }) {
   return (
-    <svg
-      width={15}
-      height={15}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <IconCaretDown
+      size={15}
       className="shrink-0 text-[var(--color-brand-muted)] transition-transform"
       style={{ transform: open ? "rotate(180deg)" : "none" }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-function PlusIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
+    />
   );
 }
 

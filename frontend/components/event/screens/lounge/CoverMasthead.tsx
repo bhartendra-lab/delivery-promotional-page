@@ -3,6 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { HeroSubtitle } from "./HeroSubtitle";
+import { IconArrowRight } from "@/components/ui/icons";
 
 /**
  * MOBILE-ONLY full-screen Home cover (desktop uses `DesktopCover`; the two
@@ -107,18 +108,10 @@ export function CoverMasthead({
             )}
           </span>
           <span className="shrink-0" style={{ color: t.brand }}>
-            <ArrowRightIcon size={18} />
+            <IconArrowRight size={18} weight="bold" />
           </span>
         </button>
       </div>
     </div>
-  );
-}
-
-function ArrowRightIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 12h15M13 6l6 6-6 6" />
-    </svg>
   );
 }

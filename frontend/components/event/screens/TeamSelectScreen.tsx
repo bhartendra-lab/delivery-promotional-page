@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
+import { IconCheck } from "@/components/ui/icons";
 
 /**
  * Screen · "Which team are you in?" — shown once, only when the event defines
@@ -93,7 +94,7 @@ export function TeamSelectScreen({
                 >
                   {active && (
                     <span className="fx-pop inline-flex">
-                      <CheckIcon size={13} />
+                      <IconCheck size={13} weight="bold" />
                     </span>
                   )}
                 </span>
@@ -143,10 +144,3 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "·";
 }
 
-function CheckIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}

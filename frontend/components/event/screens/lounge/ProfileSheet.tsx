@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useEventTheme } from "../../EventThemeContext";
+import { IconX, IconScanFace, IconLogout } from "@/components/ui/icons";
 
 /**
  * Guest profile sheet — the "DP" viewer opened by tapping the guest avatar.
@@ -46,7 +47,7 @@ export function ProfileSheet({
       >
         <div className="flex justify-end">
           <button type="button" onClick={onClose} aria-label="Close" className="cursor-pointer" style={{ color: t.muted }}>
-            <XIcon size={20} />
+            <IconX size={20} />
           </button>
         </div>
 
@@ -81,7 +82,7 @@ export function ProfileSheet({
             className="flex cursor-pointer items-center justify-center gap-2 rounded-full py-3 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
             style={{ background: t.brand, color: t.onBrand }}
           >
-            <ScanIcon size={17} /> Rescan face
+            <IconScanFace size={17} /> Rescan face
           </button>
           <button
             type="button"
@@ -89,7 +90,7 @@ export function ProfileSheet({
             className="flex cursor-pointer items-center justify-center gap-2 rounded-full py-3 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
             style={{ border: `1.5px solid ${t.border}`, color: t.error }}
           >
-            <SignOutIcon size={16} /> Sign out
+            <IconLogout size={16} /> Sign out
           </button>
         </div>
       </div>
@@ -97,29 +98,3 @@ export function ProfileSheet({
   );
 }
 
-function XIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="6" y1="18" x2="18" y2="6" />
-    </svg>
-  );
-}
-
-function ScanIcon({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-      <circle cx="12" cy="12" r="3.2" />
-    </svg>
-  );
-}
-
-function SignOutIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <path d="M16 17l5-5-5-5M21 12H9" />
-    </svg>
-  );
-}

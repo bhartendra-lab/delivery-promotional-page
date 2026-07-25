@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { IconUpload, IconDownload, IconX } from "./icons";
+import { IconUpload, IconDownload, IconX, IconMove, IconExpand } from "./icons";
 import { clamp, parsePosNums } from "./coverPosition";
 import { downloadImage } from "@/lib/media-actions";
 
@@ -140,7 +140,7 @@ export function CoverBanner({
               onClick={startReposition}
               disabled={disabled || busy}
               label="Reposition"
-              icon={<MoveIcon size={14} />}
+              icon={<IconMove size={14} />}
             />
             <CoverActionButton
               onClick={handleDownload}
@@ -270,21 +270,3 @@ function parsePos(p?: string): string {
   return `${x}% ${y}%`;
 }
 
-function MoveIcon({ size = 15, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
-    </svg>
-  );
-}
-
-function IconExpand({ size = 14, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M4 9V5h4" />
-      <path d="M16 5h4v4" />
-      <path d="M20 15v4h-4" />
-      <path d="M8 19H4v-4" />
-    </svg>
-  );
-}

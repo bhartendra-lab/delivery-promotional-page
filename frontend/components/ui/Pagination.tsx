@@ -1,5 +1,7 @@
 "use client";
 
+import { IconChevronLeft, IconChevronRight } from "@/components/ui/icons";
+
 type Props = {
   current: number;
   totalPages: number;
@@ -17,13 +19,13 @@ export function Pagination({ current, totalPages, onChange, compact = false }: P
     return (
       <nav aria-label="Pagination" className="flex shrink-0 items-center gap-1">
         <PageBtn disabled={!canPrev} onClick={() => onChange(current - 1)} aria-label="Previous page">
-          <ChevronLeft />
+          <IconChevronLeft size={13} />
         </PageBtn>
         <span className="whitespace-nowrap px-1 text-xs text-[var(--color-brand-muted)]">
           <span className="font-semibold text-[var(--color-brand-ink)]">{current}</span> / {totalPages}
         </span>
         <PageBtn disabled={!canNext} onClick={() => onChange(current + 1)} aria-label="Next page">
-          <ChevronRight />
+          <IconChevronRight size={13} />
         </PageBtn>
       </nav>
     );
@@ -42,7 +44,7 @@ export function Pagination({ current, totalPages, onChange, compact = false }: P
 
       <div className="flex items-center gap-1">
         <PageBtn disabled={!canPrev} onClick={() => onChange(current - 1)} aria-label="Previous page">
-          <ChevronLeft />
+          <IconChevronLeft size={13} />
         </PageBtn>
 
         {pages.map((p, i) =>
@@ -62,7 +64,7 @@ export function Pagination({ current, totalPages, onChange, compact = false }: P
         )}
 
         <PageBtn disabled={!canNext} onClick={() => onChange(current + 1)} aria-label="Next page">
-          <ChevronRight />
+          <IconChevronRight size={13} />
         </PageBtn>
       </div>
     </nav>
@@ -101,17 +103,3 @@ function buildPageList(current: number, total: number): (number | "…")[] {
   return [1, "…", current - 1, current, current + 1, "…", total];
 }
 
-function ChevronLeft() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function ChevronRight() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

@@ -6,6 +6,17 @@ import { isStorageBasedPlan } from "@/lib/types";
 import { buildShareUrl, formatEventDate, getExpiryWarning } from "./shared";
 import { EventBadge } from "./EventBadge";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
+import {
+  IconLink,
+  IconCheck,
+  IconInfo,
+  IconWhatsApp,
+  IconArchive,
+  IconTrash,
+  IconWarning,
+  IconShare,
+  IconRestore,
+} from "@/components/ui/icons";
 
 type Props = {
   row: Booking;
@@ -408,167 +419,6 @@ function ShareMenu({
         </div>
       )}
     </div>
-  );
-}
-
-/* Inline icons — match the dashboard's hand-drawn icon set (no icon dep). */
-
-function IconLink({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M9 14a4 4 0 0 1 0-5l2-2a4 4 0 0 1 6 6l-1 1" />
-      <path d="M15 10a4 4 0 0 1 0 5l-2 2a4 4 0 0 1-6-6l1-1" />
-    </svg>
-  );
-}
-
-function IconCheck({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="5 12 10 17 19 7" />
-    </svg>
-  );
-}
-
-function IconInfo({ size = 13 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <line x1="12" y1="11" x2="12" y2="16.5" />
-      <circle cx="12" cy="7.5" r=".6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function IconShare({ size = 15 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 15V4" />
-      <path d="M7.5 8.5 12 4l4.5 4.5" />
-      <path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" />
-    </svg>
-  );
-}
-
-function IconWhatsApp({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.6-1.2a.4.4 0 0 0 0-.4c0-.1-.6-1.4-.8-1.9-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.8 2.8 0 0 0-.9 2.1c0 1.3.9 2.5 1 2.7.2.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.2-.3-.2-.5-.3z" />
-    </svg>
-  );
-}
-
-/** Archive glyph — box with a downward arrow dropping into it. */
-function IconArchive({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-      <path d="M12 11v5m0 0l-2.5-2.5M12 16l2.5-2.5" />
-    </svg>
-  );
-}
-
-/** Restore glyph — counter-clockwise arrow (undo). */
-function IconRestore({ size = 15 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 4v5h5" />
-      <path d="M4.5 13a7.5 7.5 0 1 0 1.9-6.4L4 9" />
-    </svg>
-  );
-}
-
-function IconTrash({ size = 15 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="4 7 20 7" />
-      <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
-      <path d="M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2" />
-    </svg>
-  );
-}
-
-function IconWarning({ size = 13, className }: { size?: number; className?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12 3l9.5 17H2.5L12 3z" />
-      <line x1="12" y1="10" x2="12" y2="14" />
-      <circle cx="12" cy="17" r=".7" fill="currentColor" stroke="none" />
-    </svg>
   );
 }
 
