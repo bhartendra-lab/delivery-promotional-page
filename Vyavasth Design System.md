@@ -1,23 +1,27 @@
 # Vyavasth Design System
 
-> 🔒 **This is the single source of truth for all Vyavasth design decisions.** Read this before creating any asset — landing page, app UI, deck, email, social post, contract, or WhatsApp template. Update only when both founders agree the brand is evolving deliberately. Last updated: 23 May 2026.
-> 
+> **This is the shared compass for Vyavasth's design — a reference, not scripture.** It covers everything we make: app UI, client galleries, landing pages, decks, emails, contracts, WhatsApp templates. Its job is to keep us consistent where consistency compounds, and to give us permission where expression matters. Read it, then use judgment. Update it when the brand genuinely evolves — and date the change when you do. Last updated: 23 July 2026 — added the Wedding Guest side, the component-library strategy, and loosened the framing so this reads as direction, not law.
+>
 
 ---
 
-# How to use this document
+# How to read this document
 
-This document moves from highest-level to most concrete. Read top-to-bottom if you're new. Jump to a section if you have a specific question.
+This document moves from highest-level to most concrete. Read top-to-bottom if you're new; jump to a section if you have a specific question.
 
-**Before any design work** → Read Design Language + Color System. 2 minutes.
+**Vyavasth has two faces, and this document now speaks to both.** The **Studio side** is the software a studio owner runs their business in — restrained, dense, calm, opened a thousand times. The **Wedding Guest side** is what a couple and their guests experience when they open a gallery — expressive, editorial, made to feel like a keepsake, opened a handful of times and emotionally. Same brand and same values, deliberately different treatment. Most of the original document describes the Studio side; **Section 3 introduces the Guest side**, and later sections note where the two diverge. Where a section doesn't say otherwise, read it as describing the Studio side.
 
-**Before any copywriting** → Read Voice and Tone. 1 minute.
+**Treat this as directional, not literal.** These are defaults with reasons attached, not commandments. When you — or an AI reading this on someone's behalf — hit a rule, read the rationale sitting next to it. If the rationale doesn't apply to what you're making, that's a signal to think, not to comply. The goal is a coherent brand, not an obedient one. Explore first; reach for the rule to check your instinct, not to replace it. A small number of things genuinely don't bend (Section 4) — everything else is a strong starting point you're trusted to interpret.
 
-**Before shipping anything** → Run the 5-Second Trust Test.
+**Quick routing:**
 
-**When briefing a designer or engineer** → Share this link. Nothing else needed.
+- Before **Studio** design work → Design Language + Color System. 2 minutes.
+- Before **Guest** design work → The Wedding Guest Side (Section 3).
+- Before any copywriting → Voice and Tone.
+- Before shipping anything → the 5-Second Trust Test.
+- When briefing a designer or engineer → share this link.
 
-**When this document feels wrong** → Talk to your cofounder before changing it. Brand consistency is a 3-year compound interest play.
+**When this document feels wrong** → it might be. Note what you changed and why, and talk it through with your cofounder. Brand consistency is a long compounding game — but a compass you're not allowed to question stops being a compass.
 
 ---
 
@@ -27,11 +31,15 @@ This document moves from highest-level to most concrete. Read top-to-bottom if y
 
 Not the best. Not the most beautiful. The *only* one that gets this world. Every design decision — color, type, component, copy — should make a studio owner in Indore, Nagpur, or Jaipur feel: *this was made specifically for me.*
 
+**Two audiences, one brand.** Vyavasth is used by two very different people. The **studio operator** lives in the business tools daily — for them the software should disappear and let the work happen. The **wedding guest** meets Vyavasth once, through a gallery of the most emotional day of a family's life — for them the software should feel like a beautifully made gift. Same brand, same values, deliberately different treatment. Designing both as if they were the same product would shortchange each: the operator doesn't want decoration in the way, and the guest deserves more than a file-share.
+
 ---
 
-# 2. The Design Language
+# 2. The Design Language (Studio side)
 
-**Vyavasth's design language is built specifically for this world, built to last.**
+*(This section describes the Studio side — the operator's world. The Wedding Guest side has its own design language in Section 3.)*
+
+**Vyavasth's Studio design language is built specifically for this world, built to last.**
 
 It draws from three references, each contributing one thing:
 
@@ -39,19 +47,19 @@ It draws from three references, each contributing one thing:
 - **Mailchimp** — warmth and personality. The bootstrapped SaaS giant who built a globally loved brand with a small consistent system and a distinctive voice. Friendly without being childish.
 - **Samaro + Fotoowl** — industry fluency. The visual references that signal "we understand the creative world you live in" without copying what already exists.
 
-**The principle that holds these together:** radical consistency over time. Small number of decisions, made deliberately, applied everywhere, never broken for trends. The brand Vyavasth looks like in year 5 is recognizably the same brand as year 1 — just more trusted.
+**The principle that holds these together:** radical consistency over time. Small number of decisions, made deliberately, applied everywhere, rarely broken for trends. The brand Vyavasth looks like in year 5 is recognizably the same brand as year 1 — just more trusted.
 
-## The three contexts
+## The three Studio contexts
 
-Vyavasth shows up in three different places. The balance between references shifts by context, but colors, typography, and component vocabulary stay constant.
+On the Studio side, Vyavasth shows up in three places. The balance between references shifts by context, but colors, typography, and component vocabulary stay constant.
 
 **Operational interfaces** (Leads, Bookings, Accounting, Employees, Dashboard)
 
 Zerodha dominates. Maximum restraint. High information density, near-zero decoration. The interface disappears and lets the work happen. A studio owner finds a booking detail in two seconds without their eye wandering.
 
-**Asset-facing interfaces** (Delivery Hub, client galleries, photo browsers)
+**Asset-facing interfaces** (Delivery Hub dashboard, the operator's view of galleries and photo browsers)
 
-Photographs are the hero. UI recedes entirely. Dark mode often preferred — photos read better against dark surfaces. Generous spacing around images, minimal chrome.
+Photographs are the hero. UI recedes. Dark mode often preferred — photos read better against dark surfaces. Generous spacing around images, minimal chrome. *The client-facing end of this — what the couple and their guests actually see — has grown into its own house style; see Section 3.*
 
 **Marketing surfaces** (Landing page, decks, social media, contracts, emails)
 
@@ -59,18 +67,69 @@ Samaro/Mailchimp direction. Editorial polish. Generous whitespace. Confident res
 
 ---
 
-# 3. The Non-Negotiables
+# 3. The Wedding Guest Side
 
-Four rules. These do not change without a deliberate brand evolution discussion between both founders.
+The Guest side is Vyavasth's second house style. It shares the brand's soul but not its posture — and it's the one place in the product where we get to be beautiful for its own sake.
 
-1. **One accent color: terracotta `#C25A3A`.** Every button, link, icon, active state, and accent uses this. No navy, no gold, no purple, no blue. One color.
-2. **Cream backgrounds, always.** No white, no gray, no gradients as backgrounds. Cream is the canvas everywhere — app, landing page, decks, invoices.
-3. **Editorial restraint.** More whitespace than feels comfortable. Fewer elements than feel necessary. Confidence comes from what we leave out.
-4. **Cultural specificity in content.** Indian city names in examples, ₹ symbol always, WhatsApp-friendly phrasing, Hindi/Sanskrit words where natural.
+## Why it's different
+
+The Studio side earns trust through restraint — an operator opening it for the 500th time wants nothing in their way. The Guest side has the opposite job. A couple opens their gallery a handful of times, emotionally, often to show family across cities. Here the software should feel *made* — editorial, tactile, a little bold. Restraint isn't the goal; taste is. Where the operator wants the interface to disappear, the guest wants to feel that someone cared about how this looks.
+
+## The shift in references
+
+Where the Studio side draws from Zerodha and Mailchimp, the Guest side looks elsewhere. Study these for direction, don't copy them:
+
+- **Editorial print / Kinfolk-style layouts** — for whitespace, rhythm, and unhurried type.
+- **Luxury photography portfolios** (high-end wedding photographers, Pictime/Fotoowl-class galleries) — for how images are allowed to breathe.
+- **Fashion-house lookbooks and invitation suites** — for confident, unexpected type pairings and a sense of occasion.
+
+The brief in one line: **keepsake, not dashboard.**
+
+## What stays shared (the brand thread)
+
+Even at its most expressive, the Guest side is still unmistakably Vyavasth. Three things carry across so the two sides feel related rather than like two products:
+
+- **Terracotta stays present** as at least one recurring note — even when the guest palette is broader — so a guest who later becomes a customer feels the connection.
+- **Warmth over coldness.** Warm neutrals and warm darks, never clinical white or cold gray, even when we go dramatic.
+- **The wordmark and its lowercase, humble spirit.**
+
+## Where it's free (license to experiment)
+
+Everything else is open, and *meant* to be explored rather than pre-decided. This is a list of permissions, not a spec:
+
+- **Color** — the Guest side may run a richer, event-appropriate palette: deep jewel tones, gold as a foil-style accent, seasonal or per-studio theming. The Studio "one accent" rule does not bind here.
+- **Type** — display and editorial typefaces are welcome. A characterful serif or a high-contrast display face for headlines, paired with a clean, readable body. Typeface switching, discouraged on the Studio side, is a legitimate tool here — just anchor body text in something quietly legible and save the drama for the display.
+- **Shape & texture** — larger radii, full-bleed imagery, deliberate overlap and asymmetry, subtle grain or paper texture, type layered over photographs. All on the table.
+- **Motion** — slower, more cinematic reveals are appropriate. A gallery can afford a 600ms fade-and-rise where an operational screen never could.
+
+When a specific guest theme proves itself in the wild, we document it here as a named style. But the default posture on this side is exploration — reach for these permissions before you reach for a template.
+
+## Dark by default, photo-first
+
+Guest galleries generally read best dark: warm dark surfaces (the `#1C1714` family) let photographs glow. UI recedes to near-invisible — minimal chrome, generous margins, the photograph *is* the interface. Light, editorial treatments are fair game for cover pages, invitations, and story-style intros; the image grids themselves usually want the dark.
+
+## Icons & components on the Guest side
+
+Same substrate as everywhere — Phosphor primary with lucide as fallback (Section 10), and one shared headless component library themed per side (Section 9) — but tuned expressive: heavier Phosphor weights (`bold` / `fill` / `duotone`), larger sizes, more air around everything.
+
+A note on Material, since it came up: we considered building the Guest side directly on Google's Material (MUI). We're instead keeping **one shared headless component substrate themed per side**, so **Material informs the guest *attitude* — richer motion, more expressive surfaces, a permission to be bolder — not the code and not the visible look.** The Guest side should never read as "a Material app." If we ever need a glyph that neither Phosphor nor lucide carries, Material Symbols is the distant next stop.
 
 ---
 
-# 4. Color System
+# 4. The Non-Negotiables (kept few on purpose)
+
+A brand needs a small number of things that genuinely never move — the anchors everything else varies around. These are deliberately few, and they govern the **Studio side and the brand core**. The Guest side (Section 3) is allowed to stretch several of them on purpose. If you're tempted to break one, read the reason first — the reason is the actual rule, and if it doesn't apply, you're probably not really breaking anything.
+
+1. **One accent color on the Studio side: terracotta `#C25A3A`.** Every button, link, icon, active state, and accent uses it. No navy, no gold, no purple, no blue. *Why:* one ownable color, applied everywhere, is what makes us look like us. (The Guest side may broaden the palette — see Section 3 — but keeps terracotta present.)
+2. **Warm backgrounds, never clinical.** Cream is the Studio canvas — no white, no gray, no gradients-as-backgrounds. *Why:* warmth is half our personality; cold surfaces fight it. (The Guest side may go warm-dark or richer, but the ban on clinical white and cold gray holds everywhere.)
+3. **Editorial restraint as the default.** More whitespace than feels comfortable, fewer elements than feel necessary. *Why:* confidence comes from what we leave out. On the Studio side this means near-zero decoration; on the Guest side it means taste and editing, not absence — beauty still has to be earned, not piled on.
+4. **Cultural specificity in content.** Indian city names in examples, ₹ always, WhatsApp-friendly phrasing, Hindi/Sanskrit words where natural. *Why:* this is the whole position — "made specifically for me" — and it's the cheapest, most durable way to prove it.
+
+---
+
+# 5. Color System
+
+This is the canonical **Studio** palette and the brand core. The Guest side may extend it (Section 3), but always keeps terracotta present and warmth over coldness.
 
 ## Primary accent — Terracotta
 
@@ -128,13 +187,13 @@ Used only to communicate state. Never decorative. Never in the logo or marketing
 | `info` | `#2563EB` | Informational, in-progress |
 | `infoSubtle` | `#EEF3FF` | Info row backgrounds |
 
-**Color rule:** if something needs to stand out and terracotta isn't working, the layout is wrong — not the color system. Never introduce a fifth accent.
+**Color rule (Studio):** if something needs to stand out and terracotta isn't working, the layout is usually wrong — not the color system. Resist adding a fifth accent on the Studio side. (On the Guest side, a broader palette is expected — the discipline there is coherence, not scarcity.)
 
 ---
 
-# 5. Typography
+# 6. Typography
 
-**One typeface: Plus Jakarta Sans.** All weights, all surfaces. Headlines, body, UI, wordmark. No serif. Weight and size create hierarchy, not typeface switching.
+**Studio typeface: Plus Jakarta Sans.** All weights, all Studio surfaces — headlines, body, UI, wordmark. No serif, no typeface switching here; weight and size create hierarchy. *The Guest side may introduce display and editorial faces for headlines (Section 3), anchored by a clean, readable body — the one-typeface rule is a Studio rule, not a universal one.*
 
 Google Fonts: [Plus Jakarta Sans](https://fonts.google.com/specimen/Plus+Jakarta+Sans)
 
@@ -164,7 +223,9 @@ React Native: `@expo-google-fonts/plus-jakarta-sans`
 
 ---
 
-# 6. Spacing, Radii, Shadows, Motion
+# 7. Spacing, Radii, Shadows, Motion
+
+Canonical for the Studio side. The Guest side may use larger radii, more generous macro-spacing, and slower/cinematic motion (Section 3) — the scales below are the shared vocabulary both sides draw from, not a ceiling on the Guest side.
 
 ## Spacing Scale
 
@@ -190,23 +251,23 @@ Base unit: 4px. Everything is a multiple of 4. No magic numbers.
 | `radiusSmall` | 4px | Badges, chips, status tags |
 | `radiusMedium` | 8px | Inputs, buttons, small cards |
 | `radiusLarge` | 12px | Cards, modals, bottom sheets |
-| `radiusXL` | 16px | Feature cards on landing page only |
+| `radiusXL` | 16px | Feature cards on landing page; Guest-side surfaces |
 | `radiusFull` | 999px | Avatar circles, pill buttons (sparingly) |
 
 ## Shadow Scale
 
-Flat-leaning. Shadows communicate elevation, never decoration. Shadow color is warm charcoal at low opacity — never cold gray or black.
+Flat-leaning on the Studio side. Shadows communicate elevation, never decoration. Shadow color is warm charcoal at low opacity — never cold gray or black. (The Guest side may use elevation more expressively, still warm.)
 
 | Token | Value | Used for |
 | --- | --- | --- |
-| `shadowNone` | none | Default — most surfaces |
+| `shadowNone` | none | Default — most Studio surfaces |
 | `shadowSubtle` | `0 1px 3px rgba(42,34,24,0.08)` | Cards on cream, slight lift |
 | `shadowRaised` | `0 4px 12px rgba(42,34,24,0.10)` | Dropdowns, floating cards |
 | `shadowFloating` | `0 8px 24px rgba(42,34,24,0.14)` | Modals, bottom sheets, popovers |
 
 ## Motion Scale
 
-Fast and quiet. Animation orients the user, never entertains them.
+Fast and quiet on the Studio side. Animation orients the user, never entertains them.
 
 | Token | Value | Used for |
 | --- | --- | --- |
@@ -218,11 +279,11 @@ Fast and quiet. Animation orients the user, never entertains them.
 | `easingDecelerate` | `cubic-bezier(0, 0, 0.2, 1)` | Elements entering |
 | `easingAccelerate` | `cubic-bezier(0.4, 0, 1, 1)` | Elements leaving |
 
-**Motion rule:** nothing in operational UI takes longer than 250ms. Studios don't wait.
+**Motion rule:** nothing in operational Studio UI takes longer than 250ms — studios don't wait. **Guest galleries are exempt:** cinematic reveals (up to ~600ms, decelerated) are welcome there, because the pace *is* part of the experience.
 
 ---
 
-# 7. Logo Usage
+# 8. Logo Usage
 
 The logo is a horizontal lockup: terracotta shutter mark + wordmark `vyavasth` in Plus Jakarta Sans lowercase terracotta.
 
@@ -268,7 +329,18 @@ Equal to the height of the shutter mark on all four sides. Nothing comes closer.
 
 ---
 
-# 8. Components
+# 9. Components & the Component Library
+
+## Component library strategy
+
+We fix a component library the same way we fixed icons: **adopt one substrate, restyle it to the brand, and hand-write a component only when nothing in the library fits.**
+
+- **One headless primitive library across both sides.** Use unstyled, accessible primitives — Radix Primitives, generated and styled via shadcn/ui on the web (and the equivalent primitive set in the React Native app). We own the markup and lock the styling to our tokens; the library gives us behavior, accessibility, and focus management for free.
+- **Themed per side, not forked per side.** The *same* primitives carry both house styles through tokens: a **Studio theme** (restraint — cream, terracotta, flat, tight motion) and a **Guest theme** (editorial — richer palette, larger radii, display type, cinematic motion). One dependency, two skins. This is why we did *not* pull Material/MUI in as a second guest engine — a single substrate themed twice keeps the two sides related and the codebase small.
+- **Custom-write only as a last resort.** If a genuinely bespoke piece has no home in the library (a signature gallery interaction, a decorative composite), build it by hand from library primitives — don't re-implement primitives that already exist. Same discipline that's replacing the ~150 hand-drawn one-off icons.
+- **Why this matters:** today most components (buttons, badges, inputs, modals) are re-written inline per screen, so the design system erodes silently. A shared, themed substrate is what actually enforces the specs below instead of leaving them as prose.
+
+The specs that follow are the **Studio** component vocabulary. Guest components are the same primitives wearing the Guest theme (Section 3), plus a few bespoke gallery pieces.
 
 ## Mobile-first principle
 
@@ -349,18 +421,25 @@ Centered vertically between filter row and bottom nav. Simple geometric illustra
 
 ---
 
-# 9. Iconography
+# 10. Iconography
 
-**Library: Phosphor Icons** (`phosphor-react-native`)
+## Libraries
 
-**Style:**
+- **Primary: Phosphor Icons.** Web: `@phosphor-icons/react`. React Native app: `phosphor-react-native`. Phosphor is the default for both sides — its six weights (`thin` → `duotone`) map cleanly onto our filled/outline states.
+- **Secondary (fallback): lucide.** Web: `lucide-react`. Use *only* when Phosphor lacks a glyph, and match Phosphor's stroke weight and corner treatment as closely as possible so the two don't visibly clash.
+- **Brand marks: `react-icons` / `simple-icons`.** For logos Phosphor and lucide don't carry — WhatsApp, Instagram, Google, etc. These are brand-mark libraries, not UI-glyph libraries; keep them scoped to actual brand marks.
+
+We no longer hand-draw icons. The earlier hand-drawn "Phosphor-style" set was a stopgap to avoid a dependency; the standard now is the real library wrapped behind our own `Icon*` names, so call sites don't change when the underlying glyph does.
+
+## Style
 
 - Default everywhere: `regular` weight
 - Active tab bar item: `fill` weight in `primary` (terracotta)
 - Primary button icon: `fill` weight in white
 - Everything else: `regular`
+- **Guest side:** may lean on heavier weights (`bold` / `fill` / `duotone`) and larger sizes for expressiveness (Section 3).
 
-**Size scale:**
+## Size scale
 
 - 16px — inline with text, form field icons
 - 20px — list row icons, badge icons
@@ -371,16 +450,20 @@ Centered vertically between filter row and bottom nav. Simple geometric illustra
 
 ---
 
-# 10. Voice and Tone
+# 11. Voice and Tone
 
-*(Full section coming in next session — framework below is locked)*
+*(Full section coming in a later session — framework below is stable.)*
 
-## The four traits
+## The four traits (Studio / operational copy)
 
 1. **Short.** Cut every sentence by 30% before shipping. Studios are busy.
 2. **Calm.** No exclamation marks. No urgency theater. No "🚀 Unlock your potential!" Confidence doesn't need volume.
 3. **Specific.** "Sharma Films, Indore" not "Acme Studio." "₹85,000 booking" not "a transaction." "WhatsApp the client" not "reach out."
 4. **Familiar.** Hindi/Sanskrit words where natural. Indian city names in examples. ₹ always, never $. "Studio" not "business." "Booking" not "deal."
+
+## Guest-facing copy
+
+The guest is a couple on the happiest occasion of their lives, not a busy operator — so this copy can carry more warmth and a little more emotion. Still short, still specific, still no exclamation-mark theater; but it may be tender where operational copy is plain. "Your photos are ready" can become something that feels like it was written *for them*.
 
 ## Forbidden phrases
 
@@ -388,56 +471,63 @@ Revolutionary, game-changing, unlock, empower, seamless, world-class, AI-powered
 
 ---
 
-# 11. The 5-Second Trust Test
+# 12. The 5-Second Trust Test
 
-Before shipping any asset, run this:
+Before shipping any asset, run the test for its side.
+
+**Studio:**
 
 > *Would a studio owner in Indore, Nagpur, or Jaipur look at this and think: "This is real, professional software made for me"?*
-> 
+
+**Guest:**
+
+> *Would a couple opening this gallery feel it was made with care — a keepsake, not a file-share?*
 
 **Yes** → ship it.
 
-**Hesitate** → something is missing. Usually: cultural specificity in copy, restraint in design, or the wrong color creeping in. Fix that one thing.
+**Hesitate** → something is missing. On the Studio side it's usually cultural specificity, restraint, or a wrong color creeping in. On the Guest side it's usually that it feels generic — templated, cold, or careless. Fix that one thing.
 
 ---
 
-# 12. Anti-Patterns
+# 13. Anti-Patterns
+
+Most of these are **Studio-side guardrails.** The Guest side is allowed to do several of them on purpose — multiple type styles, larger radii, richer motion, a broader palette (Section 3). What stays forbidden *everywhere* is flagged below.
 
 ## Color
 
-- Adding a second accent "just for this one screen" — it never stays for one screen
-- Navy + gold for "premium" — the most overused palette in the Indian wedding industry; we'd blend in with our customers
-- Lavender-to-peach gradients — the strongest "AI-generated landing page" tell
-- Cold corporate blues or grays — they fight our warmth
-- White backgrounds — they fight our cream
+- Adding a second accent "just for this one screen" on the Studio side — it never stays for one screen
+- Navy + gold for "premium" — the most overused palette in the Indian wedding industry; we'd blend in with our customers *(forbidden everywhere)*
+- Lavender-to-peach gradients — the strongest "AI-generated landing page" tell *(forbidden everywhere)*
+- Cold corporate blues or grays — they fight our warmth *(forbidden everywhere)*
+- White backgrounds — they fight our cream *(Studio; Guest uses warm darks/richer surfaces, still not clinical white)*
 
 ## Typography
 
-- Ultra-bold condensed display fonts — shouts instead of speaks
-- Mixing more than one typeface
+- Ultra-bold condensed display fonts — shouts instead of speaks *(forbidden everywhere)*
+- Mixing more than one typeface *(Studio only — the Guest side pairs a display face with a body face on purpose)*
 - Tight letter-spacing on headlines
-- `Vyavasth` or `VYAVASTH` for the wordmark — lowercase only
+- `Vyavasth` or `VYAVASTH` for the wordmark — lowercase only *(forbidden everywhere)*
 
 ## Components
 
-- Buttons inside list rows — the row itself is tappable
-- Cards for operational list data — use rows
+- Buttons inside operational list rows — the row itself is tappable *(Studio)*
+- Cards for operational list data — use rows *(Studio)*
 - Multiple CTAs per section
-- Rounded corners larger than 12px in operational UI
-- Drop shadows on cards (we are flat)
-- 3D floating dashboard illustration as hero
+- Rounded corners larger than 12px in operational UI *(Studio; Guest may go larger)*
+- Drop shadows on cards on the Studio side — we are flat there
+- 3D floating dashboard illustration as hero *(forbidden everywhere)*
 
 ## Content
 
-- Stock illustrations of diverse cartoon people pointing at laptops
-- Generic placeholder names (Acme Studio, John Doe)
-- $ instead of ₹
+- Stock illustrations of diverse cartoon people pointing at laptops *(forbidden everywhere)*
+- Generic placeholder names (Acme Studio, John Doe) *(forbidden everywhere)*
+- $ instead of ₹ *(forbidden everywhere)*
 - Email-only contact (we are WhatsApp-first)
 - Western examples in copy
 
 ---
 
-# 13. On the Navy + Gold Question
+# 14. On the Navy + Gold Question
 
 Decided and closed on 23 May 2026. Recorded here so it doesn't re-open as a question.
 
@@ -450,14 +540,16 @@ Navy + gold was considered and rejected because:
 5. Gold doesn't reproduce flat. It needs foil or gradients to read as gold. On screen it reads as mustard yellow.
 6. Navy is cold. It fights the warmth of the shutter mark.
 
-If this comes up again, return to this section before re-opening the discussion.
+If this comes up again, return to this section before re-opening the discussion. *(Note: the Guest side may use gold as a foil-style accent within a specific theme — that's a scoped, per-event choice, not a change to the brand core or the logo.)*
 
 ---
 
-# 14. What's Still Being Decided
+# 15. What's Still Being Decided
 
-*(These sections will be completed and moved up in the next session)*
+*(These will be completed and moved up in a later session.)*
 
-- **Imagery and illustration** — photography style, illustration approach, what's allowed on marketing surfaces
-- **Three-context rules in full detail** — exact density and decoration rules per context
-- **Voice and tone — full section** — examples, before/after copy, error messages, onboarding language
+- **Named Guest-side themes** — as specific guest styles prove themselves, document each here as a reusable named style (palette, type pairing, motion).
+- **Imagery and illustration (both sides)** — photography style, illustration approach, what's allowed on marketing and gallery surfaces.
+- **Voice and tone — full section** — examples, before/after copy, error messages, onboarding and gallery language.
+- **Component-library rollout** — migrating the inline buttons and hand-drawn icons onto the shared themed substrate (Sections 9–10), area by area.
+- **Three-context rules in full detail** — exact density and decoration rules per Studio context.
