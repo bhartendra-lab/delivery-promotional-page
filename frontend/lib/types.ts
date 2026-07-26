@@ -169,6 +169,24 @@ export type LoginResponse = {
 };
 
 /**
+ * The individual account holder's own details — distinct from the
+ * studio-level `Company`. Powers "Your Account" → Personal Information and
+ * the "same as personal" business email/phone shortcut on Studio Identity.
+ *
+ * NOT YET BACKED BY A REAL ENDPOINT: `getUserProfile`/`updateUserProfile` in
+ * `lib/api.ts` are placeholders. The login response already carries a `user`
+ * object (see `LoginResponse` above) but it's untyped and unused today, so
+ * this shape reflects the frontend's expectation, not a confirmed backend
+ * contract. Confirm field names with the backend before this ships.
+ */
+export type UserProfile = {
+  first_name?: string;
+  last_name?: string;
+  personal_email?: string;
+  personal_contact?: string;
+};
+
+/**
  * Subscription service type, driving how usage is metered. Mirrors the backend
  * `Service.service_type` enum.
  *   - "Free" / "Event-based"  → event-count limits (bookings created this cycle)

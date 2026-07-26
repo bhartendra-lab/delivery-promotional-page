@@ -331,7 +331,7 @@ export function QrColorPicker({
           )}
           {!hasLogo && (
             <Hint tone="info">
-              <Link href="/dashboard/settings/logo" className="font-semibold underline">
+              <Link href="/dashboard/settings#studio-logo" className="font-semibold underline">
                 Add your studio logo
               </Link>{" "}
               to have it appear in the centre of new QR codes.

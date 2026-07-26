@@ -10,6 +10,9 @@ import {
   IconSave,
   IconWarningCircle,
   IconCheck,
+  IconUser,
+  IconArchive,
+  IconOpen,
 } from "@/components/ui/icons";
 
 /**
@@ -237,7 +240,7 @@ export function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-5 shadow-[0_1px_3px_rgba(42,34,24,0.08)]">
+    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5 shadow-[0_1px_3px_rgba(42,34,24,0.08)]">
       <div className="mb-4 flex items-center gap-2.5">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
           {icon}
@@ -249,6 +252,34 @@ export function Card({
   );
 }
 
+/**
+ * "Same as personal" toggle for the business email/phone fields on Studio
+ * Identity. Checking it copies the personal value in and locks the field
+ * (read-only, not disabled, so it still submits); unchecking hands control
+ * back without discarding what was typed.
+ */
+export function SameAsPersonalCheckbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-[var(--color-brand-border)] text-[var(--color-brand-navy)] accent-[var(--color-brand-navy)]"
+      />
+      {label}
+    </label>
+  );
+}
+
 export function Field({
   label,
   value,
@@ -257,6 +288,8 @@ export function Field({
   required,
   type = "text",
   className = "",
+  readOnly = false,
+  hint,
 }: {
   label: string;
   value: string;
@@ -265,6 +298,9 @@ export function Field({
   required?: boolean;
   type?: string;
   className?: string;
+  /** Locked but still submitted — used by the "same as personal" shortcut. */
+  readOnly?: boolean;
+  hint?: string;
 }) {
   return (
     <label className={`block ${className}`}>
@@ -278,8 +314,12 @@ export function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+        readOnly={readOnly}
+        className={`brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
+          readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-bg)]"
+        }`}
       />
+      {hint && <span className="mt-1 block text-xs text-[var(--color-brand-muted)]">{hint}</span>}
     </label>
   );
 }
@@ -376,6 +416,18 @@ export function ImageIcon() {
 
 export function ShareIcon() {
   return <IconShareNetwork size={15} />;
+}
+
+export function UserIcon() {
+  return <IconUser size={15} />;
+}
+
+export function StorageIcon() {
+  return <IconArchive size={15} />;
+}
+
+export function OpenIcon({ className }: { className?: string }) {
+  return <IconOpen className={className} />;
 }
 
 // NOTE: unused anywhere (SettingsNav renders plain text labels, no icons) —

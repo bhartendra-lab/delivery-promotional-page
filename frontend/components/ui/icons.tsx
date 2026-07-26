@@ -78,6 +78,7 @@ import {
   Trash,
   TreeStructure,
   UploadSimple,
+  User,
   Users,
   Warning,
   WarningCircle,
@@ -195,6 +196,7 @@ export const IconKey = wrapPhosphor(Key, 18, "IconKey");
 export const IconEye = wrapPhosphor(Eye, 18, "IconEye");
 export const IconEyeOff = wrapPhosphor(EyeSlash, 18, "IconEyeOff");
 export const IconLinkBroken = wrapPhosphor(LinkBreak, 18, "IconLinkBroken");
+export const IconUser = wrapPhosphor(User, 15, "IconUser");
 
 /* ── A5: guest side ────────────────────────────────────────────── */
 export const IconMegaphone = wrapPhosphor(Megaphone, 18, "IconMegaphone");
