@@ -106,13 +106,21 @@ body {
   0% { opacity: 0; }
   100% { opacity: 1; }
 }
-@keyframes drawer-slide {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(0); }
-}
 @keyframes drawer-fade {
   0% { opacity: 0; }
   100% { opacity: 1; }
+}
+@keyframes modal-fade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes modal-pop {
+  0% { opacity: 0; transform: translateY(8px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes modal-slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
 }
 @keyframes shimmer-skel {
   0% { background-position: -200% 0; }
@@ -164,11 +172,24 @@ body {
   pointer-events: none;
 }
 
-.drawer-slide {
-  animation: drawer-slide 0.35s cubic-bezier(0.32, 0.72, 0.32, 1) both;
-}
 .drawer-fade {
   animation: drawer-fade 0.25s ease-out both;
+}
+.modal-fade {
+  animation: modal-fade 0.2s ease-out both;
+}
+/* Desktop (≥640px) modal entrance — a gentle pop-in, distinct from the
+   mobile sheet's slide-up. Scoped by media query (not a JS breakpoint check)
+   so both classes can sit on the panel unconditionally. */
+@media (min-width: 640px) {
+  .modal-pop {
+    animation: modal-pop 0.24s cubic-bezier(0.32, 0.72, 0.32, 1) both;
+  }
+}
+@media (max-width: 639.98px) {
+  .modal-slide-up {
+    animation: modal-slide-up 0.28s cubic-bezier(0.32, 0.72, 0.32, 1) both;
+  }
 }
 .popup-pop {
   animation: popup-pop 0.18s cubic-bezier(0.2, 0.7, 0.3, 1) both;
@@ -409,3 +430,49 @@ body {
 .fx-dots > span { animation: fx-dot 1.4s ease-in-out infinite; }
 .fx-dots > span:nth-child(2) { animation-delay: 0.18s; }
 .fx-dots > span:nth-child(3) { animation-delay: 0.36s; }
+
+/* ── Billing: discrete storage-tier slider (index slider, see lib/plans.ts) */
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+.range-slider:focus-visible {
+  outline: none;
+}
+.range-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 999px;
+  background: var(--color-brand-navy);
+  border: 2px solid var(--color-brand-bg);
+  box-shadow: 0 1px 3px rgba(42, 34, 24, 0.15);
+}
+.range-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(194, 90, 58, 0.4);
+}
+.range-slider::-moz-range-track {
+  height: 4px;
+  background: transparent;
+}
+.range-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--color-brand-navy);
+  border: 2px solid var(--color-brand-bg);
+  box-shadow: 0 1px 3px rgba(42, 34, 24, 0.15);
+}
+.range-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(194, 90, 58, 0.4);
+}

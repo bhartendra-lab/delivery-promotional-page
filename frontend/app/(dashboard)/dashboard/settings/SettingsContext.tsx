@@ -33,6 +33,15 @@ type SettingsState = {
   save: (payload: CompanyUpdateInput) => Promise<Company>;
   /** Persist a partial profile update; resolves with the refreshed profile. */
   saveProfile: (payload: UserProfileUpdateInput) => Promise<UserProfile>;
+  /**
+   * Sync an already-fetched Company into this context without a network
+   * round-trip — for flows that update the company through their own
+   * dedicated endpoint (e.g. ChangeWhatsappModal's OTP verify) rather than
+   * `save`/updateCompanyDetails. Does NOT touch the lib/auth cache; callers
+   * that also need the Topbar/Sidebar to pick up the change must call
+   * `setCompany` from `@/lib/auth` themselves.
+   */
+  setCompanyState: (company: Company) => void;
 };
 
 const SettingsCtx = createContext<SettingsState | null>(null);
@@ -89,10 +98,14 @@ export function SettingsProvider({
     return res.user;
   }
 
+  function setCompanyState(company: Company) {
+    setLoad({ status: "ready", company });
+  }
+
   if (load.status !== "ready") return <>{children(load)}</>;
 
   return (
-    <SettingsCtx.Provider value={{ company: load.company, userProfile, save, saveProfile }}>
+    <SettingsCtx.Provider value={{ company: load.company, userProfile, save, saveProfile, setCompanyState }}>
       {children(load)}
     </SettingsCtx.Provider>
   );

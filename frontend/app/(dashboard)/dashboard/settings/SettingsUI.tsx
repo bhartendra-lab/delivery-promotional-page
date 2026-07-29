@@ -23,122 +23,11 @@ import {
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
-/* ── Google Places Autocomplete (address → place_id) ─────────────── */
-
-type GoogleMapsPlace = {
-  place_id?: string;
-  formatted_address?: string;
-};
-
-type GoogleAutocompleteInstance = {
-  addListener: (event: string, handler: () => void) => void;
-  getPlace: () => GoogleMapsPlace;
-};
-
-declare global {
-  interface Window {
-    google?: {
-      maps: {
-        places: {
-          Autocomplete: new (
-            input: HTMLInputElement,
-            opts?: Record<string, unknown>,
-          ) => GoogleAutocompleteInstance;
-        };
-      };
-    };
-  }
-}
-
-const PLACES_SCRIPT_ID = "google-places-script";
-
-/**
- * Address input backed by the Google Places Autocomplete widget. As the
- * studio owner types, Google suggests matching businesses; selecting one
- * fills in the formatted address and hands back the `place_id`, which is
- * what powers the Google reviews link on delivery pages — no manual place
- * ID lookup required. Degrades to a plain text input if no
- * `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is configured, or while the script loads.
- */
-export function AddressField({
-  label = "Business address",
-  value,
-  onChange,
-  onPlaceSelect,
-  placeholder,
-  className = "",
-}: {
-  label?: string;
-  value: string;
-  onChange: (v: string) => void;
-  onPlaceSelect?: (place: { address: string; placeId: string }) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<GoogleAutocompleteInstance | null>(null);
-  // Lazy initializer so an already-loaded script (e.g. a second AddressField
-  // on the page) doesn't need a synchronous setState from inside the effect.
-  const [scriptReady, setScriptReady] = useState(
-    () => typeof window !== "undefined" && !!window.google?.maps?.places,
-  );
-
-  useEffect(() => {
-    if (scriptReady) return;
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) return;
-    const existing = document.getElementById(PLACES_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existing) {
-      existing.addEventListener("load", () => setScriptReady(true));
-      return;
-    }
-    // Classic bootstrap: `libraries=places` eagerly loads the Places library
-    // alongside the core API, so it's available by the time `onload` fires —
-    // no `loading=async` / `importLibrary` dance needed. Google still fully
-    // supports this; it just logs a console suggestion to use the newer
-    // async loader, which is harmless for a single settings-page widget.
-    const script = document.createElement("script");
-    script.id = PLACES_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-    script.async = true;
-    script.onload = () => setScriptReady(true);
-    document.head.appendChild(script);
-  }, [scriptReady]);
-
-  useEffect(() => {
-    if (!scriptReady || !inputRef.current || autocompleteRef.current || !window.google?.maps?.places) return;
-    const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
-      fields: ["place_id", "formatted_address"],
-      types: ["establishment"],
-    });
-    autocomplete.addListener("place_changed", () => {
-      const place = autocomplete.getPlace();
-      const formatted = place.formatted_address ?? inputRef.current?.value ?? "";
-      onChange(formatted);
-      if (place.place_id) {
-        onPlaceSelect?.({ address: formatted, placeId: place.place_id });
-      }
-    });
-    autocompleteRef.current = autocomplete;
-  }, [scriptReady, onChange, onPlaceSelect]);
-
-  return (
-    <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-        {label}
-      </span>
-      <input
-        ref={inputRef}
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoComplete="off"
-        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
-      />
-    </label>
-  );
-}
+// Lives in components/ui/ (not a settings-route file) so non-settings
+// consumers — the onboarding wizard's Google Business step — don't have to
+// import across route boundaries. Re-exported here so every existing
+// settings import site keeps working unchanged.
+export { AddressField } from "@/components/ui/AddressField";
 
 /**
  * Read-only display for a value the user shouldn't hand-edit but does need to
@@ -262,16 +151,26 @@ export function SameAsPersonalCheckbox({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /** Shown, not hidden, when the shortcut's source data isn't available — a
+   *  visibly disabled control with an explanation tells the user why. */
+  disabled?: boolean;
 }) {
   return (
-    <label className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]">
+    <label
+      aria-disabled={disabled}
+      className={`mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)] ${
+        disabled ? "cursor-not-allowed opacity-60" : ""
+      }`}
+    >
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         className="h-3.5 w-3.5 rounded border-[var(--color-brand-border)] text-[var(--color-brand-navy)] accent-[var(--color-brand-navy)]"
       />
@@ -320,6 +219,103 @@ export function Field({
         }`}
       />
       {hint && <span className="mt-1 block text-xs text-[var(--color-brand-muted)]">{hint}</span>}
+    </label>
+  );
+}
+
+/**
+ * Read-only display of the studio's one, OTP-verified phone number. Never
+ * part of the Studio Identity form's dirty-check or save payload — changing
+ * it goes through its own OTP-gated flow (ChangeWhatsappModal), not
+ * updateCompanyDetails.
+ */
+export function VerifiedWhatsappField({
+  whatsappNumber,
+  verified,
+  onChangeClick,
+}: {
+  whatsappNumber?: string;
+  verified?: boolean;
+  onChangeClick: () => void;
+}) {
+  const digits = (whatsappNumber ?? "").replace(/\D/g, "").slice(-10);
+  const formatted = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : null;
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+          WhatsApp number
+        </span>
+        <button
+          type="button"
+          onClick={onChangeClick}
+          className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+        >
+          Change number
+        </button>
+      </div>
+      <div className="flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
+        {formatted ? (
+          <span className="text-sm text-[var(--color-brand-ink)]">{formatted}</span>
+        ) : (
+          <span className="flex items-center gap-2 text-sm text-[var(--color-brand-muted)]">
+            <span>—</span>
+            <span className="text-xs">Not set yet</span>
+          </span>
+        )}
+        {verified && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
+            <CheckIcon className="h-3 w-3" />
+            Verified
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+        Delivery notifications, OTPs and client replies all go to this number.
+      </p>
+    </div>
+  );
+}
+
+export function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  required,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  required?: boolean;
+  className?: string;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+        {label}
+        {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none focus:border-[var(--color-brand-outline)]"
+      >
+        <option value="" disabled>
+          {placeholder}
+        </option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

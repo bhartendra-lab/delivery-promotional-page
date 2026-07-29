@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBooking } from "@/lib/api";
+import { createBooking, ApiError } from "@/lib/api";
 import { EVENT_TYPES, type EventType } from "@/lib/types";
 import { useChrome } from "./ChromeContext";
+import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { IconX, IconCheck } from "@/components/ui/icons";
 
 type Props = {
@@ -18,6 +19,7 @@ export function AddEventModal({ open, onClose }: Props) {
   // aggregation can match bookings by plan. Shared via ChromeContext (single
   // dashboard-wide fetch); may be null while usage is still loading.
   const { dlpUsage } = useChrome();
+  const { openUpgradeModal } = useUpgradeModal();
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState<EventType>("Wedding");
   const [eventDate, setEventDate] = useState("");
@@ -68,6 +70,11 @@ export function AddEventModal({ open, onClose }: Props) {
       router.push(`/dashboard/events/${res.booking_id}`);
     } catch (err) {
       setSubmitting(false);
+      if (err instanceof ApiError && err.status === 402) {
+        onClose();
+        openUpgradeModal({ preset: "event" });
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not create event");
     }
   }

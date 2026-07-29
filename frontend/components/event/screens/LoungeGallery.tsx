@@ -69,7 +69,9 @@ export function LoungeGallery({
     ? `https://search.google.com/local/writereview?placeid=${event.company_google_place_id}`
     : event.company_gmb_link || null;
   // Contact opens a WhatsApp chat with the studio's number (digits only).
-  const waNumber = (event.company_contact_number || "").replace(/\D/g, "");
+  // company_whatsapp_number is the OTP-verified field; company_contact_number
+  // is a legacy fallback for delivery pages published before its removal.
+  const waNumber = (event.company_whatsapp_number || event.company_contact_number || "").replace(/\D/g, "");
   const contactUrl = waNumber ? `https://wa.me/${waNumber}` : null;
 
   const [view, setView] = useState<"home" | "gallery">("home");

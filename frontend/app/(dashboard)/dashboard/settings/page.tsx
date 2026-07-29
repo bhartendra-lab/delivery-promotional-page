@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { CompanyUpdateInput } from "@/lib/api";
+import type { Company } from "@/lib/types";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import { useSettings, useSectionSave } from "./SettingsContext";
+import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
 import {
   SectionHeading,
   Card,
@@ -11,6 +13,7 @@ import {
   AddressField,
   CopyableIdField,
   SameAsPersonalCheckbox,
+  VerifiedWhatsappField,
   SaveBar,
   BuildingIcon,
   GlobeIcon,
@@ -28,27 +31,19 @@ import {
  * on delivery pages and Google. One shared save bar for the whole page.
  */
 export default function StudioIdentityPage() {
-  const { company, userProfile } = useSettings();
+  const { company, userProfile, setCompanyState } = useSettings();
   const { saveState, errorMsg, submit } = useSectionSave();
 
   const [name, setName] = useState(company.name ?? "");
   const [businessEmail, setBusinessEmail] = useState(company.business_email ?? "");
-  const [contactNumber, setContactNumber] = useState(company.contact_number ?? "");
   const [website, setWebsite] = useState(company.website ?? "");
 
   const [sameEmail, setSameEmail] = useState(false);
-  const [samePhone, setSamePhone] = useState(false);
   const personalEmail = userProfile?.personal_email?.trim() ?? "";
-  const personalPhone = userProfile?.personal_contact?.trim() ?? "";
 
   function toggleSameEmail(next: boolean) {
     setSameEmail(next);
     if (next) setBusinessEmail(personalEmail);
-  }
-
-  function toggleSamePhone(next: boolean) {
-    setSamePhone(next);
-    if (next) setContactNumber(personalPhone);
   }
 
   const [address, setAddress] = useState(company.address ?? "");
@@ -57,10 +52,20 @@ export default function StudioIdentityPage() {
   const [darkFile, setDarkFile] = useState<File | null>(null);
   const [lightFile, setLightFile] = useState<File | null>(null);
 
+  const [changeWhatsappOpen, setChangeWhatsappOpen] = useState(false);
+  const [whatsappUpdatedFlash, setWhatsappUpdatedFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleWhatsappChanged(updatedCompany: Company) {
+    setCompanyState(updatedCompany);
+    setWhatsappUpdatedFlash(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setWhatsappUpdatedFlash(false), 3000);
+  }
+
   const dirty =
     changed(name, company.name) ||
     changed(businessEmail, company.business_email) ||
-    changed(contactNumber, company.contact_number) ||
     changed(website, company.website) ||
     changed(address, company.address) ||
     changed(googlePlaceId, company.google_place_id) ||
@@ -73,7 +78,6 @@ export default function StudioIdentityPage() {
     const payload: CompanyUpdateInput = {};
     if (changed(name, company.name)) payload.name = name.trim();
     if (changed(businessEmail, company.business_email)) payload.business_email = businessEmail.trim();
-    if (changed(contactNumber, company.contact_number)) payload.contact_number = contactNumber.trim();
     if (changed(website, company.website)) payload.website = website.trim();
     if (changed(address, company.address)) payload.address = address.trim();
     if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
@@ -112,14 +116,6 @@ export default function StudioIdentityPage() {
             type="email"
             readOnly={sameEmail}
           />
-          <Field
-            label="Business contact"
-            value={contactNumber}
-            onChange={setContactNumber}
-            placeholder="+91 98765 43210"
-            type="tel"
-            readOnly={samePhone}
-          />
         </div>
         {personalEmail && (
           <SameAsPersonalCheckbox
@@ -128,13 +124,18 @@ export default function StudioIdentityPage() {
             onChange={toggleSameEmail}
           />
         )}
-        {personalPhone && (
-          <SameAsPersonalCheckbox
-            label="Same as personal phone"
-            checked={samePhone}
-            onChange={toggleSamePhone}
+        <div className="mt-4">
+          <VerifiedWhatsappField
+            whatsappNumber={company.whatsapp_number}
+            verified={company.whatsapp_verified}
+            onChangeClick={() => setChangeWhatsappOpen(true)}
           />
-        )}
+          {whatsappUpdatedFlash && (
+            <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]">
+              WhatsApp number updated.
+            </p>
+          )}
+        </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field
             label="Website"
@@ -218,6 +219,13 @@ export default function StudioIdentityPage() {
         errorMsg={errorMsg}
         canSave={!!name.trim() && dirty}
         idleHint="Changes apply to all delivery pages immediately."
+      />
+
+      <ChangeWhatsappModal
+        open={changeWhatsappOpen}
+        onClose={() => setChangeWhatsappOpen(false)}
+        currentNumber={company.whatsapp_number}
+        onSuccess={handleWhatsappChanged}
       />
     </form>
   );

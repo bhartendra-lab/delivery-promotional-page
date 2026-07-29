@@ -11,6 +11,7 @@ import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
 import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle";
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
+import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import {
   IconPlus,
   IconSearch,
@@ -32,8 +33,11 @@ export default function EventsListPage() {
   // openable. Only the event that's actually uploading holds back its
   // lifecycle actions (archive / restore / clear data).
   const uploadingIds = useUploadingBookingIds();
+  const { openUpgradeModal } = useUpgradeModal();
   const createBlocked =
     isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0;
+  const lowRemaining =
+    isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining != null && dlpUsage.remaining > 0 && dlpUsage.remaining <= 2;
   const [data, setData] = useState<BookingsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,13 +136,15 @@ export default function EventsListPage() {
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
-            disabled={createBlocked}
-            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => (createBlocked ? openUpgradeModal({ preset: "event" }) : setModalOpen(true))}
+            className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
             <IconPlus />
-            Add event
+            {createBlocked ? "Buy more events" : "Add event"}
           </button>
+          {lowRemaining && (
+            <p className="text-xs text-[var(--color-brand-muted)]">{dlpUsage?.remaining} events left</p>
+          )}
         </div>
       </section>
 

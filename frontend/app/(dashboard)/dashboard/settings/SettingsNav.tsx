@@ -32,7 +32,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     heading: "Your Account",
     items: [
       { label: "Personal Information", href: "/dashboard/settings/personal" },
-      { label: "Plan & Storage", href: "/dashboard/settings/plan" },
+      { label: "Plan & Billing", href: "/dashboard/settings/billing" },
     ],
   },
 ];

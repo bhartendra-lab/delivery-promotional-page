@@ -2,9 +2,9 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { login } from "@/lib/api";
-import { setToken, setCompany } from "@/lib/auth";
-import { IconMail, IconLock, IconWarningCircle, IconArrowRight } from "@/components/ui/icons";
+import { login, checkEmailExists, emailSignup } from "@/lib/api";
+import { setToken, setCompany, sanitizeRedirectPath } from "@/lib/auth";
+import { IconMail, IconLock, IconWarningCircle, IconArrowRight, IconGoogle, IconArrowLeft } from "@/components/ui/icons";
 
 export default function LoginPage() {
   return (
@@ -88,17 +88,44 @@ function BrandPanel() {
   );
 }
 
+type Step = "email" | "password" | "check-email";
+
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const redirectTo = search.get("redirect") || "/dashboard";
+  const redirectTo = sanitizeRedirectPath(search.get("next") ?? search.get("redirect"));
+  const oauthFailed = search.get("error") === "auth_failed";
 
+  const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const googleHref = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/auth/google/studio-login`;
+
+  async function handleEmailContinue(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { exists } = await checkEmailExists(trimmed);
+      if (exists) {
+        setStep("password");
+      } else {
+        await emailSignup(trimmed);
+        setStep("check-email");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handlePasswordSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
@@ -114,6 +141,12 @@ function LoginForm() {
     }
   }
 
+  function backToEmail() {
+    setStep("email");
+    setPassword("");
+    setError(null);
+  }
+
   return (
     <section className="relative col-span-1 flex items-center justify-center bg-[var(--color-brand-bg)] px-6 py-12 sm:px-12 lg:col-span-3">
       <div className="w-full max-w-md dash-rise">
@@ -123,67 +156,162 @@ function LoginForm() {
         </div>
 
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-muted)]">
-              Welcome back
-            </p>
-            <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">
-              Sign in to your studio
-            </h2>
-            <p className="text-sm text-[var(--color-brand-muted)]">
-              Manage delivery pages and track client engagement.
-            </p>
-          </div>
+          {step === "email" && (
+            <>
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-muted)]">
+                  Get started
+                </p>
+                <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">
+                  Sign in to your studio
+                </h2>
+                <p className="text-sm text-[var(--color-brand-muted)]">
+                  Enter your email to continue.
+                </p>
+              </div>
 
-          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
-            <Field
-              label="Email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={setEmail}
-              icon={<IconMail size={16} />}
-            />
-            <Field
-              label="Password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={setPassword}
-              icon={<IconLock size={16} />}
-            />
-
-            {error && (
-              <p
-                role="alert"
-                className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
-              >
-                <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? (
-                <><Spinner />Signing in…</>
-              ) : (
-                <>Sign in<IconArrowRight size={15} /></>
+              {oauthFailed && (
+                <p
+                  role="alert"
+                  className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
+                >
+                  <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Sign-in didn&apos;t complete. Please try again.</span>
+                </p>
               )}
-            </button>
 
-            <p className="pt-1 text-center text-xs text-[var(--color-brand-muted)]">
-              Trouble signing in? Reach out to your account manager.
-            </p>
-          </form>
+              <form onSubmit={handleEmailContinue} className="mt-7 space-y-4">
+                <Field
+                  label="Email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={setEmail}
+                  icon={<IconMail size={16} />}
+                />
+
+                {error && <ErrorBanner message={error} />}
+
+                <button
+                  type="submit"
+                  disabled={submitting || !email.trim()}
+                  className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <><Spinner />Checking…</>
+                  ) : (
+                    <>Continue<IconArrowRight size={15} /></>
+                  )}
+                </button>
+              </form>
+
+              <div className="my-5 flex items-center gap-3">
+                <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+                <span className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--color-brand-muted)]">or</span>
+                <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+              </div>
+
+              <a
+                href={googleHref}
+                className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+              >
+                <IconGoogle size={16} />
+                Continue with Google
+              </a>
+
+              <p className="pt-4 text-center text-xs text-[var(--color-brand-muted)]">
+                Trouble signing in? Reach out to your account manager.
+              </p>
+            </>
+          )}
+
+          {step === "password" && (
+            <>
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-muted)]">
+                  Welcome back
+                </p>
+                <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">
+                  Enter your password
+                </h2>
+                <p className="text-sm text-[var(--color-brand-muted)]">
+                  Signing in as <span className="font-medium text-[var(--color-brand-ink)]">{email}</span>.{" "}
+                  <button type="button" onClick={backToEmail} className="brand-focus font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline">
+                    Use a different email
+                  </button>
+                </p>
+              </div>
+
+              <form onSubmit={handlePasswordSubmit} className="mt-7 space-y-4">
+                <Field
+                  label="Password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={setPassword}
+                  icon={<IconLock size={16} />}
+                />
+
+                {error && <ErrorBanner message={error} />}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <><Spinner />Signing in…</>
+                  ) : (
+                    <>Sign in<IconArrowRight size={15} /></>
+                  )}
+                </button>
+
+                <p className="pt-1 text-center text-xs text-[var(--color-brand-muted)]">
+                  Trouble signing in? Reach out to your account manager.
+                </p>
+              </form>
+            </>
+          )}
+
+          {step === "check-email" && (
+            <>
+              <button
+                type="button"
+                onClick={backToEmail}
+                className="brand-focus mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              >
+                <IconArrowLeft size={13} />
+                Back
+              </button>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+                <IconMail size={18} />
+              </div>
+              <h2 className="mt-4 text-2xl font-bold text-[var(--color-brand-ink)]">
+                Check your email
+              </h2>
+              <p className="mt-1.5 text-sm text-[var(--color-brand-muted)]">
+                We&apos;ve sent a link to <span className="font-medium text-[var(--color-brand-ink)]">{email}</span> to
+                set up your password. Click it to finish setting up your studio.
+              </p>
+            </>
+          )}
         </div>
       </div>
     </section>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
+    >
+      <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{message}</span>
+    </p>
   );
 }
 

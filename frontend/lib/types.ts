@@ -145,7 +145,6 @@ export type Company = {
   _id: string;
   name: string;
   address?: string;
-  contact_number?: string;
   business_email?: string;
   /** Default (dark) logo, shown on light surfaces. */
   logo?: string;
@@ -158,9 +157,25 @@ export type Company = {
   facebook_link?: string;
   social_links?: SocialLinks;
   google_place_id?: string;
+  /** The studio's one phone number — always the number that passed WhatsApp OTP verification. */
+  whatsapp_number?: string;
+  /** True once the studio has completed WhatsApp OTP verification. */
+  whatsapp_verified?: boolean;
+  /** Holds a new number while its OTP is in flight during a post-onboarding number change. */
+  whatsapp_pending_number?: string;
+  /** True only for studios auto-created via "Get Started" (Google or email signup); gates /dashboard until onboarding_completed_at is stamped. */
+  onboarding_required?: boolean;
+  /** True when the studio explicitly said it has no Google Business listing during onboarding. */
+  gmb_skipped?: boolean;
+  /** Stamped when the studio finishes the last mandatory onboarding step (Google Business, after WhatsApp verification). */
+  onboarding_completed_at?: number | null;
+  /** One-shot flag for the "2 free events" welcome dialog. */
+  welcome_dialog_seen_at?: number | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export type WhatsappOtpVerifyResponse = { message: string; company: Company };
 
 export type LoginResponse = {
   token: string;
@@ -504,6 +519,8 @@ export type DeliveryLandingPageData = {
   company_logo?: string;
   company_logo_light?: string;
   company_address?: string;
+  company_whatsapp_number?: string;
+  /** @deprecated legacy KV alias — read company_whatsapp_number first, this is a fallback for pages published before the contact_number removal. */
   company_contact_number?: string;
   company_website?: string;
   company_gmb_link?: string;

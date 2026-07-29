@@ -31,6 +31,7 @@ import {
   CheckSquare,
   Clock,
   Copy,
+  CreditCard,
   DeviceMobile,
   DotsSixVertical,
   DotsThreeVertical,
@@ -57,6 +58,7 @@ import {
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   Megaphone,
+  Minus,
   Monitor,
   Palette,
   Pause,
@@ -65,12 +67,14 @@ import {
   Plus,
   QrCode,
   Question,
+  Receipt,
   ScanSmiley,
   ShareNetwork,
   ShieldCheck,
   SidebarSimple,
   SignOut,
   Smiley,
+  Sparkle,
   Square,
   SquaresFour,
   Star,
@@ -161,6 +165,26 @@ export const IconUsers = wrapPhosphor(Users, 15, "IconUsers");
 export const IconStar = wrapPhosphor(Star, 14, "IconStar");
 export const IconArchive = wrapPhosphor(Archive, 15, "IconArchive");
 export const IconTarget = wrapPhosphor(Target, 15, "IconTarget");
+export const IconMinus = wrapPhosphor(Minus, 15, "IconMinus");
+export const IconCreditCard = wrapPhosphor(CreditCard, 15, "IconCreditCard");
+export const IconReceipt = wrapPhosphor(Receipt, 15, "IconReceipt");
+
+/**
+ * The official multi-color Google "G" mark — Google's own sign-in button
+ * guidelines require this exact mark, not a monochrome brand glyph, so this
+ * is a standalone SVG rather than a `wrapBrandMark` (which assumes a
+ * single-color `currentColor` icon).
+ */
+export function IconGoogle({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8a12 12 0 1 1 0-24c3 0 5.8 1.1 7.9 3l5.7-5.7A20 20 0 1 0 24 44c11 0 20-9 20-20 0-1.3-.1-2.3-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7A20 20 0 0 0 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A12 12 0 0 1 12.7 28l-6.5 5A20 20 0 0 0 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C39.9 41.3 44 35.4 44 24c0-1.3-.1-2.3-.4-3.5z" />
+    </svg>
+  );
+}
 
 /* ── A2: dashboard chrome ──────────────────────────────────────── */
 export const IconHome = wrapPhosphor(HouseSimple, 18, "IconHome");
@@ -207,3 +231,4 @@ export const IconPalette = wrapPhosphor(Palette, 26, "IconPalette");
 export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");
 export const IconBrowser = wrapPhosphor(Browser, 30, "IconBrowser");
 export const IconSmiley = wrapPhosphor(Smiley, 44, "IconSmiley");
+export const IconSparkle = wrapPhosphor(Sparkle, 24, "IconSparkle");

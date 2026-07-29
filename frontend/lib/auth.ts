@@ -27,6 +27,32 @@ export function isAuthenticated(): boolean {
   return !!getToken();
 }
 
+/**
+ * Onboarding is a two-gate flow: WhatsApp verification, then Google
+ * Business. `onboarding_completed_at` (stamped by the LAST step) is the
+ * single source of truth — checking whatsapp_verified alone would let a
+ * studio slip past the Google step by refreshing partway through.
+ *
+ * Studios that verified WhatsApp before the Google step existed were
+ * backfilled with onboarding_completed_at by the backend migration script,
+ * so they are never re-gated.
+ */
+export function needsOnboarding(company: Company): boolean {
+  return Boolean(company.onboarding_required) && !company.onboarding_completed_at;
+}
+
+/**
+ * Only allows a same-origin relative path as a post-login redirect target —
+ * guards against an open redirect via a crafted `next`/`redirect` query
+ * param (e.g. `//evil.com` or `https://evil.com`), which an attacker could
+ * otherwise use to send a login flow to an external site.
+ */
+export function sanitizeRedirectPath(raw: string | null | undefined, fallback = "/dashboard"): string {
+  if (!raw) return fallback;
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) return fallback;
+  return raw;
+}
+
 export function setCompany(company: Company): void {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(COMPANY_KEY, JSON.stringify(company));

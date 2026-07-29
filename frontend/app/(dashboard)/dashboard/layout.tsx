@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getCompany, setCompany, isAuthenticated } from "@/lib/auth";
+import { getCompany, setCompany, isAuthenticated, needsOnboarding } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import { Sidebar, useSidebarCollapsed } from "@/components/dashboard/Sidebar";
 import { Topbar, type Breadcrumb } from "@/components/dashboard/Topbar";
 import { ActiveUploadsIndicator } from "@/components/dashboard/ActiveUploadsIndicator";
 import { ChromeProvider, useChrome } from "@/components/dashboard/ChromeContext";
+import { SubscriptionProvider, useSubscription } from "@/components/billing/SubscriptionProvider";
+import { UpgradeModalProvider } from "@/components/billing/UpgradeModalProvider";
+import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
 
 export default function DashboardLayout({
   children,
@@ -20,20 +23,27 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!isAuthenticated()) {
-      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }
-    if (getCompany()) {
+    const cached = getCompany();
+    if (cached) {
+      if (needsOnboarding(cached)) {
+        router.replace("/onboarding");
+        return;
+      }
       setReady(true);
     } else {
       getCompanyDetails()
         .then((res) => {
           setCompany(res.company);
+          if (needsOnboarding(res.company)) {
+            router.replace("/onboarding");
+            return;
+          }
+          setReady(true);
         })
-        .catch(() => {
-          /* non-fatal */
-        })
-        .finally(() => setReady(true));
+        .catch(() => setReady(true));
     }
   }, [router, pathname]);
 
@@ -50,7 +60,11 @@ export default function DashboardLayout({
 
   return (
     <ChromeProvider>
-      <DashboardShell>{children}</DashboardShell>
+      <SubscriptionProvider>
+        <UpgradeModalProvider>
+          <DashboardShell>{children}</DashboardShell>
+        </UpgradeModalProvider>
+      </SubscriptionProvider>
     </ChromeProvider>
   );
 }
@@ -59,6 +73,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   const { customBreadcrumb, mainRef } = useChrome();
+  const { snapshot } = useSubscription();
 
   const breadcrumb: Breadcrumb = customBreadcrumb ?? deriveBreadcrumb(pathname);
 
@@ -68,6 +83,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar breadcrumb={breadcrumb} />
         <main ref={mainRef as React.RefObject<HTMLElement>} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div className="px-4 pt-4 sm:px-6">
+            <SubscriptionBanner snapshot={snapshot} scope="app" />
+          </div>
           {children}
         </main>
       </div>

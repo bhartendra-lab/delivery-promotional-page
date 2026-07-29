@@ -33,7 +33,9 @@ export function GalleryUnavailable({ event, reason }: { event: DeliveryLandingPa
   const t = PLATFORM_SKIN;
   const copy = COPY[reason];
   const studioName = event.company_name?.trim() || "the studio";
-  const waNumber = (event.company_contact_number || "").replace(/\D/g, "");
+  // company_whatsapp_number is the OTP-verified field; company_contact_number
+  // is a legacy fallback for delivery pages published before its removal.
+  const waNumber = (event.company_whatsapp_number || event.company_contact_number || "").replace(/\D/g, "");
   const message = `Hi${event.company_name ? ` ${event.company_name}` : ""}, I'm trying to view my gallery${
     event.event_name ? ` for ${event.event_name}` : ""
   } ${copy.messageHint}. Could you help?`;

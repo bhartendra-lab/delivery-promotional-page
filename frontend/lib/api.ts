@@ -1,5 +1,17 @@
 import { getToken, clearToken, getCompany } from "./auth";
 import type {
+  PlansResponse,
+  PublicCoupon,
+  SubscriptionSnapshot,
+  CouponValidation,
+  CheckoutResponse,
+  CancelSubscriptionResponse,
+  ResumeSubscriptionResponse,
+  Invoice,
+  BillingProfile,
+  CheckoutPreview,
+} from "./billing-types";
+import type {
   BookingDetail,
   BookingDetailResponse,
   BookingsListResponse,
@@ -23,6 +35,7 @@ import type {
   UserProfile,
   WatermarkPreset,
   WatermarkPosition,
+  WhatsappOtpVerifyResponse,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -83,14 +96,117 @@ function safeParse(text: string): unknown {
 
 export { ApiError };
 
+/** Machine-readable `code` from an ApiError's JSON body, e.g. "BILLING_PROFILE_INCOMPLETE" — null if absent/not an ApiError. */
+export function getApiErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
+  const code = (err.body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
 export function getCompanyDetails() {
   return request<{ company: Company }>("/onboarding/get-company-details");
+}
+
+/* ── Get Started: email-or-Google login ────────────────────────── */
+
+/** POST /auth/check-email — does any User already exist for this email? Pre-auth, no cookie yet. */
+export function checkEmailExists(email: string) {
+  return request<{ exists: boolean }>("/auth/check-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+    auth: false,
+  });
+}
+
+/**
+ * POST /auth/email-signup — brand-new email: auto-provisions a Company +
+ * admin User + Free subscription and emails a password-setup link. No token
+ * back — the user must complete that link (existing /reset-password flow)
+ * before they can log in.
+ */
+export function emailSignup(email: string) {
+  return request<{ message: string }>("/auth/email-signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+    auth: false,
+  });
+}
+
+/* ── Mandatory studio onboarding: WhatsApp OTP ─────────────────── */
+
+/** POST /onboarding/whatsapp/request-otp — sends the first code. 429 on cooldown. */
+export function requestWhatsappOtp(input: { whatsappNumber: string }) {
+  return request<{ message: string }>("/onboarding/whatsapp/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ whatsapp_number: input.whatsappNumber }),
+  });
+}
+
+/** POST /onboarding/whatsapp/resend-otp — requires request-otp to have already run for this company. */
+export function resendWhatsappOtp() {
+  return request<{ message: string }>("/onboarding/whatsapp/resend-otp", { method: "POST" });
+}
+
+/** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name and returns the updated Company. */
+export function verifyWhatsappOtp(input: { code: string; studioName: string }) {
+  return request<WhatsappOtpVerifyResponse>("/onboarding/whatsapp/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: input.code, studio_name: input.studioName }),
+  });
+}
+
+/* ── Post-onboarding: change WhatsApp number ───────────────────── */
+
+/** POST /onboarding/whatsapp/change-request-otp — sends a code to a NEW number; the current one stays live until verified. */
+export function requestWhatsappChangeOtp(input: { whatsappNumber: string }) {
+  return request<{ message: string }>("/onboarding/whatsapp/change-request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ whatsapp_number: input.whatsappNumber }),
+  });
+}
+
+/** POST /onboarding/whatsapp/change-resend-otp — requires change-request-otp to have already run for this company. */
+export function resendWhatsappChangeOtp() {
+  return request<{ message: string }>("/onboarding/whatsapp/change-resend-otp", { method: "POST" });
+}
+
+/** POST /onboarding/whatsapp/change-verify-otp — on success promotes the pending number and returns the updated Company. */
+export function verifyWhatsappChangeOtp(input: { code: string }) {
+  return request<WhatsappOtpVerifyResponse>("/onboarding/whatsapp/change-verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: input.code }),
+  });
+}
+
+/* ── Onboarding: Google Business step ──────────────────────────── */
+
+/** POST /onboarding/google-business — third onboarding step; requires whatsapp_verified. */
+export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean }) {
+  return request<WhatsappOtpVerifyResponse>("/onboarding/google-business", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      google_place_id: input.googlePlaceId,
+      address: input.address,
+      skipped: input.skipped,
+    }),
+  });
+}
+
+/** POST /onboarding/welcome-dialog-seen — idempotent one-shot ack for the "2 free events" dialog. */
+export function markWelcomeDialogSeen() {
+  return request<WhatsappOtpVerifyResponse>("/onboarding/welcome-dialog-seen", { method: "POST" });
 }
 
 export type CompanyUpdateInput = {
   name?: string;
   address?: string;
-  contact_number?: string;
   business_email?: string;
   website?: string;
   gmb_link?: string;
@@ -104,7 +220,6 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   const fd = new FormData();
   if (input.name !== undefined) fd.append("name", input.name);
   if (input.address !== undefined) fd.append("address", input.address);
-  if (input.contact_number !== undefined) fd.append("contact_number", input.contact_number);
   if (input.business_email !== undefined) fd.append("business_email", input.business_email);
   if (input.website !== undefined) fd.append("website", input.website);
   if (input.gmb_link !== undefined) fd.append("gmb_link", input.gmb_link);
@@ -254,6 +369,113 @@ export function deleteQr(uniqueId: string) {
   return request<{ message: string }>(`/deliverables/delete-qr/${encodeURIComponent(uniqueId)}`, {
     method: "DELETE",
   });
+}
+
+/* ── Billing ────────────────────────────────────────────────────── */
+
+/** GET /billing/plans — public, no auth. Every active DH Service including Free. */
+export function getBillingPlans() {
+  return request<PlansResponse>("/billing/plans", { auth: false });
+}
+
+/** GET /billing/coupons/public — public, no auth. Empty array is normal. */
+export function getPublicCoupons() {
+  return request<{ coupons: PublicCoupon[] }>("/billing/coupons/public", { auth: false });
+}
+
+/**
+ * GET /billing/subscription — auth + (admin or billing_user). Callers should
+ * catch ApiError and check `.status`: 404 means no subscription on record
+ * (not an error state — render accordingly); 403 means the caller isn't
+ * admin/billing_user (hide billing UI silently, don't show an error).
+ */
+export function getSubscription() {
+  return request<SubscriptionSnapshot>("/billing/subscription");
+}
+
+/** POST /billing/coupons/validate. Both outcomes are HTTP 200 — branch on `valid`, never on status. */
+export function validateCoupon(input: { coupon_code: string; service_id: string; quantity?: number }) {
+  return request<CouponValidation>("/billing/coupons/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * POST /billing/checkout — the six-branch discriminated union (see
+ * billing-types.ts#CheckoutResponse). 400/402/409 messages are backend
+ * copy meant to be shown to the user verbatim via ApiError.message.
+ */
+export function checkout(input: { service_id: string; quantity?: number; coupon_code?: string }) {
+  return request<CheckoutResponse>("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /billing/subscription/cancel — turns auto-renew off; access continues to period end. */
+export function cancelSubscription() {
+  return request<CancelSubscriptionResponse>("/billing/subscription/cancel", { method: "POST" });
+}
+
+/**
+ * POST /billing/subscription/resume — re-arms auto-renew on a cancelled
+ * subscription via a fresh deferred mandate. Charges nothing now; the
+ * customer completes a mandate-authorisation handshake (short_url /
+ * Razorpay Checkout on subscription_id), then poll GET /billing/subscription
+ * until `cancel_at_period_end === false`.
+ */
+export function resumeSubscription() {
+  return request<ResumeSubscriptionResponse>("/billing/subscription/resume", { method: "POST" });
+}
+
+/** GET /billing/invoices */
+export function listInvoices() {
+  return request<{ invoices: Invoice[] }>("/billing/invoices");
+}
+
+/** GET /billing/profile — auth + (admin or billing_user). Nulls until a company has saved one. */
+export function getBillingProfile() {
+  return request<{ billing: BillingProfile }>("/billing/profile");
+}
+
+export type BillingProfileInput = {
+  legal_name: string;
+  gstin?: string;
+  billing_address: string;
+  place_of_supply_state: string;
+};
+
+/** PUT /billing/profile — 422 { code: "GSTIN_STATE_MISMATCH" } if gstin's prefix doesn't match the chosen state. */
+export function updateBillingProfile(input: BillingProfileInput) {
+  return request<{ billing: BillingProfile }>("/billing/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * POST /billing/checkout/preview — same body as checkout(), read-only. 422
+ * { code: "BILLING_PROFILE_INCOMPLETE" } until the company has a saved
+ * billing profile (see getBillingProfile/updateBillingProfile above).
+ */
+export function previewCheckout(input: { service_id: string; quantity?: number; coupon_code?: string }) {
+  return request<CheckoutPreview>("/billing/checkout/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * GET /billing/invoices/:id — `pdf_url` is a short-lived presigned R2 URL.
+ * Fetch fresh on click, open it, and throw it away — never cache or store it.
+ */
+export function getInvoice(id: string) {
+  return request<{ invoice: Invoice; pdf_url: string }>(`/billing/invoices/${encodeURIComponent(id)}`);
 }
 
 export function checkResetLink(userId: string) {
