@@ -20,6 +20,7 @@ import type {
   ServiceType,
   StyleVariant,
   TrackingType,
+  UserProfile,
   WatermarkPreset,
   WatermarkPosition,
 } from "./types";
@@ -114,6 +115,33 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   return request<{ company: Company }>("/onboarding/update-company-details", {
     method: "PUT",
     body: fd,
+  });
+}
+
+/* ── personal profile (account holder) ────────────────────────────
+ * NOT YET BACKED BY A REAL ENDPOINT. `/onboarding/get-user-details` and
+ * `/onboarding/update-user-details` are placeholders that mirror the
+ * company-details pair above — confirm the real path and field names with
+ * the backend engineer (see BACKEND_NOTES.md) before this ships. Callers
+ * (SettingsContext) treat a failure here as best-effort and degrade
+ * gracefully rather than blocking the rest of Settings.
+ */
+export function getUserProfile() {
+  return request<{ user: UserProfile }>("/onboarding/get-user-details");
+}
+
+export type UserProfileUpdateInput = {
+  first_name?: string;
+  last_name?: string;
+  personal_email?: string;
+  personal_contact?: string;
+};
+
+export function updateUserProfile(input: UserProfileUpdateInput) {
+  return request<{ user: UserProfile }>("/onboarding/update-user-details", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
   });
 }
 

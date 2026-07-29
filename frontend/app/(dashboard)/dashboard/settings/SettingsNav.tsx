@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 export type SettingsItem = {
   label: string;
   href: string;
-  /** Reserved-but-not-built sections (e.g. member self-service). */
-  soon?: boolean;
 };
 
 export type SettingsGroup = {
@@ -16,27 +14,26 @@ export type SettingsGroup = {
 };
 
 /**
- * Section map for the Settings area. Groups mirror the three studio data tiers.
- * `Your Account` is reserved for the deferred member self-service sections —
- * the slot is shown (disabled) now so the IA is ready when onboarding lands.
+ * Section map for the Settings area. Studio Identity merges what used to be
+ * three separate routes (Studio Identity, Online Presence, Studio Logo) into
+ * one tab, since they're all facets of the same "how the studio shows up"
+ * concern. Your Account holds the two studio-owner-level sections.
  */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
-    heading: "Studio",
-    items: [{ label: "Studio Identity", href: "/dashboard/settings" }],
-  },
-  {
     heading: "Brand & Delivery",
     items: [
-      { label: "Online Presence", href: "/dashboard/settings/online-presence" },
+      { label: "Studio Identity", href: "/dashboard/settings" },
       { label: "Social Links", href: "/dashboard/settings/social-links" },
-      { label: "Studio Logo", href: "/dashboard/settings/logo" },
       { label: "Watermark Presets", href: "/dashboard/settings/watermarks" },
     ],
   },
   {
     heading: "Your Account",
-    items: [{ label: "Personal Information", href: "#", soon: true }],
+    items: [
+      { label: "Personal Information", href: "/dashboard/settings/personal" },
+      { label: "Plan & Storage", href: "/dashboard/settings/plan" },
+    ],
   },
 ];
 
@@ -44,7 +41,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 export function sectionLabelFor(pathname: string): string | null {
   for (const group of SETTINGS_GROUPS) {
     for (const item of group.items) {
-      if (!item.soon && item.href === pathname) return item.label;
+      if (item.href === pathname) return item.label;
     }
   }
   return null;
@@ -62,22 +59,7 @@ export function SettingsNav() {
           </p>
           <ul className="space-y-0.5">
             {group.items.map((item) => {
-              const active = !item.soon && pathname === item.href;
-              if (item.soon) {
-                return (
-                  <li key={item.label}>
-                    <span
-                      className="flex cursor-not-allowed items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-brand-muted)]/60"
-                      aria-disabled
-                    >
-                      {item.label}
-                      <span className="rounded-full bg-[var(--color-brand-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-brand-muted)]">
-                        Soon
-                      </span>
-                    </span>
-                  </li>
-                );
-              }
+              const active = pathname === item.href;
               return (
                 <li key={item.label}>
                   <Link
