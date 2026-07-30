@@ -5,13 +5,11 @@ import { requestWhatsappOtp } from "@/lib/api";
 import { IconWarningCircle } from "@/components/ui/icons";
 
 export function StudioDetailsStep({
-  initialStudioName,
   onSent,
 }: {
-  initialStudioName: string;
   onSent: (studioName: string, whatsappNumber: string) => void;
 }) {
-  const [studioName, setStudioName] = useState(initialStudioName);
+  const [studioName, setStudioName] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +55,7 @@ export function StudioDetailsStep({
             value={studioName}
             onChange={(e) => setStudioName(e.target.value)}
             required
+            placeholder="e.g. Radiant Studios"
             className="brand-focus h-11 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
           />
         </label>

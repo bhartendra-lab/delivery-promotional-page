@@ -146,6 +146,10 @@ export type Company = {
   name: string;
   address?: string;
   business_email?: string;
+  /** True only for a business_email that passed OTP verification. */
+  business_email_verified?: boolean;
+  /** Holds a new address while its OTP is in flight (see `whatsapp_pending_number`). */
+  business_email_pending?: string;
   /** Default (dark) logo, shown on light surfaces. */
   logo?: string;
   /** Optional light logo, shown on dark surfaces; falls back to `logo`. */
@@ -175,7 +179,37 @@ export type Company = {
   updatedAt: string;
 };
 
-export type WhatsappOtpVerifyResponse = { message: string; company: Company };
+/** Shared response shape for every endpoint that mutates and returns the Company. */
+export type CompanyMutationResponse = { message: string; company: Company };
+
+/** The four independent checkpoints behind the branding-readiness reminder — computed server-side, never re-derived on the client. */
+export type BrandingCheckpoints = {
+  google_business: boolean;
+  studio_logo: boolean;
+  business_email: boolean;
+  social_links: boolean;
+};
+
+/**
+ * `GET /onboarding/reminder-status` — drives both the watermark nudge
+ * (before the first upload) and the branding-readiness checklist (Access &
+ * Sharing). `should_show` is always `!complete && dismissed_at == null`;
+ * dismissal is a persisted server flag, so "Skip for now" is permanent.
+ */
+export type ReminderStatus = {
+  watermark: {
+    should_show: boolean;
+    complete: boolean;
+    preset_count: number;
+    dismissed_at: number | null;
+  };
+  branding: {
+    should_show: boolean;
+    complete: boolean;
+    dismissed_at: number | null;
+    checkpoints: BrandingCheckpoints;
+  };
+};
 
 export type LoginResponse = {
   token: string;
@@ -187,18 +221,15 @@ export type LoginResponse = {
  * The individual account holder's own details — distinct from the
  * studio-level `Company`. Powers "Your Account" → Personal Information and
  * the "same as personal" business email/phone shortcut on Studio Identity.
- *
- * NOT YET BACKED BY A REAL ENDPOINT: `getUserProfile`/`updateUserProfile` in
- * `lib/api.ts` are placeholders. The login response already carries a `user`
- * object (see `LoginResponse` above) but it's untyped and unused today, so
- * this shape reflects the frontend's expectation, not a confirmed backend
- * contract. Confirm field names with the backend before this ships.
+ * Backed by `GET/PUT /onboarding/get-user-details` and `/update-user-details`.
  */
 export type UserProfile = {
   first_name?: string;
   last_name?: string;
   personal_email?: string;
   personal_contact?: string;
+  /** Login identity — read-only here; change it only via the login/auth flow. */
+  email?: string;
 };
 
 /**

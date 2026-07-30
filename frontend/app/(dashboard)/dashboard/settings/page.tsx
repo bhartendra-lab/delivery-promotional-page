@@ -5,15 +5,17 @@ import type { CompanyUpdateInput } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import { useSettings, useSectionSave } from "./SettingsContext";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
+import { BusinessEmailVerifyBlock } from "./BusinessEmailVerifyBlock";
 import {
   SectionHeading,
   Card,
   Field,
   AddressField,
   CopyableIdField,
-  SameAsPersonalCheckbox,
   VerifiedWhatsappField,
+  VerifiedBusinessEmailField,
   SaveBar,
   BuildingIcon,
   GlobeIcon,
@@ -33,18 +35,12 @@ import {
 export default function StudioIdentityPage() {
   const { company, userProfile, setCompanyState } = useSettings();
   const { saveState, errorMsg, submit } = useSectionSave();
+  const { refresh: refreshReminders } = useReminders();
 
   const [name, setName] = useState(company.name ?? "");
-  const [businessEmail, setBusinessEmail] = useState(company.business_email ?? "");
   const [website, setWebsite] = useState(company.website ?? "");
 
-  const [sameEmail, setSameEmail] = useState(false);
   const personalEmail = userProfile?.personal_email?.trim() ?? "";
-
-  function toggleSameEmail(next: boolean) {
-    setSameEmail(next);
-    if (next) setBusinessEmail(personalEmail);
-  }
 
   const [address, setAddress] = useState(company.address ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(company.google_place_id ?? "");
@@ -63,9 +59,27 @@ export default function StudioIdentityPage() {
     flashTimer.current = setTimeout(() => setWhatsappUpdatedFlash(false), 3000);
   }
 
+  // business_email is only ever writable via the OTP-gated verify flow (see
+  // BusinessEmailVerifyBlock) — it's intentionally excluded from `dirty` and
+  // the save payload below so the shared SaveBar never claims unsaved changes
+  // for a field this form no longer owns.
+  const [emailVerifyOpen, setEmailVerifyOpen] = useState(false);
+  const [emailVerifiedFlash, setEmailVerifiedFlash] = useState(false);
+  const emailFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleBusinessEmailVerified(updatedCompany: Company) {
+    setCompanyState(updatedCompany);
+    setEmailVerifyOpen(false);
+    setEmailVerifiedFlash(true);
+    if (emailFlashTimer.current) clearTimeout(emailFlashTimer.current);
+    emailFlashTimer.current = setTimeout(() => setEmailVerifiedFlash(false), 3000);
+    // Resolves the branding-readiness "Business Email" checkpoint — refresh
+    // so a studio returning to an event doesn't see a stale reminder.
+    void refreshReminders();
+  }
+
   const dirty =
     changed(name, company.name) ||
-    changed(businessEmail, company.business_email) ||
     changed(website, company.website) ||
     changed(address, company.address) ||
     changed(googlePlaceId, company.google_place_id) ||
@@ -77,7 +91,6 @@ export default function StudioIdentityPage() {
     if (!name.trim()) return;
     const payload: CompanyUpdateInput = {};
     if (changed(name, company.name)) payload.name = name.trim();
-    if (changed(businessEmail, company.business_email)) payload.business_email = businessEmail.trim();
     if (changed(website, company.website)) payload.website = website.trim();
     if (changed(address, company.address)) payload.address = address.trim();
     if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
@@ -108,21 +121,25 @@ export default function StudioIdentityPage() {
             placeholder="e.g. Radiant Studios"
             className="sm:col-span-2"
           />
-          <Field
-            label="Business email"
-            value={businessEmail}
-            onChange={setBusinessEmail}
-            placeholder="studio@email.com"
-            type="email"
-            readOnly={sameEmail}
+          <VerifiedBusinessEmailField
+            businessEmail={company.business_email}
+            verified={company.business_email_verified}
+            onActionClick={() => setEmailVerifyOpen((open) => !open)}
           />
         </div>
-        {personalEmail && (
-          <SameAsPersonalCheckbox
-            label="Same as personal email"
-            checked={sameEmail}
-            onChange={toggleSameEmail}
+        {emailVerifyOpen && (
+          <BusinessEmailVerifyBlock
+            currentEmail={company.business_email}
+            verified={company.business_email_verified}
+            personalEmail={personalEmail}
+            onSuccess={handleBusinessEmailVerified}
+            onClose={() => setEmailVerifyOpen(false)}
           />
+        )}
+        {emailVerifiedFlash && (
+          <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
+            Business email verified.
+          </p>
         )}
         <div className="mt-4">
           <VerifiedWhatsappField

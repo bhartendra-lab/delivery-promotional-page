@@ -75,7 +75,7 @@ export function WelcomeDialog() {
         <p className="text-sm text-[var(--color-brand-muted)]">
           Your studio is verified. You&apos;ve got{" "}
           <strong className="font-semibold text-[var(--color-brand-ink)]">
-            {freeEvents} free event{freeEvents === 1 ? "" : "s"}
+            {freeEvents} free event{freeEvents === 1 ? "" : "s"} with unlimited storage
           </strong>{" "}
           to try everything out — create a gallery, share the QR, and watch the deliveries land.
         </p>

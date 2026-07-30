@@ -70,6 +70,7 @@ export function UpgradeModalProvider({ children }: { children: React.ReactNode }
         onClose={() => setOpen(false)}
         plans={plans}
         preset={preset}
+        loaded={loaded}
         loadFailed={loadFailed}
         onRetryLoad={loadCatalog}
         billingComplete={loaded ? isBillingComplete(billingProfile) : null}

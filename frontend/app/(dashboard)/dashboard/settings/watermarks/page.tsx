@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getWatermarkPresets,
   deleteWatermarkPreset,
   updateWatermarkPreset,
 } from "@/lib/api";
 import type { WatermarkPreset } from "@/lib/types";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { SectionHeading, SectionSkeleton, FetchError, Spinner } from "../SettingsUI";
 import { WatermarkEditorModal, WatermarkPreview } from "./WatermarkEditorModal";
 import { IconPlus } from "@/components/ui/icons";
@@ -15,7 +17,22 @@ const MAX_PRESETS = 20;
 
 type ModalState = { mode: "create" } | { mode: "edit"; preset: WatermarkPreset } | null;
 
+// useSearchParams (below, for the ?new=1 deep link) needs a Suspense
+// boundary above it or Next bails the whole route to client-only rendering
+// at build time — see use-search-params docs. The fallback matches the
+// page's own loading skeleton so there's no visible flash swap.
 export default function WatermarkPresetsPage() {
+  return (
+    <Suspense fallback={<SectionSkeleton />}>
+      <WatermarkPresetsPageInner />
+    </Suspense>
+  );
+}
+
+function WatermarkPresetsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { refresh: refreshReminders } = useReminders();
   const [presets, setPresets] = useState<WatermarkPreset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
@@ -32,6 +49,20 @@ export default function WatermarkPresetsPage() {
       .then((res) => setPresets(res.presets))
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
   }, []);
+
+  // Landing here from the watermark reminder dialog (?new=1). Waits for
+  // `presets` to load so the atLimit guard below is authoritative — never
+  // force the create modal open if the studio is somehow already at 20.
+  // Runs once: the ref survives the presets-load re-render, and the URL is
+  // cleaned up immediately so a refresh or back-navigation can't reopen it.
+  const openedFromQueryRef = useRef(false);
+  useEffect(() => {
+    if (openedFromQueryRef.current || presets === null) return;
+    if (searchParams.get("new") == null) return;
+    openedFromQueryRef.current = true;
+    if (presets.length < MAX_PRESETS) setModal({ mode: "create" });
+    router.replace("/dashboard/settings/watermarks");
+  }, [presets, searchParams, router]);
 
   async function handleSetDefault(id: string) {
     setBusyId(id);
@@ -51,6 +82,8 @@ export default function WatermarkPresetsPage() {
       await deleteWatermarkPreset(id);
       setConfirmId(null);
       await refresh();
+      // Deleting the last preset can un-complete the watermark reminder.
+      void refreshReminders();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
     } finally {
@@ -62,6 +95,9 @@ export default function WatermarkPresetsPage() {
     setModal(null);
     // Re-fetch so default reassignment / ordering stays authoritative.
     refresh().catch(() => setPresets((prev) => mergeSaved(prev, saved)));
+    // A first preset resolves the watermark-reminder checkpoint — refresh so
+    // a studio returning to an event's upload flow doesn't see a stale nudge.
+    void refreshReminders();
   }
 
   const atLimit = (presets?.length ?? 0) >= MAX_PRESETS;

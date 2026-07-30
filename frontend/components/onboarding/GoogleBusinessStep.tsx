@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { saveGoogleBusiness } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { AddressField } from "@/components/ui/AddressField";
@@ -12,19 +12,27 @@ import { IconWarningCircle } from "@/components/ui/icons";
  * happened server-side, so there's nothing to undo by going back).
  */
 export function GoogleBusinessStep({
-  initialStudioName,
   onDone,
 }: {
-  initialStudioName: string;
   onDone: (company: Company) => void;
 }) {
-  // Prefilled so the Places dropdown opens on something useful the moment
-  // the field is focused, instead of an empty search box.
-  const [address, setAddress] = useState(initialStudioName);
+  const [address, setAddress] = useState("");
   const [placeId, setPlaceId] = useState("");
   const [confirmingSkip, setConfirmingSkip] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The formatted address Google last committed via onPlaceSelect. Any
+  // further typing that diverges from this means the picked place no longer
+  // matches what's in the field, so the stale placeId must be cleared —
+  // otherwise a user could pick a listing, edit the text, and still Finish
+  // against the previous place.
+  const committedAddressRef = useRef<string>("");
+
+  function handleAddressChange(value: string) {
+    setAddress(value);
+    if (value !== committedAddressRef.current) setPlaceId("");
+  }
 
   // Without a Maps key, AddressField silently degrades to a plain text input
   // and can never produce a place_id — the skip affordance must be a normal
@@ -76,15 +84,18 @@ export function GoogleBusinessStep({
           <AddressField
             label="Your studio on Google"
             value={address}
-            onChange={setAddress}
+            onChange={handleAddressChange}
             onPlaceSelect={({ placeId: id, address: formatted }) => {
               setPlaceId(id);
               setAddress(formatted);
+              committedAddressRef.current = formatted;
             }}
-            placeholder={initialStudioName || "Search for your studio"}
+            placeholder="Search for your studio"
           />
           <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-            Search your studio name and pick the matching listing.
+            {placeId
+              ? "Search your studio name and pick the matching listing."
+              : "Pick your studio from the suggestions to continue."}
           </p>
         </div>
 

@@ -336,7 +336,7 @@ function CheckoutShell() {
         prorationDetail={
           proration ? `Prorated for the remaining ${Math.round(proration.remaining_fraction * 100)}% of your current cycle.` : undefined
         }
-        note="One-time payment — credits never expire."
+        note="One-time payment. Each event stays live for 3 months from the day you create it."
       />
 
       {effectiveSelection && (

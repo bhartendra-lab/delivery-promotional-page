@@ -10,6 +10,7 @@ import {
   type UserProfileUpdateInput,
 } from "@/lib/api";
 import { setCompany } from "@/lib/auth";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 import type { Company, UserProfile } from "@/lib/types";
 import type { SaveState } from "./SettingsUI";
 
@@ -20,10 +21,9 @@ import type { SaveState } from "./SettingsUI";
  * which reuses the partial-diff update endpoint and keeps the cached company
  * (used by the Topbar/Sidebar) in sync.
  *
- * The personal profile is fetched alongside it, best-effort: it's not yet
- * backed by a real endpoint (see `getUserProfile` in `lib/api.ts`), so a
- * failure leaves `userProfile` null instead of blocking the rest of Settings.
- * Studio Identity's "same as personal" checkboxes and the Personal
+ * The personal profile is fetched alongside it, best-effort: a transient
+ * network failure leaves `userProfile` null instead of blocking the rest of
+ * Settings. Studio Identity's "same as personal" checkboxes and the Personal
  * Information page both read/write it from here.
  */
 type SettingsState = {
@@ -72,9 +72,8 @@ export function SettingsProvider({
             message: err instanceof Error ? err.message : "Failed to load",
           });
       });
-    // Best-effort — see the type-level note on `getUserProfile`. A missing
-    // or failing endpoint just leaves userProfile null; nothing here should
-    // ever surface as a Settings-wide load error.
+    // Best-effort — a failing/slow profile fetch just leaves userProfile
+    // null; nothing here should ever surface as a Settings-wide load error.
     getUserProfile()
       .then((res) => {
         if (active) setUserProfile(res.user);
@@ -152,6 +151,7 @@ function useSaveState() {
 export function useSectionSave() {
   const { save } = useSettings();
   const { saveState, setSaveState, errorMsg, setErrorMsg, flashSaved } = useSaveState();
+  const { refresh: refreshReminders } = useReminders();
 
   /** Returns true when the save succeeded (or was a no-op), false on error. */
   async function submit(payload: CompanyUpdateInput): Promise<boolean> {
@@ -164,6 +164,12 @@ export function useSectionSave() {
     try {
       await save(payload);
       flashSaved();
+      // Studio Identity (logo, Google Business) and Social Links both save
+      // through here, and both can resolve a branding-readiness checkpoint —
+      // refresh so a studio returning to an event sees it reflected instead
+      // of the stale snapshot RemindersProvider fetched once at dashboard
+      // mount. Best-effort; never blocks the save's own success state.
+      void refreshReminders();
       return true;
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to save");

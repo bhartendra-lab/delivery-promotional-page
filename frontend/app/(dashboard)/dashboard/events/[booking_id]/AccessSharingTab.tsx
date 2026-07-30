@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { exportGuestsCsv, getAllGuests, revokeGuestAccess } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { Guest } from "@/lib/types";
+import { BrandingReminderDialog } from "./BrandingReminderDialog";
 import {
   IconCheck,
   IconCopy,
@@ -66,6 +67,7 @@ ${shareUrl}`;
     // the left column and the guest panel each own their own scroll region,
     // both bound to the tab's actual height, so neither can stretch the page.
     <div className="h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)] lg:overflow-hidden">
+      <BrandingReminderDialog />
       <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] lg:items-stretch lg:px-8">
         {/* Left — existing sharing link + passcode. */}
         <div className="flex flex-col lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1">

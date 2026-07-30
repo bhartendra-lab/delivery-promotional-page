@@ -11,7 +11,12 @@ import { CoverBanner } from "./CoverBanner";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
+import { WatermarkReminderDialog } from "./WatermarkReminderDialog";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
+
+/** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
+type UploadIntent = { step: UploadModalStep; target: UploadFolderOption | null; folderOnly: boolean };
 
 /** A cover pick awaiting position adjustment in `CoverPositionModal` before it's persisted. */
 type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "existing"; url: string };
@@ -54,11 +59,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // One upload dialog for the whole flow. `uploadIntent` is only the state it
   // opens on — the dialog owns every step after that (destination picker →
   // file selection) internally, so switching steps never unmounts it.
-  const [uploadIntent, setUploadIntent] = useState<{
-    step: UploadModalStep;
-    target: UploadFolderOption | null;
-    folderOnly: boolean;
-  } | null>(null);
+  const [uploadIntent, setUploadIntent] = useState<UploadIntent | null>(null);
+  // An intent stashed behind the watermark reminder — set instead of
+  // `uploadIntent` when the reminder should show first; committed to
+  // `uploadIntent` on Skip so the studio still lands where it asked to go.
+  const [pendingUploadIntent, setPendingUploadIntent] = useState<UploadIntent | null>(null);
+  const { status: reminderStatus } = useReminders();
   // Directory (folder) uploads need <input webkitdirectory>, which mobile
   // browsers don't support — steer those to the plain multi-file picker.
   const [dirSupported] = useState(
@@ -264,21 +270,40 @@ export function MediaTab({ loading }: { loading: boolean }) {
     [pendingCover, setCoverFromFile, setCoverFromUrl],
   );
 
+  // Both entry points route through this: when the watermark reminder should
+  // show, the intent is stashed instead of opened directly, and the reminder
+  // dialog takes over — Skip commits it straight into the upload modal.
+  const openUpload = useCallback(
+    (intent: UploadIntent) => {
+      if (reminderStatus?.watermark.should_show) {
+        setPendingUploadIntent(intent);
+      } else {
+        setUploadIntent(intent);
+      }
+    },
+    [reminderStatus],
+  );
+
   const handleUploadMore = useCallback(() => {
     // System views (All Media / Liked Media) aren't real upload targets — open
     // on the destination step. A real folder tab uploads straight into it.
-    setUploadIntent(
+    openUpload(
       activeIsSystem
         ? { step: "picker", target: null, folderOnly: false }
         : { step: "select", target: { id: activeFolderId, name: activeFolderLabel }, folderOnly: false },
     );
-  }, [activeIsSystem, activeFolderId, activeFolderLabel]);
+  }, [activeIsSystem, activeFolderId, activeFolderLabel, openUpload]);
 
   // First upload for the event (empty state): no folders exist yet, so go
   // straight to picking — folders are created by name at upload time.
   const handleBulkUpload = useCallback(() => {
-    setUploadIntent({ step: "select", target: null, folderOnly: false });
-  }, []);
+    openUpload({ step: "select", target: null, folderOnly: false });
+  }, [openUpload]);
+
+  const handleWatermarkReminderSkip = useCallback(() => {
+    if (pendingUploadIntent) setUploadIntent(pendingUploadIntent);
+    setPendingUploadIntent(null);
+  }, [pendingUploadIntent]);
 
   const closeUploadModal = useCallback(() => setUploadIntent(null), []);
 
@@ -448,6 +473,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
           }
         }}
       />
+
+      <WatermarkReminderDialog open={!!pendingUploadIntent} onSkip={handleWatermarkReminderSkip} />
 
       {cancelSummary && (
         <CancelSummaryCard saved={cancelSummary.saved} onClose={() => setCancelSummary(null)} />

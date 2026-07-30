@@ -278,6 +278,61 @@ export function VerifiedWhatsappField({
   );
 }
 
+/**
+ * Read-only display of the studio's business email — mirrors
+ * `VerifiedWhatsappField`. Never part of the Studio Identity form's
+ * dirty-check or save payload — it can only change through the OTP-gated
+ * inline verify flow (`BusinessEmailVerifyBlock`), not `updateCompanyDetails`.
+ */
+export function VerifiedBusinessEmailField({
+  businessEmail,
+  verified,
+  onActionClick,
+}: {
+  businessEmail?: string;
+  verified?: boolean;
+  onActionClick: () => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+          Business email
+        </span>
+        <button
+          type="button"
+          onClick={onActionClick}
+          className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+        >
+          {businessEmail ? "Change email" : "Add & verify"}
+        </button>
+      </div>
+      <div className="flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
+        {businessEmail ? (
+          <span className="truncate text-sm text-[var(--color-brand-ink)]">{businessEmail}</span>
+        ) : (
+          <span className="flex items-center gap-2 text-sm text-[var(--color-brand-muted)]">
+            <span>—</span>
+            <span className="text-xs">Not set yet</span>
+          </span>
+        )}
+        {businessEmail &&
+          (verified ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
+              <CheckIcon className="h-3 w-3" />
+              Verified
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
+              <AlertIcon className="h-3 w-3" />
+              Not verified
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 export function SelectField({
   label,
   value,

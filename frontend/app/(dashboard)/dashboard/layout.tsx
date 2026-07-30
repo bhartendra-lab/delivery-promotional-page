@@ -11,6 +11,7 @@ import { ChromeProvider, useChrome } from "@/components/dashboard/ChromeContext"
 import { SubscriptionProvider, useSubscription } from "@/components/billing/SubscriptionProvider";
 import { UpgradeModalProvider } from "@/components/billing/UpgradeModalProvider";
 import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
+import { RemindersProvider } from "@/components/dashboard/RemindersProvider";
 
 export default function DashboardLayout({
   children,
@@ -62,7 +63,9 @@ export default function DashboardLayout({
     <ChromeProvider>
       <SubscriptionProvider>
         <UpgradeModalProvider>
-          <DashboardShell>{children}</DashboardShell>
+          <RemindersProvider>
+            <DashboardShell>{children}</DashboardShell>
+          </RemindersProvider>
         </UpgradeModalProvider>
       </SubscriptionProvider>
     </ChromeProvider>

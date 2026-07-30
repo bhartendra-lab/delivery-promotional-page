@@ -103,9 +103,15 @@ export function PlanChooser({
     return requested === "event" && !eventOptionAvailable ? "storage" : requested;
   });
   // Screen 1 (pricing-model cards) vs screen 2 (details) in "cards" variant
-  // only. Skipped entirely — start straight on screen 2 — when only one
-  // model is actually available, so there's nothing to pick between.
-  const [modeConfirmed, setModeConfirmed] = useState(variant !== "cards" || !bothAvailable);
+  // only, skipped when just one model is available. This used to be a
+  // useState verdict frozen at mount (`modeConfirmed`) — if `plans` (and
+  // therefore `bothAvailable`) arrived after the first render, the frozen
+  // "storage-only" verdict never re-evaluated and screen 1 was skipped even
+  // once both models turned out to be available. `userPickedMode` is the
+  // only state; whether to show the cards is derived fresh every render, so
+  // it can never go stale regardless of when the catalog actually loads.
+  const [userPickedMode, setUserPickedMode] = useState(false);
+  const showPricingModelCards = variant === "cards" && bothAvailable && !userPickedMode;
   const [qty, setQty] = useState(initialQuantity ?? 1);
   const [interval, setInterval_] = useState<Interval>(
     () =>
@@ -121,6 +127,25 @@ export function PlanChooser({
   const [tierIndex, setTierIndex] = useState(
     () => initialFromDeepLink?.tierIndex ?? currentTierIndex ?? Math.min(1, Math.max(0, tiers.length - 1)),
   );
+  // Same class of bug as modeConfirmed above: `interval`/`tierIndex` seed
+  // once at mount from `tiers`/`currentSnapshot`, which are wrong if the
+  // catalog or subscription snapshot hasn't loaded yet. Re-seed whenever
+  // they change, but only until the studio actually touches the interval
+  // toggle or the slider — after that their choice must stick.
+  const [userAdjustedTier, setUserAdjustedTier] = useState(false);
+  useEffect(() => {
+    if (userAdjustedTier || initialFromDeepLink) return;
+    setInterval_(
+      currentSnapshot?.service?.service_type === "Yearly"
+        ? "yearly"
+        : currentSnapshot?.service?.service_type === "Monthly"
+          ? "monthly"
+          : tiers.some((t) => (yearlySavingsPercent(t) ?? 0) > 0)
+            ? "yearly"
+            : "monthly",
+    );
+    setTierIndex(currentTierIndex ?? Math.min(1, Math.max(0, tiers.length - 1)));
+  }, [tiers, currentSnapshot, currentTierIndex, initialFromDeepLink, userAdjustedTier]);
   const [movedNote, setMovedNote] = useState<string | null>(null);
   const movedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,6 +154,7 @@ export function PlanChooser({
   }, []);
 
   function handleIntervalChange(next: Interval) {
+    setUserAdjustedTier(true);
     const nextIndex = nearestAvailableIndex(tiers, tierIndex, next);
     if (nextIndex !== tierIndex) {
       setTierIndex(nextIndex);
@@ -137,6 +163,11 @@ export function PlanChooser({
       movedTimer.current = setTimeout(() => setMovedNote(null), 4000);
     }
     setInterval_(next);
+  }
+
+  function handleTierIndexChange(next: number) {
+    setUserAdjustedTier(true);
+    setTierIndex(next);
   }
 
   if (!eventOptionAvailable && !hasStorage) {
@@ -150,7 +181,7 @@ export function PlanChooser({
     );
   }
 
-  if (variant === "cards" && bothAvailable && !modeConfirmed) {
+  if (showPricingModelCards) {
     return (
       <PricingModelCards
         eventPlan={eventPlan!}
@@ -158,7 +189,7 @@ export function PlanChooser({
         selectedMode={mode}
         onSelect={(m) => {
           setMode(m);
-          setModeConfirmed(true);
+          setUserPickedMode(true);
         }}
       />
     );
@@ -207,7 +238,7 @@ export function PlanChooser({
       {variant === "cards" && bothAvailable && (
         <button
           type="button"
-          onClick={() => setModeConfirmed(false)}
+          onClick={() => setUserPickedMode(false)}
           className="brand-focus inline-flex w-fit items-center gap-1.5 text-xs font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
         >
           <IconArrowLeft size={12} />
@@ -280,7 +311,7 @@ export function PlanChooser({
             tiers={tiers}
             index={tierIndex}
             interval={interval}
-            onChange={setTierIndex}
+            onChange={handleTierIndexChange}
             currentTierIndex={currentTierIndex}
           />
           {movedNote && (
@@ -308,7 +339,7 @@ export function PlanChooser({
                 <span className="text-xs text-[var(--color-brand-muted)]">Takes effect at renewal — no charge now.</span>
               ) : currentSnapshot?.service ? (
                 <span className="text-xs text-[var(--color-brand-muted)]">
-                  Prorated for the rest of your current cycle — exact amount shown at payment.
+                  Including GST
                 </span>
               ) : null}
             </div>
@@ -381,11 +412,11 @@ function PricingModelCards({
         <ul className="mt-3 space-y-1.5 text-xs text-[var(--color-brand-muted)]">
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
-            Buy exactly what you need
+            Unlimited storage on every event
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
-            Credits never expire
+            Each event stays live for 3 months
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
@@ -420,7 +451,7 @@ function PricingModelCards({
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
-            {formatStorage(largestTier.storage_limit)} of storage
+            Upto {formatStorage(largestTier.storage_limit)} of storage
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />

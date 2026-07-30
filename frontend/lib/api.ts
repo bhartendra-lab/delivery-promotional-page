@@ -29,13 +29,14 @@ import type {
   GuestOtpVerifyResponse,
   LoginResponse,
   QrCode,
+  ReminderStatus,
   ServiceType,
   StyleVariant,
   TrackingType,
   UserProfile,
   WatermarkPreset,
   WatermarkPosition,
-  WhatsappOtpVerifyResponse,
+  CompanyMutationResponse,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -152,7 +153,7 @@ export function resendWhatsappOtp() {
 
 /** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name and returns the updated Company. */
 export function verifyWhatsappOtp(input: { code: string; studioName: string }) {
-  return request<WhatsappOtpVerifyResponse>("/onboarding/whatsapp/verify-otp", {
+  return request<CompanyMutationResponse>("/onboarding/whatsapp/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code: input.code, studio_name: input.studioName }),
@@ -177,7 +178,7 @@ export function resendWhatsappChangeOtp() {
 
 /** POST /onboarding/whatsapp/change-verify-otp — on success promotes the pending number and returns the updated Company. */
 export function verifyWhatsappChangeOtp(input: { code: string }) {
-  return request<WhatsappOtpVerifyResponse>("/onboarding/whatsapp/change-verify-otp", {
+  return request<CompanyMutationResponse>("/onboarding/whatsapp/change-verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code: input.code }),
@@ -188,7 +189,7 @@ export function verifyWhatsappChangeOtp(input: { code: string }) {
 
 /** POST /onboarding/google-business — third onboarding step; requires whatsapp_verified. */
 export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean }) {
-  return request<WhatsappOtpVerifyResponse>("/onboarding/google-business", {
+  return request<CompanyMutationResponse>("/onboarding/google-business", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -201,13 +202,53 @@ export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: st
 
 /** POST /onboarding/welcome-dialog-seen — idempotent one-shot ack for the "2 free events" dialog. */
 export function markWelcomeDialogSeen() {
-  return request<WhatsappOtpVerifyResponse>("/onboarding/welcome-dialog-seen", { method: "POST" });
+  return request<CompanyMutationResponse>("/onboarding/welcome-dialog-seen", { method: "POST" });
+}
+
+/* ── Studio Identity: verified business email ──────────────────── */
+
+/** POST /onboarding/business-email/request-otp — sends the first code. 429 on cooldown. */
+export function requestBusinessEmailOtp(input: { businessEmail: string }) {
+  return request<{ message: string }>("/onboarding/business-email/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business_email: input.businessEmail }),
+  });
+}
+
+/** POST /onboarding/business-email/resend-otp — requires request-otp to have already run for this company. */
+export function resendBusinessEmailOtp() {
+  return request<{ message: string }>("/onboarding/business-email/resend-otp", { method: "POST" });
+}
+
+/** POST /onboarding/business-email/verify-otp — on success promotes the pending address and returns the updated Company. */
+export function verifyBusinessEmailOtp(input: { code: string }) {
+  return request<CompanyMutationResponse>("/onboarding/business-email/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: input.code }),
+  });
+}
+
+/* ── Branding-readiness reminders ──────────────────────────────── */
+
+/** GET /onboarding/reminder-status — computes every checkpoint server-side. */
+export function getReminderStatus() {
+  return request<ReminderStatus>("/onboarding/reminder-status");
+}
+
+/** POST /onboarding/dismiss-reminder — idempotent; returns the recomputed status so the caller can replace its state from one response. */
+export function dismissReminder(reminder: "watermark" | "branding") {
+  return request<{ message: string; status: ReminderStatus }>("/onboarding/dismiss-reminder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reminder }),
+  });
 }
 
 export type CompanyUpdateInput = {
   name?: string;
   address?: string;
-  business_email?: string;
   website?: string;
   gmb_link?: string;
   social_links?: SocialLinks;
@@ -220,7 +261,6 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   const fd = new FormData();
   if (input.name !== undefined) fd.append("name", input.name);
   if (input.address !== undefined) fd.append("address", input.address);
-  if (input.business_email !== undefined) fd.append("business_email", input.business_email);
   if (input.website !== undefined) fd.append("website", input.website);
   if (input.gmb_link !== undefined) fd.append("gmb_link", input.gmb_link);
   if (input.social_links !== undefined) fd.append("social_links", JSON.stringify(input.social_links));
@@ -233,14 +273,8 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   });
 }
 
-/* ── personal profile (account holder) ────────────────────────────
- * NOT YET BACKED BY A REAL ENDPOINT. `/onboarding/get-user-details` and
- * `/onboarding/update-user-details` are placeholders that mirror the
- * company-details pair above — confirm the real path and field names with
- * the backend engineer (see BACKEND_NOTES.md) before this ships. Callers
- * (SettingsContext) treat a failure here as best-effort and degrade
- * gracefully rather than blocking the rest of Settings.
- */
+/* ── personal profile (account holder) ─────────────────────────── */
+
 export function getUserProfile() {
   return request<{ user: UserProfile }>("/onboarding/get-user-details");
 }

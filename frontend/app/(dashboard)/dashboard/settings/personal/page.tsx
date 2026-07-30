@@ -9,9 +9,6 @@ import { SectionHeading, Card, Field, SaveBar, UserIcon, changed } from "../Sett
  * Your Account → Personal Information. Your own details as the account
  * holder, kept separate from the studio's business details on Studio
  * Identity. Feeds the "same as personal" email/phone shortcut there.
- *
- * NOTE: backed by placeholder endpoints (see `getUserProfile` in
- * lib/api.ts) pending backend support — see BACKEND_NOTES.md.
  */
 export default function PersonalInformationPage() {
   const { userProfile } = useSettings();
@@ -48,6 +45,14 @@ export default function PersonalInformationPage() {
 
       <Card title="Personal information" icon={<UserIcon />}>
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Login email"
+            value={userProfile?.email ?? ""}
+            onChange={() => {}}
+            readOnly
+            hint="Your sign-in address — it can't be changed here."
+            className="sm:col-span-2"
+          />
           <Field label="First name" value={firstName} onChange={setFirstName} placeholder="Anjali" />
           <Field label="Last name" value={lastName} onChange={setLastName} placeholder="Rao" />
           <Field

@@ -25,6 +25,7 @@ export function UpgradeModal({
   onClose,
   plans,
   preset,
+  loaded,
   loadFailed,
   onRetryLoad,
   billingComplete,
@@ -34,6 +35,14 @@ export function UpgradeModal({
   plans: Plan[];
   /** Opens straight to a mode, e.g. when a 402 fires from event creation. */
   preset?: "event" | "storage";
+  /**
+   * False until the plans/profile fetch has resolved at least once. Gates
+   * PlanChooser's very first mount — without this, PlanChooser would
+   * initialise its pricing-model verdict against an empty `plans` array on a
+   * cold first open and (for "cards") wrongly skip straight to the storage
+   * slider, since `bothAvailable` reads false before the catalog exists.
+   */
+  loaded: boolean;
   /** The plans/profile fetch failed outright — distinct from "loaded but nothing purchasable". */
   loadFailed: boolean;
   onRetryLoad: () => void;
@@ -172,7 +181,7 @@ export function UpgradeModal({
 
   const HEADER: Record<Step, { title: string; subtitle?: string; size: "sm" | "md" | "lg" }> = {
     choose: {
-      title: "Upgrade plan",
+      title: "Choose your plan",
       subtitle: eventOptionAvailable ? "Pay per event, or move to a storage plan." : "Pick the storage tier that fits.",
       size: "lg",
     },
@@ -276,7 +285,7 @@ export function UpgradeModal({
             note={
               selection.mode === "storage"
                 ? "Storage plans can be changed or cancelled anytime, but can't be switched back to pay-per-event."
-                : "One-time payment — credits never expire."
+                : "One-time payment. Each event stays live for 3 months from the day you create it."
             }
           />
           <CouponField
@@ -298,6 +307,14 @@ export function UpgradeModal({
           >
             Retry
           </button>
+        </div>
+      ) : !loaded ? (
+        // Never mount PlanChooser against an empty catalog — see the `loaded`
+        // prop doc above. This is what actually fixes the modal opening
+        // straight on the storage slider on a cold first click.
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+          <p className="text-sm text-[var(--color-brand-muted)]">Loading plans…</p>
         </div>
       ) : (
         <PlanChooser

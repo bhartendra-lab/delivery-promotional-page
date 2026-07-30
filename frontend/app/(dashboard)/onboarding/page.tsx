@@ -123,7 +123,6 @@ export default function OnboardingPage() {
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "details" ? (
             <StudioDetailsStep
-              initialStudioName={company.name}
               onSent={(name, phone) => {
                 setStudioName(name);
                 setWhatsappNumber(phone);
@@ -143,7 +142,6 @@ export default function OnboardingPage() {
             />
           ) : (
             <GoogleBusinessStep
-              initialStudioName={company.name}
               onDone={(updatedCompany) => {
                 setCompany(updatedCompany);
                 router.replace("/dashboard");
