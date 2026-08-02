@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import type { BrandingCheckpoints } from "@/lib/types";
@@ -35,20 +35,37 @@ const ROWS: { key: keyof BrandingCheckpoints; label: string; why: string }[] = [
  * active tab (see AccessSharingTab), so it fires on tab entry, never on a
  * deep link into another tab. Reads every checkpoint from the server
  * (`useReminders`); nothing here is recomputed from `useCompany()`.
+ *
+ * "Skip for now" only closes this instance — it remounts (and re-nags) on
+ * the next tab visit — unless "Don't show this again" is checked, which
+ * persists the dismiss (`dismissed_at`) so it won't return even if the
+ * checkpoints stay incomplete. Mirrors `WatermarkReminderDialog`.
  */
 export function BrandingReminderDialog() {
   const router = useRouter();
   const { status, dismiss } = useReminders();
   // Ref guard so Escape, the X, and Skip racing each other only ever fire
-  // one dismiss call — mirrors WelcomeDialog#markSeen / WatermarkReminderDialog.
+  // one handleSkip call — mirrors WelcomeDialog#markSeen / WatermarkReminderDialog.
   const skippedRef = useRef(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+  // Closes this instance without persisting anything — the only escape hatch
+  // available when the checkbox isn't checked, since `status.branding.
+  // should_show` doesn't change on its own. Needs no reset effect: this
+  // component remounts fresh (useState(false) again) every time Access &
+  // Sharing becomes the active tab, unlike WatermarkReminderDialog which
+  // stays mounted for the whole event-page lifetime.
+  const [locallyDismissed, setLocallyDismissed] = useState(false);
 
-  const open = !!status?.branding.should_show;
+  const open = !!status?.branding.should_show && !locallyDismissed;
 
   async function handleSkip() {
     if (skippedRef.current) return;
     skippedRef.current = true;
-    await dismiss("branding");
+    if (dontShowAgain) {
+      await dismiss("branding");
+    } else {
+      setLocallyDismissed(true);
+    }
   }
 
   function handleGoToSettings() {
@@ -71,14 +88,13 @@ export function BrandingReminderDialog() {
   const checkpoints = status.branding.checkpoints;
 
   return (
-    <Modal open={open} onClose={handleSkip} title="Before you share this gallery" size="sm" dismissOnBackdrop={false}>
+    <Modal open={open} onClose={handleSkip} title="Complete your branding before you share this gallery" size="sm" dismissOnBackdrop={false}>
       <div className="flex flex-col items-center gap-4 text-center">
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
           <IconShieldCheck size={26} />
         </span>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          The gallery footer and lounge show your studio&apos;s branding — a quick pass here means
-          every guest who opens this link sees a fully set-up studio.
+          The gallery's lounge page shows your studio&apos;s branding — every guest who opens this link sees a fully set-up studio.
         </p>
 
         <ul className="w-full space-y-2.5">
@@ -105,13 +121,23 @@ export function BrandingReminderDialog() {
           ))}
         </ul>
 
+        <label className="flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]">
+          <input
+            type="checkbox"
+            checked={dontShowAgain}
+            onChange={(e) => setDontShowAgain(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-[var(--color-brand-border)] text-[var(--color-brand-navy)] accent-[var(--color-brand-navy)]"
+          />
+          Don&apos;t show this again
+        </label>
+
         <div className="mt-2 flex w-full flex-col gap-3 sm:flex-row-reverse">
           <button
             type="button"
             onClick={handleGoToSettings}
             className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
-            Go to settings
+            Complete Branding
           </button>
           <button
             type="button"

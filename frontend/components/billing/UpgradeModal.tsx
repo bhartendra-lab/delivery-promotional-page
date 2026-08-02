@@ -97,6 +97,7 @@ export function UpgradeModal({
   // shows "Calculated at payment" for storage upgrades instead of a number.
   useEffect(() => {
     if (!selection || step !== "confirm") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale preview synchronously when the selection is cleared
       if (!selection) setPreview(null);
       return;
     }

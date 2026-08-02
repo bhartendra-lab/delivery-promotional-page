@@ -91,6 +91,7 @@ export function LinkEventModal({
   }, [debouncedSearch]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void loadFirstPage();
   }, [loadFirstPage]);
 

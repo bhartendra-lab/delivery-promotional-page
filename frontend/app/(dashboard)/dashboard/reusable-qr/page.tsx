@@ -46,6 +46,7 @@ export default function ReusableQrPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void reload();
   }, [reload]);
 

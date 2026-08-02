@@ -152,6 +152,7 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
   }, [bookingId, filter]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void load();
   }, [load]);
 

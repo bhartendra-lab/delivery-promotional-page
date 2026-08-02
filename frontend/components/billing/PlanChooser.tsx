@@ -135,6 +135,7 @@ export function PlanChooser({
   const [userAdjustedTier, setUserAdjustedTier] = useState(false);
   useEffect(() => {
     if (userAdjustedTier || initialFromDeepLink) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- re-seeds from late-loading catalog/snapshot data until the studio touches the controls
     setInterval_(
       currentSnapshot?.service?.service_type === "Yearly"
         ? "yearly"

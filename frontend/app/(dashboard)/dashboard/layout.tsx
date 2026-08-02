@@ -33,6 +33,7 @@ export default function DashboardLayout({
         router.replace("/onboarding");
         return;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auth/onboarding gate: flips once after a synchronous cache check
       setReady(true);
     } else {
       getCompanyDetails()

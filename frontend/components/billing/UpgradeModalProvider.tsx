@@ -57,6 +57,7 @@ export function UpgradeModalProvider({ children }: { children: React.ReactNode }
   // user-triggered action rather than a state-driven re-fetch.
   useEffect(() => {
     if (!open || loaded || loadFailed) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     loadCatalog();
   }, [open, loaded, loadFailed, loadCatalog]);
 

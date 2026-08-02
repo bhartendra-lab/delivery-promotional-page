@@ -84,7 +84,10 @@ export default function DashboardHomePage() {
     }
   }, [page, debouncedSearch, showArchived]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
+    void reload();
+  }, [reload]);
 
   const { onArchive, onRestore, onClearData, toastNode } = useBookingLifecycle(reload);
 

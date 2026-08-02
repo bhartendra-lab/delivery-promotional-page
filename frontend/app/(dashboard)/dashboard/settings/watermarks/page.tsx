@@ -60,6 +60,7 @@ function WatermarkPresetsPageInner() {
     if (openedFromQueryRef.current || presets === null) return;
     if (searchParams.get("new") == null) return;
     openedFromQueryRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot deep-link handler gated by a ref, not a render loop
     if (presets.length < MAX_PRESETS) setModal({ mode: "create" });
     router.replace("/dashboard/settings/watermarks");
   }, [presets, searchParams, router]);

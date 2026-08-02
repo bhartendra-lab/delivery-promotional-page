@@ -118,6 +118,7 @@ export function UploadModal({
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets all modal state on open transition, not a render loop
     setStep(initialStep);
     setTarget(initialTarget);
     setFolderOnly(initialFolderOnly);
@@ -150,6 +151,7 @@ export function UploadModal({
   // selection. Ignores stale results if the selection changes mid-sample.
   useEffect(() => {
     if (!open || !storageGated || files.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale estimate synchronously when the selection becomes empty/ungated
       setEstimateGB(null);
       setEstimating(false);
       return;

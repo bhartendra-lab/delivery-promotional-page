@@ -192,9 +192,11 @@ export type BrandingCheckpoints = {
 
 /**
  * `GET /onboarding/reminder-status` — drives both the watermark nudge
- * (before the first upload) and the branding-readiness checklist (Access &
- * Sharing). `should_show` is always `!complete && dismissed_at == null`;
- * dismissal is a persisted server flag, so "Skip for now" is permanent.
+ * (before every upload) and the branding-readiness checklist (Access &
+ * Sharing). Symmetric for both: `should_show` is `!complete && dismissed_at
+ * == null`. Dismissal only ever happens via the dialog's explicit "Don't
+ * show this again" checkbox — an unchecked "Skip for now" never touches
+ * `dismissed_at`, so the reminder returns on the next attempt/visit.
  */
 export type ReminderStatus = {
   watermark: {

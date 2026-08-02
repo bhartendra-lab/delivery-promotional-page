@@ -347,6 +347,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // Clearing the grid on a tab switch is handled in `onTabChange` (an event) so
   // this effect stays a pure load.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void loadView(viewId);
   }, [viewId, mediaSort, loadView]);
 
@@ -381,6 +382,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`event_meta_${bookingId}`);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage hydration before the authoritative fetch below
       if (raw) setMeta(JSON.parse(raw) as EventMeta);
     } catch {
       /* ignore */

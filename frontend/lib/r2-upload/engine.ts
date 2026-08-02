@@ -586,12 +586,30 @@ export class UploadEngineCore {
 
       // Start new presign batches while under the concurrency cap. Paused
       // runs hold here — already-issued batches finish and settle.
+      //
+      // Fire a batch as soon as there's anything to presign AND a presign slot
+      // is free — do NOT wait for a full 50 to compress. Waiting for 50 was the
+      // "sticks every 50 files" stall on slow machines: the first ~50 files
+      // compressed with no upload in flight, and thereafter the uploaders
+      // drained each 50-batch and then idled until the next 50 finished
+      // compressing (a sawtooth). We still prefer full 50-batches while they're
+      // readily available — the `>= PRESIGN_BATCH_SIZE` clause keeps batching
+      // efficient when compression is outrunning presign — but when nothing is
+      // currently being presigned (`runningPresigns === 0`) we fire a partial
+      // batch immediately so a signed URL (and the upload behind it) is never
+      // blocked waiting for a batch to fill. Presign still only ever runs on
+      // already-compressed items, so URLs are minted just behind the upload
+      // frontier (never far ahead → no 15-min expiry risk) and this needs no
+      // assumption about whether the backend binds content-length into the
+      // signature — the bytes already exist by the time we presign.
       while (
         !this.abort.signal.aborted &&
         !this.paused &&
         this.runningPresigns < PRESIGN_CONCURRENCY &&
         this.compressedQueue.length > 0 &&
-        (this.compressedQueue.length >= PRESIGN_BATCH_SIZE || this.compressionFinished)
+        (this.compressedQueue.length >= PRESIGN_BATCH_SIZE ||
+          this.runningPresigns === 0 ||
+          this.compressionFinished)
       ) {
         const batchIds = this.compressedQueue.splice(0, PRESIGN_BATCH_SIZE);
         this.runningPresigns++;

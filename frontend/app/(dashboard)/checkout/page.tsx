@@ -65,12 +65,14 @@ function CheckoutShell() {
       router.replace(`/login?next=${encodeURIComponent(next)}`);
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- auth gate: flips once after a synchronous check, not a render loop
     setAuthChecked(true);
   }, [router]);
 
   useEffect(() => {
     if (!authChecked) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets loading before the async fetch below; guarded by `cancelled` on completion
     setLoading(true);
     Promise.all([
       getBillingPlans(),
@@ -150,6 +152,7 @@ function CheckoutShell() {
   // price, not the true prorated charge).
   useEffect(() => {
     if (!effectiveSelection || guardMessage) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale preview synchronously when the selection becomes invalid
       setPreview(null);
       return;
     }

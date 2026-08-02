@@ -28,6 +28,7 @@ export function AddEventModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets all form state on open transition, not a render loop
     setName("");
     setEventType("Wedding");
     setEventDate("");

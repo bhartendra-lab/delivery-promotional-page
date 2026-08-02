@@ -8,6 +8,11 @@ type RemindersContextValue = {
   /** Null until the fetch resolves, or forever on a failed fetch — both reminder dialogs stay closed in that case. */
   status: ReminderStatus | null;
   loading: boolean;
+  /**
+   * Both dialogs only call this when their "Don't show this again" checkbox
+   * is checked — an unchecked "Skip for now" never reaches here, it just
+   * closes that one instance of the dialog locally.
+   */
   dismiss: (reminder: "watermark" | "branding") => Promise<void>;
   /**
    * Re-fetches the status outright. `RemindersProvider` is mounted once at
@@ -50,6 +55,7 @@ export function RemindersProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     fetchStatus().finally(() => {
       if (active) setLoading(false);
     });
@@ -73,9 +79,7 @@ export function RemindersProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setStatus((prev) => {
         if (!prev) return prev;
-        return reminder === "watermark"
-          ? { ...prev, watermark: { ...prev.watermark, dismissed_at: Date.now(), should_show: false } }
-          : { ...prev, branding: { ...prev.branding, dismissed_at: Date.now(), should_show: false } };
+        return { ...prev, [reminder]: { ...prev[reminder], dismissed_at: Date.now(), should_show: false } };
       });
     }
   }, []);

@@ -54,3 +54,14 @@ export function findGstStateByName(name: string | undefined): { code: string; na
   const normalized = name.trim().toLowerCase();
   return GST_STATE_CODES.find((s) => s.name.toLowerCase() === normalized) ?? null;
 }
+
+/**
+ * Best-effort match of a GST state/UT name appearing anywhere inside a free-text
+ * address (e.g. the studio's saved address), for pre-filling — never silently
+ * committing — the state dropdown from "Same as Studio details".
+ */
+export function findGstStateInAddress(address: string | undefined | null): { code: string; name: string } | null {
+  if (!address) return null;
+  const normalized = address.toLowerCase();
+  return GST_STATE_CODES.find((s) => normalized.includes(s.name.toLowerCase())) ?? null;
+}

@@ -90,6 +90,7 @@ export function CouponField({
   // applied — discount_amount is computed off the gross, so a stale discount
   // must never be shown.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- re-validates the already-applied coupon when price inputs change
     if (applied) runValidate(applied.code);
     // Only re-run on serviceId/quantity change, not on `applied` itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps

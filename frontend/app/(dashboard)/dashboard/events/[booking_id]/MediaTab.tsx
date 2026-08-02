@@ -63,6 +63,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // An intent stashed behind the watermark reminder — set instead of
   // `uploadIntent` when the reminder should show first; committed to
   // `uploadIntent` on Skip so the studio still lands where it asked to go.
+  // Cleared on every Skip; the next upload attempt re-checks `reminderStatus`
+  // fresh, so it stashes (and nags) again unless "Don't show this again" was
+  // checked, which persists the dismiss server-side.
   const [pendingUploadIntent, setPendingUploadIntent] = useState<UploadIntent | null>(null);
   const { status: reminderStatus } = useReminders();
   // Directory (folder) uploads need <input webkitdirectory>, which mobile
@@ -270,9 +273,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
     [pendingCover, setCoverFromFile, setCoverFromUrl],
   );
 
-  // Both entry points route through this: when the watermark reminder should
-  // show, the intent is stashed instead of opened directly, and the reminder
-  // dialog takes over — Skip commits it straight into the upload modal.
+  // Both entry points route through this: while `reminderStatus.watermark.
+  // should_show` is true, the intent is stashed instead of opened directly
+  // and the reminder dialog takes over — Skip commits it straight into the
+  // upload modal. `should_show` is `!complete && dismissed_at == null`
+  // server-side, so this repeats on every upload attempt until either a
+  // preset exists or the studio checks "Don't show this again".
   const openUpload = useCallback(
     (intent: UploadIntent) => {
       if (reminderStatus?.watermark.should_show) {

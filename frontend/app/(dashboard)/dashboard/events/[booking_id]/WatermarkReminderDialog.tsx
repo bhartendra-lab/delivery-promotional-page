@@ -1,41 +1,50 @@
 "use client";
 
-import { useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { Modal } from "@/components/ui/Modal";
 import { IconPalette } from "@/components/ui/icons";
 
 /**
- * Shown before the first upload on an event when the studio has no watermark
- * preset yet and hasn't dismissed this nudge. Watermarks apply at delivery
- * render time, so setting one up before uploading means every photo
- * delivered from here on automatically carries the studio's mark.
+ * Shown before an upload on an event while the studio has no watermark
+ * preset. Watermarks apply at delivery render time, so setting one up before
+ * uploading means every photo delivered from here on automatically carries
+ * the studio's mark.
+ *
+ * "Skip for now" only closes this one instance — the reminder returns on the
+ * next upload attempt — unless "Don't show this again" is checked, in which
+ * case the skip is persisted (`dismissed_at`) and it won't return until a
+ * preset exists regardless. Mirrors `BrandingReminderDialog`.
  */
 export function WatermarkReminderDialog({
   open,
   onSkip,
 }: {
   open: boolean;
-  /** Called once the skip is settled (dismiss always resolves — see useReminders) — the caller commits the upload it originally asked for. */
+  /** Skip/Escape/X — the caller commits the upload it originally asked for. */
   onSkip: () => void;
 }) {
   const router = useRouter();
   const { dismiss } = useReminders();
-  // Ref guard so Escape, the X, and the Skip button racing each other only
-  // ever fire one dismiss call — mirrors WelcomeDialog#markSeen.
-  const skippedRef = useRef(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
+  // This dialog stays mounted for the whole event-page lifetime (its `open`
+  // prop just toggles), unlike BrandingReminderDialog which remounts fresh
+  // per tab visit — so the checkbox is reset here rather than relying on
+  // unmount, or a check left over from a prior attempt would silently carry
+  // forward into the next one.
   async function handleSkip() {
-    if (skippedRef.current) return;
-    skippedRef.current = true;
-    await dismiss("watermark");
+    if (dontShowAgain) {
+      await dismiss("watermark");
+    }
+    setDontShowAgain(false);
     onSkip();
   }
 
   function handleSetup() {
-    // Deliberately not dismissed — the studio is going to complete it, and
-    // preset_count > 0 will close this reminder out honestly once they do.
+    // Nothing to record — preset_count > 0 will close this reminder out
+    // honestly once the studio finishes the setup it's headed to.
     router.push("/dashboard/settings/watermarks?new=1");
   }
 
@@ -46,13 +55,19 @@ export function WatermarkReminderDialog({
           <IconPalette size={26} />
         </span>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          Watermarks are applied when photos are delivered, not when they&apos;re uploaded. Set one
-          up now and{" "}
           <strong className="font-semibold text-[var(--color-brand-ink)]">
-            every photo you deliver carries your studio&apos;s mark automatically
+            Photos you upload now won't carry your studio's mark — watermarking happens at upload time.
           </strong>{" "}
-          — no need to redo anything already uploaded.
         </p>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]">
+          <input
+            type="checkbox"
+            checked={dontShowAgain}
+            onChange={(e) => setDontShowAgain(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-[var(--color-brand-border)] text-[var(--color-brand-navy)] accent-[var(--color-brand-navy)]"
+          />
+          Don&apos;t show this again
+        </label>
         <div className="mt-2 flex w-full flex-col gap-3 sm:flex-row-reverse">
           <button
             type="button"

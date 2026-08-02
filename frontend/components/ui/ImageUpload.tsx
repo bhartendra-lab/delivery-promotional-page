@@ -22,6 +22,7 @@ export function ImageUpload({
 
   useEffect(() => {
     if (!file) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- falls back to the existing URL synchronously when the pending file is cleared
       setPreview(existingUrl ?? null);
       return;
     }

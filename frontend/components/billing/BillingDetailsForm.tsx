@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getBillingProfile, updateBillingProfile, getApiErrorCode } from "@/lib/billing";
 import type { BillingProfile } from "@/lib/billing-types";
-import { GST_STATE_CODES, findGstStateByName } from "@/lib/gst-state-codes";
+import { GST_STATE_CODES, findGstStateByName, findGstStateInAddress } from "@/lib/gst-state-codes";
 import { AddressField } from "@/components/ui/AddressField";
 import {
   Field,
@@ -85,8 +85,15 @@ export function BillingDetailsForm({
     if (next) {
       setLegalName(studioName ?? "");
       setBillingAddress(studioAddress ?? "");
-      // State is intentionally left for the user to confirm — the studio's
-      // saved address has no structured state on record to trust silently.
+      // Best-effort: the studio's saved address is free text, not a
+      // structured place — only pre-fill the state when a GST state name
+      // is actually found in it. Stays user-editable either way.
+      const match = findGstStateInAddress(studioAddress);
+      setStateCode(match?.code ?? "");
+    } else {
+      setLegalName("");
+      setBillingAddress("");
+      setStateCode("");
     }
   }
 
@@ -132,6 +139,22 @@ export function BillingDetailsForm({
     return <p className="text-sm text-[var(--color-brand-danger)]">{loadError}</p>;
   }
 
+  // Editing a field the shortcut just filled means the user wants to
+  // diverge from the studio's details — unchecking it hands control back
+  // instead of silently re-syncing on the next studio-detail change.
+  function editLegalName(v: string) {
+    setLegalName(v);
+    setSameAsStudio(false);
+  }
+  function editBillingAddress(v: string) {
+    setBillingAddress(v);
+    setSameAsStudio(false);
+  }
+  function editStateCode(v: string) {
+    setStateCode(v);
+    setSameAsStudio(false);
+  }
+
   const canSave = !!legalName.trim() && !!billingAddress.trim() && !!stateCode && dirty;
   // Shown even with no studioAddress when gmb_skipped — a visibly disabled
   // shortcut with an explanation, not a silently missing one (§9.3).
@@ -143,16 +166,20 @@ export function BillingDetailsForm({
       onSubmit={handleSubmit}
       className={submitLabel ? "space-y-4" : "scroll-mt-24 space-y-4"}
     >
-      <p className="text-sm text-[var(--color-brand-muted)]">
-        Used on every invoice — including whether GST is charged as CGST+SGST or IGST, based on your
-        state. Required before you can purchase or change a plan.
-      </p>
+      {showSameAsStudio && (
+        <SameAsPersonalCheckbox
+          label="Same as Studio details"
+          checked={sameAsStudio}
+          onChange={toggleSameAsStudio}
+          disabled={gmbSkipped}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="Legal / billing name"
           value={legalName}
-          onChange={setLegalName}
+          onChange={editLegalName}
           required
           placeholder="As registered for tax purposes"
         />
@@ -168,43 +195,23 @@ export function BillingDetailsForm({
         <AddressField
           label="Billing address"
           value={billingAddress}
-          onChange={setBillingAddress}
+          onChange={editBillingAddress}
           onPlaceSelect={({ stateName }) => {
             const match = findGstStateByName(stateName);
             if (match) setStateCode(match.code);
           }}
           placeholder="Search for your billing address"
         />
-        {showSameAsStudio && (
-          <>
-            <SameAsPersonalCheckbox
-              label="Same as studio address"
-              checked={sameAsStudio}
-              onChange={toggleSameAsStudio}
-              disabled={gmbSkipped}
-            />
-            {gmbSkipped && (
-              <p className="mt-1 text-xs text-[var(--color-brand-muted)]">
-                You skipped the Google Business step, so we don&apos;t have a studio address on file. Enter
-                your billing address below.
-              </p>
-            )}
-          </>
-        )}
       </div>
 
       <div>
         <SelectField
           label="State (place of supply)"
           value={stateCode}
-          onChange={setStateCode}
+          onChange={editStateCode}
           options={GST_STATE_CODES.map((s) => ({ value: s.code, label: s.name }))}
           required
         />
-        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-          Drives CGST+SGST vs IGST on your invoices — confirm it yourself even if pre-filled from a
-          search.
-        </p>
       </div>
 
       {submitLabel ? (
