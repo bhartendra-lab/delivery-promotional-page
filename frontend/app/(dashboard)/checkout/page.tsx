@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
+import { useCompany } from "@/lib/useCompany";
 import { getBillingPlans, previewCheckout, getApiErrorCode } from "@/lib/billing";
 import type { PlansResponse, CheckoutPreview } from "@/lib/billing-types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
@@ -36,6 +37,7 @@ function CheckoutFallback() {
 function CheckoutShell() {
   const router = useRouter();
   const search = useSearchParams();
+  const company = useCompany();
 
   const rawPlan = search.get("plan");
   const planId = rawPlan && OBJECT_ID_RE.test(rawPlan) ? rawPlan : null;
@@ -197,6 +199,9 @@ function CheckoutShell() {
       description,
       before: snapshot,
       currentPlanName,
+      prefill: company
+        ? { name: company.name, email: company.business_email, contact: company.whatsapp_number }
+        : undefined,
       onCouponRejected: () => setAppliedCoupon(null),
     });
   }

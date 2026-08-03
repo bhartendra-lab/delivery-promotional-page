@@ -148,6 +148,9 @@ export function UpgradeModal({
       description,
       before: snapshot,
       currentPlanName,
+      prefill: company
+        ? { name: company.name, email: company.business_email, contact: company.whatsapp_number }
+        : undefined,
       onCouponRejected: () => setAppliedCoupon(null),
     });
   }
