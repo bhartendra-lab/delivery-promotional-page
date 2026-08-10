@@ -104,7 +104,7 @@ export default function StudioIdentityPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form id="studio-identity-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
         eyebrow="Brand & Delivery"
         title="Studio Identity"
@@ -112,14 +112,13 @@ export default function StudioIdentityPage() {
       />
 
       <Card title="Business Information" icon={<BuildingIcon />}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-4">
           <Field
             label="Studio name"
             value={name}
             onChange={setName}
             required
             placeholder="e.g. Radiant Studios"
-            className="sm:col-span-2"
           />
           <VerifiedBusinessEmailField
             businessEmail={company.business_email}
@@ -153,16 +152,14 @@ export default function StudioIdentityPage() {
             </p>
           )}
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Website"
-            value={website}
-            onChange={setWebsite}
-            placeholder="https://yourstudio.com"
-            type="url"
-            className="sm:col-span-2"
-          />
-        </div>
+        <Field
+          label="Website"
+          value={website}
+          onChange={setWebsite}
+          placeholder="https://yourstudio.com"
+          type="url"
+          className="mt-4"
+        />
       </Card>
 
       <Card title="Google Business Integration" icon={<GlobeIcon />}>
@@ -235,6 +232,8 @@ export default function StudioIdentityPage() {
         saveState={saveState}
         errorMsg={errorMsg}
         canSave={!!name.trim() && dirty}
+        dirty={dirty}
+        formId="studio-identity-form"
         idleHint="Changes apply to all delivery pages immediately."
       />
 

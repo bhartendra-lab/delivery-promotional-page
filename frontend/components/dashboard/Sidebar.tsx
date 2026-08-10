@@ -32,11 +32,18 @@ export function Sidebar({
   const pathname = usePathname();
   const { dlpUsage, dlpLoading, storageSyncing } = useChrome();
 
+  // "/dashboard" only matches itself exactly — otherwise, since every other
+  // top-level section also lives under "/dashboard/...", it'd catch any
+  // route no other nav item claims (e.g. Settings) as a false-positive
+  // prefix match and light up "Dashboard" instead of nothing/the real owner.
   const activeId =
     NAV_ITEMS.slice()
       .sort((a, b) => b.href.length - a.href.length)
-      .find((item) => pathname === item.href || pathname.startsWith(item.href + "/"))
-      ?.id ?? null;
+      .find((item) =>
+        item.href === "/dashboard"
+          ? pathname === item.href
+          : pathname === item.href || pathname.startsWith(item.href + "/"),
+      )?.id ?? null;
 
   return (
     <aside

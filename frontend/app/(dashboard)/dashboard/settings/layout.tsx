@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePageBreadcrumb } from "@/components/dashboard/ChromeContext";
 import { SettingsProvider } from "./SettingsContext";
 import { SettingsNav, sectionLabelFor } from "./SettingsNav";
-import { SectionSkeleton, FetchError } from "./SettingsUI";
-import { IconArrowLeft } from "@/components/ui/icons";
+import { SectionSkeleton, FetchError, SECTION_SAVE_BAR_ROOT_ID } from "./SettingsUI";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -40,23 +38,24 @@ function SettingsChrome({
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 sm:py-10 dash-rise">
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-      >
-        <IconArrowLeft size={13} />
-        Back to dashboard
-      </Link>
-
+    <div className="max-w-6xl px-4 pb-8 sm:px-10 sm:pb-10 dash-rise">
+      {/* No top padding here — the aside's border-right should start flush
+          with the Topbar below, not offset by page-level padding. Each
+          column carries its own small top inset instead, since padding
+          lives inside an element's border box and doesn't push the border
+          itself down. */}
       <div className="lg:grid lg:grid-cols-[220px_1fr]">
-        <aside className="mb-8 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
+        <aside className="mb-8 pt-4 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
           <div className="lg:sticky lg:top-8">
             <SettingsNav />
           </div>
         </aside>
 
-        <div className="min-w-0 lg:pl-10">
+        <div className="min-w-0 pt-4 lg:pl-10">
+          {/* Portal target for the active section's sticky save bar — kept
+              as the first child so `position: sticky; top: 0` pins it
+              immediately instead of only once scrolled down to it. */}
+          <div id={SECTION_SAVE_BAR_ROOT_ID} />
           {load.status === "loading" ? (
             <SectionSkeleton />
           ) : load.status === "error" ? (

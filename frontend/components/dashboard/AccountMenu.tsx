@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { clearToken, clearCompany } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
 import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
@@ -35,10 +35,16 @@ type Variant = "chip" | "icon" | "avatar";
  */
 export function AccountMenu({ variant }: { variant: Variant }) {
   const router = useRouter();
+  const pathname = usePathname();
   const company = useCompany();
   const uploadingIds = useUploadingBookingIds();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Settings has no nav item of its own in the Sidebar's main list — this
+  // trigger is its entry point (it holds the Settings link below), so it
+  // takes over the "active" highlight whenever Settings is the current page.
+  const settingsActive = pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/");
 
   const companyName = company?.name ?? "Studio";
   const initials = (
@@ -84,10 +90,16 @@ export function AccountMenu({ variant }: { variant: Variant }) {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Account menu"
-          className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-[var(--color-brand-surface)]/60"
+          className={`brand-focus flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors ${
+            settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-surface)]/60"
+          }`}
         >
           <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--color-brand-ink)]">
+          <span
+            className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${
+              settingsActive ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-ink)]"
+            }`}
+          >
             {companyName}
           </span>
           <IconCaretUpDown size={14} className="shrink-0 text-[var(--color-brand-muted)]" />
@@ -100,9 +112,9 @@ export function AccountMenu({ variant }: { variant: Variant }) {
           aria-expanded={open}
           aria-label="Account menu"
           title={variant === "icon" ? companyName : undefined}
-          className={`brand-focus flex items-center rounded-md hover:bg-[var(--color-brand-surface)]/60 ${
+          className={`brand-focus flex items-center rounded-md transition-colors ${
             variant === "icon" ? "w-full justify-center py-1.5" : "p-1"
-          }`}
+          } ${settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-surface)]/60"}`}
         >
           <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
         </button>

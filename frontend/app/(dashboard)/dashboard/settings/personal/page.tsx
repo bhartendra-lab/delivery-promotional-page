@@ -36,7 +36,7 @@ export default function PersonalInformationPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
         eyebrow="Your Account"
         title="Personal Information"
@@ -80,6 +80,8 @@ export default function PersonalInformationPage() {
         saveState={saveState}
         errorMsg={errorMsg}
         canSave={dirty}
+        dirty={dirty}
+        formId="personal-information-form"
         idleHint="Only visible to you, never shown on delivery pages."
       />
     </form>

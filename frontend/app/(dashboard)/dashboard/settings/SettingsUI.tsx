@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   IconBuilding,
   IconGlobe,
@@ -376,22 +377,59 @@ export function SelectField({
 }
 
 /**
- * Per-section save bar. Rendered inside each section's <form>; the button is
- * a submit, so it drives the form's onSubmit. `idleHint` is the resting copy.
+ * DOM id of the anchor mounted at the top of the settings content column
+ * (see `SettingsChrome` in layout.tsx). `SaveBar` portals into it so the bar
+ * sits in normal flow there instead of in the section form's own document
+ * position — `position: sticky; top: 0` then pins it under the Topbar as
+ * the user scrolls. Scoped to the content column (not the full `<main>`
+ * width) so it never overlaps the settings nav aside, which has its own
+ * independent `lg:sticky lg:top-8`.
+ */
+export const SECTION_SAVE_BAR_ROOT_ID = "settings-section-save-bar-root";
+
+/**
+ * Per-section save bar. Portals into `SECTION_SAVE_BAR_ROOT_ID` so it pins
+ * to the top of the settings content column while scrolling — scoped to
+ * whichever section's form is currently mounted, since each section's own
+ * page instance renders and unmounts it independently.
+ *
+ * Only visible while there's something to react to: unsaved changes
+ * (`dirty`), or a save in flight/just resolved. Idle + clean renders
+ * nothing, so it disappears the moment a save lands or an edit is reverted.
+ *
+ * The button submits via the `form` attribute (not DOM nesting) since the
+ * portal moves it outside the section's actual <form> element.
  */
 export function SaveBar({
   saveState,
   errorMsg,
   canSave,
+  dirty,
+  formId,
   idleHint = "Changes apply to all delivery pages immediately.",
 }: {
   saveState: SaveState;
   errorMsg: string | null;
   canSave: boolean;
+  /** Whether the section's fields currently differ from their saved values. */
+  dirty: boolean;
+  /** id of the section's <form> — the button submits it via the `form` attribute. */
+  formId: string;
   idleHint?: string;
 }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 py-4">
+  // Lazy initializer (not an effect): the anchor is already in the DOM by
+  // the time this component's first client render runs, whether that's
+  // hydration of server-rendered HTML or a client-side route change within
+  // the persistent settings layout.
+  const [root] = useState<HTMLElement | null>(() =>
+    typeof document === "undefined" ? null : document.getElementById(SECTION_SAVE_BAR_ROOT_ID),
+  );
+
+  const visible = dirty || saveState !== "idle";
+  if (!visible || !root) return null;
+
+  return createPortal(
+    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)]">
       {saveState === "error" && errorMsg ? (
         <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
           <AlertIcon className="h-4 w-4 shrink-0" />
@@ -408,6 +446,7 @@ export function SaveBar({
 
       <button
         type="submit"
+        form={formId}
         disabled={saveState === "saving" || !canSave}
         className="brand-focus inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
       >
@@ -423,7 +462,8 @@ export function SaveBar({
           </>
         )}
       </button>
-    </div>
+    </div>,
+    root,
   );
 }
 

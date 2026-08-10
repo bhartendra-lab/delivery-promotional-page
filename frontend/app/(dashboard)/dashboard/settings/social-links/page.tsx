@@ -56,7 +56,7 @@ export default function SocialLinksPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form id="social-links-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
         eyebrow="Brand & Delivery"
         title="Social Links"
@@ -77,7 +77,7 @@ export default function SocialLinksPage() {
         </div>
       </Card>
 
-      <SaveBar saveState={saveState} errorMsg={errorMsg} canSave={dirty} />
+      <SaveBar saveState={saveState} errorMsg={errorMsg} canSave={dirty} dirty={dirty} formId="social-links-form" />
     </form>
   );
 }
