@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { usePageBreadcrumb } from "@/components/dashboard/ChromeContext";
-import { SettingsProvider } from "./SettingsContext";
+import { SettingsProvider, useSettingsMaybe } from "./SettingsContext";
 import { SettingsNav, sectionLabelFor } from "./SettingsNav";
 import { SectionSkeleton, FetchError, SECTION_SAVE_BAR_ROOT_ID } from "./SettingsUI";
 
@@ -28,6 +29,8 @@ function SettingsChrome({
 }) {
   const pathname = usePathname();
   const sectionLabel = sectionLabelFor(pathname);
+  const settings = useSettingsMaybe();
+  const isDirty = settings?.isDirty ?? false;
 
   // Top-bar breadcrumb: "Settings" on the index, "Settings › <section>"
   // deeper. Overrides deriveBreadcrumb in the dashboard layout.
@@ -36,6 +39,21 @@ function SettingsChrome({
       ? [{ label: "Settings", href: "/dashboard/settings" }, { label: sectionLabel }]
       : [{ label: "Settings" }],
   );
+
+  // Covers tab close/reload/typing a new URL — the in-app case (switching
+  // Settings sections) is guarded separately in SettingsNav, which can show
+  // an actual confirm dialog; beforeunload's dialog text is browser chrome
+  // that can't be customized, same pattern as useUploadEngine.ts.
+  useEffect(() => {
+    if (!isDirty) return;
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "You have unsaved changes. Leaving will discard them.";
+      return e.returnValue;
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   return (
     <div className="max-w-6xl px-4 pb-8 sm:px-10 sm:pb-10 dash-rise">

@@ -1,13 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CompanyUpdateInput } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { ImageUpload } from "@/components/ui/ImageUpload";
-import { useSettings, useSectionSave } from "./SettingsContext";
+import { useSettings, useSectionSave, useReportDirty } from "./SettingsContext";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
-import { BusinessEmailVerifyBlock } from "./BusinessEmailVerifyBlock";
+import { ChangeBusinessEmailModal } from "./ChangeBusinessEmailModal";
 import {
   SectionHeading,
   Card,
@@ -25,6 +25,11 @@ import {
   changed,
 } from "./SettingsUI";
 
+// Permissive "looks like a URL" check: scheme, then something, a dot, then
+// something more — not a full RFC validator, just enough to catch garbage
+// that survives the auto-prefix below (e.g. no dot at all).
+const WEBSITE_RE = /^https?:\/\/[^\s]+\.[^\s]+$/i;
+
 /**
  * Studio Identity — the merged Business Information, Google Business
  * Integration and Studio Logo tab. Previously three separate routes/nav
@@ -40,7 +45,7 @@ export default function StudioIdentityPage() {
   const [name, setName] = useState(company.name ?? "");
   const [website, setWebsite] = useState(company.website ?? "");
 
-  const personalEmail = userProfile?.personal_email?.trim() ?? "";
+  const loginEmail = userProfile?.email?.trim() ?? "";
 
   const [address, setAddress] = useState(company.address ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(company.google_place_id ?? "");
@@ -60,16 +65,25 @@ export default function StudioIdentityPage() {
   }
 
   // business_email is only ever writable via the OTP-gated verify flow (see
-  // BusinessEmailVerifyBlock) — it's intentionally excluded from `dirty` and
+  // ChangeBusinessEmailModal) — it's intentionally excluded from `dirty` and
   // the save payload below so the shared SaveBar never claims unsaved changes
   // for a field this form no longer owns.
   const [emailVerifyOpen, setEmailVerifyOpen] = useState(false);
   const [emailVerifiedFlash, setEmailVerifiedFlash] = useState(false);
   const emailFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Neither flash timer was cleared on unmount before — unlike useSaveState
+  // and CopyableIdField, which both do — so navigating away from Settings
+  // within the 3s flash window fired a setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      if (emailFlashTimer.current) clearTimeout(emailFlashTimer.current);
+    };
+  }, []);
+
   function handleBusinessEmailVerified(updatedCompany: Company) {
     setCompanyState(updatedCompany);
-    setEmailVerifyOpen(false);
     setEmailVerifiedFlash(true);
     if (emailFlashTimer.current) clearTimeout(emailFlashTimer.current);
     emailFlashTimer.current = setTimeout(() => setEmailVerifiedFlash(false), 3000);
@@ -85,13 +99,37 @@ export default function StudioIdentityPage() {
     changed(googlePlaceId, company.google_place_id) ||
     !!darkFile ||
     !!lightFile;
+  useReportDirty(dirty);
+
+  // Whitespace-only passes the input's native `required` (it isn't empty),
+  // so without this the save bar just sits there permanently disabled with
+  // no indication why — canSave already correctly blocked it via
+  // `!!name.trim()`, this only adds the explanation.
+  const nameError = name.length > 0 && !name.trim() ? "Studio name can't be blank." : null;
+  const trimmedWebsite = website.trim();
+  const websiteError = trimmedWebsite && !WEBSITE_RE.test(trimmedWebsite) ? "Enter a valid website address." : null;
+  const canSave = !!name.trim() && !websiteError && dirty;
+  const blockedReason = nameError ?? websiteError ?? null;
+
+  // Auto-prefixes a bare domain ("royalorchidbanquet.com") with https:// on
+  // blur rather than relying on native `type="url"` validation — that
+  // bubble anchors to the input, which can sit below the sticky save bar on
+  // a scrolled page, making the explanation invisible when the button
+  // appears to just do nothing. Chosen over validate-and-explain-only:
+  // completing an obviously-implied scheme on a *website* field is a safe,
+  // low-risk assist (unlike guessing at a phone number's country code),
+  // and matches how people actually type a website address.
+  function normalizeWebsiteOnBlur() {
+    if (!trimmedWebsite || /^https?:\/\//i.test(trimmedWebsite)) return;
+    setWebsite(`https://${trimmedWebsite}`);
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || websiteError) return;
     const payload: CompanyUpdateInput = {};
     if (changed(name, company.name)) payload.name = name.trim();
-    if (changed(website, company.website)) payload.website = website.trim();
+    if (changed(website, company.website)) payload.website = trimmedWebsite;
     if (changed(address, company.address)) payload.address = address.trim();
     if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
     if (darkFile) payload.logo = darkFile;
@@ -119,22 +157,14 @@ export default function StudioIdentityPage() {
             onChange={setName}
             required
             placeholder="e.g. Radiant Studios"
+            error={nameError ?? undefined}
           />
           <VerifiedBusinessEmailField
             businessEmail={company.business_email}
             verified={company.business_email_verified}
-            onActionClick={() => setEmailVerifyOpen((open) => !open)}
+            onActionClick={() => setEmailVerifyOpen(true)}
           />
         </div>
-        {emailVerifyOpen && (
-          <BusinessEmailVerifyBlock
-            currentEmail={company.business_email}
-            verified={company.business_email_verified}
-            personalEmail={personalEmail}
-            onSuccess={handleBusinessEmailVerified}
-            onClose={() => setEmailVerifyOpen(false)}
-          />
-        )}
         {emailVerifiedFlash && (
           <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
             Business email verified.
@@ -147,7 +177,7 @@ export default function StudioIdentityPage() {
             onChangeClick={() => setChangeWhatsappOpen(true)}
           />
           {whatsappUpdatedFlash && (
-            <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]">
+            <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
               WhatsApp number updated.
             </p>
           )}
@@ -156,9 +186,11 @@ export default function StudioIdentityPage() {
           label="Website"
           value={website}
           onChange={setWebsite}
-          placeholder="https://yourstudio.com"
-          type="url"
+          onBlur={normalizeWebsiteOnBlur}
+          placeholder="yourstudio.com"
+          type="text"
           className="mt-4"
+          error={websiteError ?? undefined}
         />
       </Card>
 
@@ -231,10 +263,11 @@ export default function StudioIdentityPage() {
       <SaveBar
         saveState={saveState}
         errorMsg={errorMsg}
-        canSave={!!name.trim() && dirty}
+        canSave={canSave}
         dirty={dirty}
         formId="studio-identity-form"
         idleHint="Changes apply to all delivery pages immediately."
+        blockedReason={blockedReason}
       />
 
       <ChangeWhatsappModal
@@ -242,6 +275,15 @@ export default function StudioIdentityPage() {
         onClose={() => setChangeWhatsappOpen(false)}
         currentNumber={company.whatsapp_number}
         onSuccess={handleWhatsappChanged}
+      />
+
+      <ChangeBusinessEmailModal
+        open={emailVerifyOpen}
+        onClose={() => setEmailVerifyOpen(false)}
+        currentEmail={company.business_email}
+        verified={company.business_email_verified}
+        loginEmail={loginEmail}
+        onSuccess={handleBusinessEmailVerified}
       />
     </form>
   );

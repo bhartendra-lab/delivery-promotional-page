@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useSettingsMaybe } from "./SettingsContext";
 
 export type SettingsItem = {
   label: string;
@@ -49,6 +50,26 @@ export function sectionLabelFor(pathname: string): string | null {
 
 export function SettingsNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const settings = useSettingsMaybe();
+  const isDirty = settings?.isDirty ?? false;
+
+  // Guards switching between Settings sections while the active one has
+  // unsaved edits. Link still renders a real <a href> (open-in-new-tab,
+  // right-click, etc. keep working) — this only intercepts a plain click,
+  // which fires before Next's own navigation and can cleanly cancel it.
+  // Deliberately does NOT try to guard navigation away from Settings
+  // entirely (Sidebar/Topbar links to other dashboard areas, browser
+  // back/forward) — there's no supported App Router API for that, and
+  // reliably cancelling a popstate means fighting the router's own history
+  // state. beforeunload (see SettingsChrome) covers tab close/reload instead.
+  function handleNavClick(e: React.MouseEvent, href: string) {
+    if (href === pathname || !isDirty) return;
+    e.preventDefault();
+    if (window.confirm("You have unsaved changes. Leave without saving?")) {
+      router.push(href);
+    }
+  }
 
   return (
     <nav className="space-y-6" aria-label="Settings sections">
@@ -64,6 +85,7 @@ export function SettingsNav() {
                 <li key={item.label}>
                   <Link
                     href={item.href}
+                    onClick={(e) => handleNavClick(e, item.href)}
                     aria-current={active ? "page" : undefined}
                     className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       active

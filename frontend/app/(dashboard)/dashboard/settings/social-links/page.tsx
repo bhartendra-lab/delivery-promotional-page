@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CompanyUpdateInput } from "@/lib/api";
 import type { Company, SocialLinks } from "@/lib/types";
-import { useSettings, useSectionSave } from "../SettingsContext";
+import { useSettings, useSectionSave, useReportDirty } from "../SettingsContext";
 import { SectionHeading, Card, Field, SaveBar, ShareIcon } from "../SettingsUI";
 
 type PlatformKey = keyof SocialLinks;
@@ -41,6 +41,7 @@ export default function SocialLinksPage() {
   const [values, setValues] = useState(initial);
 
   const dirty = PLATFORMS.some((p) => values[p.key].trim() !== initial[p.key].trim());
+  useReportDirty(dirty);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

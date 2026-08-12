@@ -2,78 +2,126 @@
 
 import { useState } from "react";
 import type { UserProfileUpdateInput } from "@/lib/api";
-import { useSettings, useProfileSectionSave } from "../SettingsContext";
-import { SectionHeading, Card, Field, SaveBar, UserIcon, changed } from "../SettingsUI";
+import type { UserProfile } from "@/lib/types";
+import { useSettings, useProfileSectionSave, useReportDirty } from "../SettingsContext";
+import {
+  SectionHeading,
+  Card,
+  Field,
+  PhoneField,
+  SaveBar,
+  UserIcon,
+  changed,
+  SectionSkeleton,
+  FetchError,
+} from "../SettingsUI";
+
+const NAME_MAX_LENGTH = 120;
 
 /**
  * Your Account → Personal Information. Your own details as the account
  * holder, kept separate from the studio's business details on Studio
- * Identity. Feeds the "same as personal" email/phone shortcut there.
+ * Identity.
+ *
+ * Gated on `profileLoad` (not just `userProfile` being non-null): the form
+ * itself only mounts once the profile has actually loaded, so its `useState`
+ * seeding never captures a still-loading or failed-to-load null profile as
+ * "" — which would otherwise make the save bar appear dirty on load and let
+ * one click overwrite saved data with blanks.
  */
 export default function PersonalInformationPage() {
-  const { userProfile } = useSettings();
+  const { userProfile, profileLoad } = useSettings();
+
+  if (profileLoad.status === "loading") {
+    return (
+      <div className="space-y-6">
+        <PersonalInformationHeading />
+        <SectionSkeleton />
+      </div>
+    );
+  }
+
+  if (profileLoad.status === "error" || !userProfile) {
+    return (
+      <div className="space-y-6">
+        <PersonalInformationHeading />
+        <FetchError
+          message={profileLoad.status === "error" ? profileLoad.message : "Couldn't load your profile."}
+        />
+      </div>
+    );
+  }
+
+  return <PersonalInformationForm profile={userProfile} />;
+}
+
+function PersonalInformationHeading() {
+  return (
+    <SectionHeading
+      eyebrow="Your Account"
+      title="Personal Information"
+      description="Your own details as the account holder. Not shown to clients."
+    />
+  );
+}
+
+function PersonalInformationForm({ profile }: { profile: UserProfile }) {
   const { saveState, errorMsg, submit } = useProfileSectionSave();
 
-  const [firstName, setFirstName] = useState(userProfile?.first_name ?? "");
-  const [lastName, setLastName] = useState(userProfile?.last_name ?? "");
-  const [personalEmail, setPersonalEmail] = useState(userProfile?.personal_email ?? "");
-  const [personalContact, setPersonalContact] = useState(userProfile?.personal_contact ?? "");
+  const [firstName, setFirstName] = useState(profile.first_name ?? "");
+  const [lastName, setLastName] = useState(profile.last_name ?? "");
+  const [personalContact, setPersonalContact] = useState(profile.personal_contact ?? "");
 
   const dirty =
-    changed(firstName, userProfile?.first_name) ||
-    changed(lastName, userProfile?.last_name) ||
-    changed(personalEmail, userProfile?.personal_email) ||
-    changed(personalContact, userProfile?.personal_contact);
+    changed(firstName, profile.first_name) ||
+    changed(lastName, profile.last_name) ||
+    changed(personalContact, profile.personal_contact);
+  useReportDirty(dirty);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const payload: UserProfileUpdateInput = {};
-    if (changed(firstName, userProfile?.first_name)) payload.first_name = firstName.trim();
-    if (changed(lastName, userProfile?.last_name)) payload.last_name = lastName.trim();
-    if (changed(personalEmail, userProfile?.personal_email)) payload.personal_email = personalEmail.trim();
-    if (changed(personalContact, userProfile?.personal_contact)) payload.personal_contact = personalContact.trim();
+    if (changed(firstName, profile.first_name)) payload.first_name = firstName.trim();
+    if (changed(lastName, profile.last_name)) payload.last_name = lastName.trim();
+    if (changed(personalContact, profile.personal_contact)) payload.personal_contact = personalContact.trim();
     submit(payload);
   }
 
   return (
     <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
-      <SectionHeading
-        eyebrow="Your Account"
-        title="Personal Information"
-        description="Your own details as the account holder. Not shown to clients."
-      />
+      <PersonalInformationHeading />
 
       <Card title="Personal information" icon={<UserIcon />}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Login email"
-            value={userProfile?.email ?? ""}
+            value={profile.email ?? ""}
             onChange={() => {}}
             readOnly
             hint="Your sign-in address — it can't be changed here."
             className="sm:col-span-2"
           />
-          <Field label="First name" value={firstName} onChange={setFirstName} placeholder="Anjali" />
-          <Field label="Last name" value={lastName} onChange={setLastName} placeholder="Rao" />
           <Field
-            label="Personal email"
-            value={personalEmail}
-            onChange={setPersonalEmail}
-            placeholder="you@email.com"
-            type="email"
+            label="First name"
+            value={firstName}
+            onChange={setFirstName}
+            placeholder="Anjali"
+            maxLength={NAME_MAX_LENGTH}
           />
           <Field
+            label="Last name"
+            value={lastName}
+            onChange={setLastName}
+            placeholder="Rao"
+            maxLength={NAME_MAX_LENGTH}
+          />
+          <PhoneField
             label="Personal contact"
             value={personalContact}
             onChange={setPersonalContact}
-            placeholder="+91 98765 43210"
-            type="tel"
+            className="sm:col-span-2"
           />
         </div>
-        <p className="mt-4 text-xs text-[var(--color-brand-muted)]">
-          Add your email and phone here once, then reuse them for your business email and
-          contact on Studio Identity with the same as personal checkbox.
-        </p>
       </Card>
 
       <SaveBar

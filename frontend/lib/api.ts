@@ -51,6 +51,25 @@ class ApiError extends Error {
   }
 }
 
+/** One express-validator failure, as shaped by the backend's `validate` middleware. */
+export type ApiFieldError = { field: string; message: string };
+
+/** Reads `body.errors` if it's shaped like the validate middleware's output — null otherwise. */
+function fieldErrorsFrom(body: unknown): ApiFieldError[] | null {
+  if (!body || typeof body !== "object" || !Array.isArray((body as { errors?: unknown }).errors)) return null;
+  const errors = (body as { errors: unknown[] }).errors.filter(
+    (e): e is ApiFieldError =>
+      !!e && typeof e === "object" && typeof (e as ApiFieldError).field === "string" && typeof (e as ApiFieldError).message === "string",
+  );
+  return errors.length > 0 ? errors : null;
+}
+
+/** Structured per-field validation errors from an ApiError's JSON body — null if absent/not an ApiError. Lets forms eventually render per-field messages; today callers just read `.message`. */
+export function getApiFieldErrors(err: unknown): ApiFieldError[] | null {
+  if (!(err instanceof ApiError)) return null;
+  return fieldErrorsFrom(err.body);
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { auth?: boolean } = {},
@@ -77,10 +96,16 @@ async function request<T>(
 
   if (!res.ok) {
     if (res.status === 401 && auth) clearToken();
+    const fieldErrors = fieldErrorsFrom(body);
     const message =
       (body && typeof body === "object" && "message" in body && typeof (body as { message: unknown }).message === "string"
         ? (body as { message: string }).message
-        : null) || `Request failed: ${res.status}`;
+        : null) ||
+      // Backend validation failures (express-validator via validate.middleware.js)
+      // carry no top-level `message`, only `errors: [{ field, message }]` — without
+      // this, every one of them surfaced as the unhelpful "Request failed: 400".
+      (fieldErrors ? fieldErrors.map((e) => e.message).join(" ") : null) ||
+      `Request failed: ${res.status}`;
     throw new ApiError(res.status, message, body);
   }
 
@@ -171,9 +196,19 @@ export function requestWhatsappChangeOtp(input: { whatsappNumber: string }) {
   });
 }
 
-/** POST /onboarding/whatsapp/change-resend-otp — requires change-request-otp to have already run for this company. */
-export function resendWhatsappChangeOtp() {
-  return request<{ message: string }>("/onboarding/whatsapp/change-resend-otp", { method: "POST" });
+/**
+ * POST /onboarding/whatsapp/change-resend-otp — requires change-request-otp
+ * to have already run for this company. `whatsappNumber` must match the
+ * currently-pending number; the backend 409s otherwise (a second tab, or a
+ * back-then-change-number, moved the pending target since this screen last
+ * read it) rather than silently resending to whatever the server has on file.
+ */
+export function resendWhatsappChangeOtp(input: { whatsappNumber: string }) {
+  return request<{ message: string }>("/onboarding/whatsapp/change-resend-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ whatsapp_number: input.whatsappNumber }),
+  });
 }
 
 /** POST /onboarding/whatsapp/change-verify-otp — on success promotes the pending number and returns the updated Company. */
@@ -216,9 +251,18 @@ export function requestBusinessEmailOtp(input: { businessEmail: string }) {
   });
 }
 
-/** POST /onboarding/business-email/resend-otp — requires request-otp to have already run for this company. */
-export function resendBusinessEmailOtp() {
-  return request<{ message: string }>("/onboarding/business-email/resend-otp", { method: "POST" });
+/**
+ * POST /onboarding/business-email/resend-otp — requires request-otp to have
+ * already run for this company. `businessEmail` must match the
+ * currently-pending address; the backend 409s otherwise, for the same
+ * stale-target reason documented on resendWhatsappChangeOtp above.
+ */
+export function resendBusinessEmailOtp(input: { businessEmail: string }) {
+  return request<{ message: string }>("/onboarding/business-email/resend-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ business_email: input.businessEmail }),
+  });
 }
 
 /** POST /onboarding/business-email/verify-otp — on success promotes the pending address and returns the updated Company. */
@@ -282,7 +326,6 @@ export function getUserProfile() {
 export type UserProfileUpdateInput = {
   first_name?: string;
   last_name?: string;
-  personal_email?: string;
   personal_contact?: string;
 };
 

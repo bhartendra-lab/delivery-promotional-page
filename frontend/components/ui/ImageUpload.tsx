@@ -10,6 +10,20 @@ type Props = {
   onChange: (file: File | null) => void;
 };
 
+// Keep in sync with backend/src/middleware/upload.middleware.js — the two
+// codebases don't share a config layer, so this is duplicated by convention,
+// not derived. Narrowed to match every consumer's own copy (Studio Logo,
+// watermark presets): none of them ever advertised gif/svg, and the server
+// only accepts these three now too.
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function validateImageFile(candidate: File): string | null {
+  if (!ALLOWED_TYPES.has(candidate.type)) return "Please choose a PNG, JPG or WEBP image.";
+  if (candidate.size > MAX_IMAGE_BYTES) return "Image is too large. Maximum size is 5 MB.";
+  return null;
+}
+
 export function ImageUpload({
   label = "Background image",
   existingUrl,
@@ -19,6 +33,7 @@ export function ImageUpload({
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(existingUrl ?? null);
   const [isDragging, setIsDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!file) {
@@ -31,13 +46,30 @@ export function ImageUpload({
     return () => URL.revokeObjectURL(url);
   }, [file, existingUrl]);
 
+  /** Shared by the file input and drag-drop — validates before ever calling
+   *  onChange, so a rejected file never reaches the upload/save path. */
+  function acceptFile(candidate: File | null) {
+    if (!candidate) {
+      setError(null);
+      onChange(null);
+      return;
+    }
+    const problem = validateImageFile(candidate);
+    if (problem) {
+      setError(problem);
+      // Clear the input's own value so re-picking the exact same (still
+      // bad) file fires a change event again instead of being a no-op.
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    setError(null);
+    onChange(candidate);
+  }
+
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setIsDragging(false);
-    const dropped = e.dataTransfer.files?.[0];
-    if (dropped && dropped.type.startsWith("image/")) {
-      onChange(dropped);
-    }
+    acceptFile(e.dataTransfer.files?.[0] ?? null);
   }
 
   return (
@@ -83,11 +115,17 @@ export function ImageUpload({
               {isDragging ? "Drop to upload" : "Click or drag to upload"}
             </p>
             <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-              PNG · JPG · WEBP
+              PNG · JPG · WEBP · up to 5 MB
             </p>
           </div>
         )}
       </div>
+
+      {error && (
+        <p role="alert" className="text-xs text-[var(--color-brand-danger)]">
+          {error}
+        </p>
+      )}
 
       {preview && file && (
         <button
@@ -95,6 +133,7 @@ export function ImageUpload({
           onClick={(e) => {
             e.stopPropagation();
             onChange(null);
+            setError(null);
             if (inputRef.current) inputRef.current.value = "";
           }}
           className="text-xs font-medium text-[var(--color-brand-danger)] hover:underline"
@@ -106,9 +145,9 @@ export function ImageUpload({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        onChange={(e) => acceptFile(e.target.files?.[0] ?? null)}
       />
     </div>
   );

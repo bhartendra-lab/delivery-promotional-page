@@ -95,9 +95,11 @@ export function CopyableIdField({
   );
 }
 
-/** True when a trimmed input differs from its persisted value. */
+/** True when a trimmed input differs from its persisted value. Trims both
+ *  sides — a stored value carrying leading/trailing whitespace would
+ *  otherwise never be able to report clean again. */
 export function changed(next: string, prev: string | undefined) {
-  return next.trim() !== (prev ?? "");
+  return next.trim() !== (prev ?? "").trim();
 }
 
 export function SectionHeading({
@@ -143,12 +145,13 @@ export function Card({
 }
 
 /**
- * "Same as personal" toggle for the business email/phone fields on Studio
- * Identity. Checking it copies the personal value in and locks the field
- * (read-only, not disabled, so it still submits); unchecking hands control
- * back without discarding what was typed.
+ * Generic "same as X" toggle — checking it copies a source value in and
+ * locks the field (read-only, not disabled, so it still submits);
+ * unchecking hands control back without discarding what was typed. Used by
+ * Studio Identity's business email ("Same as login email") and
+ * `BillingDetailsForm` ("Same as Studio details").
  */
-export function SameAsPersonalCheckbox({
+export function SameAsCheckbox({
   label,
   checked,
   onChange,
@@ -190,6 +193,9 @@ export function Field({
   className = "",
   readOnly = false,
   hint,
+  maxLength,
+  error,
+  onBlur,
 }: {
   label: string;
   value: string;
@@ -198,9 +204,18 @@ export function Field({
   required?: boolean;
   type?: string;
   className?: string;
-  /** Locked but still submitted — used by the "same as personal" shortcut. */
+  /** Locked but still submitted — used by "same as" shortcuts. */
   readOnly?: boolean;
   hint?: string;
+  maxLength?: number;
+  /** Field-level validation message. Renders in place of `hint` and marks
+   *  the input aria-invalid — for a problem native constraint validation
+   *  either can't express (whitespace-only content) or that this codebase
+   *  is deliberately handling itself instead of a native bubble (see the
+   *  website field), so the explanation stays in-flow instead of anchoring
+   *  to a spot that can be scrolled off-screen. */
+  error?: string;
+  onBlur?: () => void;
 }) {
   return (
     <label className={`block ${className}`}>
@@ -212,16 +227,102 @@ export function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         readOnly={readOnly}
-        className={`brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
-          readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-bg)]"
-        }`}
+        maxLength={maxLength}
+        aria-invalid={!!error}
+        className={`brand-focus h-10 w-full rounded-lg border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
+          error ? "border-[var(--color-brand-danger)]" : "border-[var(--color-brand-border)]"
+        } ${readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-bg)]"}`}
       />
+      {error ? (
+        <span role="alert" className="mt-1 block text-xs text-[var(--color-brand-danger)]">
+          {error}
+        </span>
+      ) : (
+        hint && <span className="mt-1 block text-xs text-[var(--color-brand-muted)]">{hint}</span>
+      )}
+    </label>
+  );
+}
+
+/**
+ * India-only (+91) phone number input. Strips non-digits and caps at 10 as
+ * the user types; the +91 prefix is a fixed, non-editable chip rather than
+ * part of the value, so `onChange` always receives bare digits (0-10 long).
+ * Shared by the WhatsApp number change flow (OTP-gated) and Personal
+ * Information's own-record contact field (no verification) — the INPUT
+ * contract is identical between them; only the surrounding verification UI
+ * differs, and stays owned by each call site.
+ */
+export function PhoneField({
+  label,
+  value,
+  onChange,
+  placeholder = "98765 43210",
+  required,
+  className = "",
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  className?: string;
+  hint?: string;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+        {label}
+        {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
+      </span>
+      <div className="flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
+        <span className="flex h-full items-center border-r border-[var(--color-brand-border)] px-3 text-sm font-medium text-[var(--color-brand-muted)]">
+          +91
+        </span>
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          maxLength={10}
+          required={required}
+          placeholder={placeholder}
+          className="brand-focus h-full flex-1 bg-transparent px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60"
+        />
+      </div>
       {hint && <span className="mt-1 block text-xs text-[var(--color-brand-muted)]">{hint}</span>}
     </label>
   );
+}
+
+/**
+ * Extracts the bare 10-digit national number from a stored phone value, only
+ * when it unambiguously is one: bare 10 digits, or the canonical
+ * `91`-prefixed 12-digit form every write path in this codebase normalizes
+ * to (see `normalizePhoneNumber` in the backend's whatsapp.utils.js — its
+ * output is also relied on elsewhere, e.g. public wa.me links, so it is NOT
+ * being changed to bare-10 here). Anything else (wrong length, a genuinely
+ * different country code) returns null rather than guessing — slicing the
+ * last 10 digits of a longer/foreign number would fabricate a number that
+ * was never entered. This is the one function on the frontend that knows
+ * this storage shape; every other comparison against a stored
+ * `whatsapp_number` should go through it rather than re-deriving digits.
+ */
+export function extractIndianNational(raw: string | undefined): string | null {
+  const digits = (raw ?? "").trim().replace(/\D/g, "");
+  if (digits.length === 10) return digits;
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return null;
+}
+
+function formatIndianMobile(raw: string | undefined): string | null {
+  const national = extractIndianNational(raw);
+  return national ? `+91 ${national.slice(0, 5)} ${national.slice(5)}` : null;
 }
 
 /**
@@ -239,8 +340,14 @@ export function VerifiedWhatsappField({
   verified?: boolean;
   onChangeClick: () => void;
 }) {
-  const digits = (whatsappNumber ?? "").replace(/\D/g, "").slice(-10);
-  const formatted = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : null;
+  const raw = (whatsappNumber ?? "").trim();
+  const hasValue = raw.length > 0;
+  const formatted = formatIndianMobile(raw);
+  // A value is stored but doesn't parse as an Indian mobile number — legacy
+  // data from before normalization, or something else entirely. Show it
+  // as-is with a warning, never silently as "Not set yet" (it isn't empty)
+  // and never reformatted into a number that was never entered.
+  const unrecognised = hasValue && !formatted;
 
   return (
     <div>
@@ -253,28 +360,47 @@ export function VerifiedWhatsappField({
           onClick={onChangeClick}
           className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
         >
-          Change number
+          {hasValue ? "Change number" : "Add & verify"}
         </button>
       </div>
       <div className="flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
         {formatted ? (
           <span className="text-sm text-[var(--color-brand-ink)]">{formatted}</span>
+        ) : hasValue ? (
+          <span className="truncate text-sm text-[var(--color-brand-ink)]">{raw}</span>
         ) : (
           <span className="flex items-center gap-2 text-sm text-[var(--color-brand-muted)]">
             <span>—</span>
             <span className="text-xs">Not set yet</span>
           </span>
         )}
-        {verified && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
-            <CheckIcon className="h-3 w-3" />
-            Verified
-          </span>
-        )}
+        {hasValue &&
+          (verified ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
+              <CheckIcon className="h-3 w-3" />
+              Verified
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
+              <AlertIcon className="h-3 w-3" />
+              Not verified
+            </span>
+          ))}
       </div>
-      <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-        Delivery notifications, OTPs and client replies all go to this number.
-      </p>
+      {unrecognised ? (
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-warning)]">
+          <AlertIcon className="h-3 w-3 shrink-0" />
+          Unrecognised format — re-add your number.
+        </p>
+      ) : hasValue ? (
+        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+          Delivery notifications, OTPs and client replies all go to this number.
+        </p>
+      ) : (
+        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+          Add a number to receive delivery notifications, OTPs and client replies.
+        </p>
+      )}
     </div>
   );
 }
@@ -283,7 +409,7 @@ export function VerifiedWhatsappField({
  * Read-only display of the studio's business email — mirrors
  * `VerifiedWhatsappField`. Never part of the Studio Identity form's
  * dirty-check or save payload — it can only change through the OTP-gated
- * inline verify flow (`BusinessEmailVerifyBlock`), not `updateCompanyDetails`.
+ * verify modal (`ChangeBusinessEmailModal`), not `updateCompanyDetails`.
  */
 export function VerifiedBusinessEmailField({
   businessEmail,
@@ -407,6 +533,7 @@ export function SaveBar({
   dirty,
   formId,
   idleHint = "Changes apply to all delivery pages immediately.",
+  blockedReason,
 }: {
   saveState: SaveState;
   errorMsg: string | null;
@@ -416,6 +543,12 @@ export function SaveBar({
   /** id of the section's <form> — the button submits it via the `form` attribute. */
   formId: string;
   idleHint?: string;
+  /** Shown instead of idleHint while idle and dirty but `canSave` is false —
+   *  e.g. a required field that's present but invalid (whitespace-only
+   *  name, malformed website). Without this, the bar just shows a
+   *  permanently disabled button with no indication why. Ignored once a
+   *  real save error or the "saved" flash takes over. */
+  blockedReason?: string | null;
 }) {
   // Lazy initializer (not an effect): the anchor is already in the DOM by
   // the time this component's first client render runs, whether that's
@@ -439,6 +572,11 @@ export function SaveBar({
         <p className="flex items-center gap-2 text-sm text-[var(--color-brand-success)]">
           <CheckIcon className="h-4 w-4 shrink-0" />
           Changes saved
+        </p>
+      ) : blockedReason ? (
+        <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
+          <AlertIcon className="h-4 w-4 shrink-0" />
+          {blockedReason}
         </p>
       ) : (
         <p className="text-sm text-[var(--color-brand-muted)]">{idleHint}</p>

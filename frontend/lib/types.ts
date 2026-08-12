@@ -222,13 +222,12 @@ export type LoginResponse = {
 /**
  * The individual account holder's own details — distinct from the
  * studio-level `Company`. Powers "Your Account" → Personal Information and
- * the "same as personal" business email/phone shortcut on Studio Identity.
+ * the "same as login email" business email shortcut on Studio Identity.
  * Backed by `GET/PUT /onboarding/get-user-details` and `/update-user-details`.
  */
 export type UserProfile = {
   first_name?: string;
   last_name?: string;
-  personal_email?: string;
   personal_contact?: string;
   /** Login identity — read-only here; change it only via the login/auth flow. */
   email?: string;

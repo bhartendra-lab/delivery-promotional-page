@@ -21,14 +21,24 @@ import type { SaveState } from "./SettingsUI";
  * which reuses the partial-diff update endpoint and keeps the cached company
  * (used by the Topbar/Sidebar) in sync.
  *
- * The personal profile is fetched alongside it, best-effort: a transient
- * network failure leaves `userProfile` null instead of blocking the rest of
- * Settings. Studio Identity's "same as personal" checkboxes and the Personal
- * Information page both read/write it from here.
+ * The personal profile is fetched alongside it. Studio Identity's "same as
+ * login email" checkbox treats a slow/failed profile fetch as non-blocking —
+ * it only powers one optional shortcut — so it reads `userProfile` directly
+ * and tolerates null. The Personal Information page edits the profile itself,
+ * so it must never render (or seed its form) against a null/stale profile;
+ * it gates on `profileLoad` instead of `userProfile` being non-null, so a
+ * slow fetch shows a skeleton and a failed one shows an error rather than
+ * silently mounting with blank fields.
  */
+type ProfileLoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready" };
+
 type SettingsState = {
   company: Company;
   userProfile: UserProfile | null;
+  profileLoad: ProfileLoadState;
   /** Persist a partial company update; resolves with the refreshed company. */
   save: (payload: CompanyUpdateInput) => Promise<Company>;
   /** Persist a partial profile update; resolves with the refreshed profile. */
@@ -42,6 +52,12 @@ type SettingsState = {
    * `setCompany` from `@/lib/auth` themselves.
    */
   setCompanyState: (company: Company) => void;
+  /** True while the currently-mounted section has unsaved local edits. Only
+   *  one section is ever mounted at a time (route-based), so a single flag
+   *  is enough — see useReportDirty. Read by SettingsNav (to guard in-app
+   *  navigation) and SettingsChrome (to guard tab close/reload). */
+  isDirty: boolean;
+  reportDirty: (dirty: boolean) => void;
 };
 
 const SettingsCtx = createContext<SettingsState | null>(null);
@@ -58,6 +74,8 @@ export function SettingsProvider({
 }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [profileLoad, setProfileLoad] = useState<ProfileLoadState>({ status: "loading" });
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -72,13 +90,19 @@ export function SettingsProvider({
             message: err instanceof Error ? err.message : "Failed to load",
           });
       });
-    // Best-effort — a failing/slow profile fetch just leaves userProfile
-    // null; nothing here should ever surface as a Settings-wide load error.
     getUserProfile()
       .then((res) => {
-        if (active) setUserProfile(res.user);
+        if (!active) return;
+        setUserProfile(res.user);
+        setProfileLoad({ status: "ready" });
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (active)
+          setProfileLoad({
+            status: "error",
+            message: err instanceof Error ? err.message : "Failed to load your profile.",
+          });
+      });
     return () => {
       active = false;
     };
@@ -104,7 +128,18 @@ export function SettingsProvider({
   if (load.status !== "ready") return <>{children(load)}</>;
 
   return (
-    <SettingsCtx.Provider value={{ company: load.company, userProfile, save, saveProfile, setCompanyState }}>
+    <SettingsCtx.Provider
+      value={{
+        company: load.company,
+        userProfile,
+        profileLoad,
+        save,
+        saveProfile,
+        setCompanyState,
+        isDirty,
+        reportDirty: setIsDirty,
+      }}
+    >
       {children(load)}
     </SettingsCtx.Provider>
   );
@@ -114,6 +149,40 @@ export function useSettings(): SettingsState {
   const ctx = useContext(SettingsCtx);
   if (!ctx) throw new Error("useSettings must be used within SettingsProvider");
   return ctx;
+}
+
+/**
+ * Same as useSettings, but returns null instead of throwing when there's no
+ * provider in the tree yet — SettingsNav renders unconditionally inside
+ * SettingsChrome, including while the company is still loading/erroring,
+ * during which SettingsProvider renders bare `children(load)` without
+ * mounting SettingsCtx.Provider at all (see the `load.status !== "ready"`
+ * early return above).
+ */
+export function useSettingsMaybe(): SettingsState | null {
+  return useContext(SettingsCtx);
+}
+
+/**
+ * Reports a section's local `dirty` flag up to SettingsContext so navigation
+ * guards (SettingsNav's Link intercept, SettingsChrome's beforeunload) know
+ * whether there's anything to lose. Clears itself on unmount, so navigating
+ * away (once confirmed, or via a route that doesn't need confirming) always
+ * leaves the next section starting clean.
+ *
+ * Reads the context directly (not via useSettings) and no-ops when there
+ * isn't one, rather than throwing — `BillingDetailsForm` calls this too, and
+ * it's reused inside UpgradeModal, which is NOT rendered under
+ * SettingsProvider. This lets it report correctly when mounted in Settings
+ * and do nothing everywhere else, with no caller-side branching.
+ */
+export function useReportDirty(dirty: boolean) {
+  const ctx = useContext(SettingsCtx);
+  useEffect(() => {
+    if (!ctx) return;
+    ctx.reportDirty(dirty);
+    return () => ctx.reportDirty(false);
+  }, [ctx, dirty]);
 }
 
 /**
