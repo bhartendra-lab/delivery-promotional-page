@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconBuilding,
@@ -127,18 +127,24 @@ export function Card({
   icon,
   children,
 }: {
-  title: string;
-  icon: React.ReactNode;
+  /** Omit on a page with only one card — a heading that can't distinguish
+   *  itself from anything else earns nothing (see Personal Information). */
+  title?: string;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5 shadow-[0_1px_3px_rgba(42,34,24,0.08)]">
-      <div className="mb-4 flex items-center gap-2.5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-          {icon}
-        </span>
-        <h2 className="text-sm font-semibold text-[var(--color-brand-ink)]">{title}</h2>
-      </div>
+      {title && (
+        <div className="mb-4 flex items-center gap-2.5">
+          {icon && (
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+              {icon}
+            </span>
+          )}
+          <h2 className="text-sm font-semibold text-[var(--color-brand-ink)]">{title}</h2>
+        </div>
+      )}
       {children}
     </div>
   );
@@ -231,6 +237,7 @@ export function Field({
         placeholder={placeholder}
         required={required}
         readOnly={readOnly}
+        aria-readonly={readOnly || undefined}
         maxLength={maxLength}
         aria-invalid={!!error}
         className={`brand-focus h-10 w-full rounded-lg border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
@@ -326,10 +333,94 @@ function formatIndianMobile(raw: string | undefined): string | null {
 }
 
 /**
+ * Shared shell for the two read-only "verified value + change action" rows
+ * (WhatsApp number, business email) — label, action button, value box, chip
+ * and helper line are identical between them; only the value box's content
+ * (and whether a helper is shown at all) differs, so those stay owned by
+ * each caller.
+ *
+ * DOM order is value-row → label/action-row → helper, with CSS `order`
+ * restoring the original visual stacking (label/action on top): keyboard and
+ * screen-reader users reach the value before the button that changes it,
+ * while sighted users see the same layout as before. The wrapping
+ * `role="group"` + `aria-labelledby` means entering this region still
+ * announces the field's name up front despite the label coming later in
+ * source order.
+ *
+ * The action button's own text is the accessible name (e.g. "Change
+ * WhatsApp number", not "Change number") rather than a separate `aria-label`
+ * — "Change number" isn't a literal substring of "Change WhatsApp number",
+ * which would fail WCAG's Label-in-Name for speech-input users; making the
+ * visible text itself descriptive sidesteps that entirely, and reads fine
+ * now that the action is quieter than it used to be.
+ */
+function VerifiedFieldRow({
+  label,
+  required,
+  actionLabel,
+  onActionClick,
+  hasValue,
+  verified,
+  value,
+  helper,
+}: {
+  label: string;
+  /** Purely informational — these fields are OTP-gated, not part of the
+   *  form's own `required` validation, so this can't be a native attribute. */
+  required?: boolean;
+  actionLabel: string;
+  onActionClick: () => void;
+  hasValue: boolean;
+  verified?: boolean;
+  value: React.ReactNode;
+  helper?: React.ReactNode;
+}) {
+  const labelId = useId();
+  return (
+    <div role="group" aria-labelledby={labelId} className="flex flex-col">
+      <div className="order-2 flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
+        {value}
+        {hasValue &&
+          (verified ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
+              <CheckIcon className="h-3 w-3" />
+              Verified
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
+              <AlertIcon className="h-3 w-3" />
+              Not verified
+            </span>
+          ))}
+      </div>
+      <div className="order-1 mb-1.5 flex items-center justify-between gap-2">
+        <span id={labelId} className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+          {label}
+          {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
+        </span>
+        <button
+          type="button"
+          onClick={onActionClick}
+          className="brand-focus text-xs font-semibold text-[var(--color-brand-muted)] underline-offset-2 hover:text-[var(--color-brand-navy)] hover:underline"
+        >
+          {actionLabel}
+        </button>
+      </div>
+      {helper && <div className="order-3">{helper}</div>}
+    </div>
+  );
+}
+
+/**
  * Read-only display of the studio's one, OTP-verified phone number. Never
  * part of the Studio Identity form's dirty-check or save payload — changing
  * it goes through its own OTP-gated flow (ChangeWhatsappModal), not
  * updateCompanyDetails.
+ *
+ * Marked visually required: WhatsApp verification is a mandatory onboarding
+ * gate (blocks completing onboarding), unlike business email below, which is
+ * only a skippable branding-readiness nudge — the two are genuinely
+ * different, so they're not signalled the same way.
  */
 export function VerifiedWhatsappField({
   whatsappNumber,
@@ -350,21 +441,15 @@ export function VerifiedWhatsappField({
   const unrecognised = hasValue && !formatted;
 
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-          WhatsApp number
-        </span>
-        <button
-          type="button"
-          onClick={onChangeClick}
-          className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
-        >
-          {hasValue ? "Change number" : "Add & verify"}
-        </button>
-      </div>
-      <div className="flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
-        {formatted ? (
+    <VerifiedFieldRow
+      label="WhatsApp number"
+      required
+      hasValue={hasValue}
+      verified={verified}
+      actionLabel={hasValue ? "Change WhatsApp number" : "Add & verify WhatsApp number"}
+      onActionClick={onChangeClick}
+      value={
+        formatted ? (
           <span className="text-sm text-[var(--color-brand-ink)]">{formatted}</span>
         ) : hasValue ? (
           <span className="truncate text-sm text-[var(--color-brand-ink)]">{raw}</span>
@@ -373,43 +458,37 @@ export function VerifiedWhatsappField({
             <span>—</span>
             <span className="text-xs">Not set yet</span>
           </span>
-        )}
-        {hasValue &&
-          (verified ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
-              <CheckIcon className="h-3 w-3" />
-              Verified
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
-              <AlertIcon className="h-3 w-3" />
-              Not verified
-            </span>
-          ))}
-      </div>
-      {unrecognised ? (
-        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-warning)]">
-          <AlertIcon className="h-3 w-3 shrink-0" />
-          Unrecognised format — re-add your number.
-        </p>
-      ) : hasValue ? (
-        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-          Delivery notifications, OTPs and client replies all go to this number.
-        </p>
-      ) : (
-        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-          Add a number to receive delivery notifications, OTPs and client replies.
-        </p>
-      )}
-    </div>
+        )
+      }
+      helper={
+        unrecognised ? (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-warning)]">
+            <AlertIcon className="h-3 w-3 shrink-0" />
+            Unrecognised format — re-add your number.
+          </p>
+        ) : hasValue ? (
+          <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+            Delivery notifications, OTPs and client replies all go to this number.
+          </p>
+        ) : (
+          <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+            Add a number to receive delivery notifications, OTPs and client replies.
+          </p>
+        )
+      }
+    />
   );
 }
 
 /**
  * Read-only display of the studio's business email — mirrors
- * `VerifiedWhatsappField`. Never part of the Studio Identity form's
- * dirty-check or save payload — it can only change through the OTP-gated
- * verify modal (`ChangeBusinessEmailModal`), not `updateCompanyDetails`.
+ * `VerifiedWhatsappField` via the shared `VerifiedFieldRow`. Never part of
+ * the Studio Identity form's dirty-check or save payload — it can only
+ * change through the OTP-gated verify modal (`ChangeBusinessEmailModal`),
+ * not `updateCompanyDetails`.
+ *
+ * Not marked required — unlike WhatsApp, a verified business email is only a
+ * skippable branding-readiness nudge, never a gate on anything.
  */
 export function VerifiedBusinessEmailField({
   businessEmail,
@@ -420,43 +499,33 @@ export function VerifiedBusinessEmailField({
   verified?: boolean;
   onActionClick: () => void;
 }) {
+  const hasValue = !!businessEmail;
+
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-          Business email
-        </span>
-        <button
-          type="button"
-          onClick={onActionClick}
-          className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
-        >
-          {businessEmail ? "Change email" : "Add & verify"}
-        </button>
-      </div>
-      <div className="flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
-        {businessEmail ? (
+    <VerifiedFieldRow
+      label="Business email"
+      hasValue={hasValue}
+      verified={verified}
+      actionLabel={hasValue ? "Change business email" : "Add & verify business email"}
+      onActionClick={onActionClick}
+      value={
+        businessEmail ? (
           <span className="truncate text-sm text-[var(--color-brand-ink)]">{businessEmail}</span>
         ) : (
           <span className="flex items-center gap-2 text-sm text-[var(--color-brand-muted)]">
             <span>—</span>
             <span className="text-xs">Not set yet</span>
           </span>
-        )}
-        {businessEmail &&
-          (verified ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
-              <CheckIcon className="h-3 w-3" />
-              Verified
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
-              <AlertIcon className="h-3 w-3" />
-              Not verified
-            </span>
-          ))}
-      </div>
-    </div>
+        )
+      }
+      helper={
+        <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
+          {hasValue
+            ? "Shown to clients as your studio's contact email — separate from your login email on Personal Information."
+            : "Add a client-facing contact email — separate from your login email on Personal Information."}
+        </p>
+      }
+    />
   );
 }
 
@@ -563,24 +632,34 @@ export function SaveBar({
 
   return createPortal(
     <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)]">
-      {saveState === "error" && errorMsg ? (
-        <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
-          <AlertIcon className="h-4 w-4 shrink-0" />
-          {errorMsg}
-        </p>
-      ) : saveState === "saved" ? (
-        <p className="flex items-center gap-2 text-sm text-[var(--color-brand-success)]">
-          <CheckIcon className="h-4 w-4 shrink-0" />
-          Changes saved
-        </p>
-      ) : blockedReason ? (
-        <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
-          <AlertIcon className="h-4 w-4 shrink-0" />
-          {blockedReason}
-        </p>
-      ) : (
-        <p className="text-sm text-[var(--color-brand-muted)]">{idleHint}</p>
-      )}
+      {/* One live region for every state this bar can be in — success, error
+          and the blocked-reason explanation all need announcing, and it's
+          simpler and more reliable than nesting a second (assertive)
+          role="alert" region inside a polite one. Safe against the bar's
+          own portal-in/portal-out lifecycle: submit() only ever fires while
+          `dirty` is already true, so this region is already mounted before
+          any saveState transition happens — there's no case where a fresh
+          mount needs to announce a message that predates it. */}
+      <div role="status" aria-live="polite" aria-atomic="true">
+        {saveState === "error" && errorMsg ? (
+          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
+            <AlertIcon className="h-4 w-4 shrink-0" />
+            {errorMsg}
+          </p>
+        ) : saveState === "saved" ? (
+          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-success)]">
+            <CheckIcon className="h-4 w-4 shrink-0" />
+            Changes saved
+          </p>
+        ) : blockedReason ? (
+          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
+            <AlertIcon className="h-4 w-4 shrink-0" />
+            {blockedReason}
+          </p>
+        ) : (
+          <p className="text-sm text-[var(--color-brand-muted)]">{idleHint}</p>
+        )}
+      </div>
 
       <button
         type="submit"
@@ -657,18 +736,6 @@ export function StorageIcon() {
 
 export function OpenIcon({ className }: { className?: string }) {
   return <IconOpen className={className} />;
-}
-
-// NOTE: unused anywhere (SettingsNav renders plain text labels, no icons) —
-// left as-is pending the A6 dead-code sweep rather than migrated in place.
-export function WatermarkIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="3" width="18" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M14 14h4v4h-4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <circle cx="8.5" cy="8.5" r="1.6" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
 }
 
 export function CopyIcon({ className }: { className?: string }) {

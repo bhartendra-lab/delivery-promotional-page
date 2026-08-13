@@ -10,7 +10,6 @@ import {
   Field,
   PhoneField,
   SaveBar,
-  UserIcon,
   changed,
   SectionSkeleton,
   FetchError,
@@ -78,27 +77,27 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
     changed(personalContact, profile.personal_contact);
   useReportDirty(dirty);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const payload: UserProfileUpdateInput = {};
     if (changed(firstName, profile.first_name)) payload.first_name = firstName.trim();
     if (changed(lastName, profile.last_name)) payload.last_name = lastName.trim();
     if (changed(personalContact, profile.personal_contact)) payload.personal_contact = personalContact.trim();
-    submit(payload);
+    await submit(payload);
   }
 
   return (
     <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
       <PersonalInformationHeading />
 
-      <Card title="Personal information" icon={<UserIcon />}>
+      <Card>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Login email"
             value={profile.email ?? ""}
             onChange={() => {}}
             readOnly
-            hint="Your sign-in address — it can't be changed here."
+            hint="Used only to sign in. For the address clients see, set a verified Business email on Studio Identity."
             className="sm:col-span-2"
           />
           <Field

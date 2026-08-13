@@ -213,6 +213,7 @@ function WatermarkPresetsPageInner() {
         <WatermarkEditorModal
           mode={modal.mode}
           initial={modal.mode === "edit" ? modal.preset : undefined}
+          existingNames={presets?.map((p) => p.name).filter((n): n is string => !!n) ?? []}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
         />
