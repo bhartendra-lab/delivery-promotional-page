@@ -137,7 +137,7 @@ export function Card({
   return (
     <div
       className={`overflow-hidden rounded-card border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] shadow-[0_1px_3px_rgba(42,34,24,0.08)] ${
-        padded ? "p-7 sm:p-8" : ""
+        padded ? "p-5 sm:p-8" : ""
       } ${className}`}
     >
       {title && (
@@ -178,9 +178,8 @@ export function SameAsCheckbox({
   return (
     <label
       aria-disabled={disabled}
-      className={`mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)] ${
-        disabled ? "cursor-not-allowed opacity-60" : ""
-      }`}
+      className={`mt-1.5 flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)] ${disabled ? "cursor-not-allowed opacity-60" : ""
+        }`}
     >
       <input
         type="checkbox"
@@ -245,9 +244,8 @@ export function Field({
         aria-readonly={readOnly || undefined}
         maxLength={maxLength}
         aria-invalid={!!error}
-        className={`brand-focus h-10 w-full rounded-field border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
-          error ? "border-[var(--color-brand-danger)]" : "border-[var(--color-brand-border)]"
-        } ${readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-surface-raised)]"}`}
+        className={`brand-focus h-10 w-full rounded-field border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${error ? "border-[var(--color-brand-danger)]" : "border-[var(--color-brand-border)]"
+          } ${readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-surface-raised)]"}`}
       />
       {error ? (
         <span role="alert" className="mt-1 block text-xs text-[var(--color-brand-danger)]">
@@ -453,7 +451,7 @@ export function VerifiedWhatsappField({
       required
       hasValue={hasValue}
       verified={verified}
-      actionLabel={hasValue ? "Change WhatsApp number" : "Add & verify WhatsApp number"}
+      actionLabel={hasValue ? "Update" : "Add & verify"}
       onActionClick={onChangeClick}
       value={
         formatted ? (
@@ -513,7 +511,7 @@ export function VerifiedBusinessEmailField({
       label="Business email"
       hasValue={hasValue}
       verified={verified}
-      actionLabel={hasValue ? "Change business email" : "Add & verify business email"}
+      actionLabel={hasValue ? "Update" : "Add & verify"}
       onActionClick={onActionClick}
       value={
         businessEmail ? (
@@ -651,7 +649,7 @@ export function SaveBar({
   if (!visible || !root) return null;
 
   return createPortal(
-    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-pill border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)]">
+    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-col items-stretch gap-3 rounded-pill border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
       {/* One live region for every state this bar can be in — success, error
           and the blocked-reason explanation all need announcing, and it's
           simpler and more reliable than nesting a second (assertive)
@@ -681,7 +679,7 @@ export function SaveBar({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex w-full shrink-0 items-center justify-end gap-3 sm:w-auto sm:justify-start">
         {dirty && onDiscard && (
           <button
             type="button"

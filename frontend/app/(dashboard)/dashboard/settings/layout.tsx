@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { usePageBreadcrumb } from "@/components/dashboard/ChromeContext";
 import { SettingsProvider, useSettingsMaybe } from "./SettingsContext";
-import { SettingsNav, sectionLabelFor } from "./SettingsNav";
+import { SettingsNav, SettingsMobileNav, sectionLabelFor } from "./SettingsNav";
 import { SectionSkeleton, FetchError, SECTION_SAVE_BAR_ROOT_ID } from "./SettingsUI";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -63,8 +63,11 @@ function SettingsChrome({
           lives inside an element's border box and doesn't push the border
           itself down. */}
       <div className="lg:grid lg:grid-cols-[220px_1fr]">
-        <aside className="mb-8 pt-4 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
-          <div className="lg:sticky lg:top-8">
+        <aside className="mb-6 pt-4 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
+          <div className="lg:hidden">
+            <SettingsMobileNav />
+          </div>
+          <div className="hidden lg:block lg:sticky lg:top-8">
             <SettingsNav />
           </div>
         </aside>

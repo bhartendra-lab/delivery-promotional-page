@@ -237,7 +237,7 @@ export function WatermarkEditorModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex flex-col bg-black/40 sm:items-center sm:justify-center sm:p-4"
       role="dialog"
       aria-modal
       onClick={onClose}
@@ -250,10 +250,10 @@ export function WatermarkEditorModal({
           column with the other controls) could leave both ends
           simultaneously out of view with no visible way back to either. */}
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-[var(--color-brand-bg)] shadow-xl"
+        className="flex w-full flex-1 flex-col overflow-hidden bg-[var(--color-brand-bg)] shadow-xl sm:max-h-[90vh] sm:w-full sm:max-w-2xl sm:flex-none sm:rounded-card"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[var(--color-brand-border)] px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between border-b border-[var(--color-brand-border)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-4">
           <h2 className="text-lg font-bold text-[var(--color-brand-ink)]">
             {mode === "create" ? "New watermark preset" : "Edit watermark preset"}
           </h2>
@@ -325,7 +325,7 @@ export function WatermarkEditorModal({
         )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[var(--color-brand-border)] px-5 py-4 sm:px-6">
+        <div className="flex justify-end gap-2 border-t border-[var(--color-brand-border)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 sm:py-4">
           <button
             type="button"
             onClick={onClose}
