@@ -91,7 +91,7 @@ export function AccountMenu({ variant }: { variant: Variant }) {
           aria-expanded={open}
           aria-label="Account menu"
           className={`brand-focus flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors ${
-            settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-surface)]/60"
+            settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-hover)]"
           }`}
         >
           <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
@@ -114,7 +114,7 @@ export function AccountMenu({ variant }: { variant: Variant }) {
           title={variant === "icon" ? companyName : undefined}
           className={`brand-focus flex items-center rounded-md transition-colors ${
             variant === "icon" ? "w-full justify-center py-1.5" : "p-1"
-          } ${settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-surface)]/60"}`}
+          } ${settingsActive ? "bg-[var(--color-brand-navy-soft)]" : "hover:bg-[var(--color-brand-hover)]"}`}
         >
           <Avatar logo={company?.logo} name={companyName} initials={initials} sizeCls="h-7 w-7" textCls="text-[11px]" />
         </button>

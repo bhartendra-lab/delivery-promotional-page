@@ -21,7 +21,6 @@
     "@phosphor-icons/react": "^2.1.10",
     "browser-image-compression": "^2.0.2",
     "client-zip": "^2.5.0",
-    "lucide-react": "^1.26.0",
     "next": "16.2.6",
     "piexifjs": "^1.0.6",
     "react": "19.2.4",

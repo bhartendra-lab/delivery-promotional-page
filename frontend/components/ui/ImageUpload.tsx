@@ -89,7 +89,7 @@ export function ImageUpload({
         className={`relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
           isDragging
             ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]"
-            : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] hover:border-[var(--color-brand-navy)]"
+            : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] hover:border-[var(--color-brand-navy)]"
         }`}
       >
         {preview ? (

@@ -106,7 +106,7 @@ export function AddEventModal({ open, onClose }: Props) {
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
+            className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
             aria-label="Close"
           >
             <IconX size={16} />

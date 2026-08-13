@@ -580,7 +580,7 @@ function EventHeader({
               onClick={onEdit}
               aria-label="Edit event details"
               title="Edit event details"
-              className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
             >
               <IconEdit size={16} />
             </button>
@@ -795,7 +795,7 @@ function PopulatedBody({
               onClick={onRename}
               aria-label="Rename folder"
               title="Rename folder"
-              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
             >
               <IconEdit size={14} />
             </button>
@@ -951,7 +951,7 @@ function EditMetaSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+            className="brand-focus flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
           >
             <IconX size={16} />
           </button>

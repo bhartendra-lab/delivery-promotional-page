@@ -69,7 +69,7 @@ function SettingsChrome({
           </div>
         </aside>
 
-        <div className="min-w-0 pt-4 lg:pl-10">
+        <div className="min-w-0 max-w-[760px] pt-4 lg:pl-10">
           {/* Portal target for the active section's sticky save bar — kept
               as the first child so `position: sticky; top: 0` pins it
               immediately instead of only once scrolled down to it. */}

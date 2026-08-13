@@ -199,7 +199,7 @@ export function UploadProgress({
                 void onCancel();
               }}
               disabled={cancelling}
-              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {cancelling ? "Stopping…" : "Stop upload"}
             </button>

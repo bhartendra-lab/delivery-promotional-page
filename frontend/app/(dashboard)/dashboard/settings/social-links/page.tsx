@@ -56,10 +56,13 @@ export default function SocialLinksPage() {
     submit(payload);
   }
 
+  function handleDiscard() {
+    setValues(initial);
+  }
+
   return (
     <form id="social-links-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
-        eyebrow="Brand & Delivery"
         title="Social Links"
         description="Connect your public social profiles. They show on your delivery pages and galleries. Enter a username or a full URL — we'll tidy it up."
       />
@@ -78,7 +81,14 @@ export default function SocialLinksPage() {
         </div>
       </Card>
 
-      <SaveBar saveState={saveState} errorMsg={errorMsg} canSave={dirty} dirty={dirty} formId="social-links-form" />
+      <SaveBar
+        saveState={saveState}
+        errorMsg={errorMsg}
+        canSave={dirty}
+        dirty={dirty}
+        formId="social-links-form"
+        onDiscard={handleDiscard}
+      />
     </form>
   );
 }

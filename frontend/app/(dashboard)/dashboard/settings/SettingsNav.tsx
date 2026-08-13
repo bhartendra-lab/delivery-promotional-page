@@ -3,10 +3,19 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSettingsMaybe } from "./SettingsContext";
+import {
+  IconBuilding,
+  IconShareNetwork,
+  IconImages,
+  IconUser,
+  IconCreditCard,
+  type IconProps,
+} from "@/components/ui/icons";
 
 export type SettingsItem = {
   label: string;
   href: string;
+  Icon: React.FC<IconProps>;
 };
 
 export type SettingsGroup = {
@@ -24,16 +33,16 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     heading: "Brand & Delivery",
     items: [
-      { label: "Studio Identity", href: "/dashboard/settings" },
-      { label: "Social Links", href: "/dashboard/settings/social-links" },
-      { label: "Watermark Presets", href: "/dashboard/settings/watermarks" },
+      { label: "Studio Identity", href: "/dashboard/settings", Icon: IconBuilding },
+      { label: "Social Links", href: "/dashboard/settings/social-links", Icon: IconShareNetwork },
+      { label: "Watermark Presets", href: "/dashboard/settings/watermarks", Icon: IconImages },
     ],
   },
   {
     heading: "Your Account",
     items: [
-      { label: "Personal Information", href: "/dashboard/settings/personal" },
-      { label: "Plan & Billing", href: "/dashboard/settings/billing" },
+      { label: "Personal Information", href: "/dashboard/settings/personal", Icon: IconUser },
+      { label: "Plan & Billing", href: "/dashboard/settings/billing", Icon: IconCreditCard },
     ],
   },
 ];
@@ -72,7 +81,7 @@ export function SettingsNav() {
   }
 
   return (
-    <nav className="space-y-6" aria-label="Settings sections">
+    <nav className="space-y-9" aria-label="Settings sections">
       {SETTINGS_GROUPS.map((group) => (
         <div key={group.heading}>
           <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
@@ -81,18 +90,20 @@ export function SettingsNav() {
           <ul className="space-y-0.5">
             {group.items.map((item) => {
               const active = pathname === item.href;
+              const Icon = item.Icon;
               return (
                 <li key={item.label}>
                   <Link
                     href={item.href}
                     onClick={(e) => handleNavClick(e, item.href)}
                     aria-current={active ? "page" : undefined}
-                    className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-2.5 rounded-pill px-3 py-2 text-sm font-medium transition-colors ${
                       active
                         ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-                        : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]"
+                        : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)]"
                     }`}
                   >
+                    <Icon size={19} className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} />
                     {item.label}
                   </Link>
                 </li>

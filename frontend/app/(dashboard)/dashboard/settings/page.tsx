@@ -141,16 +141,24 @@ export default function StudioIdentityPage() {
     }
   }
 
+  function handleDiscard() {
+    setName(company.name ?? "");
+    setWebsite(company.website ?? "");
+    setAddress(company.address ?? "");
+    setGooglePlaceId(company.google_place_id ?? "");
+    setDarkFile(null);
+    setLightFile(null);
+  }
+
   return (
     <form id="studio-identity-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
-        eyebrow="Brand & Delivery"
         title="Studio Identity"
         description="How your studio shows up on every delivery page you send to clients, and on Google."
       />
 
-      <Card title="Business Information" icon={<BuildingIcon />}>
-        <div className="space-y-4">
+      <Card title="Business information" icon={<BuildingIcon />}>
+        <div className="space-y-5">
           <Field
             label="Studio name"
             value={name}
@@ -170,7 +178,7 @@ export default function StudioIdentityPage() {
             Business email verified.
           </p>
         )}
-        <div className="mt-4">
+        <div className="mt-5">
           <VerifiedWhatsappField
             whatsappNumber={company.whatsapp_number}
             verified={company.whatsapp_verified}
@@ -189,17 +197,17 @@ export default function StudioIdentityPage() {
           onBlur={normalizeWebsiteOnBlur}
           placeholder="yourstudio.com"
           type="text"
-          className="mt-4"
+          className="mt-5"
           error={websiteError ?? undefined}
         />
       </Card>
 
-      <Card title="Google Business Integration" icon={<GlobeIcon />}>
+      <Card title="Google Business integration" icon={<GlobeIcon />}>
         <p className="mb-4 text-sm text-[var(--color-brand-muted)]">
           This powers the Google Reviews link on your delivery pages. Getting the right
           listing here means clients land on the correct page when they tap Leave a review.
         </p>
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
             <AddressField
               label="Your studio on Google"
@@ -236,7 +244,7 @@ export default function StudioIdentityPage() {
         </div>
       </Card>
 
-      <Card title="Studio Logo" icon={<ImageIcon />}>
+      <Card title="Studio logo" icon={<ImageIcon />}>
         <div id="studio-logo" className="scroll-mt-24">
           <div className="grid gap-5 sm:grid-cols-2">
             <ImageUpload
@@ -268,6 +276,7 @@ export default function StudioIdentityPage() {
         formId="studio-identity-form"
         idleHint="Changes apply to all delivery pages immediately."
         blockedReason={blockedReason}
+        onDiscard={handleDiscard}
       />
 
       <ChangeWhatsappModal

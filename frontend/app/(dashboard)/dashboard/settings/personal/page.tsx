@@ -57,7 +57,6 @@ export default function PersonalInformationPage() {
 function PersonalInformationHeading() {
   return (
     <SectionHeading
-      eyebrow="Your Account"
       title="Personal Information"
       description="Your own details as the account holder. Not shown to clients."
     />
@@ -84,6 +83,12 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
     if (changed(lastName, profile.last_name)) payload.last_name = lastName.trim();
     if (changed(personalContact, profile.personal_contact)) payload.personal_contact = personalContact.trim();
     await submit(payload);
+  }
+
+  function handleDiscard() {
+    setFirstName(profile.first_name ?? "");
+    setLastName(profile.last_name ?? "");
+    setPersonalContact(profile.personal_contact ?? "");
   }
 
   return (
@@ -130,6 +135,7 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
         dirty={dirty}
         formId="personal-information-form"
         idleHint="Only visible to you, never shown on delivery pages."
+        onDiscard={handleDiscard}
       />
     </form>
   );

@@ -88,7 +88,7 @@ function PageBtn({ children, active, disabled, onClick, ...rest }: {
           ? "bg-[var(--color-brand-navy)] text-white"
           : disabled
             ? "cursor-not-allowed text-[var(--color-brand-muted)]/40"
-            : "border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+            : "border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
       }`}
     >
       {children}

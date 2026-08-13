@@ -10,7 +10,7 @@ const formatDate = (ms: number) =>
 type Tone = "neutral" | "warning" | "danger";
 
 const TONE_CLASSES: Record<Tone, string> = {
-  neutral: "border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] text-[var(--color-brand-ink)]",
+  neutral: "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-ink)]",
   warning: "border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]",
   danger: "border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] text-[var(--color-brand-danger)]",
 };

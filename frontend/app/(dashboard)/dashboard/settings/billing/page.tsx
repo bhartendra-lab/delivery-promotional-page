@@ -44,7 +44,6 @@ export default function BillingSettingsPage() {
     return (
       <div className="space-y-6">
         <SectionHeading
-          eyebrow="Your Account"
           title="Plan & Billing"
           description="Manage your subscription, usage, and invoices."
         />
@@ -102,7 +101,7 @@ export default function BillingSettingsPage() {
   if (resumeFlow === "confirming") {
     return (
       <div className="space-y-6">
-        <SectionHeading eyebrow="Your Account" title="Plan & Billing" description="Manage your subscription, usage, and invoices." />
+        <SectionHeading title="Plan & Billing" description="Manage your subscription, usage, and invoices." />
         <ConfirmingPayment
           purpose="resume"
           targetServiceId={snapshot?.service?._id ?? ""}
@@ -116,7 +115,6 @@ export default function BillingSettingsPage() {
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Your Account"
         title="Plan & Billing"
         description="Manage your subscription, usage, and invoices."
       />
@@ -189,7 +187,7 @@ export default function BillingSettingsPage() {
 
       {cancelConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-brand-ink)]/30 p-4">
-          <div className="w-full max-w-md rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-6">
+          <div className="w-full max-w-md rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-6">
             <h3 className="text-lg font-bold text-[var(--color-brand-ink)]">Turn off auto-renew?</h3>
             <p className="mt-2 text-sm text-[var(--color-brand-muted)]">
               Your plan stays active until{" "}

@@ -39,6 +39,18 @@ const EDGE_MARGIN_PX = 0;
 const EDGE_MARGIN_H = `${(EDGE_MARGIN_PX / REFERENCE_W) * 100}%`; // ≈ 0.27%
 const EDGE_MARGIN_V = `${(EDGE_MARGIN_PX / REFERENCE_H) * 100}%`; // ≈ 0.41%
 
+/**
+ * Smallest available "Watermark N" — fills gaps left by deleted presets
+ * rather than just counting existing ones, so deleting "Watermark 2" and
+ * creating a new preset offers "Watermark 2" again, not "Watermark 4".
+ */
+function nextWatermarkName(existingNames: string[]): string {
+  const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()).filter(Boolean));
+  let n = 1;
+  while (taken.has(`watermark ${n}`)) n++;
+  return `Watermark ${n}`;
+}
+
 /** Absolute-position style for the watermark box given anchor/size/opacity. */
 export function watermarkBoxStyle(
   position: WatermarkPosition,
@@ -168,16 +180,20 @@ function Slider({
 export function WatermarkEditorModal({
   mode,
   initial,
+  existingNames,
   onClose,
   onSaved,
 }: {
   mode: "create" | "edit";
   initial?: WatermarkPreset;
+  /** Every other preset's current name — used to suggest the next available
+   *  "Watermark N" when creating. Ignored when editing (initial.name wins). */
+  existingNames: string[];
   onClose: () => void;
   onSaved: (preset: WatermarkPreset) => void;
 }) {
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [name, setName] = useState(initial?.name ?? "");
+  const [name, setName] = useState(() => initial?.name ?? nextWatermarkName(existingNames));
   const [opacity, setOpacity] = useState(initial?.opacity ?? 70);
   const [position, setPosition] = useState<WatermarkPosition>(initial?.position ?? "bottom-right");
   const [size, setSize] = useState(initial?.size ?? 20);
@@ -226,11 +242,18 @@ export function WatermarkEditorModal({
       aria-modal
       onClick={onClose}
     >
+      {/* A flex column, not one big overflow-y-auto box — the header and
+          footer are fixed-height siblings of the scrolling middle section,
+          not part of what scrolls. Before this, the header and Cancel/Save
+          buttons scrolled away WITH the content, so on a short viewport a
+          tall form (this one grew once Name/Preview stopped sharing a
+          column with the other controls) could leave both ends
+          simultaneously out of view with no visible way back to either. */}
       <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[var(--color-brand-bg)] p-5 shadow-xl sm:p-6"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-[var(--color-brand-bg)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-[var(--color-brand-border)] px-5 py-4 sm:px-6">
           <h2 className="text-lg font-bold text-[var(--color-brand-ink)]">
             {mode === "create" ? "New watermark preset" : "Edit watermark preset"}
           </h2>
@@ -244,45 +267,54 @@ export function WatermarkEditorModal({
           </button>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          {/* Live placement preview */}
-          <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+        {/* Name and the live preview span the full width — pairing them with
+            a column partner (as before) left one side much taller than the
+            other, trailing off into dead space before the footer buttons.
+            The remaining controls pair by comparable weight instead (image
+            upload ≈ position grid; slider ≈ slider), which keeps both
+            columns close in height. */}
+        <div className="space-y-5">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
+              Name
+            </span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Light corner mark"
+              className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+            />
+          </label>
+
+          <div className="mx-auto w-full max-w-sm space-y-1.5">
             <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
               Preview
             </span>
             <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} />
-            <ImageUpload
-              label="Watermark image"
-              existingUrl={initial?.image_url ?? null}
-              file={imageFile}
-              onChange={setImageFile}
-            />
-            <p className="text-xs text-[var(--color-brand-muted)]">
-              PNG with transparency recommended. Max 5 MB.
-            </p>
           </div>
 
-          {/* Controls */}
-          <div className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
-                Name
-              </span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Light corner mark"
-                className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="space-y-2">
+              <ImageUpload
+                label="Watermark image"
+                existingUrl={initial?.image_url ?? null}
+                file={imageFile}
+                onChange={setImageFile}
               />
-            </label>
-
+              <p className="text-xs text-[var(--color-brand-muted)]">
+                PNG with transparency recommended. Max 5 MB.
+              </p>
+            </div>
             <div>
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
                 Position
               </span>
               <AnchorGrid value={position} onChange={setPosition} />
             </div>
+          </div>
 
+          <div className="grid gap-5 sm:grid-cols-2">
             <Slider label="Size" value={size} min={5} max={60} onChange={setSize} />
             <Slider label="Opacity" value={opacity} min={5} max={100} onChange={setOpacity} />
           </div>
@@ -291,12 +323,13 @@ export function WatermarkEditorModal({
         {error && (
           <p className="mt-4 text-sm text-[var(--color-brand-danger)]">{error}</p>
         )}
+        </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex justify-end gap-2 border-t border-[var(--color-brand-border)] px-5 py-4 sm:px-6">
           <button
             type="button"
             onClick={onClose}
-            className="brand-focus h-10 rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]"
+            className="brand-focus h-10 rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)]"
           >
             Cancel
           </button>

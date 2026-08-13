@@ -83,7 +83,7 @@ export function Sidebar({
               onClick={() => setCollapsed(false)}
               title="Expand sidebar"
               aria-label="Expand sidebar"
-              className="brand-focus flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              className="brand-focus flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
             >
               <IconSidebar size={14} />
             </button>
@@ -102,7 +102,7 @@ export function Sidebar({
               onClick={() => setCollapsed(true)}
               title="Collapse sidebar"
               aria-label="Collapse sidebar"
-              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)]"
+              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
             >
               <IconSidebar size={15} />
             </button>
@@ -125,7 +125,7 @@ export function Sidebar({
                 className={`my-1 flex flex-col items-center justify-center gap-1.5 rounded-xl px-1 py-3.5 no-underline transition-colors ${
                   active
                     ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)] font-medium"
-                    : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60 font-normal"
+                    : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)] font-normal"
                 }`}
               >
                 {/* YouTube keeps icons at 24px in collapsed mode */}
@@ -148,7 +148,7 @@ export function Sidebar({
               className={`my-0.5 flex h-10 items-center gap-6 rounded-xl px-3 no-underline transition-colors ${
                 active
                   ? "bg-[var(--color-brand-navy-soft)] font-medium text-[var(--color-brand-navy)]"
-                  : "font-normal text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]/60"
+                  : "font-normal text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)]"
               }`}
             >
               {/* YouTube uses 24px icons and a 24px (gap-6) spacing to the label */}

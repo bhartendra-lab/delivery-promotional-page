@@ -8,7 +8,6 @@ import {
   IconImage,
   IconShareNetwork,
   IconCopy,
-  IconSave,
   IconWarningCircle,
   IconCheck,
   IconUser,
@@ -68,15 +67,15 @@ export function CopyableIdField({
 
   return (
     <div className={className}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--color-brand-muted)]">
         {label}
       </span>
-      <div className="flex h-10 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] pl-3 pr-1.5">
+      <div className="flex h-10 items-center gap-1.5 rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] pl-3 pr-1.5">
         <code className="flex-1 truncate font-mono text-[13px] text-[var(--color-brand-ink)]">{value}</code>
         <button
           type="button"
           onClick={handleCopy}
-          className="brand-focus inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-semibold text-[var(--color-brand-navy)] transition-colors hover:bg-[var(--color-brand-navy-soft)]"
+          className="brand-focus inline-flex h-7 shrink-0 items-center gap-1 rounded-field px-2 text-xs font-semibold text-[var(--color-brand-navy)] transition-colors hover:bg-[var(--color-brand-navy-soft)]"
         >
           {copied ? (
             <>
@@ -103,21 +102,16 @@ export function changed(next: string, prev: string | undefined) {
 }
 
 export function SectionHeading({
-  eyebrow,
   title,
   description,
 }: {
-  eyebrow: string;
   title: string;
   description: string;
 }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-muted)]">
-        {eyebrow}
-      </p>
-      <h1 className="mt-1.5 text-3xl font-bold text-[var(--color-brand-ink)]">{title}</h1>
-      <p className="mt-1 text-sm text-[var(--color-brand-muted)]">{description}</p>
+      <h1 className="text-4xl font-bold text-[var(--color-brand-ink)]">{title}</h1>
+      <p className="mt-1.5 text-sm text-[var(--color-brand-muted)]">{description}</p>
     </div>
   );
 }
@@ -125,20 +119,31 @@ export function SectionHeading({
 export function Card({
   title,
   icon,
+  padded = true,
+  className = "",
   children,
 }: {
   /** Omit on a page with only one card — a heading that can't distinguish
    *  itself from anything else earns nothing (see Personal Information). */
   title?: string;
   icon?: React.ReactNode;
+  /** False for a card that manages its own internal padding — e.g. a
+   *  watermark preset tile, whose preview image runs full-bleed to the
+   *  card's edges above a padded footer. */
+  padded?: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5 shadow-[0_1px_3px_rgba(42,34,24,0.08)]">
+    <div
+      className={`overflow-hidden rounded-card border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] shadow-[0_1px_3px_rgba(42,34,24,0.08)] ${
+        padded ? "p-7 sm:p-8" : ""
+      } ${className}`}
+    >
       {title && (
-        <div className="mb-4 flex items-center gap-2.5">
+        <div className="mb-5 flex items-center gap-3">
           {icon && (
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
               {icon}
             </span>
           )}
@@ -225,7 +230,7 @@ export function Field({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--color-brand-muted)]">
         {label}
         {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
       </span>
@@ -240,9 +245,9 @@ export function Field({
         aria-readonly={readOnly || undefined}
         maxLength={maxLength}
         aria-invalid={!!error}
-        className={`brand-focus h-10 w-full rounded-lg border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
+        className={`brand-focus h-10 w-full rounded-field border px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${
           error ? "border-[var(--color-brand-danger)]" : "border-[var(--color-brand-border)]"
-        } ${readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-bg)]"}`}
+        } ${readOnly ? "cursor-default bg-[var(--color-brand-border)]/25 text-[var(--color-brand-muted)]" : "bg-[var(--color-brand-surface-raised)]"}`}
       />
       {error ? (
         <span role="alert" className="mt-1 block text-xs text-[var(--color-brand-danger)]">
@@ -283,11 +288,11 @@ export function PhoneField({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--color-brand-muted)]">
         {label}
         {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
       </span>
-      <div className="flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
+      <div className="flex h-10 items-center rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]">
         <span className="flex h-full items-center border-r border-[var(--color-brand-border)] px-3 text-sm font-medium text-[var(--color-brand-muted)]">
           +91
         </span>
@@ -378,33 +383,35 @@ function VerifiedFieldRow({
   const labelId = useId();
   return (
     <div role="group" aria-labelledby={labelId} className="flex flex-col">
-      <div className="order-2 flex h-10 cursor-default items-center justify-between gap-3 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3">
+      <div className="order-2 flex h-10 cursor-default items-center rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3">
         {value}
-        {hasValue &&
-          (verified ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
-              <CheckIcon className="h-3 w-3" />
-              Verified
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
-              <AlertIcon className="h-3 w-3" />
-              Not verified
-            </span>
-          ))}
       </div>
-      <div className="order-1 mb-1.5 flex items-center justify-between gap-2">
-        <span id={labelId} className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+      <div className="order-1 mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span id={labelId} className="text-xs font-medium text-[var(--color-brand-muted)]">
           {label}
           {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
         </span>
-        <button
-          type="button"
-          onClick={onActionClick}
-          className="brand-focus text-xs font-semibold text-[var(--color-brand-muted)] underline-offset-2 hover:text-[var(--color-brand-navy)] hover:underline"
-        >
-          {actionLabel}
-        </button>
+        <span className="flex flex-wrap items-center gap-2">
+          {hasValue &&
+            (verified ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-success)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-success)]">
+                <CheckIcon className="h-3 w-3" />
+                Verified
+              </span>
+            ) : (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
+                <AlertIcon className="h-3 w-3" />
+                Not verified
+              </span>
+            ))}
+          <button
+            type="button"
+            onClick={onActionClick}
+            className="brand-focus text-xs font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+          >
+            {actionLabel}
+          </button>
+        </span>
       </div>
       {helper && <div className="order-3">{helper}</div>}
     </div>
@@ -548,7 +555,7 @@ export function SelectField({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--color-brand-muted)]">
         {label}
         {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
       </span>
@@ -556,7 +563,7 @@ export function SelectField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
-        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none focus:border-[var(--color-brand-outline)]"
+        className="brand-focus h-10 w-full rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none focus:border-[var(--color-brand-outline)]"
       >
         <option value="" disabled>
           {placeholder}
@@ -603,6 +610,7 @@ export function SaveBar({
   formId,
   idleHint = "Changes apply to all delivery pages immediately.",
   blockedReason,
+  onDiscard,
 }: {
   saveState: SaveState;
   errorMsg: string | null;
@@ -618,6 +626,10 @@ export function SaveBar({
    *  permanently disabled button with no indication why. Ignored once a
    *  real save error or the "saved" flash takes over. */
   blockedReason?: string | null;
+  /** Resets the section's local state back to its last-loaded snapshot.
+   *  Rendered only while `dirty`, so it disappears the moment there's
+   *  nothing left to discard. */
+  onDiscard?: () => void;
 }) {
   // Looked up in an effect, not a lazy initializer: when SettingsChrome's
   // `load` flips from "loading" to "ready" for the first time, the anchor
@@ -639,7 +651,7 @@ export function SaveBar({
   if (!visible || !root) return null;
 
   return createPortal(
-    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)]">
+    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-pill border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)]">
       {/* One live region for every state this bar can be in — success, error
           and the blocked-reason explanation all need announcing, and it's
           simpler and more reliable than nesting a second (assertive)
@@ -669,24 +681,36 @@ export function SaveBar({
         )}
       </div>
 
-      <button
-        type="submit"
-        form={formId}
-        disabled={saveState === "saving" || !canSave}
-        className="brand-focus inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {saveState === "saving" ? (
-          <>
-            <Spinner />
-            Saving…
-          </>
-        ) : (
-          <>
-            <SaveIcon className="h-4 w-4" />
-            Save changes
-          </>
+      <div className="flex shrink-0 items-center gap-3">
+        {dirty && onDiscard && (
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={saveState === "saving"}
+            className="brand-focus text-sm font-semibold text-[var(--color-brand-muted)] transition-colors hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Discard
+          </button>
         )}
-      </button>
+        <button
+          type="submit"
+          form={formId}
+          disabled={saveState === "saving" || !canSave}
+          className="brand-focus inline-flex h-10 shrink-0 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saveState === "saving" ? (
+            <>
+              <Spinner />
+              Saving…
+            </>
+          ) : (
+            <>
+              <CheckIcon className="h-4 w-4" />
+              Save changes
+            </>
+          )}
+        </button>
+      </div>
     </div>,
     root,
   );
@@ -697,11 +721,11 @@ export function SectionSkeleton() {
     <div className="space-y-5">
       <div className="space-y-2">
         <div className="skeleton h-3 w-12 rounded" />
-        <div className="skeleton h-8 w-48 rounded-lg" />
+        <div className="skeleton h-8 w-48 rounded-field" />
         <div className="skeleton h-4 w-72 rounded" />
       </div>
       {[1, 2].map((i) => (
-        <div key={i} className="skeleton h-44 rounded-xl" />
+        <div key={i} className="skeleton h-44 rounded-card" />
       ))}
     </div>
   );
@@ -709,7 +733,7 @@ export function SectionSkeleton() {
 
 export function FetchError({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] p-4 text-sm text-[var(--color-brand-danger)]">
+    <div className="flex items-start gap-3 rounded-card border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] p-4 text-sm text-[var(--color-brand-danger)]">
       <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{message}</span>
     </div>
@@ -748,10 +772,6 @@ export function OpenIcon({ className }: { className?: string }) {
 
 export function CopyIcon({ className }: { className?: string }) {
   return <IconCopy className={className} />;
-}
-
-export function SaveIcon({ className }: { className?: string }) {
-  return <IconSave className={className} />;
 }
 
 export function AlertIcon({ className }: { className?: string }) {

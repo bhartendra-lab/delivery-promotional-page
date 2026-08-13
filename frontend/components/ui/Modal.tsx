@@ -133,9 +133,9 @@ export function Modal({
         aria-labelledby={titleId}
         aria-describedby={subtitle ? subtitleId : undefined}
         tabIndex={-1}
-        className={`modal-pop modal-slide-up relative flex w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-2xl sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
+        className={`modal-pop modal-slide-up relative flex w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-card sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
       >
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:static sm:rounded-t-2xl sm:px-7 sm:py-5">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:static sm:rounded-t-card sm:px-7 sm:py-5">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {headerLeading}
             <div className="min-w-0">
@@ -162,7 +162,7 @@ export function Modal({
         <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">{children}</div>
 
         {footer && (
-          <footer className="sticky bottom-0 z-10 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:static sm:rounded-b-2xl sm:px-7 sm:py-5">
+          <footer className="sticky bottom-0 z-10 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:static sm:rounded-b-card sm:px-7 sm:py-5">
             {footer}
           </footer>
         )}
