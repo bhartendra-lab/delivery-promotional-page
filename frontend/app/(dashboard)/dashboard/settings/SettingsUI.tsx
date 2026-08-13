@@ -619,13 +619,21 @@ export function SaveBar({
    *  real save error or the "saved" flash takes over. */
   blockedReason?: string | null;
 }) {
-  // Lazy initializer (not an effect): the anchor is already in the DOM by
-  // the time this component's first client render runs, whether that's
-  // hydration of server-rendered HTML or a client-side route change within
-  // the persistent settings layout.
-  const [root] = useState<HTMLElement | null>(() =>
-    typeof document === "undefined" ? null : document.getElementById(SECTION_SAVE_BAR_ROOT_ID),
-  );
+  // Looked up in an effect, not a lazy initializer: when SettingsChrome's
+  // `load` flips from "loading" to "ready" for the first time, the anchor
+  // div and this section's <SaveBar> are created in the SAME render pass.
+  // React runs all render-phase code (including a useState lazy
+  // initializer) before committing anything to the real DOM, so
+  // document.getElementById found nothing on that first render and,
+  // being a lazy initializer, never looked again — the bar silently
+  // stayed null for the lifetime of that mount. Navigating between
+  // sections worked because the anchor was already committed from an
+  // earlier render by then. An effect runs after commit, so by the time
+  // it fires the anchor is guaranteed to exist, on every mount.
+  const [root, setRoot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setRoot(document.getElementById(SECTION_SAVE_BAR_ROOT_ID));
+  }, []);
 
   const visible = dirty || saveState !== "idle";
   if (!visible || !root) return null;
