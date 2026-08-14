@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
-import { downloadImage, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
+import { coldFallback, downloadImage, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { Lightbox } from "./Lightbox";
 import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
 
@@ -32,6 +32,13 @@ function GridImage({ src }: { src: string }) {
         alt=""
         loading="lazy"
         onLoad={() => setLoaded(true)}
+        onError={(e) => {
+          const el = e.currentTarget;
+          if (!el.dataset.fellBack) {
+            el.dataset.fellBack = "1";
+            el.src = coldFallback(src);
+          }
+        }}
         className={`h-full w-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-[1.02] ${
           loaded ? "opacity-100" : "opacity-0"
         }`}

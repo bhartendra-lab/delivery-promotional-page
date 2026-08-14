@@ -20,10 +20,28 @@ export function nameFromUrl(url: string): string {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Download one photo by fetching from its public R2 URL and saving locally. */
+const HOT = "media.vyavasth.in";
+const COLD = "cold.media.vyavasth.in";
+
+/**
+ * Rewrite a stale hot-host media URL to the cold-storage host. A URL can
+ * outlive the migration grace window — a bookmark, a long-lived client
+ * cache, an emailed link — so every original-fetching path retries once
+ * against the cold host before giving up. A URL that isn't on the hot host
+ * (already cold, or unrelated) is returned unchanged.
+ */
+export const coldFallback = (url: string): string => url.replace(`//${HOT}/`, `//${COLD}/`);
+
+/** Download one photo by fetching from its public URL and saving locally.
+ *  Retries once against the cold-storage host if the primary fetch fails
+ *  (see coldFallback). */
 export async function downloadImage(url: string, filename?: string): Promise<void> {
   const name = filename ?? nameFromUrl(url);
-  const res = await fetch(url, { cache: "no-store" });
+  let res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    const fallback = coldFallback(url);
+    if (fallback !== url) res = await fetch(fallback, { cache: "no-store" });
+  }
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   triggerBlobDownload(await res.blob(), name);
 }
@@ -60,12 +78,30 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
         const blob = await res.blob();
         if (blob.size > 0) return blob;
       } else if (res.status !== 429 && res.status < 500) {
-        return null; // a genuine 4xx (missing/forbidden) won't improve on retry
+        break; // a genuine 4xx (missing/forbidden) won't improve on retry — but
+        // it's also exactly what a migrated-and-purged original looks like, so
+        // fall through to the one cold-host attempt below instead of bailing.
       }
     } catch {
       /* network / HTTP2 stream error — fall through to backoff + retry */
     }
     if (attempt < FETCH_ATTEMPTS - 1) await delay(500 * 2 ** attempt); // 0.5s, 1s, 2s
+  }
+
+  // Every attempt against the original host failed. Try once against the
+  // cold-storage host (see coldFallback) before skipping the photo — this is a
+  // single extra attempt, not a loop, so a genuinely missing object still fails
+  // fast.
+  const fallback = coldFallback(url);
+  if (fallback === url) return null;
+  try {
+    const res = await fetch(fallback, { cache: "no-store" });
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.size > 0) return blob;
+    }
+  } catch {
+    /* fall through to null */
   }
   return null;
 }

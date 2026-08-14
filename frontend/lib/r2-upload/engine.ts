@@ -145,6 +145,10 @@ export class UploadEngineCore {
   private inputCursor = 0; // next input index for the compressor producer to pick
   private records = new Map<string, UploadRecord>(); // recordId → current state (mirror of IDB)
   private compressedBlobs = new Map<string, Blob>(); // recordId → compressed blob (cleared after upload)
+  // recordId → compressed blob size in bytes. Unlike compressedBlobs this is NOT
+  // cleared on upload success — create-media (flushOneMetadataChunk) needs it
+  // after the blob itself has already been freed.
+  private compressedSizes = new Map<string, number>();
   private compressedQueue: string[] = []; // recordIds waiting to be presigned
   private presignedQueue: PresignedItem[] = []; // ready to be PUT
   private startedAt = 0;
@@ -223,6 +227,7 @@ export class UploadEngineCore {
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.compressedBlobs.clear();
+    this.compressedSizes.clear();
 
     // Fresh run: drop the in-memory mirror from any previous successful run
     // so progress counters start at zero. (We deliberately do NOT clear after
@@ -434,6 +439,7 @@ export class UploadEngineCore {
     await clearBooking(this.bookingId);
     this.records.clear();
     this.compressedBlobs.clear();
+    this.compressedSizes.clear();
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.metadataPendingIds = [];
@@ -539,6 +545,7 @@ export class UploadEngineCore {
       const rec = this.records.get(recordId);
       if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims });
       this.compressedBlobs.set(recordId, blob);
+      this.compressedSizes.set(recordId, blob.size);
       this.compressedQueue.push(recordId);
     } catch (err) {
       const reason = err instanceof Error ? err.message : "compression failed";
@@ -908,6 +915,10 @@ export class UploadEngineCore {
       filename: r.filename,
       ...(r.width != null ? { width: r.width } : {}),
       ...(r.height != null ? { height: r.height } : {}),
+      ...((): { size?: number } => {
+        const size = this.compressedSizes.get(r.id);
+        return size != null ? { size } : {};
+      })(),
     }));
 
     try {
