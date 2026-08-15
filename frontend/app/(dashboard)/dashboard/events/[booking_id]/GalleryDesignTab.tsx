@@ -39,7 +39,7 @@ const COPY_LABEL: Record<string, string> = {
   "Pre-wedding": "Message from the Couple",
   Anniversary: "Message from the Hosts",
   Birthday: "Message from the Hosts",
-  Corporate: "Event Briefing",
+  Corporate: "Message from the Hosts",
 };
 
 const MAX = 500;
@@ -340,7 +340,7 @@ export function GalleryDesignTab({
                     eventType={eventType}
                     eventDateLabel={eventDateLabel}
                     coverUrl={coverUrl}
-                  coverPosition={coverPosition}
+                    coverPosition={coverPosition}
                     message={message}
                     branding={branding}
                     scope={scope}
@@ -510,7 +510,7 @@ function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: 
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             canDownloadAll={previewUnlocked}
             zipping={false}
-            onDownloadAll={() => {}}
+            onDownloadAll={() => { }}
             unlocked={previewUnlocked}
             onOpenPrivate={() => setPreviewUnlocked(true)}
             iconOnly={compact}

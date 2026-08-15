@@ -275,11 +275,10 @@ function FilterPill({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`brand-focus rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
-        active
+      className={`brand-focus rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${active
           ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
           : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-      }`}
+        }`}
     >
       {children}
     </button>
@@ -358,11 +357,10 @@ function GuestRow({ guest, onRevoked }: { guest: Guest; onRevoked: (updated: Gue
 function RoleBadge({ isHost }: { isHost: boolean }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${
-        isHost
+      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${isHost
           ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
           : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
-      }`}
+        }`}
     >
       {isHost ? "Host" : "Guest"}
     </span>
@@ -418,7 +416,7 @@ function PasscodeCard({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Family passcode
+            Master passcode
             <Tip text="Share this privately with the couple / immediate family only. Entered inside the lounge, it unlocks the complete gallery (all folders, every photo)." />
           </h3>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">

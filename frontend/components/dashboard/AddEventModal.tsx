@@ -21,7 +21,7 @@ export function AddEventModal({ open, onClose }: Props) {
   const { dlpUsage } = useChrome();
   const { openUpgradeModal } = useUpgradeModal();
   const [name, setName] = useState("");
-  const [eventType, setEventType] = useState<EventType>("Wedding");
+  const [eventType, setEventType] = useState<EventType | null>(null);
   const [eventDate, setEventDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function AddEventModal({ open, onClose }: Props) {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resets all form state on open transition, not a render loop
     setName("");
-    setEventType("Wedding");
+    setEventType(null);
     setEventDate("");
     setError(null);
     setSubmitting(false);
@@ -48,11 +48,11 @@ export function AddEventModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const canSubmit = name.trim().length > 0 && !submitting;
+  const canSubmit = name.trim().length > 0 && eventType !== null && !submitting;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !eventType) return;
     setSubmitting(true);
     setError(null);
     try {

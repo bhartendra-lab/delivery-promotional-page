@@ -89,7 +89,7 @@ export function PhoneStep({
       <form onSubmit={submit} noValidate className="flex flex-col gap-3.5">
         <label className="flex flex-col gap-1.5">
           <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
-            Your name
+            Full Name
           </span>
           <input
             type="text"

@@ -52,12 +52,7 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
         <div key={subStep} className="fx-stagger mx-auto flex w-full max-w-[380px] flex-1 flex-col">
           {/* brand zone */}
           <div className="flex flex-col items-center gap-5 pt-[clamp(48px,9vh,88px)]">
-            <span
-              className="fx-float relative flex h-24 w-24 items-center justify-center rounded-full"
-              style={{ background: t.accentWash }}
-            >
-              {/* spinning colour halo */}
-              <span className="fx-spin-slow absolute -inset-2 rounded-full opacity-50" style={{ background: t.ring, filter: "blur(11px)" }} />
+            <span className="fx-float relative flex h-24 w-24 items-center justify-center rounded-full">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/vyavasth-icon.svg" alt="vyavasth" className="relative z-10 h-[52px] w-[52px]" />
             </span>
