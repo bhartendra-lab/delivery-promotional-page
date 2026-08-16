@@ -50,6 +50,32 @@ export default function StudioIdentityPage() {
   const [address, setAddress] = useState(company.address ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(company.google_place_id ?? "");
 
+  // The formatted address Google last committed via onPlaceSelect. Initialised
+  // from the loaded company address (not "") so an already-saved listing
+  // doesn't get its place ID wiped by the first unrelated keystroke on page
+  // load. Any further typing that diverges from this means the picked place
+  // no longer matches what's in the field, so the stale placeId must be
+  // cleared — see handleAddressChange below.
+  const committedAddressRef = useRef<string>(company.address ?? "");
+
+  function handleAddressChange(value: string) {
+    setAddress(value);
+    if (value !== committedAddressRef.current) setGooglePlaceId("");
+  }
+
+  function handleRemoveListing() {
+    if (
+      !window.confirm(
+        "Remove this listing? Guests will no longer see a Leave a review button on any of your galleries.",
+      )
+    ) {
+      return;
+    }
+    setGooglePlaceId("");
+    setAddress("");
+    committedAddressRef.current = "";
+  }
+
   const [darkFile, setDarkFile] = useState<File | null>(null);
   const [lightFile, setLightFile] = useState<File | null>(null);
 
@@ -146,6 +172,7 @@ export default function StudioIdentityPage() {
     setWebsite(company.website ?? "");
     setAddress(company.address ?? "");
     setGooglePlaceId(company.google_place_id ?? "");
+    committedAddressRef.current = company.address ?? "";
     setDarkFile(null);
     setLightFile(null);
   }
@@ -212,8 +239,11 @@ export default function StudioIdentityPage() {
             <AddressField
               label="Your studio on Google"
               value={address}
-              onChange={setAddress}
-              onPlaceSelect={({ placeId }) => setGooglePlaceId(placeId)}
+              onChange={handleAddressChange}
+              onPlaceSelect={({ placeId, address: pickedAddress }) => {
+                setGooglePlaceId(placeId);
+                committedAddressRef.current = pickedAddress;
+              }}
               placeholder="Search for your studio"
             />
             <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
@@ -229,15 +259,24 @@ export default function StudioIdentityPage() {
                   <CheckIcon className="h-3 w-3 shrink-0 text-[var(--color-brand-success)]" />
                   This is the page clients land on when they tap Leave a review.
                 </p>
-                <a
-                  href={`https://search.google.com/local/writereview?placeid=${encodeURIComponent(googlePlaceId)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
-                >
-                  <OpenIcon className="h-3.5 w-3.5" />
-                  See your Google Reviews page
-                </a>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`https://search.google.com/local/writereview?placeid=${encodeURIComponent(googlePlaceId)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
+                  >
+                    <OpenIcon className="h-3.5 w-3.5" />
+                    See your Google Reviews page
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleRemoveListing}
+                    className="brand-focus rounded-md text-xs font-semibold text-[var(--color-brand-danger)] hover:underline"
+                  >
+                    Remove listing
+                  </button>
+                </div>
               </div>
             </div>
           )}

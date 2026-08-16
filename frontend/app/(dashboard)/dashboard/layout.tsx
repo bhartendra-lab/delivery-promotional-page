@@ -86,10 +86,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar breadcrumb={breadcrumb} />
+        <SubscriptionBanner snapshot={snapshot} scope="app" className="px-4 pt-4 sm:px-6" />
         <main ref={mainRef as React.RefObject<HTMLElement>} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className="px-4 pt-4 sm:px-6">
-            <SubscriptionBanner snapshot={snapshot} scope="app" />
-          </div>
           {children}
         </main>
       </div>
