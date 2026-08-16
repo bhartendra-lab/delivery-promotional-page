@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
-import { presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
-import { setCachedMediaIds } from "@/lib/guest-auth";
+import { presignGuestUploads, recordConsent, validateSelfie } from "@/lib/guest-api";
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
@@ -15,47 +14,44 @@ import {
   IconCopy,
   IconSmiley,
   IconCheck,
-  IconImages,
   IconLock,
-  IconInfo,
 } from "@/components/ui/icons";
 
-type Phase = "intro" | "camera" | "processing" | "matched" | "error";
+type Phase = "consent" | "processing" | "error";
 
 /**
- * Screen 2–4 · Face scan — T&C consent → live camera → upload + validate +
- * search → matched. Themed to the event's style_variant. The selfie is captured
- * as JPEG, uploaded direct to R2 via the presign endpoint, validated against the
- * face-search worker (retake on failure), then searched; the matched media_ids
- * feed the gallery.
+ * Screen 2–3 · Face scan — consent + live camera merged into one screen, then
+ * upload + validate. Themed to the event's style_variant. The selfie is
+ * captured as JPEG and uploaded direct to R2 via the presign endpoint, then
+ * validated against the face-search worker (retake on failure). The actual
+ * face search — and the matched-photos reveal — happens after handoff, in the
+ * Lounge (`LoungeGallery`'s own mediaIds-resolution effect), not here.
  */
 export function ScanFlow({
   guestName,
   onComplete,
 }: {
   guestName?: string;
-  /** Called with the selfie url once the scan succeeds. The matched media_ids
-   *  are cached in the session here (see `setCachedMediaIds`), not passed up. */
-  onComplete: (selfieUrl: string) => void;
+  /** Called once the selfie is uploaded and validated (search + match happen
+   *  after handoff, in the Lounge). `selfieId` seeds `session.selfie_id` so
+   *  the Lounge can run its own search. */
+  onComplete: (selfieUrl: string, selfieId: string) => void;
 }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
   const { openPolicy } = usePolicy();
   const bookingId = event.booking_id;
 
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<Phase>("consent");
   const [agreed, setAgreed] = useState(false);
   const [pct, setPct] = useState(0);
   const [target, setTarget] = useState(0);
-  const [status, setStatus] = useState("Scanning photos…");
+  const [status, setStatus] = useState("Uploading your selfie…");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [matchedIds, setMatchedIds] = useState<string[]>([]);
-  const [selfieUrl, setSelfieUrl] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   // Camera permission gate: a blocking pop-up shown over the camera screen when
   // the live camera can't start. Camera access is strictly required to proceed.
   const [camGate, setCamGate] = useState<CamGate>(null);
   const [camAttempt, setCamAttempt] = useState(0);
-  const matchCount = matchedIds.length;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -68,10 +64,12 @@ export function ScanFlow({
     return () => clearInterval(id);
   }, [target]);
 
-  // Live camera while on the camera phase; stop tracks when leaving / unmounting.
-  // Re-runs on each retry (camAttempt) so the gate's "try again" can re-request.
+  // Live camera once consent is given (ticking the checkbox starts it); stop
+  // tracks when consent is withdrawn, phase moves on, or on unmount. Re-runs
+  // on each retry (camAttempt) so the gate's "try again" can re-request, and
+  // again on a retake (phase drops back to "consent" with `agreed` still true).
   useEffect(() => {
-    if (phase !== "camera") return;
+    if (!agreed || phase !== "consent") return;
     let cancelled = false;
     let stream: MediaStream | null = null;
 
@@ -116,12 +114,12 @@ export function ScanFlow({
       if (stream) stream.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
     };
-  }, [phase, camAttempt, uniqueIdentifier, bookingId]);
+  }, [agreed, phase, camAttempt, uniqueIdentifier, bookingId]);
 
   function resetProgress() {
     setPct(0);
     setTarget(0);
-    setStatus("Scanning photos…");
+    setStatus("Uploading your selfie…");
   }
 
   async function runPipeline(blob: Blob, previewUrl: string) {
@@ -129,7 +127,7 @@ export function ScanFlow({
     setPhase("processing");
     resetProgress();
     try {
-      setTarget(15);
+      setTarget(35);
       setStatus("Uploading your selfie…");
       const selfieId = crypto.randomUUID();
       const { uploads } = await presignGuestUploads(uniqueIdentifier, bookingId, [
@@ -138,24 +136,13 @@ export function ScanFlow({
       const up = uploads[0];
       await putBlobToPresignedUrl(up.presigned_url, blob, "image/jpeg");
 
-      setTarget(45);
+      setTarget(90);
       setStatus("Checking your photo…");
       await validateSelfie(uniqueIdentifier, { selfie_id: selfieId, selfie_url: up.public_url });
 
-      setTarget(80);
-      setStatus("Matching faces…");
-      const res = await searchSelfie(uniqueIdentifier, { selfie_id: selfieId, booking_id: bookingId });
-      const ids = res.data || [];
-      // Cache the matched set for this tab session — the lounge reads it instead
-      // of re-running the search, and a rescan overwrites it here.
-      setCachedMediaIds(uniqueIdentifier, ids);
-
-      setTarget(100);
-      setStatus("Match complete");
-      setMatchedIds(ids);
-      setSelfieUrl(up.public_url);
-      // Brief beat at 100% before revealing the result (explicit "See my photos").
-      window.setTimeout(() => setPhase("matched"), 750);
+      // Hand off immediately — the face search (and the "Found N photos"
+      // moment) now happens in the Lounge, not here.
+      onComplete(up.public_url, selfieId);
     } catch (err) {
       setErrorMsg(toFriendlyError(err));
       setPhase("error");
@@ -188,55 +175,67 @@ export function ScanFlow({
   }
 
   /**
-   * Guest ticked the consent box and tapped "Scan my face". Persist the consent
-   * to the audit trail, then advance to the camera. Fire-and-forget: the tick
-   * itself is the consent — this records the proof — so a logging failure must
-   * never block the scan (we report it instead).
+   * Ticking the consent checkbox both records the audit-trail proof and starts
+   * the camera (the camera-starting effect above is gated on `agreed`).
+   * Fire-and-forget: the tick itself is the consent, so a logging failure must
+   * never block the scan (we report it instead). Un-ticking stops the camera;
+   * re-ticking records consent again, which is fine — it's genuinely a fresh
+   * consent event.
    */
-  function startScan() {
-    if (!agreed) return;
-    void recordConsent(uniqueIdentifier, { policy_version: POLICY_VERSION }).catch((err) => {
-      void reportBug("Face scan — consent log failed", {
-        Event: uniqueIdentifier,
-        Booking: bookingId,
-        "Error message": err instanceof Error ? err.message : String(err),
-      });
+  function toggleAgreed() {
+    setAgreed((a) => {
+      const next = !a;
+      if (next) {
+        void recordConsent(uniqueIdentifier, { policy_version: POLICY_VERSION }).catch((err) => {
+          void reportBug("Face scan — consent log failed", {
+            Event: uniqueIdentifier,
+            Booking: bookingId,
+            "Error message": err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      return next;
     });
-    setPhase("camera");
   }
 
   /* ── views ──────────────────────────────────────────────────────────── */
 
-  if (phase === "intro") {
+  if (phase === "consent") {
     return (
       <Shell guestName={guestName}>
-        <div className="flex flex-1 flex-col items-center justify-center gap-5 px-7 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 px-7">
+          {/* viewfinder — inert placeholder pre-consent, live once agreed */}
           <div className="relative">
-            {/* radar pulse */}
-            <span className="fx-ring-ping absolute inset-0 rounded-full" style={{ border: `2px solid ${t.brand}` }} />
-            <span className="brand-pulse relative flex h-32 w-32 items-center justify-center rounded-full" style={{ background: t.ring, padding: 5 }}>
-              <span className="flex h-full w-full items-center justify-center rounded-full" style={{ background: t.sunken, border: "3px solid #fff" }}>
-                <IconSmiley size={44} style={{ color: t.faint }} />
-              </span>
-              <span className="absolute -bottom-1 -right-1 flex h-11 w-11 items-center justify-center rounded-full" style={{ background: t.brand, border: `3px solid ${t.bg}`, color: t.onBrand }}>
-                <IconScanFace size={20} />
-              </span>
-            </span>
+            {agreed && <span className="fx-glow-pulse absolute -inset-3 rounded-[32px]" style={{ background: t.accentWash, filter: "blur(22px)" }} />}
+            <div className="relative overflow-hidden" style={{ width: 248, height: 300, borderRadius: 26, background: t.viewer, boxShadow: t.shadow }}>
+              {agreed ? (
+                <>
+                  <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                  <Brackets />
+                </>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <IconSmiley size={40} style={{ color: t.faint }} />
+                </div>
+              )}
+            </div>
           </div>
-          <div className="fx-blur-in flex flex-col gap-2.5">
-            <h1 className="text-[26px] font-extrabold leading-[1.2] tracking-[-0.02em]" style={{ color: t.text }}>
-              Let’s find you<br />in the photos
+
+          <div className="fx-blur-in flex flex-col gap-1.5 text-center">
+            <h1 className="text-[24px] font-extrabold leading-[1.2] tracking-[-0.02em]" style={{ color: t.text }}>
+              Let’s find you in the photos
             </h1>
-            <p className="text-[14px] font-semibold leading-[1.55]" style={{ color: t.muted }}>
-              One quick selfie. We’ll scan the gallery and pull out every single photo you’re in.
+            <p className="text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+              {agreed ? "Center your face in the frame, then capture." : "Good light, face centered, no sunglasses."}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-3.5 px-6 pb-2">
+        <div className="flex flex-col gap-3 px-6 pb-2">
+          {/* consent checkbox — directly under the viewfinder; ticking it starts the camera */}
           <button
             type="button"
-            onClick={() => setAgreed((a) => !a)}
+            onClick={toggleAgreed}
             className="flex cursor-pointer items-start gap-3 rounded-2xl p-3.5 text-left transition-colors"
             style={{ background: agreed ? t.accentWash : t.card, border: `1px solid ${agreed ? t.brand : t.border}` }}
           >
@@ -265,7 +264,7 @@ export function ScanFlow({
 
           <button
             type="button"
-            onClick={startScan}
+            onClick={capture}
             disabled={!agreed}
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{
@@ -274,52 +273,11 @@ export function ScanFlow({
               cursor: agreed ? "pointer" : "not-allowed",
             }}
           >
-            <IconScanFace size={18} /> Scan my face
+            <IconScanFace size={18} /> Capture selfie
           </button>
           <div className="text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
             Verifying your face is required to view your photos.
           </div>
-
-          {/* Accuracy note (not an age gate): face matching is less reliable for children. */}
-          <div className="flex items-start justify-center gap-1.5 px-1" style={{ color: t.faint }}>
-            <span className="mt-px flex-none">
-              <IconInfo size={13} />
-            </span>
-            <span className="text-[11px] font-semibold leading-[1.4]" style={{ color: t.faint }}>
-              Face recognition is trained predominantly on adult faces and is therefore less reliable
-              at identifying children.
-            </span>
-          </div>
-        </div>
-        <PoweredBy />
-      </Shell>
-    );
-  }
-
-  if (phase === "camera") {
-    return (
-      <Shell guestName={guestName}>
-        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-7">
-          <div className="relative">
-            <span className="fx-glow-pulse absolute -inset-3 rounded-[32px]" style={{ background: t.accentWash, filter: "blur(22px)" }} />
-            <div className="relative overflow-hidden" style={{ width: 260, height: 320, borderRadius: 26, background: t.viewer, boxShadow: t.shadow }}>
-              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
-              <Brackets />
-            </div>
-          </div>
-          <p className="text-center text-[13.5px] font-semibold" style={{ color: t.muted }}>
-            Center your face in the frame, then capture.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2.5 px-7 pb-2">
-          <button
-            type="button"
-            onClick={capture}
-            className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
-            style={{ background: t.brand, color: t.onBrand }}
-          >
-            <IconScanFace size={18} /> Capture selfie
-          </button>
         </div>
         <PoweredBy />
         {camGate && <PermissionGate gate={camGate} onRetry={() => setCamAttempt((n) => n + 1)} />}
@@ -368,56 +326,8 @@ export function ScanFlow({
     );
   }
 
-  if (phase === "matched") {
-    return (
-      <Shell guestName={guestName}>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-7 text-center">
-          <div className="fx-pop relative">
-            {/* success burst */}
-            <span className="fx-ring-ping absolute inset-0 rounded-full" style={{ border: `2px solid ${t.success}` }} />
-            <span className="relative flex h-28 w-28 items-center justify-center rounded-full" style={{ background: t.ring, padding: 5 }}>
-              <span className="flex h-full w-full items-center justify-center rounded-full text-white" style={{ background: t.success, border: "3px solid #fff" }}>
-                <IconCheck size={44} weight="bold" />
-              </span>
-            </span>
-          </div>
-          <div className="fx-rise flex flex-col gap-2">
-            <h1 className="text-[27px] font-extrabold tracking-[-0.02em]" style={{ color: t.text }}>
-              Found <span className="fx-pop inline-block" style={{ color: t.brand }}>{matchCount}</span> photo{matchCount === 1 ? "" : "s"} of you
-            </h1>
-            <p className="text-[14px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
-              {matchCount > 0 ? "Your full set is ready and waiting inside." : "We couldn’t match any photos yet — more may appear as the studio adds them."}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 px-7 pb-2">
-          <button
-            type="button"
-            onClick={() => onComplete(selfieUrl)}
-            className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
-            style={{ background: t.brand, color: t.onBrand }}
-          >
-            <IconImages size={18} /> See my photos
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setErrorMsg(null);
-              resetProgress();
-              setPhase("camera");
-            }}
-            className="w-full cursor-pointer py-2 text-center text-[13px] font-bold"
-            style={{ color: t.muted }}
-          >
-            Not you? Rescan my face
-          </button>
-        </div>
-        <PoweredBy />
-      </Shell>
-    );
-  }
-
-  // error
+  // error — retake goes back to "consent" with `agreed` still true, which
+  // re-triggers the camera-starting effect for a fresh stream.
   return (
     <Shell guestName={guestName}>
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
@@ -435,7 +345,7 @@ export function ScanFlow({
           onClick={() => {
             setErrorMsg(null);
             resetProgress();
-            setPhase("camera");
+            setPhase("consent");
           }}
           className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
           style={{ background: t.brand, color: t.onBrand }}
@@ -620,7 +530,7 @@ function Shell({ guestName, children }: { guestName?: string; children: React.Re
   );
 }
 
-function PoweredBy() {
+export function PoweredBy() {
   const { theme: t } = useEventTheme();
   return (
     <div className="py-4 text-center text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: t.faint }}>

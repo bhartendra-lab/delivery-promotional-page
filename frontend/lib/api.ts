@@ -1122,13 +1122,16 @@ export function refreshGuestToken(token: string) {
  * `normalizePhoneNumber`), so they resolve to the same guest doc.
  */
 
-/** POST /auth/guest-otp-login — sends the first code. 429 on cooldown. */
-export function requestGuestOtp(input: { uniqueIdentifier: string; name: string; phone: string }) {
+/**
+ * POST /auth/guest-otp-login — sends the first code. 429 on cooldown. No
+ * `name` here — the guest is created (or found) as "Guest" and the real name
+ * is only ever written post-verification, via `updateGuestSubType`.
+ */
+export function requestGuestOtp(input: { uniqueIdentifier: string; phone: string }) {
   return request<{ message: string }>("/auth/guest-otp-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      name: input.name,
       phone: input.phone,
       unique_identifier: input.uniqueIdentifier,
     }),

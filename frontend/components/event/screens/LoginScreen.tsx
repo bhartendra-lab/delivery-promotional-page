@@ -1,90 +1,78 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { ClientTheme } from "@/lib/client-theme";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
-import { IconLock, IconShieldCheck } from "@/components/ui/icons";
-import { PhoneStep } from "./PhoneStep";
-import { OtpStep } from "./OtpStep";
+import { IconBrowser, IconCopy } from "@/components/ui/icons";
+import { SignInStep } from "./SignInStep";
+import { PoweredBy } from "./ScanFlow";
 
-type SubStep = "phone" | "otp";
+/** Mirrors the studio-name length policy `MobileTopBar.tsx` already uses (SHORT_STUDIO_NAME). */
+const SHORT_STUDIO_NAME = 18;
+
+function truncateStudio(name: string): string {
+  return name.length > SHORT_STUDIO_NAME ? `${name.slice(0, SHORT_STUDIO_NAME)}…` : name;
+}
 
 /**
- * Screen container — WhatsApp OTP is the primary sign-in (`PhoneStep`, then
- * `OtpStep`); Google SSO is demoted to a de-emphasized fallback shown only at
- * the bottom of `OtpStep`. Owns the shared shell (brand halo, desktop hero
- * pane, policy footer) and the `{ name, phone }` carried between the two
- * sub-steps, mirroring `Login2` (mobile) and `DesktopAuth initStep="login"`
- * (split layout on large screens).
+ * Screen container — WhatsApp OTP is the primary sign-in (`SignInStep`, phone
+ * entry and code verification merged into one screen); Google SSO is
+ * demoted to a de-emphasized text-link fallback shown only once a code is in
+ * flight. No cover/hero treatment here — `WelcomeScreen` (which always
+ * precedes this, see `EventFlow`) already showed the event's identity, so
+ * this stays a plain, focused sign-in utility.
  */
-export function LoginScreen({ authError = false }: { authError?: boolean }) {
+export function LoginScreen({
+  authError = false,
+  onAuthed,
+}: {
+  authError?: boolean;
+  /** Guest just verified their OTP (or is arriving via a token that's already
+   *  stored) — re-run `EventFlow`'s session restore in place. */
+  onAuthed: () => void;
+}) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
   const { openPolicy } = usePolicy();
-  const [subStep, setSubStep] = useState<SubStep>("phone");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  // In-app browsers (WhatsApp/Instagram) often strip the camera API entirely —
+  // catch that here, before the guest invests a phone number + OTP, rather
+  // than letting them discover it two screens later at the scan step.
+  const [cameraUnsupported, setCameraUnsupported] = useState(false);
 
-  const studio = event.include_company_branding ? event.company_name : undefined;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Defer so this never calls setState synchronously inside the effect body.
+      await Promise.resolve();
+      if (cancelled) return;
+      if (!navigator.mediaDevices?.getUserMedia) setCameraUnsupported(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rawStudio = event.include_company_branding ? event.company_name : undefined;
+  const studio = rawStudio ? truncateStudio(rawStudio) : undefined;
   const eventName = event.event_name || "this event";
 
-  const cover = event.background_image
-    ? { backgroundImage: `url(${event.background_image})`, backgroundSize: "cover", backgroundPosition: event.background_position || "center" }
-    : { backgroundImage: `linear-gradient(150deg, ${t.cover[0]}, ${t.cover[1]})` };
-
   return (
-    <div className="relative isolate grid min-h-[100dvh] grid-cols-1 lg:grid-cols-2" style={{ background: t.bg, fontFamily: t.font }}>
+    <div className="relative isolate flex min-h-[100dvh] flex-col" style={{ background: t.bg, fontFamily: t.font }}>
       <AmbientBackdrop a={t.cover[0]} b={t.brand} />
-      {/* Desktop hero pane — the event's own cover (not a themed surface) */}
-      <div className="relative hidden overflow-hidden lg:block">
-        <div className={`absolute inset-0 ${event.background_image ? "hero-kenburns" : ""}`} style={cover} />
-        <div className="absolute inset-0" style={{ background: t.heroScrim }} />
-        <div className="fx-blur-in absolute inset-x-0 bottom-0 p-12 text-white">
-          <div className="text-[12px] font-bold uppercase tracking-[0.22em] opacity-90">
-            {event.event_type ? `${event.event_type} gallery` : "Event gallery"}
-          </div>
-          <div className="mt-2 text-[40px] font-extrabold leading-[1.1] tracking-[-0.02em]">{eventName}</div>
-        </div>
-      </div>
 
-      {/* Auth pane */}
-      <div className="relative flex flex-col px-7 sm:px-10">
-        <div key={subStep} className="fx-stagger mx-auto flex w-full max-w-[380px] flex-1 flex-col">
-          {/* brand zone */}
-          <div className="flex flex-col items-center gap-5 pt-[clamp(48px,9vh,88px)]">
-            <span className="fx-float relative flex h-24 w-24 items-center justify-center rounded-full">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/vyavasth-icon.svg" alt="vyavasth" className="relative z-10 h-[52px] w-[52px]" />
-            </span>
-            <span className="text-[24px] font-extrabold lowercase tracking-[-0.03em]" style={{ color: t.text }}>
-              vyavasth
-            </span>
-          </div>
+      <div className="relative flex flex-1 flex-col px-7 sm:px-10">
+        <div className="fx-stagger mx-auto flex w-full max-w-[380px] flex-1 flex-col justify-center">
+          <SignInStep
+            theme={t}
+            eventName={eventName}
+            studio={studio}
+            authError={authError}
+            uniqueIdentifier={uniqueIdentifier}
+            onAuthed={onAuthed}
+          />
 
-          {subStep === "phone" ? (
-            <PhoneStep
-              theme={t}
-              eventName={eventName}
-              studio={studio}
-              authError={authError}
-              uniqueIdentifier={uniqueIdentifier}
-              name={name}
-              phone={phone}
-              onNameChange={setName}
-              onPhoneChange={setPhone}
-              onSent={() => setSubStep("otp")}
-            />
-          ) : (
-            <OtpStep
-              theme={t}
-              uniqueIdentifier={uniqueIdentifier}
-              name={name.trim()}
-              phone={phone}
-              onBack={() => setSubStep("phone")}
-            />
-          )}
-
-          <p className="mb-7 mt-5 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
+          <p className="mb-2 mt-5 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
             By continuing you agree to our{" "}
             <button type="button" onClick={() => openPolicy("terms")} className="underline underline-offset-2" style={{ color: t.muted }}>
               Terms
@@ -96,23 +84,73 @@ export function LoginScreen({ authError = false }: { authError?: boolean }) {
             .
           </p>
         </div>
+
+        <PoweredBy />
       </div>
+
+      {cameraUnsupported && <BrowserUnsupportedNotice t={t} />}
     </div>
   );
 }
 
-/* ── icons ──────────────────────────────────────────────────────────────── */
+/* ── camera-capability nudge ───────────────────────────────────────────── */
 
-// Official Google 4-color "G" mark for the sign-in button — Google's brand
-// guidelines require this exact multi-color asset, which no monochrome icon
-// library (Phosphor/lucide/simple-icons) carries, so it stays hand-drawn.
-function GoogleG({ size = 20 }: { size?: number }) {
+/**
+ * Blocking notice shown when `navigator.mediaDevices.getUserMedia` isn't
+ * present at all — typically a stripped-down in-app webview (WhatsApp /
+ * Instagram) that can never reach the camera. Mirrors the severity of
+ * `ScanFlow`'s camera `PermissionGate`: the scan step strictly requires a
+ * camera, so there's no point letting the guest submit a phone number and
+ * OTP here first only to hit the same wall two screens later.
+ */
+function BrowserUnsupportedNotice({ t }: { t: ClientTheme }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard?.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the guest can still copy from the address bar */
+    }
+  }
+
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
-      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8a12 12 0 1 1 0-24c3 0 5.8 1.1 7.9 3l5.7-5.7A20 20 0 1 0 24 44c11 0 20-9 20-20 0-1.3-.1-2.3-.4-3.5z" />
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7A20 20 0 0 0 6.3 14.7z" />
-      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A12 12 0 0 1 12.7 28l-6.5 5A20 20 0 0 0 24 44z" />
-      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C39.9 41.3 44 35.4 44 24c0-1.3-.1-2.3-.4-3.5z" />
-    </svg>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      style={{ background: "rgba(20,14,9,0.55)", backdropFilter: "blur(2px)" }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="fx-rise m-3 w-full max-w-[400px] rounded-3xl p-6"
+        style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
+      >
+        <div
+          className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+          style={{ background: t.errorSoft, color: t.error }}
+        >
+          <IconBrowser size={30} />
+        </div>
+        <h2 className="text-center text-[19px] font-extrabold tracking-[-0.02em]" style={{ color: t.text }}>
+          Open in a different browser
+        </h2>
+        <p className="mt-2 text-center text-[13.5px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+          This page can’t reach the camera here — it may be running inside another app’s in-app browser. Open the
+          link in Chrome (Android) or Safari (iPhone) to continue.
+        </p>
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={copyLink}
+            className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+            style={{ background: t.brand, color: t.onBrand }}
+          >
+            <IconCopy size={16} /> {copied ? "Link copied!" : "Copy link"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

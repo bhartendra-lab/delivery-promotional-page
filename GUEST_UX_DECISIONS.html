@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guest Flow — Decisions</title>
+<style>
+  :root{
+    --bg:#0E0F11; --panel:#16181B; --line:#26292E; --line2:#33373D;
+    --tx:#EDEEF0; --mu:#9AA0A8; --fa:#6B7178;
+    --hi:#E8734A; --ok:#4EA37B; --wa:#D9A441; --cr:#D9584C;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:56px 32px 120px}
+  h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  .sub{color:var(--mu);font-size:13.5px;margin:0 0 44px}
+  h2{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--fa);margin:56px 0 18px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  h2:first-of-type{margin-top:0}
+
+  /* flow chain */
+  .chain{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch}
+  .node{flex:1;min-width:104px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:11px 11px 12px}
+  .node.dim{opacity:.5}
+  .node .n{font:600 10px/1 var(--mono);color:var(--fa);letter-spacing:.08em}
+  .node .t{font-size:12.5px;font-weight:700;margin:7px 0 5px;letter-spacing:-.01em}
+  .node .m{font-size:10.5px;color:var(--mu);line-height:1.4}
+  .node .tap{display:inline-block;margin-top:8px;font:700 9.5px/1 var(--mono);
+    color:var(--fa);border:1px solid var(--line2);border-radius:4px;padding:3px 5px}
+  .node.flag{border-color:#5A3A32}
+  .node.flag .t{color:var(--hi)}
+
+  .tally{display:flex;gap:26px;margin-top:16px;flex-wrap:wrap}
+  .tally div{font-size:12px;color:var(--mu)}
+  .tally b{color:var(--tx);font:800 17px/1 var(--mono);display:block;margin-bottom:3px}
+
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font:800 9.5px/1 var(--mono);letter-spacing:.1em;color:var(--fa);
+    text-transform:uppercase;padding:0 10px 9px;border-bottom:1px solid var(--line)}
+  td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:hover td{background:#131518}
+  td.id{font:700 11px/1.4 var(--mono);color:var(--fa);white-space:nowrap}
+  td.wh{font:400 10.5px/1.5 var(--mono);color:var(--mu);white-space:nowrap}
+  .sev{display:inline-block;font:800 9px/1 var(--mono);letter-spacing:.06em;
+    padding:4px 6px;border-radius:4px;text-transform:uppercase}
+  .s1{background:#33201D;color:#EE8A7E}
+  .s2{background:#332B18;color:#E5BC63}
+  .s3{background:#1D2A25;color:#6FBF98}
+  .grp td{background:#111316;font:800 9.5px/1 var(--mono);letter-spacing:.12em;
+    color:var(--fa);text-transform:uppercase;padding:9px 10px}
+
+  /* options */
+  .opts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .opt{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+  .opt.pick{border-color:#3E5F4E;background:#131A16}
+  .opt .tag{font:800 9px/1 var(--mono);letter-spacing:.1em;color:var(--fa);text-transform:uppercase}
+  .opt.pick .tag{color:var(--ok)}
+  .opt h3{font-size:15px;font-weight:800;margin:9px 0 4px;letter-spacing:-.015em}
+  .opt .one{font-size:11.5px;color:var(--mu);margin:0 0 14px;line-height:1.45}
+  .opt ul{margin:0;padding:0;list-style:none}
+  .opt li{font-size:12px;line-height:1.5;color:var(--tx);padding:5px 0 5px 15px;position:relative}
+  .opt li:before{content:"";position:absolute;left:0;top:11px;width:5px;height:5px;
+    border-radius:50%;background:var(--line2)}
+  .opt li.add:before{background:var(--ok)}
+  .opt li.cut:before{background:var(--cr)}
+  .opt li.mov:before{background:var(--wa)}
+  .opt .foot{margin-top:15px;padding-top:13px;border-top:1px solid var(--line);
+    display:flex;gap:18px}
+  .opt .foot div{font:700 10px/1.3 var(--mono);color:var(--fa)}
+  .opt .foot b{display:block;color:var(--tx);font-size:14px;margin-bottom:2px}
+
+  /* decisions */
+  .dec{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .dec .row{display:flex;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:baseline}
+  .dec .row:last-child{border-bottom:none}
+  .dec .q{flex:1;font-size:13.5px;font-weight:600}
+  .dec .a{font-size:12px;color:var(--mu);flex:0 0 300px}
+  .dec .k{font:800 10px/1 var(--mono);color:var(--fa);flex:0 0 26px;padding-top:2px}
+  .rec{color:var(--ok);font-weight:700}
+
+  .note{font-size:12px;color:var(--fa);margin-top:14px;line-height:1.55}
+  code{font:600 11.5px/1 var(--mono);background:#1C1F23;padding:2px 5px;border-radius:4px;color:#C4CAD2}
+  @media(max-width:880px){.opts{grid-template-columns:1fr}.dec .a{flex:1}.dec .row{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Delivery Hub — Guest flow</h1>
+<p class="sub">Current state, defects, and three routes. Pick one per section.</p>
+
+<h2>1 · Current flow</h2>
+<div class="chain">
+  <div class="node dim">
+    <div class="n">ENTRY</div><div class="t">WhatsApp / QR link</div>
+    <div class="m">Opens in in-app browser</div>
+  </div>
+  <div class="node flag">
+    <div class="n">00</div><div class="t">BrandLoader</div>
+    <div class="m">700ms artificial floor. Vyavasth mark only.</div>
+    <div class="tap">0 taps</div>
+  </div>
+  <div class="node flag">
+    <div class="n">01</div><div class="t">PhoneStep</div>
+    <div class="m">Full name + 10-digit number → Send OTP</div>
+    <div class="tap">2 fields · 1 tap</div>
+  </div>
+  <div class="node">
+    <div class="n">02</div><div class="t">OtpStep</div>
+    <div class="m">6 digits, auto-submits. 30s resend. Google fallback.</div>
+    <div class="tap">6 keys</div>
+  </div>
+  <div class="node flag">
+    <div class="n">00b</div><div class="t">BrandLoader again</div>
+    <div class="m"><code>location.replace</code> forces full remount + 700ms</div>
+    <div class="tap">0 taps</div>
+  </div>
+  <div class="node">
+    <div class="n">03</div><div class="t">TeamSelect</div>
+    <div class="m">Only if <code>guest_types</code> set. Pick + Continue.</div>
+    <div class="tap">2 taps</div>
+  </div>
+  <div class="node flag">
+    <div class="n">04</div><div class="t">Scan · intro</div>
+    <div class="m">First mention of a selfie. Consent box + 3 policy links.</div>
+    <div class="tap">2 taps</div>
+  </div>
+  <div class="node flag">
+    <div class="n">05</div><div class="t">Scan · camera</div>
+    <div class="m">getUserMedia. Perm gate / 12s timeout / unsupported webview.</div>
+    <div class="tap">1–2 taps</div>
+  </div>
+  <div class="node">
+    <div class="n">06</div><div class="t">Scan · processing</div>
+    <div class="m">Upload → validate → search</div>
+    <div class="tap">0 taps</div>
+  </div>
+  <div class="node">
+    <div class="n">07</div><div class="t">Scan · matched</div>
+    <div class="m">“Found N photos of you” → See my photos</div>
+    <div class="tap">1 tap</div>
+  </div>
+  <div class="node">
+    <div class="n">08</div><div class="t">Lounge</div>
+    <div class="m">Cover, Mine/All tabs, folders, passcode, download</div>
+    <div class="tap">first photo</div>
+  </div>
+</div>
+<div class="tally">
+  <div><b>9</b>screens before the first photo</div>
+  <div><b>~13</b>interactions minimum</div>
+  <div><b>2</b>full-page loaders</div>
+  <div><b>0</b>photos shown before the selfie</div>
+  <div><b>2</b>separate consent moments (step 1 footer, step 4 box)</div>
+</div>
+
+<h2>2 · Defects</h2>
+<table>
+  <thead><tr><th style="width:52px">ID</th><th>What</th><th style="width:250px">Where</th><th style="width:80px">Sev</th></tr></thead>
+  <tbody>
+    <tr class="grp"><td colspan="4">Screen 1 — the one you screenshotted</td></tr>
+    <tr><td class="id">S1</td><td>Cover image is desktop-only — the whole hero pane is <code>hidden lg:block</code>. Mobile guests see zero event imagery, though <code>CoverMasthead</code> already renders it on mobile in the Lounge.</td><td class="wh">LoginScreen.tsx:39</td><td><span class="sev s1">High</span></td></tr>
+    <tr><td class="id">S2</td><td>Vyavasth logo + wordmark is the largest element on screen. Studio is 12px grey; event name appears only inside a sentence.</td><td class="wh">LoginScreen.tsx:54–62</td><td><span class="sev s1">High</span></td></tr>
+    <tr><td class="id">S3</td><td>No mention that a selfie + camera permission is required. Guest gives a phone number blind.</td><td class="wh">PhoneStep.tsx:66</td><td><span class="sev s1">High</span></td></tr>
+    <tr><td class="id">S4</td><td><code>flex-1</code> spacer bottom-anchors the form → dead vertical gap on desktop and tall phones.</td><td class="wh">PhoneStep.tsx:80</td><td><span class="sev s2">Med</span></td></tr>
+    <tr><td class="id">S5</td><td>Full Name collected before any value is shown; used only for the OTP greeting and the guest doc.</td><td class="wh">PhoneStep.tsx:90–114</td><td><span class="sev s2">Med</span></td></tr>
+    <tr><td class="id">S6</td><td>Studio name printed raw, unbounded — “Kamal productions New”, “Gwalior Photographers Association”. Lounge already has a <code>SHORT_STUDIO_NAME</code> policy; login has none.</td><td class="wh">PhoneStep.tsx:85</td><td><span class="sev s2">Med</span></td></tr>
+    <tr><td class="id">S7</td><td>Trust line sits below the CTA — read after the decision, not before.</td><td class="wh">PhoneStep.tsx:178</td><td><span class="sev s3">Low</span></td></tr>
+    <tr><td class="id">S8</td><td>On low-chroma variants (Charcoal Editorial) <code>t.brand</code> is #3C3C3A → the CTA reads as disabled. Same treatment as <code>disabled:opacity-55</code> at a glance.</td><td class="wh">client-theme.ts:214</td><td><span class="sev s2">Med</span></td></tr>
+
+    <tr class="grp"><td colspan="4">Flow</td></tr>
+    <tr><td class="id">F1</td><td>Camera is a hard wall <em>after</em> phone + OTP. WhatsApp's in-app browser is the primary entry point and is exactly where <code>getUserMedia</code> is missing. Guest has already paid the cost when they hit the dead end.</td><td class="wh">ScanFlow.tsx:88</td><td><span class="sev s1">High</span></td></tr>
+    <tr><td class="id">F2</td><td>Double loader: OTP verify does <code>location.replace</code> → remount → BrandLoader with its 700ms floor a second time.</td><td class="wh">OtpStep.tsx:59 · EventExperience.tsx:34</td><td><span class="sev s1">High</span></td></tr>
+    <tr><td class="id">F3</td><td>TeamSelect sits between login and scan — dead time. It's a question that could be answered while the face search runs.</td><td class="wh">EventFlow.tsx:20</td><td><span class="sev s2">Med</span></td></tr>
+    <tr><td class="id">F4</td><td>“Found 0 photos” routes to the same CTA (“See my photos”) into an empty gallery. No recovery path.</td><td class="wh">ScanFlow.tsx:392</td><td><span class="sev s2">Med</span></td></tr>
+    <tr><td class="id">F5</td><td>Consent is split across two screens — policy footer on step 1, checkbox + 3 links on step 4. Neither is the real consent moment on its own.</td><td class="wh">LoginScreen.tsx:87 · ScanFlow.tsx:249</td><td><span class="sev s3">Low</span></td></tr>
+    <tr><td class="id">F6</td><td>Google fallback is only reachable from step 2, so a guest who can't receive WhatsApp must first submit a number they may not want to give.</td><td class="wh">OtpStep.tsx:204</td><td><span class="sev s3">Low</span></td></tr>
+  </tbody>
+</table>
+
+<h2>3 · Three routes</h2>
+<div class="opts">
+
+  <div class="opt">
+    <div class="tag">Route A</div>
+    <h3>Patch</h3>
+    <p class="one">Same order, same screens. Fix what's broken.</p>
+    <ul>
+      <li class="add">Cover image on mobile login (reuse CoverMasthead treatment)</li>
+      <li class="mov">Event + studio above Vyavasth; Vyavasth demoted to a “powered by” line</li>
+      <li class="add">One line on step 1: “Takes a quick selfie to match your face”</li>
+      <li class="add">Camera-capability check on step 1; “open in browser” nudge if webview</li>
+      <li class="cut">Second BrandLoader (in-place transition, no location.replace)</li>
+      <li class="mov">Trust line above the CTA</li>
+    </ul>
+    <div class="foot">
+      <div><b>9</b>screens</div><div><b>~11</b>taps</div><div><b>S</b>effort</div>
+    </div>
+  </div>
+
+  <div class="opt pick">
+    <div class="tag">Route B · recommended</div>
+    <h3>Preview first</h3>
+    <p class="one">Show the event before asking for anything. Login becomes a consequence, not a gate.</p>
+    <ul>
+      <li class="add">New screen 0: cover, event name, studio, photo count, a blurred/teaser strip</li>
+      <li class="mov">Login triggered by “Find my photos” — intent-driven</li>
+      <li class="cut">Full Name field (capture on the team screen, or skip)</li>
+      <li class="mov">Selfie promise + camera check moved to screen 0</li>
+      <li class="mov">TeamSelect runs <em>during</em> the face search, not before it</li>
+      <li class="add">Real 0-match screen: rescan / notify me / browse all</li>
+      <li class="cut">Second loader</li>
+    </ul>
+    <div class="foot">
+      <div><b>9</b>screens</div><div><b>~9</b>taps</div><div><b>M</b>effort</div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="tag">Route C</div>
+    <h3>Selfie first</h3>
+    <p class="one">Face is the identity. Phone only when they want to save or return.</p>
+    <ul>
+      <li class="mov">Selfie + search before any login — anonymous session</li>
+      <li class="add">Results shown immediately: “We found N photos of you”</li>
+      <li class="mov">OTP gate moved to download / save / return-visit only</li>
+      <li class="cut">Name + phone from the entry path entirely</li>
+      <li class="add">Consent moves to screen 1 (it's now the first ask)</li>
+    </ul>
+    <div class="foot">
+      <div><b>5</b>screens</div><div><b>~5</b>taps</div><div><b>L</b>effort</div>
+    </div>
+    <p class="note">Needs backend: anonymous guest session, deferred phone binding. Changes what the studio gets as a lead.</p>
+  </div>
+</div>
+
+<h2>4 · Decide these</h2>
+<div class="dec">
+  <div class="row"><div class="k">01</div><div class="q">Which route?</div><div class="a"><span class="rec">B</span> · A · C</div></div>
+  <div class="row"><div class="k">02</div><div class="q">Does the guest see any photo before the selfie?</div><div class="a"><span class="rec">Yes — blurred teaser strip</span> · Yes, clear · No</div></div>
+  <div class="row"><div class="k">03</div><div class="q">Whose brand leads screen 1?</div><div class="a"><span class="rec">Event, then studio, then Vyavasth</span> · Studio-led · Keep Vyavasth-led</div></div>
+  <div class="row"><div class="k">04</div><div class="q">Keep the Full Name field?</div><div class="a"><span class="rec">Drop it — ask later or never</span> · Keep it</div></div>
+  <div class="row"><div class="k">05</div><div class="q">Is a phone number required to <em>view</em>, or only to download?</div><div class="a">Required to view · <span class="rec">Only to download / return</span></div></div>
+  <div class="row"><div class="k">06</div><div class="q">TeamSelect — before the scan, during it, or after?</div><div class="a">Before · <span class="rec">During the search</span> · After</div></div>
+  <div class="row"><div class="k">07</div><div class="q">In-app webview with no camera — what happens?</div><div class="a"><span class="rec">Detect on screen 0, nudge to open in browser</span> · Upload-a-photo fallback · Leave as-is</div></div>
+  <div class="row"><div class="k">08</div><div class="q">Do the 5 visual variations cover screen 1 only, or the whole revised flow?</div><div class="a">Screen 1 only · <span class="rec">Screen 1 + the new screen 0</span></div></div>
+</div>
+<p class="note">Answer 01–08 and the Claude Code prompt for the 5 variations writes itself against a settled flow.</p>
+
+</div>
+</body>
+</html>

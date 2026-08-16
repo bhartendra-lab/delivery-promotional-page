@@ -1,5 +1,5 @@
-/** Shared icons for LoginScreen + its PhoneStep/OtpStep children — kept in one
- *  place so neither step needs to import from the container (circular). */
+/** Shared icons for LoginScreen + its SignInStep child — kept in one place so
+ *  the step doesn't need to import from the container (circular). */
 
 export function GoogleG({ size = 20 }: { size?: number }) {
   return (
