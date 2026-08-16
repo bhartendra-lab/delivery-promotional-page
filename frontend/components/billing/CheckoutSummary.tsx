@@ -35,7 +35,7 @@ export function CheckoutSummary({
   note?: string;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-5">
+    <div className="flex flex-col gap-4 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-brand-navy)]">
           {title}

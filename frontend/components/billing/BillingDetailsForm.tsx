@@ -8,10 +8,11 @@ import { AddressField } from "@/components/ui/AddressField";
 import {
   Field,
   SelectField,
-  SameAsPersonalCheckbox,
+  SameAsCheckbox,
   SaveBar,
   type SaveState,
 } from "@/app/(dashboard)/dashboard/settings/SettingsUI";
+import { useReportDirty } from "@/app/(dashboard)/dashboard/settings/SettingsContext";
 
 export type BillingDetailsFormProps = {
   /** Studio address offered as a one-tap prefill; omit/null to hide that option. */
@@ -102,6 +103,9 @@ export function BillingDetailsForm({
     gstin.trim().toUpperCase() !== (saved?.gstin ?? "") ||
     billingAddress.trim() !== (saved?.billing_address ?? "") ||
     stateCode !== (saved?.place_of_supply_state ?? "");
+  // No-ops when this form isn't mounted under SettingsProvider — e.g. inside
+  // UpgradeModal's billing step, which isn't part of Settings.
+  useReportDirty(dirty);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -167,7 +171,7 @@ export function BillingDetailsForm({
       className={submitLabel ? "space-y-4" : "scroll-mt-24 space-y-4"}
     >
       {showSameAsStudio && (
-        <SameAsPersonalCheckbox
+        <SameAsCheckbox
           label="Same as Studio details"
           checked={sameAsStudio}
           onChange={toggleSameAsStudio}
@@ -226,7 +230,7 @@ export function BillingDetailsForm({
               <button
                 type="button"
                 onClick={onCancel}
-                className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+                className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
               >
                 Back
               </button>
@@ -245,6 +249,8 @@ export function BillingDetailsForm({
           saveState={saveState}
           errorMsg={errorMsg}
           canSave={canSave}
+          dirty={dirty}
+          formId="billing-details"
           idleHint="Needed to calculate GST correctly on every purchase."
         />
       )}

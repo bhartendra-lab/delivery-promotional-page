@@ -486,7 +486,7 @@ function FolderMenu({
               className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] font-medium ${
                 item.destructive
                   ? "mt-1 border-t border-[var(--color-brand-border)] pt-[9px] text-[var(--color-brand-danger)] hover:bg-[var(--color-brand-danger-soft)]"
-                  : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-surface)]"
+                  : "text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)]"
               }`}
             >
               {item.icon}

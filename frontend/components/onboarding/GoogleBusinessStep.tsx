@@ -142,7 +142,7 @@ export function GoogleBusinessStep({
               <button
                 type="button"
                 onClick={() => setConfirmingSkip(false)}
-                className="brand-focus inline-flex h-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+                className="brand-focus inline-flex h-9 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
               >
                 Go back
               </button>
@@ -172,7 +172,7 @@ export function GoogleBusinessStep({
                 onClick={() => setConfirmingSkip(true)}
                 className={
                   mapsKeyMissing
-                    ? "brand-focus inline-flex h-10 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+                    ? "brand-focus inline-flex h-10 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
                     : "brand-focus text-xs text-[var(--color-brand-muted)] underline-offset-2 hover:underline"
                 }
               >

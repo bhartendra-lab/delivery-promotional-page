@@ -120,7 +120,7 @@ export default function OnboardingPage() {
 
         <OnboardingProgress step={step} />
 
-        <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
+        <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "details" ? (
             <StudioDetailsStep
               onSent={(name, phone) => {

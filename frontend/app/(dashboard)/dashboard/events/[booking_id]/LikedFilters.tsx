@@ -343,7 +343,7 @@ function CheckRow({
       role="checkbox"
       aria-checked={checked}
       onClick={onToggle}
-      className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-brand-surface)]"
+      className="brand-focus flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-brand-hover)]"
     >
       <span
         className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition-colors ${

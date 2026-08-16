@@ -215,7 +215,7 @@ export function PlanChooser({
         <div
           role="tablist"
           aria-label="Plan type"
-          className="inline-flex w-fit items-center gap-1 rounded-full border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-1"
+          className="inline-flex w-fit items-center gap-1 rounded-full border border-[var(--color-brand-border)] bg-[var(--color-brand-track)] p-1"
         >
           {(["event", "storage"] as Mode[]).map((m) => (
             <button
@@ -284,7 +284,7 @@ export function PlanChooser({
             <div
               role="tablist"
               aria-label="Billing interval"
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-1"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--color-brand-border)] bg-[var(--color-brand-track)] p-1"
             >
               {(["monthly", "yearly"] as Interval[]).map((iv) => (
                 <button
@@ -391,7 +391,7 @@ function PricingModelCards({
 
   const cardBase =
     "brand-focus relative flex flex-col rounded-xl border p-5 text-left transition-colors";
-  const cardIdle = "border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] hover:border-[var(--color-brand-outline)]";
+  const cardIdle = "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] hover:border-[var(--color-brand-outline)]";
   const cardSelected = "border-[var(--color-brand-navy)] ring-1 ring-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]";
 
   return (

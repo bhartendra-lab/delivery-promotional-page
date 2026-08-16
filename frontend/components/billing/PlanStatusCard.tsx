@@ -12,7 +12,7 @@ export function PlanStatusCard({ snapshot, loading }: { snapshot: SubscriptionSn
 
   if (!snapshot || !snapshot.service) {
     return (
-      <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-5">
+      <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5">
         <p className="text-sm text-[var(--color-brand-muted)]">
           No plan on record. Contact support if this looks wrong.
         </p>
@@ -38,7 +38,7 @@ export function PlanStatusCard({ snapshot, loading }: { snapshot: SubscriptionSn
   }
 
   return (
-    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-5">
+    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-brand-navy)]">
         {service.service_type}
       </p>

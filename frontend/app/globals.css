@@ -30,21 +30,28 @@ button:disabled {
   /* Primary: terracotta */
   --color-brand-navy: #C25A3A;
   --color-brand-navy-deep: #A8442A;
-  --color-brand-navy-soft: #F7E8E3;
-
-  /* Gold collapsed → terracotta variants (keeps old tokens working) */
-  --color-brand-gold: #C25A3A;
-  --color-brand-gold-deep: #2A2218;
-  --color-brand-gold-soft: #F7E8E3;
+  --color-brand-navy-soft: #F7E8E3; /* terracotta tint — active/selected/default only */
 
   /* Text */
   --color-brand-ink: #2A2218;
   --color-brand-muted: #7A6F63;
 
-  /* Surfaces */
-  --color-brand-surface: #EDE3D3;
-  --color-brand-surface-raised: #FFFFFF; /* white card fill (event cards) */
-  --color-brand-bg: #FAFAF8;
+  /* ── Surfaces ────────────────────────────────────────────────────
+     Exactly two neutral fills exist. The old cream `--color-brand-surface`
+     (#EDE3D3) was deleted, not aliased: an alias would have let call sites
+     keep asking for a cream that no longer exists in the system, and the
+     whole point of this pass was that they can't. Anything that needs to
+     read as "raised" or "sunken" does it with a border, not a tint. */
+  --color-brand-bg: #FAFAF8;             /* page canvas */
+  --color-brand-surface-raised: #FFFFFF; /* cards, inputs, modals, menus */
+
+  /* ── Interaction fills ───────────────────────────────────────────
+     The only two tints allowed on top of the surfaces above. Neutral gray
+     is the hover/rest state; terracotta tint (--color-brand-navy-soft)
+     means selected, active or default and is never used for plain hover —
+     that distinction is what makes the active nav pill legible. */
+  --color-brand-hover: #F1F1EF;  /* neutral hover / pressed */
+  --color-brand-track: #E8E8E5;  /* meter tracks, skeletons, placeholder blocks */
 
   /* Borders */
   --color-brand-border: #DDD4C4;
@@ -70,6 +77,12 @@ button:disabled {
   --font-lora: var(--font-lora);
   --font-dm-sans: var(--font-dm-sans);
   --font-nunito: var(--font-nunito);
+
+  /* Radius scale — the only three radii in the system besides rounded-full
+     (true circles, small status chips). */
+  --radius-field: 10px; /* inputs, selects, small buttons */
+  --radius-card: 16px;  /* section cards, modals, panels */
+  --radius-pill: 14px;  /* nav pills, save bar, chips */
 }
 
 body {
@@ -201,9 +214,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    rgba(221, 212, 196, 0.5) 25%,
-    rgba(196, 185, 168, 0.7) 50%,
-    rgba(221, 212, 196, 0.5) 75%
+    var(--color-brand-track) 25%,
+    var(--color-brand-border) 50%,
+    var(--color-brand-track) 75%
   );
   background-size: 200% 100%;
   animation: shimmer-skel 1.4s linear infinite;

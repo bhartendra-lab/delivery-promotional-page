@@ -63,7 +63,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
       </div>
 
       {value.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-4 py-5 text-center text-sm text-[var(--color-brand-muted)]">
+        <p className="rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-4 py-5 text-center text-sm text-[var(--color-brand-muted)]">
           No delivery links yet — add your first gallery above.
         </p>
       )}
@@ -72,7 +72,7 @@ export function DeliveryUrlsField({ value, onChange }: Props) {
         {value.map((row, i) => (
           <div
             key={i}
-            className="relative rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-4 transition-colors hover:border-[var(--color-brand-outline)]"
+            className="relative rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-4 transition-colors hover:border-[var(--color-brand-outline)]"
           >
             <div className="mb-3 flex items-center gap-2">
               <span

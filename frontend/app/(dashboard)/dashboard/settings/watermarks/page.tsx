@@ -9,7 +9,7 @@ import {
 } from "@/lib/api";
 import type { WatermarkPreset } from "@/lib/types";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
-import { SectionHeading, SectionSkeleton, FetchError, Spinner } from "../SettingsUI";
+import { SectionHeading, SectionSkeleton, FetchError, Spinner, Card } from "../SettingsUI";
 import { WatermarkEditorModal, WatermarkPreview } from "./WatermarkEditorModal";
 import { IconPlus } from "@/components/ui/icons";
 
@@ -106,7 +106,6 @@ function WatermarkPresetsPageInner() {
   return (
     <div className="space-y-6">
       <SectionHeading
-        eyebrow="Brand & Delivery"
         title="Watermark Presets"
         description="Upload watermarks to overlay on your delivered photos. Set the position, size and opacity. Up to 20 presets."
       />
@@ -119,7 +118,7 @@ function WatermarkPresetsPageInner() {
           type="button"
           onClick={() => setModal({ mode: "create" })}
           disabled={atLimit}
-          className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="brand-focus inline-flex h-10 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
           title={atLimit ? "Preset limit reached" : undefined}
         >
           <IconPlus size={16} />
@@ -136,18 +135,15 @@ function WatermarkPresetsPageInner() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {presets?.map((p) => (
-            <div
-              key={p._id}
-              className="overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)]"
-            >
+            <Card key={p._id} padded={false}>
               <WatermarkPreview src={p.image_url ?? null} position={p.position} size={p.size} opacity={p.opacity} />
-              <div className="space-y-2 p-3">
+              <div className="space-y-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-semibold text-[var(--color-brand-ink)]">
                     {p.name || "Untitled"}
                   </span>
                   {p.is_default && (
-                    <span className="shrink-0 rounded-full bg-[var(--color-brand-navy-soft)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--color-brand-navy)]">
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-[var(--color-brand-navy-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-navy)]">
                       Default
                     </span>
                   )}
@@ -163,14 +159,14 @@ function WatermarkPresetsPageInner() {
                       type="button"
                       onClick={() => handleDelete(p._id)}
                       disabled={busyId === p._id}
-                      className="brand-focus rounded-md bg-[var(--color-brand-danger)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                      className="brand-focus rounded-field bg-[var(--color-brand-danger)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60"
                     >
                       {busyId === p._id ? "…" : "Yes"}
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmId(null)}
-                      className="brand-focus rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)]"
+                      className="brand-focus rounded-field border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)]"
                     >
                       No
                     </button>
@@ -182,7 +178,7 @@ function WatermarkPresetsPageInner() {
                         type="button"
                         onClick={() => handleSetDefault(p._id)}
                         disabled={busyId === p._id}
-                        className="brand-focus inline-flex items-center gap-1 rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] disabled:opacity-60"
+                        className="brand-focus inline-flex items-center gap-1 rounded-field border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] disabled:opacity-60"
                       >
                         {busyId === p._id ? <Spinner /> : "Set default"}
                       </button>
@@ -190,21 +186,21 @@ function WatermarkPresetsPageInner() {
                     <button
                       type="button"
                       onClick={() => setModal({ mode: "edit", preset: p })}
-                      className="brand-focus rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
+                      className="brand-focus rounded-field border border-[var(--color-brand-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
                     >
                       Edit
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmId(p._id)}
-                      className="brand-focus ml-auto rounded-md px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-danger)] hover:bg-[var(--color-brand-danger-soft)]"
+                      className="brand-focus ml-auto rounded-field px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-danger)] hover:bg-[var(--color-brand-danger-soft)]"
                     >
                       Delete
                     </button>
                   </div>
                 )}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -213,6 +209,7 @@ function WatermarkPresetsPageInner() {
         <WatermarkEditorModal
           mode={modal.mode}
           initial={modal.mode === "edit" ? modal.preset : undefined}
+          existingNames={presets?.map((p) => p.name).filter((n): n is string => !!n) ?? []}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
         />
@@ -233,7 +230,7 @@ function mergeSaved(prev: WatermarkPreset[] | null, saved: WatermarkPreset): Wat
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-12 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-card border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-12 text-center">
       <p className="text-sm font-semibold text-[var(--color-brand-ink)]">No watermark presets yet</p>
       <p className="max-w-sm text-xs text-[var(--color-brand-muted)]">
         Add a watermark to overlay your studio mark on delivered photos.
@@ -241,7 +238,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="brand-focus mt-1 inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
+        className="brand-focus mt-1 inline-flex h-9 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
       >
         Add watermark
       </button>

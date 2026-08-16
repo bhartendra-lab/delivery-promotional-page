@@ -231,7 +231,7 @@ function SetPasswordForm({ userId }: { userId: string }) {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-brand-navy)]/8">
               <IconKey className="h-6 w-6 text-[var(--color-brand-navy)]" />
             </div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-gold)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-navy)]">
               Account setup
             </p>
             <h2
@@ -359,7 +359,7 @@ function SuccessView() {
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#38a169]/10">
             <IconCheck className="h-8 w-8 text-[#38a169]" />
           </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-gold)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--color-brand-navy)]">
             All set
           </p>
           <h2
@@ -396,8 +396,8 @@ function InvalidLinkView({
       body: "The password setup link appears to be malformed or incomplete. Please use the link from your invitation email, or contact your account manager.",
     },
     used: {
-      icon: <IconShieldCheck className="h-8 w-8 text-[var(--color-brand-gold)]" />,
-      iconBg: "bg-[var(--color-brand-gold)]/10",
+      icon: <IconShieldCheck className="h-8 w-8 text-[var(--color-brand-navy)]" />,
+      iconBg: "bg-[var(--color-brand-navy)]/10",
       badge: "Link expired",
       heading: "Password already set",
       body: "This setup link has already been used. Your account is active — sign in with your existing password.",

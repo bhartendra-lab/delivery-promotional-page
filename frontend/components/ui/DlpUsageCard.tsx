@@ -24,7 +24,7 @@ export function DlpUsageCard({ data, loading }: Props) {
     : null;
 
   return (
-    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-4">
+    <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
         Pages this month
       </p>
