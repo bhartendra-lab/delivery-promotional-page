@@ -873,6 +873,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           {/* Tab strip + (mobile) publish row + upload banner form the workspace's
               locked chrome — they never scroll. Only the active tab's body below
               them owns its own scroll region(s). */}
+          {/* Seam band: a deliberate visual gap between the topbar/banner chrome
+              above and the tab strip, so the two read as separate fixed layers
+              rather than one merged bar. */}
+          <div className="h-2.5 shrink-0 bg-[var(--color-brand-bg)]" aria-hidden />
           <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
           {/* Mobile-only publish action row. The same pill is injected into the
