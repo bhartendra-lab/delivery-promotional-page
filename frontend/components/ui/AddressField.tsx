@@ -70,6 +70,7 @@ export function AddressField({
   onPlaceSelect,
   placeholder,
   className = "",
+  layout = "stacked",
 }: {
   label?: string;
   value: string;
@@ -77,6 +78,11 @@ export function AddressField({
   onPlaceSelect?: (place: { address: string; placeId: string; stateName?: string }) => void;
   placeholder?: string;
   className?: string;
+  /** "row" puts the label in a fixed-width left column beside the control at
+   *  `lg`+ — see the layout-variant note atop SettingsUI.tsx. Defaults to
+   *  "stacked" so every existing call site (onboarding, billing) renders
+   *  unchanged. */
+  layout?: "stacked" | "row";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<GoogleAutocompleteInstance | null>(null);
@@ -128,9 +134,15 @@ export function AddressField({
     autocompleteRef.current = autocomplete;
   }, [scriptReady, onChange, onPlaceSelect]);
 
+  const isRow = layout === "row";
   return (
-    <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-medium text-[var(--color-brand-muted)]">
+    <label
+      className={`block ${isRow ? "lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6" : ""} ${className}`}
+    >
+      <span
+        className={`mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-2.5" : ""
+          }`}
+      >
         {label}
       </span>
       <input
@@ -140,7 +152,8 @@ export function AddressField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete="off"
-        className="brand-focus h-10 w-full rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+        className={`brand-focus h-10 w-full rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${isRow ? "lg:col-start-2 lg:row-start-1" : ""
+          }`}
       />
     </label>
   );

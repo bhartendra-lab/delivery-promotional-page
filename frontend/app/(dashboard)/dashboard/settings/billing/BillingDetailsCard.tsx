@@ -20,6 +20,7 @@ export function BillingDetailsCard() {
         studioName={company.name}
         gmbSkipped={company.gmb_skipped}
         onSaved={() => {}}
+        layout="row"
       />
     </Card>
   );

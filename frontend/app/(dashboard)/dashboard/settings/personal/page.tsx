@@ -10,6 +10,7 @@ import {
   Field,
   PhoneField,
   SaveBar,
+  UserIcon,
   changed,
   SectionSkeleton,
   FetchError,
@@ -95,15 +96,15 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
     <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
       <PersonalInformationHeading />
 
-      <Card>
-        <div className="grid gap-4 sm:grid-cols-2">
+      <Card title="Your details" icon={<UserIcon />}>
+        <div className="space-y-5">
           <Field
             label="Login email"
             value={profile.email ?? ""}
             onChange={() => {}}
             readOnly
             hint="Used only to sign in. For the address clients see, set a verified Business email on Studio Identity."
-            className="sm:col-span-2"
+            layout="row"
           />
           <Field
             label="First name"
@@ -111,6 +112,7 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
             onChange={setFirstName}
             placeholder="Anjali"
             maxLength={NAME_MAX_LENGTH}
+            layout="row"
           />
           <Field
             label="Last name"
@@ -118,12 +120,13 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
             onChange={setLastName}
             placeholder="Rao"
             maxLength={NAME_MAX_LENGTH}
+            layout="row"
           />
           <PhoneField
             label="Personal contact"
             value={personalContact}
             onChange={setPersonalContact}
-            className="sm:col-span-2"
+            layout="row"
           />
         </div>
       </Card>

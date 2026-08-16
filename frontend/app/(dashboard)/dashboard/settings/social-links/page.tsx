@@ -68,7 +68,7 @@ export default function SocialLinksPage() {
       />
 
       <Card title="Social profiles" icon={<ShareIcon />}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-5">
           {PLATFORMS.map((p) => (
             <Field
               key={p.key}
@@ -76,6 +76,7 @@ export default function SocialLinksPage() {
               value={values[p.key]}
               onChange={(v) => setValues((prev) => ({ ...prev, [p.key]: v }))}
               placeholder={p.placeholder}
+              layout="row"
             />
           ))}
         </div>
