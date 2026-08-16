@@ -27,6 +27,11 @@ export type BillingDetailsFormProps = {
   submitLabel?: string;
   onSaved: (profile: BillingProfile) => void;
   onCancel?: () => void;
+  /** "row" opts every field (and the "Same as Studio details" shortcut) into
+   *  the label-left layout — see the note atop `SettingsUI.tsx`. Defaults to
+   *  "stacked" so the upgrade modal's narrower in-flow billing step (which
+   *  never passes this) renders unchanged. */
+  layout?: "stacked" | "row";
 };
 
 /**
@@ -45,6 +50,7 @@ export function BillingDetailsForm({
   submitLabel,
   onSaved,
   onCancel,
+  layout = "stacked",
 }: BillingDetailsFormProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -176,22 +182,25 @@ export function BillingDetailsForm({
           checked={sameAsStudio}
           onChange={toggleSameAsStudio}
           disabled={gmbSkipped}
+          layout={layout}
         />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={layout === "row" ? "space-y-5" : "grid gap-4 sm:grid-cols-2"}>
         <Field
           label="Legal / billing name"
           value={legalName}
           onChange={editLegalName}
           required
           placeholder="As registered for tax purposes"
+          layout={layout}
         />
         <Field
           label="GSTIN"
           value={gstin}
           onChange={setGstin}
           placeholder="Optional — leave blank if unregistered"
+          layout={layout}
         />
       </div>
 
@@ -205,6 +214,7 @@ export function BillingDetailsForm({
             if (match) setStateCode(match.code);
           }}
           placeholder="Search for your billing address"
+          layout={layout}
         />
       </div>
 
@@ -215,6 +225,7 @@ export function BillingDetailsForm({
           onChange={editStateCode}
           options={GST_STATE_CODES.map((s) => ({ value: s.code, label: s.name }))}
           required
+          layout={layout}
         />
       </div>
 

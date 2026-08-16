@@ -184,7 +184,11 @@ export default function StudioIdentityPage() {
         description="How your studio shows up on every delivery page you send to clients, and on Google."
       />
 
-      <Card title="Business information" icon={<BuildingIcon />}>
+      <Card
+        title="Business information"
+        icon={<BuildingIcon />}
+        description="Core details clients see on every delivery page."
+      >
         <div className="space-y-5">
           <Field
             label="Studio name"
@@ -193,11 +197,13 @@ export default function StudioIdentityPage() {
             required
             placeholder="e.g. Radiant Studios"
             error={nameError ?? undefined}
+            layout="row"
           />
           <VerifiedBusinessEmailField
             businessEmail={company.business_email}
             verified={company.business_email_verified}
             onActionClick={() => setEmailVerifyOpen(true)}
+            layout="row"
           />
         </div>
         {emailVerifiedFlash && (
@@ -210,6 +216,7 @@ export default function StudioIdentityPage() {
             whatsappNumber={company.whatsapp_number}
             verified={company.whatsapp_verified}
             onChangeClick={() => setChangeWhatsappOpen(true)}
+            layout="row"
           />
           {whatsappUpdatedFlash && (
             <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
@@ -226,14 +233,15 @@ export default function StudioIdentityPage() {
           type="text"
           className="mt-5"
           error={websiteError ?? undefined}
+          layout="row"
         />
       </Card>
 
-      <Card title="Google Business integration" icon={<GlobeIcon />}>
-        <p className="mb-4 text-sm text-[var(--color-brand-muted)]">
-          This powers the Google Reviews link on your delivery pages. Getting the right
-          listing here means clients land on the correct page when they tap Leave a review.
-        </p>
+      <Card
+        title="Google Business integration"
+        icon={<GlobeIcon />}
+        description="This powers the Google Reviews link on your delivery pages. Getting the right listing here means clients land on the correct page when they tap Leave a review."
+      >
         <div className="space-y-5">
           <div>
             <AddressField
@@ -245,6 +253,7 @@ export default function StudioIdentityPage() {
                 committedAddressRef.current = pickedAddress;
               }}
               placeholder="Search for your studio"
+              layout="row"
             />
             <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
               Pick the matching listing from the list. This links your Google reviews automatically.
@@ -252,33 +261,37 @@ export default function StudioIdentityPage() {
           </div>
 
           {googlePlaceId && (
-            <div>
-              <CopyableIdField label="Google Reviews ID" value={googlePlaceId} />
-              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                <p className="flex items-center gap-1 text-xs text-[var(--color-brand-muted)]">
-                  <CheckIcon className="h-3 w-3 shrink-0 text-[var(--color-brand-success)]" />
-                  This is the page clients land on when they tap Leave a review.
-                </p>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={`https://search.google.com/local/writereview?placeid=${encodeURIComponent(googlePlaceId)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
-                  >
-                    <OpenIcon className="h-3.5 w-3.5" />
-                    See your Google Reviews page
-                  </a>
-                  <button
-                    type="button"
-                    onClick={handleRemoveListing}
-                    className="brand-focus rounded-md text-xs font-semibold text-[var(--color-brand-danger)] hover:underline"
-                  >
-                    Remove listing
-                  </button>
+            <CopyableIdField
+              label="Google Reviews ID"
+              value={googlePlaceId}
+              layout="row"
+              helper={
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-1 text-xs text-[var(--color-brand-muted)]">
+                    <CheckIcon className="h-3 w-3 shrink-0 text-[var(--color-brand-success)]" />
+                    This is the page clients land on when they tap Leave a review.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={`https://search.google.com/local/writereview?placeid=${encodeURIComponent(googlePlaceId)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
+                    >
+                      <OpenIcon className="h-3.5 w-3.5" />
+                      See your Google Reviews page
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleRemoveListing}
+                      className="brand-focus rounded-md text-xs font-semibold text-[var(--color-brand-danger)] hover:underline"
+                    >
+                      Remove listing
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
+              }
+            />
           )}
         </div>
       </Card>
