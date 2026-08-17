@@ -157,7 +157,24 @@ async function loadBitmap(imageUrl: string): Promise<ImageBitmap> {
 }
 
 async function fetchBlob(url: string): Promise<Blob> {
-  const res = await fetch(url, { cache: "force-cache" });
+  // `cache: "reload"` — NOT an optimisation to undo. R2 returns
+  // `Access-Control-Allow-Origin` only on requests that carry an `Origin`
+  // header, and only those responses carry `Vary: Origin`. A plain <img> (the
+  // preset previews in Settings → Watermark Presets, the tile grid) sends no
+  // Origin, so its response has no ACAO *and* no Vary — the browser caches it
+  // as THE response for this URL, unkeyed. `force-cache` then handed that
+  // entry to this cors-mode fetch and the CORS check failed with a bare
+  // "TypeError: Failed to fetch", disabling watermarking for the whole run.
+  //
+  // The studio hits this every time, because the priming load is the very act
+  // of setting the watermark up: view the preset, then go upload.
+  //
+  // "reload" skips the cache on the way in and stores the CORS variant on the
+  // way out. One ~40 KB request per run — the decoded bitmap is still reused
+  // across the run by the caller. Do not "fix" this by putting
+  // crossOrigin="anonymous" on the previews instead: that would break the
+  // preview image outright on any origin not in the bucket's allowlist.
+  const res = await fetch(url, { cache: "reload" });
   if (!res.ok) throw new Error(`watermark image fetch failed: ${res.status}`);
   return res.blob();
 }
