@@ -41,6 +41,7 @@ import type { WatermarkPreset } from "@/lib/types";
 import { CompressorPool } from "./compressor";
 import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
+import { resolveDedup } from "./dedup.ts";
 import {
   classifyError,
   classifyHttp,
@@ -1049,20 +1050,40 @@ export class UploadEngineCore {
   /**
    * Build the IndexedDB record set for the batch about to upload. Each input's
    * record id (`${bookingId}__${fingerprint}`) is the same media_id the backend
-   * stores, so any input whose id is in `alreadyUploaded` is recorded as `saved`
-   * — counted as done in the progress bar and skipped silently by the pipeline,
-   * never re-compressed or re-uploaded.
+   * stores, so an input the backend already has is recorded as `saved` —
+   * counted as done in the progress bar and skipped by the pipeline, never
+   * re-compressed or re-uploaded.
+   *
+   * `resolveDedup` decides "already has it" two ways: the byte-for-byte
+   * fingerprint match (`alreadyUploaded` hit), and a conservative
+   * filename+filesize fallback for the case that defeats it — the same photos
+   * re-copied or cloud-synced into a new folder, which resets
+   * `File.lastModified` and re-uploads an entire event. The fallback is
+   * recorded as `dedupeMatch: "fuzzy"` rather than folded into the same
+   * silence as an exact hit: it surfaces as a count on the progress card and a
+   * distinct `[upload:dedup]` warning, because nothing else in this flow would
+   * ever tell a studio a photo was skipped.
    */
   private async upsertPendingRecords(
     inputs: UploadInput[],
     alreadyUploaded: Set<string>,
   ): Promise<void> {
+    const decisions = resolveDedup(
+      this.bookingId,
+      inputs.map((inp) => inp.file),
+      alreadyUploaded,
+    );
     const toWrite: UploadRecord[] = [];
-    for (const inp of inputs) {
-      const fingerprint = makeFingerprint(inp.file);
-      const id = makeRecordId(this.bookingId, fingerprint);
+    const fuzzySkipped: string[] = [];
+    const ambiguous: string[] = [];
+    for (let i = 0; i < inputs.length; i++) {
+      const inp = inputs[i];
+      const { id, fingerprint, match } = decisions[i];
       const existing = this.records.get(id);
+      // Already done locally (resume): leave the record — and any `dedupeMatch`
+      // an earlier selection wrote — exactly as it stands.
       if (existing && (existing.status === "uploaded" || existing.status === "saved")) continue;
+      if (decisions[i].ambiguous) ambiguous.push(inp.file.name);
       const record: UploadRecord = existing ?? {
         id,
         bookingId: this.bookingId,
@@ -1078,21 +1099,43 @@ export class UploadEngineCore {
       };
       const next: UploadRecord = {
         ...record,
-        status: alreadyUploaded.has(id) ? "saved" : "pending",
+        status: match ? "saved" : "pending",
+        // Always written, never inherited: a record re-queued for upload must
+        // not keep a `dedupeMatch` left over from an earlier selection.
+        dedupeMatch: match ?? undefined,
         attempts: 0,
         lastError: undefined,
         updatedAt: Date.now(),
       };
+      if (match === "fuzzy") fuzzySkipped.push(inp.file.name);
       toWrite.push(next);
       this.records.set(id, next);
     }
     await putRecords(toWrite);
+
+    // Distinct from the exact-match path, which stays silent by design. These
+    // two lines are the audit trail for a skip decision nobody confirmed.
+    if (fuzzySkipped.length > 0) {
+      console.warn(
+        `[upload:dedup] skipped ${fuzzySkipped.length} file(s) as probable duplicates — same filename and size as a photo already in this gallery, but a different file timestamp`,
+        logSample(fuzzySkipped),
+      );
+    }
+    if (ambiguous.length > 0) {
+      console.warn(
+        `[upload:dedup] ${ambiguous.length} file(s) looked like duplicates but the match was ambiguous — uploading them rather than risk dropping a photo`,
+        logSample(ambiguous),
+      );
+    }
   }
 
   /**
-   * Fetch the set of media_ids already saved for this booking. Best-effort: a
-   * failure just disables backend-side skipping for this run (files re-upload
-   * rather than blocking the whole upload on a transient error).
+   * Fetch the set of media_ids already saved for this booking — the input to
+   * both dedup paths in `upsertPendingRecords` (the fuzzy one decodes
+   * filename/filesize back out of these ids client-side, so no extra call).
+   * Best-effort: a failure just disables backend-side skipping for this run
+   * (files re-upload rather than blocking the whole upload on a transient
+   * error).
    */
   private async fetchUploadedMediaIds(): Promise<Set<string>> {
     try {
@@ -1164,6 +1207,9 @@ export class UploadEngineCore {
     const photosTotal = all.length;
     const uploaded = all.filter((r) => r.status === "uploaded" || r.status === "saved").length;
     const failed = all.filter((r) => r.status === "failed").length;
+    // Counted off the records (not off this run's decisions) so the number
+    // survives a resume: re-selecting the same folder re-shows the same skips.
+    const probableDuplicatesSkipped = all.filter((r) => r.dedupeMatch === "fuzzy").length;
     const photosDone = uploaded;
     // Failed files count toward "resolved" for the ring so it completes cleanly —
     // failures are no longer surfaced; they're retried silently on re-selection.
@@ -1195,6 +1241,7 @@ export class UploadEngineCore {
       photosDone,
       photosTotal,
       photosFailed: failed,
+      probableDuplicatesSkipped,
       speedLabel,
       etaLabel,
       folders,
@@ -1237,6 +1284,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Filenames for a console warning, capped so a 7k-photo event stays readable. */
+function logSample(names: string[], limit = 25): { files: string[]; andMore: number } {
+  return { files: names.slice(0, limit), andMore: Math.max(0, names.length - limit) };
+}
+
 /** True for the DOMException a fetch/PUT throws when its abort signal fires. */
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -1248,6 +1300,7 @@ function makeIdleProgress(): EngineProgress {
     photosDone: 0,
     photosTotal: 0,
     photosFailed: 0,
+    probableDuplicatesSkipped: 0,
     speedLabel: "",
     etaLabel: "",
     folders: [],

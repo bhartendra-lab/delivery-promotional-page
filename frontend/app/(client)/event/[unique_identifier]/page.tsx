@@ -41,6 +41,10 @@ export async function generateMetadata({
       title,
       description,
       metadataBase: new URL(SITE_URL),
+      // Chrome must not offer/auto-apply translation here — translating the page
+      // re-parents text nodes and crashes React's next structural commit. See
+      // the `translate="no"` note in app/(client)/layout.tsx.
+      other: { google: "notranslate" },
       openGraph: {
         type: "website",
         title,
@@ -61,6 +65,7 @@ export async function generateMetadata({
     return {
       title: "Your Gallery",
       description: LINK_PREVIEW_DESCRIPTION,
+      other: { google: "notranslate" },
     };
   }
 }

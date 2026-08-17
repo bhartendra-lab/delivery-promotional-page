@@ -144,6 +144,29 @@ export function UploadProgress({
           </div>
         )}
 
+        {/* Photos the engine decided were already in the gallery on a
+            filename+size match alone (the file timestamp had drifted). That
+            call is a judgement, not a certainty, and nothing else in this flow
+            would ever mention it — a skipped photo just quietly counts as
+            done. So the number is stated plainly while the run is on screen. */}
+        {progress.probableDuplicatesSkipped > 0 && (
+          <div className="flex items-start gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-navy-soft)] px-8 py-3.5">
+            <IconCheck size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-navy)]" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              <strong className="tabular-nums">
+                {progress.probableDuplicatesSkipped.toLocaleString("en-IN")} photo
+                {progress.probableDuplicatesSkipped === 1 ? "" : "s"}
+              </strong>{" "}
+              skipped as probable duplicates — same file name and size as photos already in this
+              gallery.{" "}
+              <span className="text-[var(--color-brand-muted)]">
+                They count as done and weren&apos;t uploaded again. If one is actually missing from
+                the gallery, rename it and upload it on its own.
+              </span>
+            </p>
+          </div>
+        )}
+
         {/* Per-folder progress */}
         <div className="px-8 pb-2 pt-5">
           <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
