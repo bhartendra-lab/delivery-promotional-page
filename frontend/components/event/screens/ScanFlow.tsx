@@ -146,8 +146,9 @@ export function ScanFlow({
       setStatus("Matching faces…");
       const res = await searchSelfie(uniqueIdentifier, { selfie_id: selfieId, booking_id: bookingId });
       const ids = res.data || [];
-      // Cache the matched set for this tab session — the lounge reads it instead
-      // of re-running the search, and a rescan overwrites it here.
+      // Cache the matched set for this tab session so the lounge has something
+      // to paint on first render; it re-runs the search itself on mount and
+      // overwrites this, and a rescan overwrites it here.
       setCachedMediaIds(uniqueIdentifier, ids);
 
       setTarget(100);

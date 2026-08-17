@@ -46,7 +46,9 @@ export function PhoneStep({
     setSubmitting(true);
     setError(null);
     try {
-      await requestGuestOtp({ uniqueIdentifier, name: trimmedName, phone });
+      // The name is collected here but only sent with the OTP verification —
+      // the backend won't persist a name from an unverified request.
+      await requestGuestOtp({ uniqueIdentifier, phone });
       onSent();
     } catch (err) {
       setSubmitting(false);

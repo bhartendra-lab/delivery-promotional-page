@@ -1165,13 +1165,16 @@ export function refreshGuestToken(token: string) {
  * `normalizePhoneNumber`), so they resolve to the same guest doc.
  */
 
-/** POST /auth/guest-otp-login — sends the first code. 429 on cooldown. */
-export function requestGuestOtp(input: { uniqueIdentifier: string; name: string; phone: string }) {
+/**
+ * POST /auth/guest-otp-login — sends the first code. 429 on cooldown.
+ * Deliberately carries no `name`: the backend refuses to write one from an
+ * unverified request, so the name rides along with `verifyGuestOtp` instead.
+ */
+export function requestGuestOtp(input: { uniqueIdentifier: string; phone: string }) {
   return request<{ message: string }>("/auth/guest-otp-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      name: input.name,
       phone: input.phone,
       unique_identifier: input.uniqueIdentifier,
     }),
@@ -1192,8 +1195,17 @@ export function resendGuestOtp(input: { uniqueIdentifier: string; phone: string 
   });
 }
 
-/** POST /auth/verify-otp — on success returns a guest JWT identical in shape to the Google-SSO path. */
-export function verifyGuestOtp(input: { uniqueIdentifier: string; phone: string; code: string }) {
+/**
+ * POST /auth/verify-otp — on success returns a guest JWT identical in shape to
+ * the Google-SSO path. `name` is the one the guest typed on `PhoneStep`; the
+ * backend persists it here, once the code proves they own the number.
+ */
+export function verifyGuestOtp(input: {
+  uniqueIdentifier: string;
+  phone: string;
+  code: string;
+  name?: string;
+}) {
   return request<GuestOtpVerifyResponse>("/auth/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1201,6 +1213,7 @@ export function verifyGuestOtp(input: { uniqueIdentifier: string; phone: string;
       phone: input.phone,
       unique_identifier: input.uniqueIdentifier,
       code: input.code,
+      ...(input.name ? { name: input.name } : {}),
     }),
     auth: false,
   });

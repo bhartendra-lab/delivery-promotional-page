@@ -54,7 +54,9 @@ export function OtpStep({
     setVerifying(true);
     setError(null);
     try {
-      const { token } = await verifyGuestOtp({ uniqueIdentifier, phone, code: value });
+      // `name` rides along so the backend can persist it now that the code
+      // proves the guest owns this number — it's ignored before verification.
+      const { token } = await verifyGuestOtp({ uniqueIdentifier, phone, code: value, name });
       setGuestToken(uniqueIdentifier, token);
       window.location.replace(`/event/${encodeURIComponent(uniqueIdentifier)}`);
     } catch (err) {
