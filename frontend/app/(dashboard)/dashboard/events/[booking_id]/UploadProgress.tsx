@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { EngineProgress } from "@/lib/r2-upload/types";
 import { useUploadStalled } from "@/lib/r2-upload/useUploadStall";
-import { IconFolder, IconCheck, IconClock, IconLock, IconPause, IconPlay } from "./icons";
+import { IconFolder, IconCheck, IconClock, IconLock, IconPause, IconPlay, IconWarning } from "./icons";
 
 const RING_SIZE = 220;
 const RING_STROKE = 4;
@@ -127,6 +127,22 @@ export function UploadProgress({
             )}
           </p>
         </div>
+
+        {/* Uploading without the studio's mark. The watermark is baked into the
+            pixels at upload time, so this can't be repaired afterwards by
+            fixing the setting — the studio has to know now, while there's
+            still the option to stop and re-upload. */}
+        {progress.watermarkWarning && (
+          <div className="flex items-start gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-8 py-3.5">
+            <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              {progress.watermarkWarning}{" "}
+              <span className="text-[var(--color-brand-muted)]">
+                Photos already uploaded keep whatever mark they were uploaded with.
+              </span>
+            </p>
+          </div>
+        )}
 
         {/* Per-folder progress */}
         <div className="px-8 pb-2 pt-5">

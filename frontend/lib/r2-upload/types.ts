@@ -69,6 +69,16 @@ export type EngineProgress = {
   folders: FolderProgress[];
   /** Set when a create-media chunk failed; user can retry. */
   metadataSaveError: string | null;
+  /**
+   * Set when the run is uploading WITHOUT the studio's watermark even though it
+   * should have carried one — the preset lookup failed, the mark couldn't be
+   * fetched/decoded, or presets exist but none is marked default. Null both
+   * when the watermark is being applied and when the studio has no presets at
+   * all (that case is the reminder dialog's job, not an error). Watermarking is
+   * baked in at upload time and can't be applied retroactively, so this has to
+   * be visible while the run is still on screen.
+   */
+  watermarkWarning: string | null;
   /** Set true while the engine is actively running (compress + upload). */
   isUploading: boolean;
   /** Set true if there are uploaded-but-unsaved records that need finalising. */

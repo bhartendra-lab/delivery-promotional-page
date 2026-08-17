@@ -30,6 +30,7 @@ import {
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
   getUploadedMediaIds,
+  getWatermarkPresets,
   presignUploads,
   putBlobToPresignedUrl,
   R2PutError,
@@ -124,11 +125,12 @@ export class UploadEngineCore {
    */
   private outOfSync = false;
   /**
-   * The studio's default watermark preset, applied to every compressed photo.
-   * Null = no watermark. The heavy work (fetch + decode the mark) is deferred
-   * to `prepareWatermark`, run once per upload before compression starts.
+   * The studio's default watermark preset, re-resolved from the API at the
+   * start of every run (see `prepareWatermark`) rather than snapshotted once —
+   * this engine outlives the React tree (see registry.ts), so a preset created
+   * or re-defaulted after the event page mounted must still reach this run.
+   * Null = no watermark.
    */
-  private watermarkPreset: WatermarkPreset | null = null;
   private watermarkRenderer: WatermarkRenderer | null = null;
   /** Identity (preset id + geometry) the cached renderer was built for. */
   private watermarkRendererKey: string | null = null;
@@ -238,7 +240,10 @@ export class UploadEngineCore {
     const alreadyUploaded = await this.fetchUploadedMediaIds();
     await this.upsertPendingRecords(inputs, alreadyUploaded);
     this.seedMetadataQueue();
-    this.scheduleEmit({ isUploading: true, paused: false, metadataSaveError: null }, true);
+    this.scheduleEmit(
+      { isUploading: true, paused: false, metadataSaveError: null, watermarkWarning: null },
+      true,
+    );
 
     // Fetch + decode the studio's default watermark once for the whole run.
     await this.prepareWatermark();
@@ -351,15 +356,6 @@ export class UploadEngineCore {
   }
 
   /**
-   * Set the studio's default watermark preset (or null to disable). Cheap —
-   * stores the preset only; the mark is fetched + decoded lazily, once per run,
-   * by `prepareWatermark`. Passing a preset without an `image_url` disables it.
-   */
-  setWatermark(preset: WatermarkPreset | null): void {
-    this.watermarkPreset = preset && preset.image_url ? preset : null;
-  }
-
-  /**
    * Persist metadata for uploaded-but-unsaved rows (resume after interrupt,
    * tab close, or a failed chunk). Safe to call repeatedly — saved rows are
    * skipped.
@@ -442,19 +438,58 @@ export class UploadEngineCore {
   /* ── watermark ──────────────────────────────────────────────── */
 
   /**
-   * Build (once) the renderer for the active preset, fetching + decoding the
-   * mark a single time for the whole run. Cached by preset id + geometry so
-   * resumes/retries reuse the decoded bitmap. A failure here disables
-   * watermarking for the run rather than aborting it — photos still upload.
+   * Resolve the studio's default preset and build the renderer for it, once per
+   * run, before compression starts.
+   *
+   * The preset is re-fetched here rather than pushed in from a mount-time
+   * effect: this engine is module-level and outlives the event page, so a
+   * snapshot taken when the page mounted goes stale the moment the studio adds
+   * a preset or changes which one is default (in this tab or another), and the
+   * run would silently bake in the old mark — or none at all. The decoded
+   * bitmap is still cached by preset id + geometry, so back-to-back runs,
+   * resumes and single-file retries reuse it and only re-fetch the small JSON.
+   *
+   * Nothing here can fail the upload — photos ship unmarked instead — but a
+   * failure that *should* have produced a watermark is surfaced on the progress
+   * card via `watermarkWarning`, because the mark is baked in at upload time
+   * and cannot be added afterwards.
    */
   private async prepareWatermark(): Promise<void> {
-    const preset = this.watermarkPreset;
-    if (!preset || !preset.image_url) {
+    // A preset with no `image_url` has nothing to stamp — treat it as absent.
+    let preset: (WatermarkPreset & { image_url: string }) | null = null;
+    try {
+      const { presets } = await getWatermarkPresets();
+      preset =
+        presets.find(
+          (p): p is WatermarkPreset & { image_url: string } => !!p.is_default && !!p.image_url,
+        ) ?? null;
+      if (!preset) {
+        this.disposeWatermark();
+        // No presets at all is the expected state for a studio that hasn't set
+        // one up (the reminder dialog covers that) — say nothing. Presets that
+        // exist but none of them default is a misconfiguration the studio can
+        // only notice here, since we never guess which one they meant.
+        this.setWatermarkWarning(
+          presets.length > 0
+            ? "None of your watermark presets is set as default, so these photos are uploading without a watermark. Set one as default in Settings → Watermark Presets."
+            : null,
+        );
+        return;
+      }
+    } catch (err) {
+      console.error("[upload:watermark] could not load presets; uploading without watermark", err);
       this.disposeWatermark();
+      this.setWatermarkWarning(
+        "We couldn't check your watermark settings, so these photos are uploading without a watermark.",
+      );
       return;
     }
+
     const key = `${preset._id}:${preset.image_url}:${preset.position}:${preset.size}:${preset.opacity}`;
-    if (this.watermarkRenderer && this.watermarkRendererKey === key) return;
+    if (this.watermarkRenderer && this.watermarkRendererKey === key) {
+      this.setWatermarkWarning(null);
+      return;
+    }
 
     this.disposeWatermark();
     try {
@@ -463,6 +498,7 @@ export class UploadEngineCore {
         preset.image_url,
       );
       this.watermarkRendererKey = key;
+      this.setWatermarkWarning(null);
     } catch (err) {
       console.error(
         "[upload:watermark] could not load default preset; uploading without watermark",
@@ -470,7 +506,16 @@ export class UploadEngineCore {
       );
       this.watermarkRenderer = null;
       this.watermarkRendererKey = null;
+      this.setWatermarkWarning(
+        `Your watermark "${preset.name || "preset"}" couldn't be loaded, so these photos are uploading without it.`,
+      );
     }
+  }
+
+  /** Emit (or clear) the "uploading without your watermark" notice. */
+  private setWatermarkWarning(message: string | null): void {
+    if (this.state.watermarkWarning === message) return;
+    this.scheduleEmit({ watermarkWarning: message }, true);
   }
 
   private disposeWatermark(): void {
@@ -1154,6 +1199,7 @@ export class UploadEngineCore {
       etaLabel,
       folders,
       metadataSaveError: this.state.metadataSaveError,
+      watermarkWarning: this.state.watermarkWarning,
       isUploading: this.state.isUploading,
       needsMetadataSave,
       isSavingMetadata: this.state.isSavingMetadata,
@@ -1206,6 +1252,7 @@ function makeIdleProgress(): EngineProgress {
     etaLabel: "",
     folders: [],
     metadataSaveError: null,
+    watermarkWarning: null,
     isUploading: false,
     needsMetadataSave: false,
     isSavingMetadata: false,
