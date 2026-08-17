@@ -8,6 +8,7 @@ import {
   type WatermarkPresetInput,
 } from "@/lib/api";
 import type { WatermarkPosition, WatermarkPreset } from "@/lib/types";
+import { EDGE_MARGIN_RATIO } from "@/lib/r2-upload/watermark";
 import { Spinner } from "../SettingsUI";
 import { IconX } from "@/components/ui/icons";
 
@@ -29,15 +30,20 @@ const SAMPLE_BG = "linear-gradient(135deg, #6b7280 0%, #9ca3af 45%, #d1d5db 100%
 // This preview is calibrated to the exact frame the renderer bakes onto: the
 // compressor caps every photo's long edge at 2560px (REFERENCE_W), so a 3:2
 // landscape export is 2560×1707. The watermark width is `size`% of width in
-// both preview and renderer, so the size set here is what gets rendered. The
-// edge gap is a fixed 7px in the renderer (lib/r2-upload/watermark.ts); we
-// express it here as the matching fraction of the 2560×1707 reference, so the
-// preview's gap equals the baked gap. Keep EDGE_MARGIN_PX in sync with the renderer.
+// both preview and renderer, so the size set here is what gets rendered.
+//
+// The edge gap is imported from the renderer rather than restated, so the two
+// cannot drift. Converting it to CSS takes one step: the renderer insets by the
+// same number of PIXELS on both axes (EDGE_MARGIN_RATIO of the shorter edge),
+// but CSS percentages resolve per axis — top/bottom against the container's
+// height, left/right against its width. So the vertical inset is the ratio
+// as-is, and the horizontal one is scaled by the reference aspect ratio to land
+// on the same pixel amount.
 const REFERENCE_W = 2560;
 const REFERENCE_H = Math.round((REFERENCE_W * 2) / 3); // 3:2 landscape → 1707
-const EDGE_MARGIN_PX = 0;
-const EDGE_MARGIN_H = `${(EDGE_MARGIN_PX / REFERENCE_W) * 100}%`; // ≈ 0.27%
-const EDGE_MARGIN_V = `${(EDGE_MARGIN_PX / REFERENCE_H) * 100}%`; // ≈ 0.41%
+const EDGE_MARGIN_PX = EDGE_MARGIN_RATIO * REFERENCE_H; // shorter edge of the reference
+const EDGE_MARGIN_H = `${(EDGE_MARGIN_PX / REFERENCE_W) * 100}%`; // ≈ 1.67%
+const EDGE_MARGIN_V = `${(EDGE_MARGIN_PX / REFERENCE_H) * 100}%`; // ≈ 2.5%
 
 /**
  * Smallest available "Watermark N" — fills gaps left by deleted presets
