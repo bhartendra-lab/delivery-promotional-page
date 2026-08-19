@@ -234,7 +234,7 @@ export function UpgradeModal({
               type="button"
               onClick={handlePay}
               disabled={!canPay}
-              className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-1"
             >
               {payLabel}
             </button>
