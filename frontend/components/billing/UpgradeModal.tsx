@@ -173,12 +173,17 @@ export function UpgradeModal({
       : null;
   const grossLineLabel = isEvent ? `${selection?.quantity} × ${formatInr(eventUnitPrice)}` : proration ? "Prorated charge" : "Plan price";
   const totalPendingLabel = previewLoading ? "Calculating…" : isScheduled ? "No charge now" : "Calculated at payment";
+  // A coupon covering the full price leaves nothing to pay — the server
+  // activates the plan outright, so the CTA must not read "Pay ₹0.00".
+  const isFullyCouponed = hasPreview && !preview.requires_payment;
   const canPay = !previewLoading && (isScheduled || displayTotal !== null);
   const payLabel = isScheduled
     ? "Schedule change"
-    : displayTotal !== null
-      ? `Pay ${formatInr(displayTotal, { paise: true })}`
-      : totalPendingLabel;
+    : isFullyCouponed
+      ? "Activate plan"
+      : displayTotal !== null
+        ? `Pay ${formatInr(displayTotal, { paise: true })}`
+        : totalPendingLabel;
 
   const showingFlow = state.phase !== "idle";
   const effectiveStep: Step = showingFlow ? "status" : step;
