@@ -27,7 +27,7 @@ export const SIGNAL = {
   error: "#E2524C",
   errorSoft: "#FFE9E8",
   viewer: "#17110A",
-  ring: "conic-gradient(#FF6B6B, #FFC727, #12B5A5, #7C5CFF, #FF6B6B)",
+  ring: "#C25A3A",
 } as const;
 
 const FONT = "'Nunito', 'Plus Jakarta Sans', sans-serif";

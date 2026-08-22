@@ -46,7 +46,9 @@ export function PhoneStep({
     setSubmitting(true);
     setError(null);
     try {
-      await requestGuestOtp({ uniqueIdentifier, name: trimmedName, phone });
+      // The name is collected here but only sent with the OTP verification —
+      // the backend won't persist a name from an unverified request.
+      await requestGuestOtp({ uniqueIdentifier, phone });
       onSent();
     } catch (err) {
       setSubmitting(false);
@@ -89,7 +91,7 @@ export function PhoneStep({
       <form onSubmit={submit} noValidate className="flex flex-col gap-3.5">
         <label className="flex flex-col gap-1.5">
           <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
-            Your name
+            Full Name
           </span>
           <input
             type="text"
@@ -97,7 +99,7 @@ export function PhoneStep({
             onChange={(e) => onNameChange(e.target.value)}
             onFocus={() => setFocused("name")}
             onBlur={() => setFocused(null)}
-            placeholder="e.g. Priya Sharma"
+            placeholder="Enter your name"
             autoComplete="name"
             className="w-full min-h-[52px]"
             style={{
@@ -138,7 +140,7 @@ export function PhoneStep({
               onChange={(e) => onPhoneChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
               onFocus={() => setFocused("phone")}
               onBlur={() => setFocused(null)}
-              placeholder="98765 43210"
+              placeholder="Enter your WhatsApp number"
               autoComplete="tel-national"
               aria-label="WhatsApp number, 10 digits"
               className="w-full min-w-0 flex-1 bg-transparent"

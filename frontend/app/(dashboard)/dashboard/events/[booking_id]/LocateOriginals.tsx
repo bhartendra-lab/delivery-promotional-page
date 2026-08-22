@@ -373,7 +373,7 @@ function LocateModal({
             onClick={close}
             disabled={busy}
             aria-label="Close"
-            className="brand-focus flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-40"
+            className="brand-focus flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:opacity-40"
           >
             <IconX size={16} />
           </button>
@@ -651,7 +651,7 @@ function ReviewPanel({
   if (found === 0) {
     return (
       <div className="flex flex-col items-center gap-2.5 py-8 text-center">
-        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-brand-surface)] text-[var(--color-brand-muted)]">
+        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
           <IconWarning size={22} />
         </span>
         <p className="text-[14px] font-semibold text-[var(--color-brand-ink)]">
@@ -846,7 +846,7 @@ function CopyingPanel({ prog }: { prog: CopyProgress }) {
         {fmt(prog.copied)} of {fmt(prog.total)}
         {prog.currentName ? ` · ${prog.currentName}` : ""}
       </p>
-      <div className="h-1.5 w-full max-w-[280px] overflow-hidden rounded-full bg-[var(--color-brand-surface)]">
+      <div className="h-1.5 w-full max-w-[280px] overflow-hidden rounded-full bg-[var(--color-brand-track)]">
         <div
           className="h-full rounded-full bg-[var(--color-brand-navy)] transition-[width] duration-300"
           style={{ width: `${pct}%` }}

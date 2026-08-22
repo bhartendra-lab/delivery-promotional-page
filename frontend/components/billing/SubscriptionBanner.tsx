@@ -10,7 +10,7 @@ const formatDate = (ms: number) =>
 type Tone = "neutral" | "warning" | "danger";
 
 const TONE_CLASSES: Record<Tone, string> = {
-  neutral: "border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] text-[var(--color-brand-ink)]",
+  neutral: "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-ink)]",
   warning: "border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]",
   danger: "border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] text-[var(--color-brand-danger)]",
 };
@@ -90,9 +90,14 @@ function contentFor(snapshot: SubscriptionSnapshot | null): BannerContent | null
 export function SubscriptionBanner({
   snapshot,
   scope,
+  className,
 }: {
   snapshot: SubscriptionSnapshot | null;
   scope: "app" | "settings";
+  /** Outer gutter/spacing, e.g. the page padding a call site outside a
+   *  padded container needs. Omit when the call site already provides its
+   *  own padding (like the settings page column) to avoid doubling up. */
+  className?: string;
 }) {
   const content = contentFor(snapshot);
   if (!content) return null;
@@ -103,7 +108,7 @@ export function SubscriptionBanner({
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${TONE_CLASSES[content.tone]}`}
+      className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${TONE_CLASSES[content.tone]} ${className ?? ""}`}
       role={content.tone === "danger" ? "alert" : undefined}
     >
       <IconWarningCircle size={16} className="shrink-0" />

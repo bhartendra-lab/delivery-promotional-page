@@ -8,10 +8,11 @@ import { AddressField } from "@/components/ui/AddressField";
 import {
   Field,
   SelectField,
-  SameAsPersonalCheckbox,
+  SameAsCheckbox,
   SaveBar,
   type SaveState,
 } from "@/app/(dashboard)/dashboard/settings/SettingsUI";
+import { useReportDirty } from "@/app/(dashboard)/dashboard/settings/SettingsContext";
 
 export type BillingDetailsFormProps = {
   /** Studio address offered as a one-tap prefill; omit/null to hide that option. */
@@ -26,6 +27,11 @@ export type BillingDetailsFormProps = {
   submitLabel?: string;
   onSaved: (profile: BillingProfile) => void;
   onCancel?: () => void;
+  /** "row" opts every field (and the "Same as Studio details" shortcut) into
+   *  the label-left layout — see the note atop `SettingsUI.tsx`. Defaults to
+   *  "stacked" so the upgrade modal's narrower in-flow billing step (which
+   *  never passes this) renders unchanged. */
+  layout?: "stacked" | "row";
 };
 
 /**
@@ -44,6 +50,7 @@ export function BillingDetailsForm({
   submitLabel,
   onSaved,
   onCancel,
+  layout = "stacked",
 }: BillingDetailsFormProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -102,6 +109,9 @@ export function BillingDetailsForm({
     gstin.trim().toUpperCase() !== (saved?.gstin ?? "") ||
     billingAddress.trim() !== (saved?.billing_address ?? "") ||
     stateCode !== (saved?.place_of_supply_state ?? "");
+  // No-ops when this form isn't mounted under SettingsProvider — e.g. inside
+  // UpgradeModal's billing step, which isn't part of Settings.
+  useReportDirty(dirty);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -167,27 +177,30 @@ export function BillingDetailsForm({
       className={submitLabel ? "space-y-4" : "scroll-mt-24 space-y-4"}
     >
       {showSameAsStudio && (
-        <SameAsPersonalCheckbox
+        <SameAsCheckbox
           label="Same as Studio details"
           checked={sameAsStudio}
           onChange={toggleSameAsStudio}
           disabled={gmbSkipped}
+          layout={layout}
         />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={layout === "row" ? "space-y-5" : "grid gap-4 sm:grid-cols-2"}>
         <Field
           label="Legal / billing name"
           value={legalName}
           onChange={editLegalName}
           required
           placeholder="As registered for tax purposes"
+          layout={layout}
         />
         <Field
           label="GSTIN"
           value={gstin}
           onChange={setGstin}
           placeholder="Optional — leave blank if unregistered"
+          layout={layout}
         />
       </div>
 
@@ -201,6 +214,7 @@ export function BillingDetailsForm({
             if (match) setStateCode(match.code);
           }}
           placeholder="Search for your billing address"
+          layout={layout}
         />
       </div>
 
@@ -211,6 +225,7 @@ export function BillingDetailsForm({
           onChange={editStateCode}
           options={GST_STATE_CODES.map((s) => ({ value: s.code, label: s.name }))}
           required
+          layout={layout}
         />
       </div>
 
@@ -226,7 +241,7 @@ export function BillingDetailsForm({
               <button
                 type="button"
                 onClick={onCancel}
-                className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+                className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
               >
                 Back
               </button>
@@ -245,6 +260,8 @@ export function BillingDetailsForm({
           saveState={saveState}
           errorMsg={errorMsg}
           canSave={canSave}
+          dirty={dirty}
+          formId="billing-details"
           idleHint="Needed to calculate GST correctly on every purchase."
         />
       )}

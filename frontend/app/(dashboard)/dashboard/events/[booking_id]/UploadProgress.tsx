@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { EngineProgress } from "@/lib/r2-upload/types";
 import { useUploadStalled } from "@/lib/r2-upload/useUploadStall";
-import { IconFolder, IconCheck, IconClock, IconLock, IconPause, IconPlay } from "./icons";
+import { IconFolder, IconCheck, IconClock, IconLock, IconPause, IconPlay, IconWarning } from "./icons";
 
 const RING_SIZE = 220;
 const RING_STROKE = 4;
@@ -128,6 +128,45 @@ export function UploadProgress({
           </p>
         </div>
 
+        {/* Uploading without the studio's mark. The watermark is baked into the
+            pixels at upload time, so this can't be repaired afterwards by
+            fixing the setting — the studio has to know now, while there's
+            still the option to stop and re-upload. */}
+        {progress.watermarkWarning && (
+          <div className="flex items-start gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-8 py-3.5">
+            <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              {progress.watermarkWarning}{" "}
+              <span className="text-[var(--color-brand-muted)]">
+                Photos already uploaded keep whatever mark they were uploaded with.
+              </span>
+            </p>
+          </div>
+        )}
+
+        {/* Photos the engine decided were already in the gallery on a
+            filename+size match alone (the file timestamp had drifted). That
+            call is a judgement, not a certainty, and nothing else in this flow
+            would ever mention it — a skipped photo just quietly counts as
+            done. So the number is stated plainly while the run is on screen. */}
+        {progress.probableDuplicatesSkipped > 0 && (
+          <div className="flex items-start gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-navy-soft)] px-8 py-3.5">
+            <IconCheck size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-navy)]" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              <strong className="tabular-nums">
+                {progress.probableDuplicatesSkipped.toLocaleString("en-IN")} photo
+                {progress.probableDuplicatesSkipped === 1 ? "" : "s"}
+              </strong>{" "}
+              skipped as probable duplicates — same file name and size as photos already in this
+              gallery.{" "}
+              <span className="text-[var(--color-brand-muted)]">
+                They count as done and weren&apos;t uploaded again. If one is actually missing from
+                the gallery, rename it and upload it on its own.
+              </span>
+            </p>
+          </div>
+        )}
+
         {/* Per-folder progress */}
         <div className="px-8 pb-2 pt-5">
           <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
@@ -199,7 +238,7 @@ export function UploadProgress({
                 void onCancel();
               }}
               disabled={cancelling}
-              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {cancelling ? "Stopping…" : "Stop upload"}
             </button>

@@ -55,12 +55,25 @@ export function useCheckoutFlow() {
         coupon_code: input.couponCode ?? undefined,
       });
 
-      // Narrowing order per plan §1.5: "status" first, then razorpay_order_id
+      // Narrowing order per plan §1.5: `status` first, then razorpay_order_id
       // (even when a subscription id is also present), else subscription-based.
-      // `status` only exists on the "scheduled" branch, so checking its
-      // presence alone narrows the whole union (and keeps narrowing intact
-      // for the branches below, unlike a compound `&&` on a literal check).
+      // Two branches carry a `status`, so this has to switch on the literal —
+      // `"status" in res` alone would send an "activated" response into the
+      // "scheduled" screen and render undefined copy and an Invalid Date.
       if ("status" in res) {
+        if (res.status === "activated") {
+          // A 100%-off coupon: the server already granted the plan, with no
+          // Razorpay step at all. Straight to the same confirmation screen a
+          // paid checkout lands on — its first poll of GET /billing/subscription
+          // sees the change immediately, since it has already been applied.
+          setState({
+            phase: "confirming",
+            purpose: input.purpose,
+            targetServiceId: input.serviceId,
+            before: input.before,
+          });
+          return;
+        }
         setState({ phase: "scheduled", message: res.message, effectiveAt: res.effective_at });
         return;
       }

@@ -30,6 +30,7 @@ import {
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
   getUploadedMediaIds,
+  getWatermarkPresets,
   presignUploads,
   putBlobToPresignedUrl,
   R2PutError,
@@ -40,6 +41,7 @@ import type { WatermarkPreset } from "@/lib/types";
 import { CompressorPool } from "./compressor";
 import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
+import { resolveDedup } from "./dedup.ts";
 import {
   classifyError,
   classifyHttp,
@@ -124,11 +126,12 @@ export class UploadEngineCore {
    */
   private outOfSync = false;
   /**
-   * The studio's default watermark preset, applied to every compressed photo.
-   * Null = no watermark. The heavy work (fetch + decode the mark) is deferred
-   * to `prepareWatermark`, run once per upload before compression starts.
+   * The studio's default watermark preset, re-resolved from the API at the
+   * start of every run (see `prepareWatermark`) rather than snapshotted once —
+   * this engine outlives the React tree (see registry.ts), so a preset created
+   * or re-defaulted after the event page mounted must still reach this run.
+   * Null = no watermark.
    */
-  private watermarkPreset: WatermarkPreset | null = null;
   private watermarkRenderer: WatermarkRenderer | null = null;
   /** Identity (preset id + geometry) the cached renderer was built for. */
   private watermarkRendererKey: string | null = null;
@@ -243,7 +246,10 @@ export class UploadEngineCore {
     const alreadyUploaded = await this.fetchUploadedMediaIds();
     await this.upsertPendingRecords(inputs, alreadyUploaded);
     this.seedMetadataQueue();
-    this.scheduleEmit({ isUploading: true, paused: false, metadataSaveError: null }, true);
+    this.scheduleEmit(
+      { isUploading: true, paused: false, metadataSaveError: null, watermarkWarning: null },
+      true,
+    );
 
     // Fetch + decode the studio's default watermark once for the whole run.
     await this.prepareWatermark();
@@ -356,15 +362,6 @@ export class UploadEngineCore {
   }
 
   /**
-   * Set the studio's default watermark preset (or null to disable). Cheap —
-   * stores the preset only; the mark is fetched + decoded lazily, once per run,
-   * by `prepareWatermark`. Passing a preset without an `image_url` disables it.
-   */
-  setWatermark(preset: WatermarkPreset | null): void {
-    this.watermarkPreset = preset && preset.image_url ? preset : null;
-  }
-
-  /**
    * Persist metadata for uploaded-but-unsaved rows (resume after interrupt,
    * tab close, or a failed chunk). Safe to call repeatedly — saved rows are
    * skipped.
@@ -448,19 +445,58 @@ export class UploadEngineCore {
   /* ── watermark ──────────────────────────────────────────────── */
 
   /**
-   * Build (once) the renderer for the active preset, fetching + decoding the
-   * mark a single time for the whole run. Cached by preset id + geometry so
-   * resumes/retries reuse the decoded bitmap. A failure here disables
-   * watermarking for the run rather than aborting it — photos still upload.
+   * Resolve the studio's default preset and build the renderer for it, once per
+   * run, before compression starts.
+   *
+   * The preset is re-fetched here rather than pushed in from a mount-time
+   * effect: this engine is module-level and outlives the event page, so a
+   * snapshot taken when the page mounted goes stale the moment the studio adds
+   * a preset or changes which one is default (in this tab or another), and the
+   * run would silently bake in the old mark — or none at all. The decoded
+   * bitmap is still cached by preset id + geometry, so back-to-back runs,
+   * resumes and single-file retries reuse it and only re-fetch the small JSON.
+   *
+   * Nothing here can fail the upload — photos ship unmarked instead — but a
+   * failure that *should* have produced a watermark is surfaced on the progress
+   * card via `watermarkWarning`, because the mark is baked in at upload time
+   * and cannot be added afterwards.
    */
   private async prepareWatermark(): Promise<void> {
-    const preset = this.watermarkPreset;
-    if (!preset || !preset.image_url) {
+    // A preset with no `image_url` has nothing to stamp — treat it as absent.
+    let preset: (WatermarkPreset & { image_url: string }) | null = null;
+    try {
+      const { presets } = await getWatermarkPresets();
+      preset =
+        presets.find(
+          (p): p is WatermarkPreset & { image_url: string } => !!p.is_default && !!p.image_url,
+        ) ?? null;
+      if (!preset) {
+        this.disposeWatermark();
+        // No presets at all is the expected state for a studio that hasn't set
+        // one up (the reminder dialog covers that) — say nothing. Presets that
+        // exist but none of them default is a misconfiguration the studio can
+        // only notice here, since we never guess which one they meant.
+        this.setWatermarkWarning(
+          presets.length > 0
+            ? "None of your watermark presets is set as default, so these photos are uploading without a watermark. Set one as default in Settings → Watermark Presets."
+            : null,
+        );
+        return;
+      }
+    } catch (err) {
+      console.error("[upload:watermark] could not load presets; uploading without watermark", err);
       this.disposeWatermark();
+      this.setWatermarkWarning(
+        "We couldn't check your watermark settings, so these photos are uploading without a watermark.",
+      );
       return;
     }
+
     const key = `${preset._id}:${preset.image_url}:${preset.position}:${preset.size}:${preset.opacity}`;
-    if (this.watermarkRenderer && this.watermarkRendererKey === key) return;
+    if (this.watermarkRenderer && this.watermarkRendererKey === key) {
+      this.setWatermarkWarning(null);
+      return;
+    }
 
     this.disposeWatermark();
     try {
@@ -469,6 +505,7 @@ export class UploadEngineCore {
         preset.image_url,
       );
       this.watermarkRendererKey = key;
+      this.setWatermarkWarning(null);
     } catch (err) {
       console.error(
         "[upload:watermark] could not load default preset; uploading without watermark",
@@ -476,7 +513,16 @@ export class UploadEngineCore {
       );
       this.watermarkRenderer = null;
       this.watermarkRendererKey = null;
+      this.setWatermarkWarning(
+        `Your watermark "${preset.name || "preset"}" couldn't be loaded, so these photos are uploading without it.`,
+      );
     }
+  }
+
+  /** Emit (or clear) the "uploading without your watermark" notice. */
+  private setWatermarkWarning(message: string | null): void {
+    if (this.state.watermarkWarning === message) return;
+    this.scheduleEmit({ watermarkWarning: message }, true);
   }
 
   private disposeWatermark(): void {
@@ -1015,20 +1061,40 @@ export class UploadEngineCore {
   /**
    * Build the IndexedDB record set for the batch about to upload. Each input's
    * record id (`${bookingId}__${fingerprint}`) is the same media_id the backend
-   * stores, so any input whose id is in `alreadyUploaded` is recorded as `saved`
-   * — counted as done in the progress bar and skipped silently by the pipeline,
-   * never re-compressed or re-uploaded.
+   * stores, so an input the backend already has is recorded as `saved` —
+   * counted as done in the progress bar and skipped by the pipeline, never
+   * re-compressed or re-uploaded.
+   *
+   * `resolveDedup` decides "already has it" two ways: the byte-for-byte
+   * fingerprint match (`alreadyUploaded` hit), and a conservative
+   * filename+filesize fallback for the case that defeats it — the same photos
+   * re-copied or cloud-synced into a new folder, which resets
+   * `File.lastModified` and re-uploads an entire event. The fallback is
+   * recorded as `dedupeMatch: "fuzzy"` rather than folded into the same
+   * silence as an exact hit: it surfaces as a count on the progress card and a
+   * distinct `[upload:dedup]` warning, because nothing else in this flow would
+   * ever tell a studio a photo was skipped.
    */
   private async upsertPendingRecords(
     inputs: UploadInput[],
     alreadyUploaded: Set<string>,
   ): Promise<void> {
+    const decisions = resolveDedup(
+      this.bookingId,
+      inputs.map((inp) => inp.file),
+      alreadyUploaded,
+    );
     const toWrite: UploadRecord[] = [];
-    for (const inp of inputs) {
-      const fingerprint = makeFingerprint(inp.file);
-      const id = makeRecordId(this.bookingId, fingerprint);
+    const fuzzySkipped: string[] = [];
+    const ambiguous: string[] = [];
+    for (let i = 0; i < inputs.length; i++) {
+      const inp = inputs[i];
+      const { id, fingerprint, match } = decisions[i];
       const existing = this.records.get(id);
+      // Already done locally (resume): leave the record — and any `dedupeMatch`
+      // an earlier selection wrote — exactly as it stands.
       if (existing && (existing.status === "uploaded" || existing.status === "saved")) continue;
+      if (decisions[i].ambiguous) ambiguous.push(inp.file.name);
       const record: UploadRecord = existing ?? {
         id,
         bookingId: this.bookingId,
@@ -1044,21 +1110,43 @@ export class UploadEngineCore {
       };
       const next: UploadRecord = {
         ...record,
-        status: alreadyUploaded.has(id) ? "saved" : "pending",
+        status: match ? "saved" : "pending",
+        // Always written, never inherited: a record re-queued for upload must
+        // not keep a `dedupeMatch` left over from an earlier selection.
+        dedupeMatch: match ?? undefined,
         attempts: 0,
         lastError: undefined,
         updatedAt: Date.now(),
       };
+      if (match === "fuzzy") fuzzySkipped.push(inp.file.name);
       toWrite.push(next);
       this.records.set(id, next);
     }
     await putRecords(toWrite);
+
+    // Distinct from the exact-match path, which stays silent by design. These
+    // two lines are the audit trail for a skip decision nobody confirmed.
+    if (fuzzySkipped.length > 0) {
+      console.warn(
+        `[upload:dedup] skipped ${fuzzySkipped.length} file(s) as probable duplicates — same filename and size as a photo already in this gallery, but a different file timestamp`,
+        logSample(fuzzySkipped),
+      );
+    }
+    if (ambiguous.length > 0) {
+      console.warn(
+        `[upload:dedup] ${ambiguous.length} file(s) looked like duplicates but the match was ambiguous — uploading them rather than risk dropping a photo`,
+        logSample(ambiguous),
+      );
+    }
   }
 
   /**
-   * Fetch the set of media_ids already saved for this booking. Best-effort: a
-   * failure just disables backend-side skipping for this run (files re-upload
-   * rather than blocking the whole upload on a transient error).
+   * Fetch the set of media_ids already saved for this booking — the input to
+   * both dedup paths in `upsertPendingRecords` (the fuzzy one decodes
+   * filename/filesize back out of these ids client-side, so no extra call).
+   * Best-effort: a failure just disables backend-side skipping for this run
+   * (files re-upload rather than blocking the whole upload on a transient
+   * error).
    */
   private async fetchUploadedMediaIds(): Promise<Set<string>> {
     try {
@@ -1130,6 +1218,9 @@ export class UploadEngineCore {
     const photosTotal = all.length;
     const uploaded = all.filter((r) => r.status === "uploaded" || r.status === "saved").length;
     const failed = all.filter((r) => r.status === "failed").length;
+    // Counted off the records (not off this run's decisions) so the number
+    // survives a resume: re-selecting the same folder re-shows the same skips.
+    const probableDuplicatesSkipped = all.filter((r) => r.dedupeMatch === "fuzzy").length;
     const photosDone = uploaded;
     // Failed files count toward "resolved" for the ring so it completes cleanly —
     // failures are no longer surfaced; they're retried silently on re-selection.
@@ -1161,10 +1252,12 @@ export class UploadEngineCore {
       photosDone,
       photosTotal,
       photosFailed: failed,
+      probableDuplicatesSkipped,
       speedLabel,
       etaLabel,
       folders,
       metadataSaveError: this.state.metadataSaveError,
+      watermarkWarning: this.state.watermarkWarning,
       isUploading: this.state.isUploading,
       needsMetadataSave,
       isSavingMetadata: this.state.isSavingMetadata,
@@ -1202,6 +1295,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Filenames for a console warning, capped so a 7k-photo event stays readable. */
+function logSample(names: string[], limit = 25): { files: string[]; andMore: number } {
+  return { files: names.slice(0, limit), andMore: Math.max(0, names.length - limit) };
+}
+
 /** True for the DOMException a fetch/PUT throws when its abort signal fires. */
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -1213,10 +1311,12 @@ function makeIdleProgress(): EngineProgress {
     photosDone: 0,
     photosTotal: 0,
     photosFailed: 0,
+    probableDuplicatesSkipped: 0,
     speedLabel: "",
     etaLabel: "",
     folders: [],
     metadataSaveError: null,
+    watermarkWarning: null,
     isUploading: false,
     needsMetadataSave: false,
     isSavingMetadata: false,

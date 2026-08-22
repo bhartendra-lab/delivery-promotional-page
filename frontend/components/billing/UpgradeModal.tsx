@@ -173,12 +173,17 @@ export function UpgradeModal({
       : null;
   const grossLineLabel = isEvent ? `${selection?.quantity} × ${formatInr(eventUnitPrice)}` : proration ? "Prorated charge" : "Plan price";
   const totalPendingLabel = previewLoading ? "Calculating…" : isScheduled ? "No charge now" : "Calculated at payment";
+  // A coupon covering the full price leaves nothing to pay — the server
+  // activates the plan outright, so the CTA must not read "Pay ₹0.00".
+  const isFullyCouponed = hasPreview && !preview.requires_payment;
   const canPay = !previewLoading && (isScheduled || displayTotal !== null);
   const payLabel = isScheduled
     ? "Schedule change"
-    : displayTotal !== null
-      ? `Pay ${formatInr(displayTotal, { paise: true })}`
-      : totalPendingLabel;
+    : isFullyCouponed
+      ? "Activate plan"
+      : displayTotal !== null
+        ? `Pay ${formatInr(displayTotal, { paise: true })}`
+        : totalPendingLabel;
 
   const showingFlow = state.phase !== "idle";
   const effectiveStep: Step = showingFlow ? "status" : step;
@@ -229,14 +234,14 @@ export function UpgradeModal({
               type="button"
               onClick={handlePay}
               disabled={!canPay}
-              className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60 sm:flex-1"
             >
               {payLabel}
             </button>
             <button
               type="button"
               onClick={backFromConfirm}
-              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
             >
               Back
             </button>
@@ -307,7 +312,7 @@ export function UpgradeModal({
           <button
             type="button"
             onClick={onRetryLoad}
-            className="brand-focus inline-flex h-10 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+            className="brand-focus inline-flex h-10 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
           >
             Retry
           </button>

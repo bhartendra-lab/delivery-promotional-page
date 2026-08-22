@@ -44,10 +44,11 @@ export function clearGuestToken(uid: string): void {
 /* ── matched media_ids — per-session cache ──────────────────────────────────
  *
  * The guest's matched photos (the `search-selfie` result) are deliberately not
- * stored server-side. They live here in `sessionStorage`, keyed per event, so
- * they survive a reload / in-app navigation within the same tab but are cleared
- * when the tab closes — which is exactly when we want `search-selfie` to run
- * again. A rescan overwrites the cached set.
+ * stored server-side. They live here in `sessionStorage`, keyed per event, so a
+ * reload / in-app navigation within the same tab has something to paint with
+ * straight away. It is NOT a way to skip the search: the lounge re-runs
+ * `search-selfie` on every mount and overwrites this, and only falls back to the
+ * cached set when that search fails. A rescan overwrites it too.
  */
 const MEDIA_PREFIX = "vy_guest_media_";
 const mediaKeyFor = (uid: string) => `${MEDIA_PREFIX}${uid}`;

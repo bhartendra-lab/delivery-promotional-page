@@ -29,14 +29,14 @@ export function InvoiceList({ invoices, loading }: { invoices: Invoice[]; loadin
 
   if (invoices.length === 0) {
     return (
-      <p className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-5 text-sm text-[var(--color-brand-muted)]">
+      <p className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5 text-sm text-[var(--color-brand-muted)]">
         No invoices yet. They&apos;ll appear here after your first payment.
       </p>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)]">
+    <div className="overflow-x-auto rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]">
       <table className="w-full min-w-[480px] text-left text-sm">
         <thead>
           <tr className="border-b border-[var(--color-brand-border)] text-xs uppercase tracking-[0.08em] text-[var(--color-brand-muted)]">

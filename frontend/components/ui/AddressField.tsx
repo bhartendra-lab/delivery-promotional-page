@@ -12,9 +12,26 @@ type GoogleMapsAddressComponent = {
 
 type GoogleMapsPlace = {
   place_id?: string;
+  name?: string;
   formatted_address?: string;
   address_components?: GoogleMapsAddressComponent[];
 };
+
+/**
+ * Combines the business name with its formatted address so the field always
+ * shows something to verify against. `formatted_address` alone is often
+ * sparse for small/local establishment listings — sometimes barely more
+ * than the name — so relying on it in isolation can leave the field
+ * showing just "Kamal Productions" with no address at all. Guards against
+ * duplicating the name when formatted_address already leads with it.
+ */
+function composeFullAddress(place: GoogleMapsPlace): string {
+  const name = place.name?.trim();
+  const address = place.formatted_address?.trim();
+  if (!address) return name ?? "";
+  if (!name || address.toLowerCase().startsWith(name.toLowerCase())) return address;
+  return `${name}, ${address}`;
+}
 
 type GoogleAutocompleteInstance = {
   addListener: (event: string, handler: () => void) => void;
@@ -53,6 +70,7 @@ export function AddressField({
   onPlaceSelect,
   placeholder,
   className = "",
+  layout = "stacked",
 }: {
   label?: string;
   value: string;
@@ -60,6 +78,11 @@ export function AddressField({
   onPlaceSelect?: (place: { address: string; placeId: string; stateName?: string }) => void;
   placeholder?: string;
   className?: string;
+  /** "row" puts the label in a fixed-width left column beside the control at
+   *  `lg`+ — see the layout-variant note atop SettingsUI.tsx. Defaults to
+   *  "stacked" so every existing call site (onboarding, billing) renders
+   *  unchanged. */
+  layout?: "stacked" | "row";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<GoogleAutocompleteInstance | null>(null);
@@ -94,12 +117,12 @@ export function AddressField({
   useEffect(() => {
     if (!scriptReady || !inputRef.current || autocompleteRef.current || !window.google?.maps?.places) return;
     const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
-      fields: ["place_id", "formatted_address", "address_components"],
+      fields: ["place_id", "name", "formatted_address", "address_components"],
       types: ["establishment"],
     });
     autocomplete.addListener("place_changed", () => {
       const place = autocomplete.getPlace();
-      const formatted = place.formatted_address ?? inputRef.current?.value ?? "";
+      const formatted = composeFullAddress(place) || inputRef.current?.value || "";
       onChange(formatted);
       if (place.place_id) {
         const stateName = place.address_components?.find((c) =>
@@ -111,9 +134,15 @@ export function AddressField({
     autocompleteRef.current = autocomplete;
   }, [scriptReady, onChange, onPlaceSelect]);
 
+  const isRow = layout === "row";
   return (
-    <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+    <label
+      className={`block ${isRow ? "lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6" : ""} ${className}`}
+    >
+      <span
+        className={`mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-2.5" : ""
+          }`}
+      >
         {label}
       </span>
       <input
@@ -123,7 +152,8 @@ export function AddressField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete="off"
-        className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)]"
+        className={`brand-focus h-10 w-full rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] ${isRow ? "lg:col-start-2 lg:row-start-1" : ""
+          }`}
       />
     </label>
   );

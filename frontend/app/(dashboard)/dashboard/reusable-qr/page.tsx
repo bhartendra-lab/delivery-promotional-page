@@ -207,7 +207,7 @@ export default function ReusableQrPage() {
 
 function EmptyState({ onGenerate }: { onGenerate: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-12 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
         <IconQrCode size={28} />
       </div>

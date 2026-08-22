@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import { IconX } from "@/components/ui/icons";
 
 const FOCUSABLE_SELECTOR =
@@ -50,6 +51,19 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // Read through a ref (kept current every render) rather than depending on
+  // `onClose` directly in the effect below. Every caller passes an inline
+  // callback that's a new function identity on every render of that caller
+  // — if the focus-trap effect depended on it, typing into any field inside
+  // the modal (a normal controlled-input re-render) would tear the effect
+  // down and re-run it on every keystroke, which re-focuses the first
+  // focusable element in the dialog and yanks focus out of whatever the
+  // user was typing into.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
 
@@ -64,7 +78,7 @@ export function Modal({
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -89,11 +103,18 @@ export function Modal({
       document.body.style.overflow = "";
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+    // Deliberately excludes `onClose` — see onCloseRef above. This effect
+    // should only run on a real open/close transition.
+  }, [open]);
 
   if (!open) return null;
+  // SSR-guarded: no DOM to portal into during server rendering. Every
+  // consumer's `open` starts false until client-side data (a fetched
+  // company/subscription/reminder status, or direct user interaction)
+  // flips it, so this never costs a visible first-paint frame in practice.
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-4">
       <button
         type="button"
@@ -112,9 +133,9 @@ export function Modal({
         aria-labelledby={titleId}
         aria-describedby={subtitle ? subtitleId : undefined}
         tabIndex={-1}
-        className={`modal-pop modal-slide-up relative flex w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-2xl sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
+        className={`modal-pop modal-slide-up relative flex w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-card sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
       >
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:static sm:rounded-t-2xl sm:px-7 sm:py-5">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:static sm:rounded-t-card sm:px-7 sm:py-5">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {headerLeading}
             <div className="min-w-0">
@@ -141,11 +162,12 @@ export function Modal({
         <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">{children}</div>
 
         {footer && (
-          <footer className="sticky bottom-0 z-10 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:static sm:rounded-b-2xl sm:px-7 sm:py-5">
+          <footer className="sticky bottom-0 z-10 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:static sm:rounded-b-card sm:px-7 sm:py-5">
             {footer}
           </footer>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

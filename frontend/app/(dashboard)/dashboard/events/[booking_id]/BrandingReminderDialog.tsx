@@ -135,14 +135,14 @@ export function BrandingReminderDialog() {
           <button
             type="button"
             onClick={handleGoToSettings}
-            className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] sm:flex-1"
           >
             Complete Branding
           </button>
           <button
             type="button"
             onClick={handleSkip}
-            className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)] sm:flex-1"
           >
             Skip for now
           </button>

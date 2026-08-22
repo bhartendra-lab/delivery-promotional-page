@@ -30,6 +30,21 @@ export type UploadRecord = {
   fileSize: number;
   fileLastModified: number;
   status: UploadStatus;
+  /**
+   * Why this record went straight to `saved` without uploading anything: the
+   * backend already had it. `"exact"` = same fingerprint (byte-for-byte
+   * certainty); `"fuzzy"` = same filename + filesize but a different file
+   * timestamp, so it's a *probable* duplicate the engine chose to trust (see
+   * `dedup.ts`). Absent on every record that actually uploaded — which is what
+   * lets the run surface a "skipped as probable duplicates" count instead of
+   * folding unconfirmed matches into the same silence as confirmed ones.
+   *
+   * Deliberately a field and not an `UploadStatus`: a new status would fall
+   * outside every `"uploaded" | "saved"` check in the engine (progress
+   * counters, the compression-loop resume skip, the `fullyComplete` wipe), so
+   * a fuzzy skip would stall the ring and re-upload on the next selection.
+   */
+  dedupeMatch?: "exact" | "fuzzy";
   /** Set after a successful R2 PUT. This is what we persist to the backend. */
   publicUrl?: string;
   /** R2 object key (layout owned by the backend's presign endpoint). */
@@ -64,11 +79,30 @@ export type EngineProgress = {
   photosDone: number;
   photosTotal: number;
   photosFailed: number;
+  /**
+   * How many of `photosDone` were never uploaded in the first place: the
+   * backend already had a photo with the same filename + filesize, but a
+   * different file timestamp (see `UploadRecord.dedupeMatch`). Unlike a
+   * fingerprint match this is a judgement call with no confirmation step, so
+   * the number is shown while the run is on screen — a studio that expected
+   * every photo to upload gets one place to notice it didn't.
+   */
+  probableDuplicatesSkipped: number;
   speedLabel: string;
   etaLabel: string;
   folders: FolderProgress[];
   /** Set when a create-media chunk failed; user can retry. */
   metadataSaveError: string | null;
+  /**
+   * Set when the run is uploading WITHOUT the studio's watermark even though it
+   * should have carried one — the preset lookup failed, the mark couldn't be
+   * fetched/decoded, or presets exist but none is marked default. Null both
+   * when the watermark is being applied and when the studio has no presets at
+   * all (that case is the reminder dialog's job, not an error). Watermarking is
+   * baked in at upload time and can't be applied retroactively, so this has to
+   * be visible while the run is still on screen.
+   */
+  watermarkWarning: string | null;
   /** Set true while the engine is actively running (compress + upload). */
   isUploading: boolean;
   /** Set true if there are uploaded-but-unsaved records that need finalising. */

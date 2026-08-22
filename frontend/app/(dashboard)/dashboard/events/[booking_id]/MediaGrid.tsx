@@ -312,7 +312,7 @@ export function MediaGrid({
               {/* Clips the image + its hover zoom; kept separate from the tile
                   wrapper so the "⋮" menu below can pop out past this corner
                   radius instead of being clipped. */}
-              <div className="absolute inset-0 overflow-hidden rounded bg-[var(--color-brand-surface)]">
+              <div className="absolute inset-0 overflow-hidden rounded bg-[var(--color-brand-track)]">
                 <button
                   type="button"
                   onClick={() => setLightboxIndex(i)}
@@ -526,7 +526,7 @@ function DeleteConfirm({
             onClick={onCancel}
             disabled={busy}
             aria-label="Close"
-            className="brand-focus flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-surface)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
+            className="brand-focus flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
           >
             <IconX size={16} />
           </button>

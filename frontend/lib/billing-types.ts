@@ -44,19 +44,30 @@ export function isStorageSnapshot(s: SubscriptionSnapshot): s is StorageBasedSna
   return "storage" in s;
 }
 
-/** POST /billing/coupons/validate */
+/**
+ * POST /billing/coupons/validate
+ *
+ * `requires_payment: false` means the coupon covers the whole price (a
+ * 100%-off coupon) — checkout will activate the plan outright instead of
+ * returning anything to pay. Prefer it over testing `final_amount === 0`.
+ */
 export type CouponValidation =
-  | { valid: true; discount_amount: number; tax_amount: number; final_amount: number }
+  | { valid: true; discount_amount: number; tax_amount: number; final_amount: number; requires_payment: boolean }
   | { valid: false; message: string };
 
 /**
- * POST /billing/checkout — a discriminated union with six branches (§1.5).
- * Narrow in this order: "status" in res -> scheduled (F); else
- * res.razorpay_order_id -> order-based checkout (A/C/D/E), even when
- * razorpay_subscription_id is also present; else subscription-based (B).
+ * POST /billing/checkout — a discriminated union (§1.5).
+ *
+ * Narrow on the `status` LITERAL first, never on `"status" in res` alone:
+ * "scheduled" (F) and "activated" (a 100%-off coupon, granted server-side
+ * with no Razorpay step at all) both carry a `status` and are otherwise
+ * nothing alike. Then res.razorpay_order_id -> order-based checkout
+ * (A/C/D/E), even when razorpay_subscription_id is also present; else
+ * subscription-based (B).
  */
 export type CheckoutResponse =
   | { status: "scheduled"; message: string; effective_at: number }
+  | { status: "activated"; amount: number; discount_amount: number; coupon_code: string; subscription_id: string }
   | { razorpay_order_id: string; amount: number; razorpay_subscription_id: string; key_id: string }
   | { razorpay_order_id: string; amount: number; key_id: string }
   | { razorpay_subscription_id: string; short_url: string; key_id: string };
@@ -107,6 +118,8 @@ export type CheckoutPreview =
       taxable_value: number;
       tax_lines: InvoiceTaxLine[];
       total: number;
+      /** false when a coupon covers the full price — show "Activate plan", not "Pay ₹0.00". */
+      requires_payment: boolean;
       proration: CheckoutProration | null;
     };
 

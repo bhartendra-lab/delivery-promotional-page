@@ -69,7 +69,7 @@ function BrandPanel() {
           ].map((s) => (
             <div
               key={s.label}
-              className="rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-3 py-3"
+              className="rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 py-3"
             >
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--color-brand-muted)]">
                 {s.label}
@@ -155,7 +155,7 @@ function LoginForm() {
           <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={100} />
         </div>
 
-        <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
+        <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "email" && (
             <>
               <div className="space-y-1.5">
@@ -214,7 +214,7 @@ function LoginForm() {
 
               <a
                 href={googleHref}
-                className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-surface)]"
+                className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
               >
                 <IconGoogle size={16} />
                 Continue with Google

@@ -134,7 +134,7 @@ export default function DashboardHomePage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
       {company?.gmb_skipped === true && !company?.google_place_id && !gmbNudgeDismissed && (
-        <div className="flex items-start gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-4 py-3">
+        <div className="flex items-start gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3">
           <IconGlobe className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-brand-muted)]" />
           <div className="flex-1 text-sm">
             <p className="font-semibold text-[var(--color-brand-ink)]">Add your Google listing to collect reviews.</p>
@@ -230,7 +230,7 @@ export default function DashboardHomePage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by client name…"
-            className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] pl-9 pr-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+            className="brand-focus h-10 w-full rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] pl-9 pr-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
           />
           {search && (
             <button
@@ -347,7 +347,7 @@ export default function DashboardHomePage() {
 
 function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
         <IconArticle size={28} />
       </div>
@@ -372,7 +372,7 @@ function EmptyState({ onCreate, disabled }: { onCreate: () => void; disabled?: b
 
 function ArchivedEmpty({ onClear }: { onClear: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-surface)] px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center gap-5 rounded-xl border border-dashed border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-14 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--color-brand-bg)] text-[var(--color-brand-muted)]">
         <IconArchive size={26} />
       </div>
@@ -475,7 +475,7 @@ function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolea
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-      style={{ color: "var(--color-brand-muted)", background: "var(--color-brand-surface)" }}
+      style={{ color: "var(--color-brand-muted)", background: "var(--color-brand-track)" }}
     >
       <CountDot />
       {usage.used} this month

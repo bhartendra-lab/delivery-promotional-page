@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
+import { occasionFor, collectionsFor, messageLabelFor, type Occasion } from "@/lib/event-occasion";
 import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "@/components/event/screens/gallery/GalleryControls";
 import {
@@ -18,28 +19,11 @@ import {
   IconPlus,
 } from "./icons";
 
-/** Season grouping over the backend `style_variant` enum. */
-const SEASONS = ["Spring", "Summer", "Autumn", "Winter"] as const;
-type Season = (typeof SEASONS)[number];
-
-const SEASON_VARIANTS: Record<Season, StyleVariant[]> = {
-  Spring: ["Ivory & Rose", "Blush Minimal", "Sage Sanctuary"],
-  Summer: ["Marigold Bright", "Festive Bloom"],
-  Autumn: ["Maroon Velvet", "Fine-Art Warm"],
-  Winter: ["Emerald Royal", "Charcoal Editorial", "Indigo Dusk"],
-};
-
-function seasonOf(variant: StyleVariant): Season {
-  return (SEASONS.find((s) => SEASON_VARIANTS[s].includes(variant)) ?? "Spring") as Season;
-}
-
-const COPY_LABEL: Record<string, string> = {
-  Wedding: "Message from the Couple",
-  Engagement: "Message from the Couple",
-  "Pre-wedding": "Message from the Couple",
-  Anniversary: "Message from the Hosts",
-  Birthday: "Message from the Hosts",
-  Corporate: "Event Briefing",
+const OCCASION_TIP_LABEL: Record<Occasion, string> = {
+  wedding: "wedding",
+  celebration: "celebration",
+  corporate: "corporate",
+  neutral: "general",
 };
 
 const MAX = 500;
@@ -77,8 +61,20 @@ export function GalleryDesignTab({
       ? (initialStyleVariant as StyleVariant)
       : "Ivory & Rose") as StyleVariant;
 
+  // Occasion never changes within one tab instance (the event type isn't
+  // editable here), so the collection list is effectively static per mount.
+  const occasion = occasionFor(eventType);
+  const collections = collectionsFor(occasion);
+
   const [variant, setVariant] = useState<StyleVariant>(startVariant);
-  const [season, setSeason] = useState<Season>(seasonOf(startVariant));
+  // Derived once from the saved variant on mount. If it isn't found in any
+  // collection (shouldn't happen), fall back to the first collection but
+  // leave `variant` untouched — never silently change a live gallery's saved
+  // variant just because the picker couldn't place it.
+  const [collectionId, setCollectionId] = useState<string>(
+    () => (collections.find((c) => c.variants.includes(startVariant)) ?? collections[0]).id,
+  );
+  const [showAllThemes, setShowAllThemes] = useState(false);
   const [message, setMessage] = useState(initialCustomMessage ?? "");
   const [branding, setBranding] = useState(initialIncludeBranding ?? true);
   const [guestTypes, setGuestTypes] = useState<string[]>(initialGuestTypes ?? []);
@@ -91,7 +87,8 @@ export function GalleryDesignTab({
   // so this preview can never drift from what guests actually see (it used to
   // keep its own duplicate palette dict, hand-copied from client-theme.ts).
   const theme = resolveTheme(variant);
-  const copyLabel = COPY_LABEL[eventType] ?? "Message to Guests";
+  const copyLabel = messageLabelFor(eventType);
+  const activeCollection = collections.find((c) => c.id === collectionId) ?? collections[0];
 
   // Trimmed, non-empty teams — what we actually save and compare for dirty.
   const cleanGuestTypes = useMemo(() => guestTypes.map((t) => t.trim()).filter(Boolean), [guestTypes]);
@@ -130,26 +127,49 @@ export function GalleryDesignTab({
       {/* LEFT — controls */}
       <div className="overflow-auto border-b border-[var(--color-brand-border)] px-6 py-6 lg:w-[45%] lg:shrink-0 lg:border-b-0 lg:border-r">
         <SectionCard
-          overline="Season — Theme Skin"
-          tip="A skin sets the colour palette of the guest-facing gallery. Pick a season, then a variant to preview it live."
+          overline="Theme"
+          tip={`A theme sets the colour palette of the guest-facing gallery. Collections are grouped for ${OCCASION_TIP_LABEL[occasion]} events — pick one, then a variant to preview it live.`}
         >
-          <FieldLabel>Season</FieldLabel>
-          <Segmented
-            value={season}
-            options={SEASONS.map((s) => ({ id: s, label: s }))}
-            onChange={(s) => {
-              const next = s as Season;
-              setSeason(next);
-              setVariant(SEASON_VARIANTS[next][0]);
-            }}
-          />
-          <div className="h-4" />
+          {!showAllThemes && (
+            <>
+              <FieldLabel>Collection</FieldLabel>
+              <Segmented
+                value={collectionId}
+                options={collections.map((c) => ({ id: c.id, label: c.label }))}
+                onChange={(id) => {
+                  setCollectionId(id);
+                  const next = collections.find((c) => c.id === id);
+                  if (next) setVariant(next.variants[0]);
+                }}
+              />
+              <div className="h-4" />
+            </>
+          )}
           <FieldLabel>Style variant</FieldLabel>
           <Select
             value={variant}
-            options={SEASON_VARIANTS[season]}
+            options={showAllThemes ? STYLE_VARIANTS : activeCollection.variants}
             onChange={(v) => setVariant(v as StyleVariant)}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setShowAllThemes((prev) => {
+                const next = !prev;
+                // Turning the escape hatch off snaps back to whichever
+                // collection contains the current variant — the variant
+                // itself is never touched by the toggle.
+                if (!next) {
+                  const match = collections.find((c) => c.variants.includes(variant)) ?? collections[0];
+                  setCollectionId(match.id);
+                }
+                return next;
+              });
+            }}
+            className="brand-focus mt-3 text-[12px] font-semibold text-[var(--color-brand-navy)] hover:underline"
+          >
+            {showAllThemes ? "Show current collection only" : "Show all themes"}
+          </button>
           <div className="mt-3 flex items-center gap-2">
             <span className="text-[11.5px] text-[var(--color-brand-muted)]">Palette</span>
             {[...theme.cover, theme.brand].map((c, i) => (
@@ -340,7 +360,7 @@ export function GalleryDesignTab({
                     eventType={eventType}
                     eventDateLabel={eventDateLabel}
                     coverUrl={coverUrl}
-                  coverPosition={coverPosition}
+                    coverPosition={coverPosition}
                     message={message}
                     branding={branding}
                     scope={scope}
@@ -510,7 +530,7 @@ function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: 
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             canDownloadAll={previewUnlocked}
             zipping={false}
-            onDownloadAll={() => {}}
+            onDownloadAll={() => { }}
             unlocked={previewUnlocked}
             onOpenPrivate={() => setPreviewUnlocked(true)}
             iconOnly={compact}

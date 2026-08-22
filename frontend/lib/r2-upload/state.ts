@@ -67,8 +67,12 @@ function reqAsPromise<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+/** The `File` fields a fingerprint is made of — nothing else is read, so pure
+ *  logic (and its tests) can work with plain objects instead of real `File`s. */
+export type FingerprintableFile = Pick<File, "name" | "size" | "lastModified">;
+
 /** Compose the deterministic id for a (booking, file) pair. */
-export function makeFingerprint(file: File): string {
+export function makeFingerprint(file: FingerprintableFile): string {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 export function makeRecordId(bookingId: string, fingerprint: string): string {

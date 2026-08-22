@@ -27,6 +27,10 @@ const LIKE_NUDGE_THRESHOLD = 3;
 /** Breathing room after the gallery first paints before the gentle load nudge. */
 const LOAD_NUDGE_DELAY_MS = 6000;
 
+/** Same match set? Positional compare — the backend returns a stable order, and
+ *  a false negative only costs one extra page fetch. */
+const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+
 /**
  * The authenticated guest experience. Desktop: a slim sticky top bar + ONE
  * continuous scroll (editorial cover → welcome band → sectioned grid).
@@ -115,14 +119,21 @@ export function LoungeGallery({
   const loadingMoreRef = useRef(false);
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
-  // not stored server-side: seed from the per-session cache (a fresh scan / prior
-  // visit in this tab fills it), and `null` means "not resolved yet" — the effect
-  // below runs search-selfie once to populate it. Closing the tab clears the
-  // cache, so reopening re-runs the search.
+  // not stored server-side: the cached set (from a fresh scan or an earlier
+  // visit in this tab) only seeds the initial render so the grid can paint
+  // immediately — search-selfie still re-runs on every mount below, because the
+  // studio keeps uploading and yesterday's match set misses today's photos.
   const [mediaIds, setMediaIds] = useState<string[] | null>(() => getCachedMediaIds(uniqueIdentifier));
 
+  // EventFlow rebuilds `onReauth` on every render of its own, so it's read
+  // through a ref rather than being a dependency below — otherwise an unrelated
+  // session patch (a passcode unlock, say) would fire a second face search.
+  const onReauthRef = useRef(onReauth);
   useEffect(() => {
-    if (mediaIds !== null) return; // cache hit (or already resolved) — nothing to do
+    onReauthRef.current = onReauth;
+  });
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -139,17 +150,26 @@ export function LoungeGallery({
         if (cancelled) return;
         const ids = res.data ?? [];
         setCachedMediaIds(uniqueIdentifier, ids);
-        setMediaIds(ids);
+        // Hold on to the previous array when the match set is unchanged: its
+        // identity is a dependency of the media loader below, so swapping in an
+        // equal-but-new array would refetch the first page for nothing.
+        setMediaIds((prev) => (prev && sameIds(prev, ids) ? prev : ids));
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof GuestAuthError) onReauth();
-        else setMediaIds([]); // fail closed to "no matches"; the grid shows empty
+        if (err instanceof GuestAuthError) {
+          onReauthRef.current();
+          return;
+        }
+        // Search failed — keep showing the last known match set rather than an
+        // empty gallery. Only a cold cache falls back to "no matches", which
+        // also unblocks the media loader (it waits on a non-null value).
+        setMediaIds((prev) => prev ?? []);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mediaIds, uniqueIdentifier, bookingId, session.selfie_id, onReauth]);
+  }, [uniqueIdentifier, bookingId, session.selfie_id]);
 
   // Seed the liked set from the server's per-photo liked_by_me flag so hearts
   // persist across reloads (additive — optimistic toggles still win in-session).

@@ -301,15 +301,22 @@ function CheckoutShell() {
         ? "No charge now"
         : "Calculated at payment";
 
+  // A coupon covering the full price leaves nothing to pay — the server
+  // activates the plan outright, so the CTA must not read "Pay ₹0.00".
+  const isFullyCouponed = hasPreview && !preview.requires_payment;
   const canPay = !previewLoading && !billingProfileIncomplete && (isScheduled || displayTotal !== null);
   const payLabel =
     state.phase === "processing"
-      ? "Opening payment…"
+      ? isFullyCouponed
+        ? "Activating…"
+        : "Opening payment…"
       : isScheduled
         ? "Schedule change"
-        : displayTotal !== null
-          ? `Pay ${formatInr(displayTotal, { paise: true })}`
-          : totalPendingLabel;
+        : isFullyCouponed
+          ? "Activate plan"
+          : displayTotal !== null
+            ? `Pay ${formatInr(displayTotal, { paise: true })}`
+            : totalPendingLabel;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-lg flex-1 flex-col justify-center gap-6 bg-[var(--color-brand-bg)] px-6 py-16">
@@ -344,7 +351,7 @@ function CheckoutShell() {
         prorationDetail={
           proration ? `Prorated for the remaining ${Math.round(proration.remaining_fraction * 100)}% of your current cycle.` : undefined
         }
-        note="One-time payment. Each event stays live for 3 months from the day you create it."
+        note=""
       />
 
       {effectiveSelection && (
