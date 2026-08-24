@@ -7,7 +7,7 @@ import { IconMegaphone, IconShare } from "@/components/ui/icons";
 
 /**
  * Desktop sticky top bar — replaces the SideRail. Studio identity + menu on
- * the left, the couple/event name fades in centre once the cover has scrolled
+ * the left, the host/event name fades in centre once the cover has scrolled
  * past (so it reads as a persistent title once the masthead itself is gone),
  * and Review (standing CTA #2) + Share + profile avatar on the right.
  */

@@ -55,6 +55,10 @@ export type ZipEntry = { url: string; name: string };
  */
 const ZIP_CONCURRENCY = 8;
 
+/** Sentinel thrown to unwind the ZIP pipeline when the user stops a download.
+ *  A DOMException so it reads the same as a fetch abort at every catch site. */
+const ABORTED = new DOMException("Download cancelled", "AbortError");
+
 /** Attempts per image before skipping it. Transient failures (429, 5xx, and
  *  mid-stream HTTP/2 resets) usually recover on a later try. */
 const FETCH_ATTEMPTS = 4;
@@ -69,10 +73,11 @@ const FETCH_ATTEMPTS = 4;
  * Returns null when the image can't be fetched after every attempt; the caller
  * skips it and keeps zipping the rest.
  */
-async function fetchImageBlob(url: string): Promise<Blob | null> {
+async function fetchImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
+    if (signal?.aborted) return null;
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store", signal });
       if (res.ok) {
         // `.blob()` reads the FULL body here — a cut stream throws and we retry.
         const blob = await res.blob();
@@ -87,6 +92,7 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
     }
     if (attempt < FETCH_ATTEMPTS - 1) await delay(500 * 2 ** attempt); // 0.5s, 1s, 2s
   }
+  if (signal?.aborted) return null;
 
   // Every attempt against the original host failed. Try once against the
   // cold-storage host (see coldFallback) before skipping the photo — this is a
@@ -95,7 +101,7 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
   const fallback = coldFallback(url);
   if (fallback === url) return null;
   try {
-    const res = await fetch(fallback, { cache: "no-store" });
+    const res = await fetch(fallback, { cache: "no-store", signal });
     if (res.ok) {
       const blob = await res.blob();
       if (blob.size > 0) return blob;
@@ -106,9 +112,13 @@ async function fetchImageBlob(url: string): Promise<Blob | null> {
   return null;
 }
 
-/** Result of a browser-built ZIP: entries zipped vs. skipped, or `cancelled`
- *  when the user dismissed the "Save as" dialog. */
-export type ZipResult = { zipped: number; failed: number; cancelled?: boolean };
+/**
+ * Result of a browser-built ZIP: entries zipped vs. skipped, plus two distinct
+ * ways of not finishing — `cancelled` when the user dismissed the "Save as"
+ * dialog (nothing had started yet), `aborted` when they stopped a download
+ * already in flight. The caller words those differently.
+ */
+export type ZipResult = { zipped: number; failed: number; cancelled?: boolean; aborted?: boolean };
 
 /** The File System Access "Save as" picker (not in the default TS lib). */
 type FsWritable = WritableStream<Uint8Array> & {
@@ -182,13 +192,15 @@ function dedupeNames(entries: ZipEntry[]): ZipEntry[] {
  * form when resolving the list is slow (e.g. paginating a whole gallery), so the
  * save dialog opens on the click gesture BEFORE that work runs.
  *
- * Resolves with counts (and `cancelled` if the save dialog was dismissed);
- * throws only if entries existed but NONE could be fetched.
+ * Resolves with counts (and `cancelled` if the save dialog was dismissed, or
+ * `aborted` if `signal` fired mid-flight); throws only if entries existed but
+ * NONE could be fetched.
  */
 export async function streamZipToDisk(
   source: ZipEntry[] | (() => Promise<ZipEntry[]>),
   zipName = "gallery.zip",
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<ZipResult> {
   const base = zipName.replace(/\.zip$/i, "").replace(/[\\/:*?"<>|\r\n]+/g, " ").trim() || "gallery";
   const name = `${base}.zip`;
@@ -207,6 +219,12 @@ export async function streamZipToDisk(
   }
 
   const list = typeof source === "function" ? await source() : source;
+  // The entry walk can be slow (a whole-gallery pagination); a cancel landing
+  // during it should not then start downloading thousands of photos.
+  if (signal?.aborted) {
+    if (target) await target.abort(ABORTED).catch(() => {});
+    return { zipped: 0, failed: 0, aborted: true };
+  }
   const entries = dedupeNames(list);
   const total = entries.length;
   if (total === 0) {
@@ -227,14 +245,18 @@ export async function streamZipToDisk(
     const fill = () => {
       while (pending.length < ZIP_CONCURRENCY && next < entries.length) {
         const e = entries[next++];
-        pending.push({ name: e.name, blob: fetchImageBlob(e.url) });
+        pending.push({ name: e.name, blob: fetchImageBlob(e.url, signal) });
       }
     };
     fill();
     while (pending.length) {
+      // Checked before each member rather than only between pages, so a cancel
+      // lands within one photo instead of at the end of the archive.
+      if (signal?.aborted) throw ABORTED;
       const item = pending.shift()!;
       fill(); // keep the window full as we drain
       const blob = await item.blob;
+      if (signal?.aborted) throw ABORTED;
       onProgress?.(++done, total);
       if (blob) {
         zipped++;
@@ -255,6 +277,11 @@ export async function streamZipToDisk(
     }
   } catch (err) {
     if (target) await target.abort(err).catch(() => {});
+    // A user-initiated stop is an outcome, not a failure — the partially
+    // written file is discarded by the abort above.
+    if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
+      return { zipped, failed, aborted: true };
+    }
     throw err;
   }
 

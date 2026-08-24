@@ -28,7 +28,7 @@ export function PhotoViewer({
   liked,
   onToggleLike,
   selectMode,
-  selected,
+  isSelected,
   onToggleSelect,
   onToast,
   onDownloaded,
@@ -40,7 +40,9 @@ export function PhotoViewer({
   liked: Set<string>;
   onToggleLike: (item: GuestMediaItem) => void;
   selectMode: boolean;
-  selected: Set<string>;
+  /** Predicate, not a Set — see GalleryGrid: under "select all" the selection
+   *  is a scope minus exclusions, not an enumerated id list. */
+  isSelected: (id: string) => boolean;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToast: (msg: string) => void;
   /** Fired after a successful single-photo download — drives the post-download review nudge. */
@@ -67,7 +69,7 @@ export function PhotoViewer({
 
   if (!item) return null;
   const isLiked = liked.has(item._id);
-  const isSel = selected.has(item._id);
+  const isSel = isSelected(item._id);
 
   async function onShare() {
     const r = await shareImage(item.url, event.event_name);

@@ -2,7 +2,7 @@
 
 import type { CustomFolder } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
-import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare } from "@/components/ui/icons";
+import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks } from "@/components/ui/icons";
 
 /** Sentinel folder id meaning "no specific folder" — shared by every screen
  *  that reads/sets the active folder pill. */
@@ -10,8 +10,8 @@ export const ALL = "__all__";
 
 /**
  * My Photos / All Photos switcher. Both segments are always plain, tappable
- * tabs — unlocking the family passcode is no longer gated here (see the
- * "Private" action in `ActionsCluster`). A non-host guest tapping "All Photos"
+ * tabs — unlocking the gallery passcode is no longer gated here (see the
+ * "Unlock" action in `ActionsCluster`). A non-host guest tapping "All Photos"
  * still gets a real view: the backend scopes a locked guest's "all" request to
  * Highlights (folders marked public), so there's always something to show
  * instead of a dead end behind a lock. Shared by the mobile compact header and
@@ -111,7 +111,7 @@ export function FolderPillsRow({
   allCount?: number;
 }) {
   // Nothing to choose between with zero custom folders — a lone "All" pill
-  // adds no value once Liked/Select/Private live in their own cluster.
+  // adds no value once Liked/Select/Unlock live in their own cluster.
   if (folders.length === 0) return null;
   return (
     <div className={`flex gap-2 overflow-x-auto ${className}`} style={{ scrollbarWidth: "none" }}>
@@ -144,13 +144,70 @@ export function FolderPillsRow({
 }
 
 /**
- * Right-side action cluster: Liked, Download, Select, Private — icon + title,
- * no pill backgrounds. Liked and Select show their active state as an
- * underline (they're the two real view toggles); Download is a one-shot
- * action; Private opens the family-passcode sheet and disappears once the
- * guest has unlocked the full gallery (nothing left to unlock). On mobile
- * (`iconOnly`) the titles drop and only the icons show. Shared by the mobile
- * compact header and the desktop sticky control row.
+ * Select mode's left-hand slot, in place of the My/All switcher: the live count
+ * with Select all stacked directly beneath it. Select all belongs next to the
+ * number it changes — in the action cluster it was an unlabelled checkbox glyph
+ * beside Select's unlabelled checkbox glyph, and in the bottom tray it was two
+ * thumb-lengths away from the count it acts on. Shared by both shells so the
+ * control sits in the same place on each.
+ */
+export function SelectionSummary({
+  t,
+  label,
+  selectAll,
+  scopeTotal,
+  onSelectAll,
+  onClearSelectAll,
+  hint,
+}: {
+  t: ClientTheme;
+  /** "All 4,812 selected" / "3 selected" — owned by the parent. */
+  label: string;
+  selectAll: boolean;
+  /** Photos in the active view, shown on the button so the guest knows the
+   *  size of what one tap takes. */
+  scopeTotal: number;
+  onSelectAll: () => void;
+  onClearSelectAll: () => void;
+  /** Optional quiet line under the control (the large-selection warning). */
+  hint?: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-0.5">
+      <span className="truncate text-[13px] font-bold" style={{ color: t.text }} aria-live="polite">
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={selectAll ? onClearSelectAll : onSelectAll}
+        aria-pressed={selectAll}
+        className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[12px] font-extrabold underline-offset-2 hover:underline"
+        style={{ color: t.brand }}
+      >
+        <IconChecks size={13} weight={selectAll ? "bold" : "regular"} />
+        {selectAll ? "Clear selection" : `Select all${scopeTotal > 0 ? ` (${scopeTotal.toLocaleString("en-IN")})` : ""}`}
+      </button>
+      {hint && (
+        <span className="truncate text-[10.5px] font-semibold" style={{ color: t.muted }}>
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Right-side action cluster: Liked, Download, Select, Unlock — icon + title, no
+ * pill backgrounds. Liked and Select show their active state as an underline
+ * (they're the two real view toggles); Download is a one-shot action; Unlock
+ * opens the gallery-passcode sheet and disappears once the guest has unlocked
+ * the full gallery (nothing left to unlock). Download and Unlock are mutually
+ * exclusive (`canDownloadAll === unlocked`), so at most three items ever render
+ * at once. On mobile (`iconOnly`) the titles drop and only the icons show.
+ *
+ * Select all deliberately does NOT live here — see `SelectionSummary`, which
+ * owns it. Shared by the mobile compact header and the desktop sticky control
+ * row.
  */
 export function ActionsCluster({
   t,
@@ -161,6 +218,7 @@ export function ActionsCluster({
   canDownloadAll,
   zipping,
   onDownloadAll,
+  downloadCount,
   unlocked,
   onOpenPrivate,
   iconOnly = false,
@@ -173,9 +231,12 @@ export function ActionsCluster({
   canDownloadAll: boolean;
   zipping: boolean;
   onDownloadAll: () => void;
-  /** Whether the guest has unlocked the full gallery — Private hides once true. */
+  /** Photos the header Download would fetch — shown so the guest knows the
+   *  size of what they're committing to before the Save dialog opens. */
+  downloadCount?: number;
+  /** Whether the guest has unlocked the full gallery — Unlock hides once true. */
   unlocked: boolean;
-  /** Opens the passcode sheet. Ignored (Private isn't rendered) once unlocked. */
+  /** Opens the passcode sheet. Ignored (Unlock isn't rendered) once unlocked. */
   onOpenPrivate: () => void;
   /** Mobile: icons only, no titles. */
   iconOnly?: boolean;
@@ -195,7 +256,13 @@ export function ActionsCluster({
         <ActionItem
           t={t}
           icon={<IconDownload size={16} />}
-          label={zipping ? "Preparing…" : "Download"}
+          label={
+            zipping
+              ? "Preparing…"
+              : downloadCount != null && downloadCount > 0
+                ? `Download (${downloadCount.toLocaleString("en-IN")})`
+                : "Download"
+          }
           onClick={onDownloadAll}
           disabled={zipping}
           iconOnly={iconOnly}
@@ -214,7 +281,7 @@ export function ActionsCluster({
         <ActionItem
           t={t}
           icon={<IconLock size={14} />}
-          label="Private"
+          label="Unlock"
           onClick={onOpenPrivate}
           iconOnly={iconOnly}
         />

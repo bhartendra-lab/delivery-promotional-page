@@ -5,7 +5,7 @@ import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
-import { downloadMany, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
+import { downloadMany, nameFromUrl, streamZipToDisk, type ZipEntry } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
@@ -19,14 +19,23 @@ import { MobileTopBar } from "./lounge/MobileTopBar";
 import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
 import { GalleryGrid } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
-import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "./gallery/GalleryControls";
-import { IconHeart, IconGrid, IconHome } from "@/components/ui/icons";
+import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary } from "./gallery/GalleryControls";
+import { IconHeart, IconGrid, IconHome, IconLock } from "@/components/ui/icons";
 
 const PAGE = 60;
 /** Guests who like this many photos in-session get the "loving the gallery?" nudge. */
 const LIKE_NUDGE_THRESHOLD = 3;
 /** Breathing room after the gallery first paints before the gentle load nudge. */
 const LOAD_NUDGE_DELAY_MS = 6000;
+/** Above this many photos a selection is worth a word of warning about how long
+ *  the download runs — but never a confirm dialog, since the toast already
+ *  streams per-photo progress. */
+const LARGE_SELECTION = 300;
+
+/** What the grid is currently showing, in the shape `getGuestMedia` and the
+ *  ZIP paginator both take. Never carries `skip`/`limit` — it describes the
+ *  view, not a page of it. */
+type MediaScope = { mine?: boolean; onlyLiked?: boolean; customFolderId?: string };
 
 /** Same match set? Positional compare — the backend returns a stable order, and
  *  a false negative only costs one extra page fetch. */
@@ -116,11 +125,24 @@ export function LoungeGallery({
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Select-all is modelled as SCOPE MINUS EXCLUSIONS, never as a materialised
+   *  id list: collecting every id would cost a full pagination walk per tap,
+   *  hold thousands of ids in state for nothing, and still race infinite
+   *  scroll. With this shape, tiles loaded later render checked for free. */
+  const [selectAll, setSelectAll] = useState(false);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [zipping, setZipping] = useState(false);
+  /** Live download progress. Deliberately NOT routed through `toast`: that one
+   *  self-dismisses after 2.6s, so any single photo slower than that made the
+   *  progress line blink out and back on the next tick. This element stays up
+   *  for the whole run and owns the cancel affordance. */
+  const [download, setDownload] = useState<{ phase: "preparing" | "running"; done: number; total: number } | null>(null);
+  const [confirmCancelDownload, setConfirmCancelDownload] = useState(false);
+  const downloadAbort = useRef<AbortController | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [nudge, setNudge] = useState<NudgeReason | null>(null);
   /** One action-triggered nudge (download OR likes) per page load. */
@@ -224,6 +246,12 @@ export function LoungeGallery({
       if (cancelled) return;
       setLoading(true);
       setLoadError(false);
+      // A fresh page-1 load replaces the result set under any live selection —
+      // a reloadKey retry or an unlock must not leave an "All 4,812 selected"
+      // banner describing photos that are no longer on screen.
+      setSelectAll(false);
+      setExcluded(new Set());
+      setSelected(new Set());
       try {
         const res = await getGuestMedia(uniqueIdentifier, bookingId, {
           mine: !likedView && effTab === "mine",
@@ -290,6 +318,24 @@ export function LoungeGallery({
 
   // Server returns the right set per view, so no client-side filtering.
   const displayed = items;
+
+  /* ── selection, as scope-minus-exclusions ───────────────────────────────
+     `isSelected` is threaded down to the grid instead of a Set, so a tile the
+     infinite scroll hasn't loaded yet still resolves correctly the moment it
+     arrives — there is no second source of truth to drift from. */
+  const isSelected = useCallback(
+    (id: string) => (selectAll ? !excluded.has(id) : selected.has(id)),
+    [selectAll, excluded, selected],
+  );
+  /** Preview only. `totalForView` is the server's `total`, which
+   *  fetchMediaEntriesForZip warns may be capped; the completion toast reports
+   *  the number actually zipped, and that one is the truth. */
+  const selectedCount = selectAll ? Math.max(0, totalForView - excluded.size) : selected.size;
+  const allSelected = selectAll && excluded.size === 0;
+  const selectionLabel = allSelected
+    ? `All ${selectedCount.toLocaleString("en-IN")} selected`
+    : `${selectedCount.toLocaleString("en-IN")} selected`;
+  const selectionHint = selectedCount > LARGE_SELECTION ? "This can take a few minutes." : undefined;
   const hasMore = items.length < totalForView;
   const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
 
@@ -364,39 +410,83 @@ export function LoungeGallery({
     [liked, uniqueIdentifier, onReauth],
   );
 
-  const toggleSel = useCallback((item: GuestMediaItem) => {
-    setSelected((prev) => {
-      const n = new Set(prev);
-      if (n.has(item._id)) n.delete(item._id);
-      else n.add(item._id);
-      return n;
-    });
+  const toggleSel = useCallback(
+    (item: GuestMediaItem) => {
+      // In select-all mode a tap subtracts from (or restores to) the scope;
+      // otherwise it's the original additive set.
+      if (selectAll) {
+        setExcluded((prev) => {
+          const n = new Set(prev);
+          if (n.has(item._id)) n.delete(item._id);
+          else n.add(item._id);
+          return n;
+        });
+        return;
+      }
+      setSelected((prev) => {
+        const n = new Set(prev);
+        if (n.has(item._id)) n.delete(item._id);
+        else n.add(item._id);
+        return n;
+      });
+    },
+    [selectAll],
+  );
+  /** Clears the select-all scope without leaving select mode. */
+  const clearSelectAll = useCallback(() => {
+    setSelectAll(false);
+    setExcluded(new Set());
+    setSelected(new Set());
   }, []);
+  /** The single teardown point for selection — every tab, folder, Liked and
+   *  nav handler routes through here, so the scope can't outlive its view. */
   const exitSelect = useCallback(() => {
     setSelectMode(false);
     setSelected(new Set());
+    setSelectAll(false);
+    setExcluded(new Set());
   }, []);
   const enterSelectWith = useCallback((item: GuestMediaItem) => {
     setSelectMode(true);
+    setSelectAll(false);
+    setExcluded(new Set());
     setSelected(new Set([item._id]));
+  }, []);
+  /** "Select all": enters select mode and takes the whole active scope in one
+   *  gesture. A hand-built selection is discarded, which is conventional. */
+  const selectAllInView = useCallback(() => {
+    setSelectMode(true);
+    setSelected(new Set());
+    setExcluded(new Set());
+    setSelectAll(true);
   }, []);
 
   // Build a ZIP in the browser and stream it to disk (client-zip + File System
   // Access API, Blob fallback). `getEntries` resolves the {url,name} list (may
   // paginate); the toast carries progress, and `zipping` guards against re-entry.
   const runZip = useCallback(
-    async (getEntries: () => Promise<{ url: string; name: string }[]>, filename: string) => {
+    async (getEntries: (signal: AbortSignal) => Promise<ZipEntry[]>, filename: string) => {
       if (zipping) return;
+      const ctrl = new AbortController();
+      downloadAbort.current = ctrl;
       setZipping(true);
-      setToast("Preparing your download…");
+      setToast(null);
+      // "Preparing" covers the save dialog and the entry walk — everything
+      // before the first photo lands. It can be several seconds on a whole
+      // gallery, which is exactly when a bare spinner feels broken.
+      setDownload({ phase: "preparing", done: 0, total: 0 });
       try {
         // Pass the provider so the "Save as" dialog opens on the click gesture,
         // before the (possibly slow) full-gallery pagination runs.
-        const { zipped, failed, cancelled } = await streamZipToDisk(getEntries, filename, (done, total) =>
-          setToast(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
+        const { zipped, failed, cancelled, aborted } = await streamZipToDisk(
+          () => getEntries(ctrl.signal),
+          filename,
+          (done, total) => setDownload({ phase: "running", done, total }),
+          ctrl.signal,
         );
-        if (cancelled) {
-          setToast(null);
+        if (cancelled) return; // save dialog dismissed — nothing had started
+        if (aborted) {
+          setToast("Download cancelled");
           return;
         }
         setToast(
@@ -408,6 +498,10 @@ export function LoungeGallery({
         );
         if (zipped > 0) triggerNudge("download");
       } catch (e) {
+        if (ctrl.signal.aborted) {
+          setToast("Download cancelled");
+          return;
+        }
         if (e instanceof GuestAuthError) {
           onReauth();
           return;
@@ -415,11 +509,39 @@ export function LoungeGallery({
         console.warn("[runZip] failed", e);
         setToast("Download failed — please try again");
       } finally {
+        downloadAbort.current = null;
         setZipping(false);
+        setDownload(null);
+        setConfirmCancelDownload(false);
       }
     },
     [zipping, onReauth, triggerNudge],
   );
+
+  const cancelDownload = useCallback(() => {
+    downloadAbort.current?.abort();
+    setConfirmCancelDownload(false);
+  }, []);
+
+  // A refresh or a closed tab discards an in-flight archive — the ZIP only
+  // exists in this page. The browser owns the wording of this prompt; all we
+  // control is that it fires. If the guest leaves anyway, `pagehide` aborts so
+  // the half-written file on disk is discarded rather than left behind.
+  useEffect(() => {
+    if (!zipping) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+    const onPageHide = () => downloadAbort.current?.abort();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [zipping]);
 
   // Per-tile hover download (item 7) — same single-photo path as the select
   // bar's one-item case, just triggered straight from the tile instead of
@@ -435,7 +557,26 @@ export function LoungeGallery({
   );
 
   async function downloadSelected() {
-    const chosen = displayed.filter((i) => selected.has(i._id));
+    // Select-all with pages still unfetched: walk the same scope the grid is
+    // showing and subtract the exclusions, so photos infinite scroll never
+    // reached are in the ZIP. `hasMore` guarantees at least a full page is
+    // loaded, so this branch can never resolve to the single-photo case below.
+    if (selectAll && hasMore) {
+      const name = filenameForScope(selectedCount);
+      const excludedIds = excluded;
+      exitSelect();
+      void runZip(async (signal) => {
+        const all = await fetchMediaEntriesForZip(currentScope(), signal);
+        return excludedIds.size ? all.filter((e) => !excludedIds.has(e._id)) : all;
+      }, name);
+      return;
+    }
+
+    // Everything in scope is already loaded (or this is a hand-built
+    // selection), so resolve it locally — no pagination walk needed.
+    const chosen = selectAll
+      ? displayed.filter((i) => !excluded.has(i._id))
+      : displayed.filter((i) => selected.has(i._id));
     if (!chosen.length) return;
     // One photo → straight download; several → a single browser-built ZIP.
     if (chosen.length === 1) {
@@ -446,18 +587,22 @@ export function LoungeGallery({
       triggerNudge("download");
       return;
     }
-    const entries = chosen.map((i) => ({ url: i.url, name: nameFromUrl(i.url) }));
+    const entries = chosen.map((i) => ({ _id: i._id, url: i.url, name: nameFromUrl(i.url) }));
     exitSelect();
-    void runZip(async () => entries, `${event.event_name || "gallery"} (${entries.length} photos).zip`);
+    void runZip(async () => entries, filenameForScope(entries.length));
   }
 
-  // Paginate the guest media API into {url,name} entries for a browser-built ZIP.
+  // Paginate the guest media API into ZIP entries. `_id` rides along so a
+  // select-all download can drop its exclusions without a second request.
   const fetchMediaEntriesForZip = useCallback(
-    async (scope: { mine?: boolean; onlyLiked?: boolean; customFolderId?: string }) => {
-      const entries: { url: string; name: string }[] = [];
+    async (scope: MediaScope, signal?: AbortSignal) => {
+      const entries: { _id: string; url: string; name: string }[] = [];
       const seen = new Set<string>();
       const PAGE_SIZE = 500;
       for (let skip = 0; ; skip += PAGE_SIZE) {
+        // Cancelling during the walk stops it here rather than after every
+        // page of a large gallery has been requested.
+        if (signal?.aborted) break;
         const res = await getGuestMedia(
           uniqueIdentifier,
           bookingId,
@@ -474,7 +619,7 @@ export function LoungeGallery({
         for (const m of media) {
           if (seen.has(m._id)) continue;
           seen.add(m._id);
-          entries.push({ url: m.url, name: nameFromUrl(m.url) });
+          entries.push({ _id: m._id, url: m.url, name: nameFromUrl(m.url) });
         }
         // Stop on an empty or short page only — don't trust `total` for stopping;
         // the API may report a capped total (e.g. 1000) even when more media exists.
@@ -485,33 +630,39 @@ export function LoungeGallery({
     [uniqueIdentifier, bookingId, mediaIds],
   );
 
-  // Lounge + gallery "All" folder: the complete unlocked gallery.
-  const downloadFullGalleryZip = useCallback(() => {
-    const base = (event.event_name || "gallery").trim() || "gallery";
-    void runZip(() => fetchMediaEntriesForZip({ mine: false }), `${base}.zip`);
-  }, [runZip, fetchMediaEntriesForZip, event.event_name]);
+  /** The scope of what the grid is currently showing. Liked wins over tab and
+   *  folder; a folder pill narrows within the active tab; otherwise the tab
+   *  alone decides. `mine` must stay falsy (not the string "false") for a
+   *  non-host "All" request, or the backend's Highlights path is skipped —
+   *  `getGuestMedia` drops a falsy `mine` rather than sending mine=false. */
+  const currentScope = useCallback((): MediaScope => {
+    if (likedView) return { onlyLiked: true };
+    const mine = effTab === "mine";
+    return folder === ALL ? { mine } : { mine, customFolderId: folder };
+  }, [likedView, effTab, folder]);
 
-  // Gallery header: honour the active folder pill; "All" still means every photo.
+  /** ZIP filename for the active view, naming the scope and the count. */
+  const filenameForScope = useCallback(
+    (count: number) => {
+      const base = (event.event_name || "gallery").trim() || "gallery";
+      const n = `(${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"})`;
+      if (likedView) return `${base} - liked ${n}.zip`;
+      if (folder !== ALL) {
+        const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
+        return `${base} - ${folderName} ${n}.zip`;
+      }
+      return `${base} ${n}.zip`;
+    },
+    [event.event_name, likedView, folder, folders],
+  );
+
+  // Gallery header "Download": the whole active view. This used to fall through
+  // to an unscoped { mine: false } whenever the folder pill was on All, so My
+  // Photos + All quietly zipped the entire gallery; `currentScope` is now the
+  // single source of truth for both this and the select-all download.
   const downloadGalleryZip = useCallback(() => {
-    const base = (event.event_name || "gallery").trim() || "gallery";
-    if (likedView) {
-      void runZip(() => fetchMediaEntriesForZip({ onlyLiked: true }), `${base} - liked.zip`);
-      return;
-    }
-    if (folder !== ALL) {
-      const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
-      void runZip(
-        () =>
-          fetchMediaEntriesForZip({
-            mine: effTab === "mine",
-            customFolderId: folder,
-          }),
-        `${base} - ${folderName}.zip`,
-      );
-      return;
-    }
-    downloadFullGalleryZip();
-  }, [runZip, fetchMediaEntriesForZip, event.event_name, likedView, folder, folders, effTab, downloadFullGalleryZip]);
+    void runZip((signal) => fetchMediaEntriesForZip(currentScope(), signal), filenameForScope(totalForView));
+  }, [runZip, fetchMediaEntriesForZip, currentScope, filenameForScope, totalForView]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -539,6 +690,32 @@ export function LoungeGallery({
       .catch(() => setToast("Couldn’t share"));
   }, [event.event_name]);
 
+  /* Desktop keyboard: Cmd/Ctrl+A takes the whole scope, Escape leaves select
+     mode. Bound to `window` rather than the gallery container on purpose — a
+     plain div receives no keydown unless it holds focus, so a container-scoped
+     listener would silently never fire. The overlay guard below is what keeps
+     these from acting behind the PhotoViewer, PasscodeSheet, ProfileSheet or
+     IntakeSheet, and the target check keeps them out of text fields. */
+  const overlayOpen = viewerIndex != null || passcodeOpen || profileOpen || showIntakeSheet;
+  useEffect(() => {
+    if (!isDesktop) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (overlayOpen) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName ?? "")) return;
+      if (e.key === "Escape" && selectMode) {
+        exitSelect();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A") && selectMode) {
+        e.preventDefault(); // otherwise the browser selects the page's text
+        selectAllInView();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDesktop, overlayOpen, selectMode, exitSelect, selectAllInView]);
+
   const gridSectionRef = useRef<HTMLDivElement>(null);
   const desktopScrollRef = useRef<HTMLDivElement>(null);
   const mastheadSentinelRef = useRef<HTMLDivElement>(null);
@@ -562,7 +739,7 @@ export function LoungeGallery({
     return () => ro.disconnect();
   }, [isDesktop]);
 
-  // Fades the couple/event name into the desktop top bar once the cover
+  // Fades the host/event name into the desktop top bar once the cover
   // masthead has scrolled past it. Re-attaches when the desktop shell (re)mounts
   // — its refs only exist while `isDesktop` is true.
   useEffect(() => {
@@ -602,6 +779,7 @@ export function LoungeGallery({
   };
   const goGallery = () => {
     setLikedView(false);
+    exitSelect(); // peer of goLiked/goHome — leaving Liked changes the result set
     setView("gallery");
   };
   const goLiked = () => {
@@ -698,9 +876,16 @@ export function LoungeGallery({
             onSelectLiked={desktopSelectLiked}
             selectMode={selectMode}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            selectAll={selectAll}
+            onSelectAll={selectAllInView}
+            onClearSelectAll={clearSelectAll}
+            selectionLabel={selectionLabel}
+            selectionHint={selectionHint}
+            scopeTotal={totalForView}
             canDownloadAll={canDownloadAll}
             zipping={zipping}
             onDownloadAll={downloadGalleryZip}
+            downloadCount={totalForView}
             allCount={allCount ?? undefined}
           />
 
@@ -718,7 +903,7 @@ export function LoungeGallery({
               !likedView && tab === "mine" ? (
                 <NoMatchState t={t} onRescan={onRescan} onBrowseAll={() => gotoGallery("all")} contactUrl={contactUrl} onContactClick={onContactClick} />
               ) : (
-                <EmptyState t={t} likedView={likedView} unlocked={unlocked} />
+                <EmptyState t={t} likedView={likedView} unlocked={unlocked} tab={tab} onOpenPrivate={() => setPasscodeOpen(true)} />
               )
             ) : (
               <>
@@ -729,7 +914,7 @@ export function LoungeGallery({
                   t={t}
                   items={displayed}
                   selectMode={selectMode}
-                  selected={selected}
+                  isSelected={isSelected}
                   liked={liked}
                   onOpen={(i) => setViewerIndex(i)}
                   onToggleSelect={toggleSel}
@@ -830,7 +1015,13 @@ export function LoungeGallery({
               mobileScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
             }}
             selectMode={selectMode}
-            selected={selected}
+            isSelected={isSelected}
+            selectionLabel={selectionLabel}
+            selectionHint={selectionHint}
+            scopeTotal={totalForView}
+            selectAll={selectAll}
+            onSelectAll={selectAllInView}
+            onClearSelectAll={clearSelectAll}
             liked={liked}
             onToggleSelect={toggleSel}
             onToggleLike={toggleLike}
@@ -841,6 +1032,7 @@ export function LoungeGallery({
             canDownloadAll={canDownloadAll}
             zipping={zipping}
             onDownloadAll={downloadGalleryZip}
+            downloadCount={totalForView}
             galleryDone={galleryDone}
             event={event}
             reviewUrl={reviewUrl}
@@ -859,25 +1051,34 @@ export function LoungeGallery({
       </div>
       )}
 
-      {/* select action bar */}
+      {/* Select action bar — Cancel + Download only. The count and Select all
+          live in the control row at the top, next to each other, so the bar
+          stays a one-line commit step rather than a second summary. */}
       {selectMode && (
         <div className="fixed inset-x-0 bottom-[84px] z-40 flex justify-center px-5 lg:bottom-6">
-          <div className="flex w-full max-w-[460px] items-center justify-between rounded-full px-4 py-2.5" style={{ background: t.card, boxShadow: t.shadow }}>
-            <span className="text-[12.5px] font-extrabold" style={{ color: t.text }}>
-              {selected.size} selected
+          <div className="flex w-full max-w-[460px] items-center justify-between gap-3 rounded-full px-4 py-2" style={{ background: t.card, boxShadow: t.shadow }}>
+            <span className="truncate text-[12.5px] font-extrabold" style={{ color: t.text }}>
+              {selectionLabel}
             </span>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={exitSelect} className="cursor-pointer rounded-full px-3 py-2 text-[12.5px] font-bold" style={{ color: t.muted }}>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" onClick={exitSelect} className="cursor-pointer rounded-full px-2.5 py-2 text-[12.5px] font-bold" style={{ color: t.muted }}>
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={downloadSelected}
-                disabled={selected.size === 0}
-                className="cursor-pointer rounded-full px-4 py-2 text-[12.5px] font-extrabold disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={selectedCount === 0 || zipping}
+                className="cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-[12.5px] font-extrabold disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ background: t.brand, color: t.onBrand }}
               >
-                Download
+                {zipping ? (
+                  "Preparing…"
+                ) : (
+                  <>
+                    Download
+                    <span className="hidden sm:inline"> ({selectedCount.toLocaleString("en-IN")})</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -894,7 +1095,7 @@ export function LoungeGallery({
           liked={liked}
           onToggleLike={toggleLike}
           selectMode={selectMode}
-          selected={selected}
+          isSelected={isSelected}
           onToggleSelect={toggleSel}
           onToast={setToast}
           onDownloaded={() => triggerNudge("download")}
@@ -911,6 +1112,15 @@ export function LoungeGallery({
           onSuccess={() => {
             onSessionChange({ guest_type: "host" });
             setPasscodeOpen(false);
+            // The media loader keys on the VIEW (tab/folder/liked), not on auth,
+            // so promoting the guest to host doesn't refetch on its own — a guest
+            // sitting on All Photos would keep staring at the Highlights subset
+            // until they touched a tab. Bump reloadKey instead of adding
+            // session.guest_type to the effect's deps, so that dependency list
+            // stays about the view. Whichever tab they were on is the tab they
+            // stay on; it just widens under them.
+            exitSelect();
+            setReloadKey((k) => k + 1);
             setToast("Full gallery unlocked");
           }}
         />
@@ -928,6 +1138,104 @@ export function LoungeGallery({
           }}
           onSignOut={onSignOut}
         />
+      )}
+
+      {/* Download progress. Persistent for the whole run — a self-dismissing
+          toast was what made this line blink out mid-download. Sits in the
+          select bar's slot; the two are mutually exclusive, since starting a
+          download exits select mode. */}
+      {download && (
+        <div className="fixed inset-x-0 bottom-[84px] z-40 flex justify-center px-5 lg:bottom-6">
+          <div className="flex w-full max-w-[460px] flex-col gap-2 rounded-2xl px-4 py-3" style={{ background: t.card, boxShadow: t.shadow }}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  style={{ color: t.brand }}
+                  aria-hidden
+                />
+                {/* tabular-nums so the counter keeps a fixed width — proportional
+                    digits reflow the label on every tick, which reads as jitter. */}
+                <span
+                  className="truncate text-[12.5px] font-extrabold tabular-nums"
+                  style={{ color: t.text }}
+                  aria-live="polite"
+                >
+                  {download.phase === "preparing"
+                    ? "Preparing download…"
+                    : `Downloading ${download.done.toLocaleString("en-IN")}/${download.total.toLocaleString("en-IN")}…`}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmCancelDownload(true)}
+                className="shrink-0 cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-bold"
+                style={{ color: t.muted, border: `1px solid ${t.border}` }}
+              >
+                Cancel
+              </button>
+            </div>
+            {/* Indeterminate while preparing (no total yet), real once photos land. */}
+            <span className="block h-1 w-full overflow-hidden rounded-full" style={{ background: t.sunken }}>
+              <span
+                className="block h-full rounded-full transition-[width] duration-300 ease-out"
+                style={{
+                  background: t.brand,
+                  width:
+                    download.phase === "running" && download.total > 0
+                      ? `${Math.min(100, Math.round((download.done / download.total) * 100))}%`
+                      : "18%",
+                }}
+              />
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Stopping a download throws away everything fetched so far, so it asks
+          first — the guest may have been waiting on it for minutes. */}
+      {confirmCancelDownload && (
+        <div
+          className="dash-fade fixed inset-0 z-[65] flex items-center justify-center p-5"
+          style={{ background: "rgba(31,26,14,0.55)" }}
+          onClick={() => setConfirmCancelDownload(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-dl-title"
+            className="popup-pop w-full max-w-[360px] rounded-3xl p-6"
+            style={{ background: t.card, fontFamily: t.font, boxShadow: t.shadow }}
+          >
+            <div id="cancel-dl-title" className="text-[17px] font-extrabold" style={{ color: t.text }}>
+              Cancel this download?
+            </div>
+            <p className="mt-1.5 text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+              {download?.phase === "running" && download.total > 0
+                ? `${download.done.toLocaleString("en-IN")} of ${download.total.toLocaleString("en-IN")} photos have been fetched. Stopping now discards them — you'd need to start over.`
+                : "Stopping now discards everything fetched so far — you'd need to start over."}
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={cancelDownload}
+                className="cursor-pointer rounded-full py-3 text-[13px] font-extrabold"
+                style={{ background: t.error, color: "#fff" }}
+              >
+                Cancel download
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmCancelDownload(false)}
+                className="cursor-pointer rounded-full py-3 text-[13px] font-bold"
+                style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+              >
+                Keep downloading
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* toast */}
@@ -1019,7 +1327,16 @@ function MobileGalleryView(props: {
   likedView: boolean;
   onSelectLiked: () => void;
   selectMode: boolean;
-  selected: Set<string>;
+  isSelected: (id: string) => boolean;
+  /** "All N selected" / "N selected" for the compact header (see the parent). */
+  selectionLabel: string;
+  /** Quiet line under Select all; only set for large selections. */
+  selectionHint?: string;
+  /** Photos in the active view — shown on the Select all button. */
+  scopeTotal: number;
+  selectAll: boolean;
+  onSelectAll: () => void;
+  onClearSelectAll: () => void;
   liked: Set<string>;
   onToggleSelect: (i: GuestMediaItem) => void;
   onToggleLike: (i: GuestMediaItem) => void;
@@ -1030,6 +1347,8 @@ function MobileGalleryView(props: {
   canDownloadAll: boolean;
   zipping: boolean;
   onDownloadAll: () => void;
+  /** Photos the header Download would fetch, shown on its label. */
+  downloadCount?: number;
   galleryDone: boolean;
   event: ReturnType<typeof useEventTheme>["event"];
   reviewUrl: string | null;
@@ -1045,7 +1364,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, selected, liked, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1062,13 +1381,19 @@ function MobileGalleryView(props: {
           select/download cluster shows. */}
       <div className="fx-rise px-4 pt-3" style={{ background: t.bg }}>
         <div className="flex items-center justify-between gap-2">
-          {likedView ? (
+          {selectMode ? (
+            <SelectionSummary
+              t={t}
+              label={selectionLabel}
+              selectAll={selectAll}
+              scopeTotal={scopeTotal}
+              onSelectAll={onSelectAll}
+              onClearSelectAll={onClearSelectAll}
+              hint={selectionHint}
+            />
+          ) : likedView ? (
             <span className="text-[13px] font-bold" style={{ color: t.text }}>
-              {selectMode ? `${selected.size} selected` : "Liked"}
-            </span>
-          ) : selectMode ? (
-            <span className="text-[13px] font-bold" style={{ color: t.text }}>
-              {selected.size} selected
+              Liked
             </span>
           ) : (
             <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} />
@@ -1082,6 +1407,7 @@ function MobileGalleryView(props: {
             canDownloadAll={canDownloadAll}
             zipping={zipping}
             onDownloadAll={props.onDownloadAll}
+            downloadCount={props.downloadCount}
             unlocked={unlocked}
             onOpenPrivate={onOpenPrivate}
             iconOnly
@@ -1113,7 +1439,7 @@ function MobileGalleryView(props: {
             !likedView && tab === "mine" ? (
               <NoMatchState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} contactUrl={contactUrl} onContactClick={onContactClick} />
             ) : (
-              <EmptyState t={t} likedView={likedView} unlocked={unlocked} />
+              <EmptyState t={t} likedView={likedView} unlocked={unlocked} tab={tab} onOpenPrivate={onOpenPrivate} />
             )
           ) : (
             <>
@@ -1121,7 +1447,7 @@ function MobileGalleryView(props: {
                 t={t}
                 items={items}
                 selectMode={selectMode}
-                selected={selected}
+                isSelected={isSelected}
                 liked={liked}
                 onOpen={props.onOpen}
                 onToggleSelect={props.onToggleSelect}
@@ -1171,11 +1497,19 @@ function LoadingSkeleton() {
 
 /** Covers the liked-tab and "all"-tab empty cases. `tab === "mine"` with zero
  *  items is handled separately by `NoMatchState`, which has real recovery
- *  actions instead of a passive message. */
+ *  actions instead of a passive message.
+ *
+ *  One case gets real actions here too: a locked guest on All Photos when the
+ *  studio has flagged nothing as a Highlight. `restrictToPublicFolders` then
+ *  matches nothing, so the guest lands on a dead end whose only exit — the
+ *  passcode — was a lock icon in the toolbar they had no reason to connect to
+ *  this screen. Mirrors `NoMatchState`'s shape rather than inventing one. */
 function EmptyState({
   t,
   likedView,
   unlocked,
+  tab,
+  onOpenPrivate,
 }: {
   t: Theme;
   likedView: boolean;
@@ -1183,12 +1517,40 @@ function EmptyState({
    *  Highlights view — the latter needs a nudge toward the passcode, not a
    *  generic "nothing here". */
   unlocked: boolean;
+  tab: "mine" | "all";
+  /** Opens the passcode sheet — the same one the toolbar's Unlock action uses. */
+  onOpenPrivate: () => void;
 }) {
+  const canUnlock = !likedView && tab === "all" && !unlocked;
+  if (canUnlock) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 px-8 py-16 text-center">
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.faint }}>
+          <IconLock size={24} />
+        </span>
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-[16px] font-extrabold" style={{ color: t.text }}>Nothing shared publicly yet</h2>
+          <p className="max-w-[300px] text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+            The host hasn’t published any photos for everyone yet. If you have the gallery passcode,
+            unlock it to see the full gallery.
+          </p>
+        </div>
+        <div className="mt-1 flex w-full max-w-[280px] flex-col gap-2">
+          <button
+            type="button"
+            onClick={onOpenPrivate}
+            className="cursor-pointer rounded-full py-3 text-[13px] font-extrabold"
+            style={{ background: t.brand, color: t.onBrand }}
+          >
+            Enter passcode
+          </button>
+        </div>
+      </div>
+    );
+  }
   const msg = likedView
     ? "No liked photos yet — tap the heart on any photo."
-    : !unlocked
-      ? "No highlighted photos yet. Ask the couple for the family passcode to see everything."
-      : "No photos here yet.";
+    : "No photos here yet.";
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.faint }}>

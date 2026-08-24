@@ -75,16 +75,11 @@ export function collectionsFor(occasion: Occasion): ThemeCollection[] {
   }
 }
 
-const MESSAGE_LABEL: Record<string, string> = {
-  Wedding: "Message from the Couple",
-  Engagement: "Message from the Couple",
-  "Pre-wedding": "Message from the Couple",
-  Anniversary: "Message from the Hosts",
-  Birthday: "Message from the Hosts",
-  Corporate: "Event Briefing",
-};
-
-/** Studio-side label for the custom_message field. */
+/** Studio-side label for the custom_message field. Every social occasion now
+ *  shares one relationship-free voice — a gallery is addressed by its host,
+ *  whether that host is a couple, a family or a company — so only Corporate,
+ *  which isn't a message at all, keeps a label of its own. */
 export function messageLabelFor(eventType?: string | null): string {
-  return (eventType && MESSAGE_LABEL[eventType]) || "Message to Guests";
+  if (!eventType) return "Message to Guests";
+  return eventType === "Corporate" ? "Event Briefing" : "Message from the Host";
 }

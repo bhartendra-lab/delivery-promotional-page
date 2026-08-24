@@ -28,7 +28,7 @@ export function GalleryGrid({
   layout = "justified",
   items,
   selectMode,
-  selected,
+  isSelected,
   liked,
   onOpen,
   onToggleSelect,
@@ -40,7 +40,10 @@ export function GalleryGrid({
   layout?: "justified" | "grid";
   items: GuestMediaItem[];
   selectMode: boolean;
-  selected: Set<string>;
+  /** Predicate rather than a Set: under "select all" the selection is a SCOPE
+   *  minus exclusions, so a tile that arrives with a later page must resolve
+   *  as checked without anything having to enumerate it first. */
+  isSelected: (id: string) => boolean;
   liked: Set<string>;
   onOpen: (index: number) => void;
   onToggleSelect: (item: GuestMediaItem) => void;
@@ -59,7 +62,7 @@ export function GalleryGrid({
             item={item}
             index={index}
             selectMode={selectMode}
-            isSel={selected.has(item._id)}
+            isSel={isSelected(item._id)}
             isLiked={liked.has(item._id)}
             onOpen={() => onOpen(index)}
             onToggleSelect={() => onToggleSelect(item)}
@@ -77,7 +80,7 @@ export function GalleryGrid({
       t={t}
       items={items}
       selectMode={selectMode}
-      selected={selected}
+      isSelected={isSelected}
       liked={liked}
       onOpen={onOpen}
       onToggleSelect={onToggleSelect}
@@ -112,7 +115,7 @@ function JustifiedGrid({
   t,
   items,
   selectMode,
-  selected,
+  isSelected,
   liked,
   onOpen,
   onToggleSelect,
@@ -123,7 +126,10 @@ function JustifiedGrid({
   t: ClientTheme;
   items: GuestMediaItem[];
   selectMode: boolean;
-  selected: Set<string>;
+  /** Predicate rather than a Set: under "select all" the selection is a SCOPE
+   *  minus exclusions, so a tile that arrives with a later page must resolve
+   *  as checked without anything having to enumerate it first. */
+  isSelected: (id: string) => boolean;
   liked: Set<string>;
   onOpen: (index: number) => void;
   onToggleSelect: (item: GuestMediaItem) => void;
@@ -151,7 +157,7 @@ function JustifiedGrid({
               boxWidth={tile.boxWidth}
               boxHeight={tile.boxHeight}
               selectMode={selectMode}
-              isSel={selected.has(tile._id)}
+              isSel={isSelected(tile._id)}
               isLiked={liked.has(tile._id)}
               onOpen={() => onOpen(tile._index)}
               onToggleSelect={() => onToggleSelect(tile)}

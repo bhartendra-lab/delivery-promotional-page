@@ -3,7 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 
 /**
- * The line under the couple/event name on the hero cover, shared by the mobile
+ * The line under the host/event name on the hero cover, shared by the mobile
  * (`CoverMasthead`) and desktop (`DesktopCover`) covers so both read the same.
  *
  * When the studio wrote a `custom_message` it takes over: rendered as PROSE in

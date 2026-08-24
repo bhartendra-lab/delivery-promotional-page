@@ -28,6 +28,7 @@ import {
   CaretRight,
   CaretUpDown,
   Check,
+  Checks,
   CheckSquare,
   Clock,
   Copy,
@@ -226,6 +227,10 @@ export const IconUser = wrapPhosphor(User, 15, "IconUser");
 export const IconMegaphone = wrapPhosphor(Megaphone, 18, "IconMegaphone");
 export const IconSquare = wrapPhosphor(Square, 15, "IconSquare");
 export const IconCheckSquare = wrapPhosphor(CheckSquare, 15, "IconCheckSquare");
+/** Double-tick "select all" — deliberately distinct from IconSquare/
+ *  IconCheckSquare so the gallery's Select and Select all stay tellable apart
+ *  in the mobile icon-only cluster, where neither carries a label. */
+export const IconChecks = wrapPhosphor(Checks, 15, "IconChecks");
 export const IconGrid = wrapPhosphor(SquaresFour, 18, "IconGrid");
 export const IconPalette = wrapPhosphor(Palette, 26, "IconPalette");
 export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");

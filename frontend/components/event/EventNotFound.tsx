@@ -18,7 +18,7 @@ export function EventNotFound() {
         Gallery not found
       </h1>
       <p className="max-w-[360px] text-[14px] leading-relaxed" style={{ color: t.muted }}>
-        This link doesn’t match any event. Double-check the link your studio shared, or ask them to send it again.
+        This link doesn’t match any event. Double-check the link you were sent, or ask for it again.
       </p>
     </div>
   );

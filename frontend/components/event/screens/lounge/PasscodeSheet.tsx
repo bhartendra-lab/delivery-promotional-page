@@ -6,7 +6,7 @@ import { verifyFamilyPasscode } from "@/lib/guest-api";
 import { useEventTheme } from "../../EventThemeContext";
 import { IconX } from "@/components/ui/icons";
 
-const LEN = 6; // backend mints a 6-digit numeric family passcode.
+const LEN = 6; // backend mints a 6-digit numeric gallery passcode.
 
 /**
  * Passcode entry — a centered modal with one box per digit (OTP-style) driven by
@@ -75,7 +75,7 @@ export function PasscodeSheet({ onSuccess, onClose }: { onSuccess: () => void; o
           <div>
             <div className="text-[19px] font-extrabold" style={{ color: t.text }}>Enter passcode</div>
             <div className="mt-1 text-[12.5px] font-semibold" style={{ color: t.muted }}>
-              Shared by the couple or host family
+              Shared by the host
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="cursor-pointer" style={{ color: t.muted }}>
