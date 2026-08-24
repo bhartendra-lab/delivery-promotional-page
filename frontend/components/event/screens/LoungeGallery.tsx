@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { downloadMany, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { useEventTheme } from "../EventThemeContext";
@@ -11,6 +11,7 @@ import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 import { ProfileSheet } from "./lounge/ProfileSheet";
+import { IntakeSheet } from "./lounge/IntakeSheet";
 import { TopBar } from "./lounge/TopBar";
 import { CoverMasthead } from "./lounge/CoverMasthead";
 import { DesktopCover } from "./lounge/DesktopCover";
@@ -57,6 +58,22 @@ export function LoungeGallery({
   const branding = event.include_company_branding === true;
   const unlocked = session.guest_type === "host";
   const hasStudio = branding && !!event.company_name;
+
+  // "Tell us about you" sheet — raised once, over the Lounge, for whichever
+  // of these the guest hasn't answered yet. Computed locally (not routed to
+  // by EventFlow) so a returning guest who already has both never sees it.
+  const needsName = !session.name || session.name === "Guest";
+  const intakeTeams = event.guest_types ?? [];
+  const needsTeam = intakeTeams.length > 0 && !session.guest_sub_type;
+  const showIntakeSheet = needsName || needsTeam;
+
+  async function submitIntake(patch: { name?: string; team?: string }) {
+    await updateGuestSubType(uniqueIdentifier, { name: patch.name, guestSubType: patch.team });
+    onSessionChange({
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.team !== undefined ? { guest_sub_type: patch.team } : {}),
+    });
+  }
 
   // Only ONE shell is mounted at a time (not two CSS-toggled trees): a hidden
   // `display:none` GalleryGrid measures 0 width and would render nothing, and
@@ -124,6 +141,15 @@ export function LoungeGallery({
   // immediately — search-selfie still re-runs on every mount below, because the
   // studio keeps uploading and yesterday's match set misses today's photos.
   const [mediaIds, setMediaIds] = useState<string[] | null>(() => getCachedMediaIds(uniqueIdentifier));
+  // Captured once at mount: whether the match count still needs to resolve
+  // during THIS visit (a fresh scan, or a returning guest whose cache was
+  // empty). Drives the dismissible "Found N photos" banner below — a guest
+  // who already had a warm cache at mount (mediaIds non-null from the start)
+  // has seen their count before, so no banner replay on every reload.
+  const [mediaIdsResolvingThisVisit] = useState(() => mediaIds === null);
+  const [matchBannerDismissed, setMatchBannerDismissed] = useState(false);
+  const showMatchBanner =
+    mediaIdsResolvingThisVisit && mediaIds !== null && mediaIds.length > 0 && !matchBannerDismissed;
 
   // EventFlow rebuilds `onReauth` on every render of its own, so it's read
   // through a ref rather than being a dependency below — otherwise an unrelated
@@ -681,12 +707,19 @@ export function LoungeGallery({
           {/* scrollMarginTop = the measured pinned control-row height, so
               scrollIntoView lands the first grid row flush beneath it. */}
           <div ref={gridSectionRef} className="mx-auto w-full max-w-[1440px] px-8 pb-16 pt-6" style={{ scrollMarginTop: controlRowH }}>
+            {showMatchBanner && (
+              <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
+            )}
             {loading ? (
               <LoadingSkeleton />
             ) : loadError && items.length === 0 ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
-              <EmptyState t={t} likedView={likedView} tab={tab} unlocked={unlocked} />
+              !likedView && tab === "mine" ? (
+                <NoMatchState t={t} onRescan={onRescan} onBrowseAll={() => gotoGallery("all")} contactUrl={contactUrl} onContactClick={onContactClick} />
+              ) : (
+                <EmptyState t={t} likedView={likedView} unlocked={unlocked} />
+              )
             ) : (
               <>
                 {/* ONE continuous justified grid over the full flat list — every
@@ -814,6 +847,11 @@ export function LoungeGallery({
             onReviewClick={onReviewClick}
             contactUrl={contactUrl}
             onContactClick={onContactClick}
+            onRescan={onRescan}
+            onBrowseAll={() => gotoGallery("all")}
+            showMatchBanner={showMatchBanner}
+            matchCount={mediaIds?.length ?? 0}
+            onDismissMatchBanner={() => setMatchBannerDismissed(true)}
           />
         )}
 
@@ -862,6 +900,9 @@ export function LoungeGallery({
           onDownloaded={() => triggerNudge("download")}
         />
       )}
+
+      {/* "tell us about you" — non-dismissible, held over everything else */}
+      {showIntakeSheet && <IntakeSheet showName={needsName} teams={needsTeam ? intakeTeams : []} onSubmit={submitIntake} />}
 
       {/* passcode */}
       {passcodeOpen && (
@@ -995,11 +1036,16 @@ function MobileGalleryView(props: {
   onReviewClick: () => void;
   contactUrl: string | null;
   onContactClick: () => void;
+  onRescan: () => void;
+  onBrowseAll: () => void;
+  showMatchBanner: boolean;
+  matchCount: number;
+  onDismissMatchBanner: () => void;
   /** Count shown on the "All" pill. */
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, selected, liked, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, totalForViewAll, scrollRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, selected, liked, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1058,12 +1104,17 @@ function MobileGalleryView(props: {
       {/* grid */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-[130px] pt-6" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
         <div className="mx-auto w-full max-w-[760px] px-4">
+          {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
           {loading ? (
             <LoadingSkeleton />
           ) : props.loadError && items.length === 0 ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            <EmptyState t={t} likedView={likedView} tab={tab} unlocked={unlocked} />
+            !likedView && tab === "mine" ? (
+              <NoMatchState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} contactUrl={contactUrl} onContactClick={onContactClick} />
+            ) : (
+              <EmptyState t={t} likedView={likedView} unlocked={unlocked} />
+            )
           ) : (
             <>
               <GalleryGrid
@@ -1118,15 +1169,16 @@ function LoadingSkeleton() {
   );
 }
 
+/** Covers the liked-tab and "all"-tab empty cases. `tab === "mine"` with zero
+ *  items is handled separately by `NoMatchState`, which has real recovery
+ *  actions instead of a passive message. */
 function EmptyState({
   t,
   likedView,
-  tab,
   unlocked,
 }: {
   t: Theme;
   likedView: boolean;
-  tab: "mine" | "all";
   /** Distinguishes a host's empty "All Photos" from a locked guest's empty
    *  Highlights view — the latter needs a nudge toward the passcode, not a
    *  generic "nothing here". */
@@ -1134,17 +1186,108 @@ function EmptyState({
 }) {
   const msg = likedView
     ? "No liked photos yet — tap the heart on any photo."
-    : tab === "mine"
-      ? "No photos matched your face yet. More may appear as the studio adds them."
-      : !unlocked
-        ? "No highlighted photos yet. Ask the couple for the family passcode to see everything."
-        : "No photos here yet.";
+    : !unlocked
+      ? "No highlighted photos yet. Ask the couple for the family passcode to see everything."
+      : "No photos here yet.";
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.faint }}>
         <IconGrid size={24} />
       </span>
       <p className="max-w-[280px] text-[13.5px] font-semibold" style={{ color: t.muted }}>{msg}</p>
+    </div>
+  );
+}
+
+/** Dismissible "Found N photos" banner — replaces the old dedicated ScanFlow
+ *  "matched" reveal screen. Only shown once, when the match count resolves
+ *  during this visit (see `mediaIdsResolvingThisVisit` at the call site). */
+function MatchBanner({ t, count, onDismiss, className = "" }: { t: Theme; count: number; onDismiss: () => void; className?: string }) {
+  return (
+    <div
+      className={`fx-rise flex items-center justify-between gap-3 rounded-2xl px-4 py-3 ${className}`}
+      style={{ background: t.accentWash, border: `1px solid ${t.brand}` }}
+    >
+      <span className="text-[13px] font-bold" style={{ color: t.text }}>
+        Found <span style={{ color: t.brand }}>{count}</span> photo{count === 1 ? "" : "s"} of you
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-[15px] font-bold"
+        style={{ color: t.muted }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+/** The "mine" tab came back empty. Covers both "the studio hasn't finished
+ *  adding photos yet" and "genuinely not in any photo" — the frontend can't
+ *  tell these apart (and mostly doesn't need to: `validateSelfie` already
+ *  rejects a bad selfie with specific retake guidance before search ever
+ *  runs) — so it offers all the honest recovery paths rather than guessing. */
+function NoMatchState({
+  t,
+  onRescan,
+  onBrowseAll,
+  contactUrl,
+  onContactClick,
+}: {
+  t: Theme;
+  onRescan: () => void;
+  onBrowseAll: () => void;
+  contactUrl: string | null;
+  onContactClick: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 px-8 py-16 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.faint }}>
+        <IconGrid size={24} />
+      </span>
+      <div className="flex flex-col gap-1.5">
+        <h2 className="text-[16px] font-extrabold" style={{ color: t.text }}>No matches yet</h2>
+        <p className="max-w-[300px] text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+          We couldn’t match any photos to your selfie. This can happen if the studio hasn’t finished adding
+          photos, or if none show your face clearly yet.
+        </p>
+      </div>
+      <div className="mt-1 flex w-full max-w-[280px] flex-col gap-2">
+        <button
+          type="button"
+          onClick={onRescan}
+          className="cursor-pointer rounded-full py-3 text-[13px] font-extrabold"
+          style={{ background: t.brand, color: t.onBrand }}
+        >
+          Rescan my face
+        </button>
+        <button
+          type="button"
+          onClick={onBrowseAll}
+          className="cursor-pointer rounded-full py-3 text-[13px] font-bold"
+          style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+        >
+          Browse all photos
+        </button>
+        {contactUrl && (
+          <a
+            href={contactUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onContactClick}
+            className="cursor-pointer rounded-full py-3 text-center text-[13px] font-bold"
+            style={{ color: t.muted }}
+          >
+            Contact the studio
+          </a>
+        )}
+      </div>
+      <p className="mt-1 max-w-[280px] text-[11px] font-semibold leading-[1.4]" style={{ color: t.faint }}>
+        Face recognition is trained predominantly on adult faces and is therefore less reliable at identifying
+        children.
+      </p>
     </div>
   );
 }
@@ -1196,7 +1339,7 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
 
 /* ── helpers + icons ────────────────────────────────────────────────────── */
 
-function formatDate(epoch?: number | null): string | null {
+export function formatDate(epoch?: number | null): string | null {
   if (epoch == null) return null;
   const d = new Date(epoch);
   if (isNaN(d.getTime())) return null;

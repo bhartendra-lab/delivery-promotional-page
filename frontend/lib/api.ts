@@ -1166,9 +1166,9 @@ export function refreshGuestToken(token: string) {
  */
 
 /**
- * POST /auth/guest-otp-login — sends the first code. 429 on cooldown.
- * Deliberately carries no `name`: the backend refuses to write one from an
- * unverified request, so the name rides along with `verifyGuestOtp` instead.
+ * POST /auth/guest-otp-login — sends the first code. 429 on cooldown. No
+ * `name` here — the guest is created (or found) as "Guest" and the real name
+ * is only ever written post-verification, via `updateGuestSubType`.
  */
 export function requestGuestOtp(input: { uniqueIdentifier: string; phone: string }) {
   return request<{ message: string }>("/auth/guest-otp-login", {

@@ -9,7 +9,7 @@
  * sunken / border / muted / brandDeep / heroScrim / …) by deriving the rest
  * with simple colour maths.
  *
- * The Sunburst mock palette is intentionally ignored. The never-themed signals
+ * The never-themed signals
  * (like-heart red, success green, error red, viewer near-black, signature ring)
  * are locked and identical across every theme — lifted from `hub2-themes.jsx`.
  *

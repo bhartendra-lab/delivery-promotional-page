@@ -565,6 +565,11 @@ export type DeliveryLandingPageData = {
   is_active?: boolean;
   /** Publish state from the booking — "expired" means the gallery's access window has closed. */
   gallery_publish_status?: GalleryPublishStatus;
+  /** Total media count for the booking — not folder-scoped, just a number, safe pre-auth. */
+  photo_count?: number;
+  /** A small (≤6), "public"-folder-scoped, images-only preview for the pre-auth welcome
+   *  screen's teaser strip. Deliberately not the full gallery — this is served unauthenticated. */
+  sample_media_urls?: string[];
 };
 
 /** A media item as returned to guests by `get-media` (carries `media_id` + likes). */

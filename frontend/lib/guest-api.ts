@@ -70,11 +70,16 @@ export function getGuestSession(uid: string) {
 }
 
 /** Persist the guest's chosen team / sub-type. */
-export function updateGuestSubType(uid: string, guestSubType: string) {
+/** Both fields are optional and independently settable — the endpoint only
+ *  `$set`s whichever of `name` / `guest_sub_type` is actually provided. */
+export function updateGuestSubType(uid: string, patch: { guestSubType?: string; name?: string }) {
   return guestFetch<{ message: string }>(uid, "/deliverables/update-guest-sub-type", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ guest_sub_type: guestSubType }),
+    body: JSON.stringify({
+      ...(patch.guestSubType !== undefined ? { guest_sub_type: patch.guestSubType } : {}),
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+    }),
   });
 }
 

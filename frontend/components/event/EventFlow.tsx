@@ -1,38 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DeliveryLandingPageData, GuestSession } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { GuestSession } from "@/lib/types";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
-import { GuestAuthError, getGuestSession, updateGuestSubType } from "@/lib/guest-api";
+import { GuestAuthError, getGuestSession } from "@/lib/guest-api";
 import { BrandLoader } from "./BrandLoader";
 import { useEventTheme } from "./EventThemeContext";
+import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
-import { TeamSelectScreen } from "./screens/TeamSelectScreen";
 import { ScanFlow } from "./screens/ScanFlow";
 import { LoungeGallery } from "./screens/LoungeGallery";
 
-/** Flow steps. Login + the session bootstrap are real; team/scan/lounge land in
- *  the following phases (placeholders for now). */
-type Step = "login" | "team" | "scan" | "lounge";
+type Step = "welcome" | "login" | "scan" | "lounge";
 
-/** Decide where a signed-in guest lands, given their session + the event. */
-function decideStep(event: DeliveryLandingPageData, session: GuestSession): Step {
-  if (event.guest_types && event.guest_types.length > 0 && !session.guest_sub_type) return "team";
+/**
+ * Decide where a signed-in guest lands. There's no separate "team" step —
+ * the name + team question is raised by `LoungeGallery` itself as a
+ * non-dismissible sheet when it's still missing, so every authed guest just
+ * goes to "scan" (no selfie yet) or "lounge".
+ */
+function decideStep(session: GuestSession): Step {
   if (!session.has_selfie) return "scan";
   return "lounge";
 }
 
 /**
  * Guest flow state machine. On mount it restores any stored session (skipping
- * login/team/scan as appropriate); otherwise it shows the Vyavasth-skinned
- * login. The selfie scan, team select and lounge land in Phases 4–8.
+ * welcome/login/scan as appropriate); a guest with no valid token sees the
+ * pre-auth welcome screen first, then the Vyavasth-skinned login.
  */
 export function EventFlow() {
-  const { event, uniqueIdentifier } = useEventTheme();
+  const { uniqueIdentifier } = useEventTheme();
   const [booting, setBooting] = useState(true);
-  const [step, setStep] = useState<Step>("login");
+  const [step, setStep] = useState<Step>("welcome");
   const [session, setSession] = useState<GuestSession | null>(null);
   const [authError, setAuthError] = useState(false);
+
+  // Guards state updates from a restore that's still in flight after unmount.
+  // Must be set true in the effect body itself, not just returned from
+  // cleanup — StrictMode's dev-only mount→cleanup→remount would otherwise
+  // leave this stuck at false after the first mount/cleanup pair, since
+  // nothing else ever flips it back to true.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Restores (or re-restores) the session from the stored guest token. Runs on
+  // mount, and again — in place, without a page navigation — once a guest
+  // authenticates via WhatsApp OTP (see `onAuthed` below).
+  const restoreSession = useCallback(async () => {
+    const token = getGuestToken(uniqueIdentifier);
+    if (!token) {
+      if (mountedRef.current) {
+        setStep("welcome");
+        setBooting(false);
+      }
+      return;
+    }
+    try {
+      const { guest } = await getGuestSession(uniqueIdentifier);
+      if (!mountedRef.current) return;
+      setSession(guest);
+      setStep(decideStep(guest));
+    } catch (err) {
+      if (!mountedRef.current) return;
+      if (err instanceof GuestAuthError) {
+        // The stored token turned out to be invalid — same "no valid token"
+        // state as never having one, so treat it identically (welcome, not
+        // straight to login).
+        clearGuestToken(uniqueIdentifier);
+        setStep("welcome");
+      } else {
+        // Some other failure (e.g. network) while a token DOES exist — don't
+        // claim this is a first-time visitor, just let them retry sign-in.
+        setStep("login");
+      }
+    } finally {
+      if (mountedRef.current) setBooting(false);
+    }
+  }, [uniqueIdentifier]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,60 +93,39 @@ export function EventFlow() {
       if (cancelled) return;
 
       const params = new URLSearchParams(window.location.search);
-      const hadError = params.get("error") === "auth_failed";
-
-      const token = getGuestToken(uniqueIdentifier);
-      if (!token) {
-        setAuthError(hadError);
-        setStep("login");
-        setBooting(false);
-        return;
-      }
-
-      try {
-        const { guest } = await getGuestSession(uniqueIdentifier);
-        if (cancelled) return;
-        setSession(guest);
-        setStep(decideStep(event, guest));
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof GuestAuthError) clearGuestToken(uniqueIdentifier);
-        setStep("login");
-      } finally {
-        if (!cancelled) setBooting(false);
-      }
+      setAuthError(params.get("error") === "auth_failed");
+      await restoreSession();
     })();
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, event]);
+  }, [restoreSession]);
+
+  // WhatsApp OTP verified: the token is already stored, so re-run the same
+  // restore path in place instead of a full navigation (which used to remount
+  // `EventExperience` and show the brand loader twice — once for the page
+  // reload, once for this restore).
+  const onAuthed = useCallback(() => {
+    setAuthError(false);
+    setBooting(true);
+    void restoreSession();
+  }, [restoreSession]);
 
   if (booting) return <BrandLoader />;
 
-  if (step === "login") return <LoginScreen authError={authError} />;
+  if (step === "welcome") return <WelcomeScreen onContinue={() => setStep("login")} />;
 
-  if (step === "team") {
-    return (
-      <TeamSelectScreen
-        teams={event.guest_types ?? []}
-        onSubmit={async (team) => {
-          await updateGuestSubType(uniqueIdentifier, team);
-          setSession((s) => (s ? { ...s, guest_sub_type: team } : s));
-          // No selfie yet → scan; otherwise straight to the lounge.
-          setStep(session?.has_selfie ? "lounge" : "scan");
-        }}
-      />
-    );
-  }
+  if (step === "login") return <LoginScreen authError={authError} onAuthed={onAuthed} />;
 
   if (step === "scan") {
     return (
       <ScanFlow
         guestName={session?.name}
-        onComplete={(selfieUrl) => {
-          // Matched media_ids were cached in the session by ScanFlow; the lounge
-          // reads them from there. We only mirror the selfie into session state.
-          setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl } : s));
+        onComplete={(selfieUrl, selfieId) => {
+          // The face search itself (and the matched-photos reveal) now happens
+          // in the Lounge, driven by session.selfie_id — mirror it here so that
+          // effect can run without waiting for a getGuestSession refetch.
+          setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl, selfie_id: selfieId } : s));
           setStep("lounge");
         }}
       />
