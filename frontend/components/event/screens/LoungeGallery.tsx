@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
+import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
@@ -90,10 +91,27 @@ export function LoungeGallery({
   // owns all data, so switching shells never re-fetches.
   const isDesktop = useIsDesktop();
 
+  // Event-scoped studio preference. Off means no download affordance anywhere in
+  // the gallery, for every guest — a passcode-unlocked host included. Note this
+  // turns downloads OFF; media still lives at public R2 URLs, so it is not a
+  // cryptographic block on someone who already holds a photo's URL.
+  const prefs = useMemo(
+    () => normalizeDeliveryPreferences(event.delivery_preferences),
+    [event.delivery_preferences],
+  );
+  const canDownload = prefs.allow_download;
+
   // Full-gallery ZIP is host-only and now built in the browser (client-zip,
   // streamed to disk), so it's available whenever the guest is unlocked — there's
-  // no backend zip state to gate on any more.
-  const canDownloadAll = unlocked;
+  // no backend zip state to gate on any more. The studio preference gates it too.
+  const canDownloadAll = unlocked && canDownload;
+
+  /**
+   * Select mode exists solely to download a subset — its action bar is Cancel +
+   * Download and nothing else. With downloads off it is a dead end, so the
+   * entry points are hidden and entering it is refused outright.
+   */
+  const canSelect = canDownload;
 
   const reviewUrl = event.company_google_place_id
     ? `https://search.google.com/local/writereview?placeid=${event.company_google_place_id}`
@@ -446,12 +464,18 @@ export function LoungeGallery({
     setSelectAll(false);
     setExcluded(new Set());
   }, []);
-  const enterSelectWith = useCallback((item: GuestMediaItem) => {
-    setSelectMode(true);
-    setSelectAll(false);
-    setExcluded(new Set());
-    setSelected(new Set([item._id]));
-  }, []);
+  const enterSelectWith = useCallback(
+    (item: GuestMediaItem) => {
+      // Belt to the hidden entry points' braces: never enter a mode whose only
+      // action has been turned off.
+      if (!canSelect) return;
+      setSelectMode(true);
+      setSelectAll(false);
+      setExcluded(new Set());
+      setSelected(new Set([item._id]));
+    },
+    [canSelect],
+  );
   /** "Select all": enters select mode and takes the whole active scope in one
    *  gesture. A hand-built selection is discarded, which is conventional. */
   const selectAllInView = useCallback(() => {
@@ -875,6 +899,7 @@ export function LoungeGallery({
             likedView={likedView}
             onSelectLiked={desktopSelectLiked}
             selectMode={selectMode}
+            canSelect={canSelect}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             selectAll={selectAll}
             onSelectAll={selectAllInView}
@@ -919,8 +944,8 @@ export function LoungeGallery({
                   onOpen={(i) => setViewerIndex(i)}
                   onToggleSelect={toggleSel}
                   onToggleLike={toggleLike}
-                  onEnterSelectWith={enterSelectWith}
-                  onDownload={downloadOne}
+                  onEnterSelectWith={canSelect ? enterSelectWith : undefined}
+                  onDownload={canDownload ? downloadOne : undefined}
                 />
                 {loadingMore && (
                   <div className="flex justify-center py-6">
@@ -1025,10 +1050,11 @@ export function LoungeGallery({
             liked={liked}
             onToggleSelect={toggleSel}
             onToggleLike={toggleLike}
-            onEnterSelectWith={enterSelectWith}
-            onDownload={downloadOne}
+            onEnterSelectWith={canSelect ? enterSelectWith : undefined}
+            onDownload={canDownload ? downloadOne : undefined}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            canSelect={canSelect}
             canDownloadAll={canDownloadAll}
             zipping={zipping}
             onDownloadAll={downloadGalleryZip}
@@ -1053,7 +1079,10 @@ export function LoungeGallery({
 
       {/* Select action bar — Cancel + Download only. The count and Select all
           live in the control row at the top, next to each other, so the bar
-          stays a one-line commit step rather than a second summary. */}
+          stays a one-line commit step rather than a second summary. Download is
+          also the ONLY action here, which is why select mode is unreachable
+          when the studio has downloads off (see `canSelect`); the guard below
+          is belt-and-braces for a mode that can no longer be entered. */}
       {selectMode && (
         <div className="fixed inset-x-0 bottom-[84px] z-40 flex justify-center px-5 lg:bottom-6">
           <div className="flex w-full max-w-[460px] items-center justify-between gap-3 rounded-full px-4 py-2" style={{ background: t.card, boxShadow: t.shadow }}>
@@ -1064,22 +1093,24 @@ export function LoungeGallery({
               <button type="button" onClick={exitSelect} className="cursor-pointer rounded-full px-2.5 py-2 text-[12.5px] font-bold" style={{ color: t.muted }}>
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={downloadSelected}
-                disabled={selectedCount === 0 || zipping}
-                className="cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-[12.5px] font-extrabold disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: t.brand, color: t.onBrand }}
-              >
-                {zipping ? (
-                  "Preparing…"
-                ) : (
-                  <>
-                    Download
-                    <span className="hidden sm:inline"> ({selectedCount.toLocaleString("en-IN")})</span>
-                  </>
-                )}
-              </button>
+              {canDownload && (
+                <button
+                  type="button"
+                  onClick={downloadSelected}
+                  disabled={selectedCount === 0 || zipping}
+                  className="cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-[12.5px] font-extrabold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: t.brand, color: t.onBrand }}
+                >
+                  {zipping ? (
+                    "Preparing…"
+                  ) : (
+                    <>
+                      Download
+                      <span className="hidden sm:inline"> ({selectedCount.toLocaleString("en-IN")})</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1098,6 +1129,7 @@ export function LoungeGallery({
           isSelected={isSelected}
           onToggleSelect={toggleSel}
           onToast={setToast}
+          canDownload={canDownload}
           onDownloaded={() => triggerNudge("download")}
         />
       )}
@@ -1340,10 +1372,16 @@ function MobileGalleryView(props: {
   liked: Set<string>;
   onToggleSelect: (i: GuestMediaItem) => void;
   onToggleLike: (i: GuestMediaItem) => void;
-  onEnterSelectWith: (i: GuestMediaItem) => void;
-  onDownload: (i: GuestMediaItem) => void;
+  /** Absent when the studio has turned downloads off — select mode's only
+   *  action is Download, so there is nothing to enter select mode for. */
+  onEnterSelectWith?: (i: GuestMediaItem) => void;
+  /** Absent when the studio has turned downloads off — the tile renders no
+   *  download button at all rather than a disabled one. */
+  onDownload?: (i: GuestMediaItem) => void;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
+  /** False hides the Select entry point (its only action is Download). */
+  canSelect: boolean;
   canDownloadAll: boolean;
   zipping: boolean;
   onDownloadAll: () => void;
@@ -1364,7 +1402,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1403,6 +1441,7 @@ function MobileGalleryView(props: {
             likedView={likedView}
             onSelectLiked={onSelectLiked}
             selectMode={selectMode}
+            canSelect={canSelect}
             onToggleSelectMode={props.onToggleSelectMode}
             canDownloadAll={canDownloadAll}
             zipping={zipping}

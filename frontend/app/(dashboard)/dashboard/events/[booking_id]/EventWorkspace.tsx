@@ -23,6 +23,11 @@ import type {
   MediaItem,
   ServiceType,
 } from "@/lib/types";
+import {
+  DELIVERY_PREFERENCE_DEFAULTS,
+  normalizeDeliveryPreferences,
+  type DeliveryPreferences,
+} from "@/lib/delivery-preferences";
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
@@ -103,6 +108,13 @@ function normalizeMeta(
     uniqueIdentifier: b.unique_identifier ?? prev?.uniqueIdentifier,
     familyPasscode: b.family_passcode ?? prev?.familyPasscode,
     guestTypes: b.guest_types ?? prev?.guestTypes,
+    // Normalised on the way in so every consumer reads a complete object.
+    // The `prev` fallback matters twice over: partial-update responses that
+    // don't echo the field must not wipe it, and a localStorage hydration
+    // carries the last known value until the authoritative read lands.
+    deliveryPreferences: normalizeDeliveryPreferences(
+      b.delivery_preferences ?? prev?.deliveryPreferences,
+    ),
     // getBookingById (reloadBooking) is the sole source of truth for QR
     // linking — the QR can be relinked/deleted from the Reusable QR tab
     // without this workspace ever mounting, so an absent field in that
@@ -571,6 +583,20 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking, toast],
   );
 
+  /**
+   * Event-scoped: one preference set per event, so this immediately covers
+   * every photo already in the gallery. Routed through `persistBooking` (not a
+   * second write path) so the response re-normalises into `meta` and refreshes
+   * the localStorage cache exactly like every other booking edit. Rejects on
+   * failure — the calling dialog owns the error surface.
+   */
+  const saveDeliveryPreferences = useCallback(
+    async (next: DeliveryPreferences) => {
+      await persistBooking({ delivery_preferences: next });
+    },
+    [persistBooking],
+  );
+
   const doRegeneratePasscode = useCallback(async (): Promise<string> => {
     const res = await regenerateFamilyPasscode(bookingId);
     const code = res.family_passcode;
@@ -842,6 +868,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       pauseUpload,
       publishedEver: pub.hasBeenPublished,
       saveMeta,
+      saveDeliveryPreferences,
       regenerateFamilyPasscode: doRegeneratePasscode,
       setCoverFromUrl,
       setCoverFromFile,
@@ -850,10 +877,14 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       deleteMediaIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
+  // `meta` is null until the first load lands, and `normalizeMeta` fills the
+  // object on every path after that — so the fallback only covers first paint.
+  const allowDownload =
+    meta?.deliveryPreferences?.allow_download ?? DELIVERY_PREFERENCE_DEFAULTS.allow_download;
 
   return (
     <EventProvider value={ctx}>
@@ -906,6 +937,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 initialCustomMessage={ctx.meta.customMessage}
                 initialIncludeBranding={ctx.meta.includeBranding}
                 initialGuestTypes={ctx.meta.guestTypes}
+                allowDownload={allowDownload}
                 onSave={async (vals) => {
                   // Pass through current event_type/date (never event_name) so the
                   // landing-page save can't churn the shared URL or clobber the event.

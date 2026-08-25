@@ -201,9 +201,12 @@ export function SelectionSummary({
  * pill backgrounds. Liked and Select show their active state as an underline
  * (they're the two real view toggles); Download is a one-shot action; Unlock
  * opens the gallery-passcode sheet and disappears once the guest has unlocked
- * the full gallery (nothing left to unlock). Download and Unlock are mutually
- * exclusive (`canDownloadAll === unlocked`), so at most three items ever render
- * at once. On mobile (`iconOnly`) the titles drop and only the icons show.
+ * the full gallery (nothing left to unlock). On mobile (`iconOnly`) the titles
+ * drop and only the icons show.
+ *
+ * Select hides entirely when `canSelect` is false: select mode's action bar is
+ * Cancel + Download and nothing else, so with the studio's download preference
+ * off it would be a mode with no action in it.
  *
  * Select all deliberately does NOT live here — see `SelectionSummary`, which
  * owns it. Shared by the mobile compact header and the desktop sticky control
@@ -214,6 +217,7 @@ export function ActionsCluster({
   likedView,
   onSelectLiked,
   selectMode,
+  canSelect = true,
   onToggleSelectMode,
   canDownloadAll,
   zipping,
@@ -227,6 +231,8 @@ export function ActionsCluster({
   likedView: boolean;
   onSelectLiked: () => void;
   selectMode: boolean;
+  /** False hides Select — its only action (Download) has been turned off. */
+  canSelect?: boolean;
   onToggleSelectMode: () => void;
   canDownloadAll: boolean;
   zipping: boolean;
@@ -268,15 +274,17 @@ export function ActionsCluster({
           iconOnly={iconOnly}
         />
       )}
-      <ActionItem
-        t={t}
-        icon={selectMode ? <IconCheckSquare size={15} weight="fill" /> : <IconSquare size={15} />}
-        label={selectMode ? "Cancel" : "Select"}
-        active={selectMode}
-        underline
-        onClick={onToggleSelectMode}
-        iconOnly={iconOnly}
-      />
+      {canSelect && (
+        <ActionItem
+          t={t}
+          icon={selectMode ? <IconCheckSquare size={15} weight="fill" /> : <IconSquare size={15} />}
+          label={selectMode ? "Cancel" : "Select"}
+          active={selectMode}
+          underline
+          onClick={onToggleSelectMode}
+          iconOnly={iconOnly}
+        />
+      )}
       {!unlocked && (
         <ActionItem
           t={t}

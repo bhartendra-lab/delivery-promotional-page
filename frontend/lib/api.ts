@@ -1,4 +1,5 @@
 import { getToken, clearToken, getCompany } from "./auth";
+import type { DeliveryPreferences } from "./delivery-preferences";
 import type {
   PlansResponse,
   PublicCoupon,
@@ -692,6 +693,12 @@ export type UpdateBookingInput = {
    * change teams but cannot clear them to `[]`.
    */
   guest_types?: string[];
+  /**
+   * Event-scoped guest delivery preferences. Always sent as the WHOLE object
+   * (never flattened booleans) — the backend merges it key-by-key, so a future
+   * preference needs no change here or on the endpoint.
+   */
+  delivery_preferences?: Partial<DeliveryPreferences>;
 };
 export function updateBooking(bookingId: string, body: UpdateBookingInput) {
   return request<{ booking: BookingDetail }>(

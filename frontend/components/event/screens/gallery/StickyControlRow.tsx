@@ -30,6 +30,7 @@ export function StickyControlRow({
   likedView,
   onSelectLiked,
   selectMode,
+  canSelect = true,
   onToggleSelectMode,
   selectAll,
   onSelectAll,
@@ -57,6 +58,8 @@ export function StickyControlRow({
   likedView: boolean;
   onSelectLiked: () => void;
   selectMode: boolean;
+  /** False hides Select — see `ActionsCluster`. */
+  canSelect?: boolean;
   onToggleSelectMode: () => void;
   selectAll: boolean;
   onSelectAll: () => void;
@@ -107,6 +110,7 @@ export function StickyControlRow({
           likedView={likedView}
           onSelectLiked={onSelectLiked}
           selectMode={selectMode}
+          canSelect={canSelect}
           onToggleSelectMode={onToggleSelectMode}
           canDownloadAll={canDownloadAll}
           zipping={zipping}

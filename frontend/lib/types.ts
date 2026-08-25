@@ -1,3 +1,5 @@
+import type { DeliveryPreferences } from "./delivery-preferences";
+
 export type EventType =
   | "Wedding"
   | "Birthday"
@@ -444,6 +446,13 @@ export type BookingDetail = {
   family_passcode?: string;
   /** Guest teams / sub-types (delivery-landing-page `guest_types`). */
   guest_types?: string[];
+  /**
+   * Event-scoped guest delivery preferences (delivery-landing-page
+   * `delivery_preferences`). Read through `normalizeDeliveryPreferences` —
+   * never key into it directly: an absent key means "the default", and an
+   * absent boolean reads as `false` at the call site.
+   */
+  delivery_preferences?: Partial<DeliveryPreferences>;
   /** Publish / activation state from the booking (read defensively). */
   gallery_publish_status?: GalleryPublishStatus;
   gallery_published_at?: number;
@@ -547,6 +556,13 @@ export type DeliveryLandingPageData = {
   style_variant?: string;
   include_company_branding?: boolean;
   guest_types?: string[];
+  /**
+   * Event-scoped guest delivery preferences, projected raw by the backend so a
+   * future preference costs no projection edit. Readers MUST go through
+   * `normalizeDeliveryPreferences` — the object (or any key in it) is absent on
+   * every gallery created before that preference existed.
+   */
+  delivery_preferences?: Partial<DeliveryPreferences>;
   company_name?: string;
   company_logo?: string;
   company_logo_light?: string;

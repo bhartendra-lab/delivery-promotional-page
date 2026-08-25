@@ -12,8 +12,10 @@ import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
 import { WatermarkReminderDialog } from "./WatermarkReminderDialog";
+import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
-import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
+import { DELIVERY_PREFERENCE_DEFAULTS } from "@/lib/delivery-preferences";
+import { IconCheck, IconX, IconUpload, IconEdit, IconWarning, IconGear } from "./icons";
 
 /** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
 type UploadIntent = { step: UploadModalStep; target: UploadFolderOption | null; folderOnly: boolean };
@@ -48,6 +50,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
     pauseUpload,
     publishedEver,
     saveMeta,
+    saveDeliveryPreferences,
     coverBusy,
     setCoverFromUrl,
     setCoverFromFile,
@@ -74,6 +77,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
     () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
   );
   const [editOpen, setEditOpen] = useState(false);
+  /** The standalone gear-icon Preferences dialog (the upload dialog owns its
+   *  own copy of the same panel as step 2). */
+  const [prefsOpen, setPrefsOpen] = useState(false);
   /** Set once a cancelled run has fully settled — drives the summary card. */
   const [cancelSummary, setCancelSummary] = useState<{ saved: number } | null>(null);
   // A cover pick (upload or "Set as cover photo") parked here until the studio
@@ -390,6 +396,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           activeIsSystem={activeIsSystem}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
+          onOpenPreferences={() => setPrefsOpen(true)}
         />
 
         {/* Mobile folder switcher (desktop uses the FoldersSidebar). */}
@@ -450,6 +457,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
         initialFolderOnly={uploadIntent?.folderOnly ?? false}
         folders={uploadFolderOptions}
         onCreateFolder={createFolder}
+        preferences={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
+        onSavePreferences={saveDeliveryPreferences}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -481,6 +490,17 @@ export function MediaTab({ loading }: { loading: boolean }) {
       />
 
       <WatermarkReminderDialog open={!!pendingUploadIntent} onSkip={handleWatermarkReminderSkip} />
+
+      {/* Same panel as the upload dialog's step 2, against the same event-scoped
+          value — flipping it here changes what every guest sees immediately. */}
+      <DeliveryPreferencesModal
+        open={prefsOpen}
+        onClose={() => setPrefsOpen(false)}
+        eventName={meta.name}
+        saved={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
+        onSave={saveDeliveryPreferences}
+        toast={toast}
+      />
 
       {cancelSummary && (
         <CancelSummaryCard saved={cancelSummary.saved} onClose={() => setCancelSummary(null)} />
@@ -525,6 +545,7 @@ function EventHeader({
   activeIsSystem,
   onUploadMore,
   onEdit,
+  onOpenPreferences,
 }: {
   meta: { name: string; type: string; eventDate: number | null };
   totalPhotos: number;
@@ -535,6 +556,8 @@ function EventHeader({
   paused: boolean;
   activeIsSystem: boolean;
   onUploadMore: () => void;
+  /** Opens the standalone gallery-preferences dialog. */
+  onOpenPreferences: () => void;
   onEdit: () => void;
 }) {
   const dateLabel = meta.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -589,16 +612,37 @@ function EventHeader({
         <p className="mt-1.5 text-[13px] text-[var(--color-brand-muted)]">{subtitle}</p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        {state === "populated" && (
-          <>
+        {/* Preferences is reachable in every non-loading state — the studio must
+            be able to set download rights BEFORE the first upload and DURING
+            one — and on mobile, unlike "Upload more" (uploading is desktop-only,
+            changing a preference isn't). Not gated by `activeLocked` either:
+            that guard protects folder structure from racing an in-flight
+            upload, and a delivery-landing-page write touches neither. */}
+        {state !== "loading" && (
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onUploadMore}
-              className="brand-focus hidden items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] md:inline-flex"
+              onClick={onOpenPreferences}
+              aria-label="Gallery preferences"
+              title="Gallery preferences"
+              className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
             >
-              <IconUpload size={14} />
-              Upload more
+              <IconGear size={16} />
             </button>
+            {state === "populated" && (
+              <button
+                type="button"
+                onClick={onUploadMore}
+                className="brand-focus hidden items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] md:inline-flex"
+              >
+                <IconUpload size={14} />
+                Upload more
+              </button>
+            )}
+          </div>
+        )}
+        {state === "populated" && (
+          <>
             {activeIsSystem && (
               <span className="hidden text-[11px] text-[var(--color-brand-muted)] md:inline">Tap to choose a folder to upload into</span>
             )}

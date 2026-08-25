@@ -6,6 +6,12 @@ import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
 import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
 import {
+  changedPreferenceKeys,
+  DELIVERY_PREFERENCE_FIELDS,
+  type DeliveryPreferences,
+} from "@/lib/delivery-preferences";
+import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import {
   IconUpload,
   IconFolder,
   IconX,
@@ -24,11 +30,17 @@ export type UploadPlan =
 export type UploadFolderOption = { id: string; name: string };
 
 /**
- * Which step the dialog opens on:
- *  - "picker" — choose a destination first (Upload more from All Media).
- *  - "select" — straight to picking files (a folder tab, or the empty-state CTA).
+ * Which view the dialog is on.
+ *  - "picker" — choose a destination first (Upload more from All Media). An
+ *    UNNUMBERED pre-step: it happens before the studio has committed to
+ *    uploading anything, so it isn't one of the two counted steps.
+ *  - "select" — step 1 of 2, picking files (a folder tab, or the empty-state CTA).
+ *  - "preferences" — step 2 of 2, the event's guest delivery preferences.
+ *
+ * `initialStep` only ever receives "picker" or "select"; the dialog never opens
+ * directly on "preferences".
  */
-export type UploadModalStep = "picker" | "select";
+export type UploadModalStep = "picker" | "select" | "preferences";
 
 type Props = {
   open: boolean;
@@ -51,6 +63,14 @@ type Props = {
    * it; resolves null if the create failed — the caller owns the error toast.
    */
   onCreateFolder: (name: string) => Promise<UploadFolderOption | null>;
+  /** Current saved, event-scoped preferences — seeds the Preferences step. */
+  preferences: DeliveryPreferences;
+  /**
+   * Persist changed preferences. Awaited before the upload starts, so a batch
+   * never goes live under preferences the studio thought they had changed.
+   * Rejects on failure; the dialog keeps the studio on step 2.
+   */
+  onSavePreferences: (next: DeliveryPreferences) => Promise<void>;
 };
 
 type Analysis = {
@@ -73,6 +93,8 @@ export function UploadModal({
   initialFolderOnly = false,
   folders,
   onCreateFolder,
+  preferences,
+  onSavePreferences,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
   // modal that unmounted to make way for this one — that double backdrop
@@ -95,6 +117,19 @@ export function UploadModal({
   // first folder is parsed with first-level subfolder grouping; any folders
   // added afterwards are flattened under their own name (see analyze()).
   const [firstRoot, setFirstRoot] = useState<string | null>(null);
+  /**
+   * The `mixed` decision, made on step 1 and held across the step change. The
+   * "where do uncategorised photos go?" question has to be answered before
+   * advancing — asking it when the studio presses Upload on the Preferences
+   * step would raise an unrelated folder question at the commit moment.
+   * Cleared whenever the selection changes, since a resolution against a
+   * changed selection is stale.
+   */
+  const [resolvedGroups, setResolvedGroups] = useState<Array<{ name: string; files: File[] }> | null>(null);
+  /** Step 2's working copy of the event's preferences (persisted at Upload). */
+  const [draftPrefs, setDraftPrefs] = useState<DeliveryPreferences>(preferences);
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefError, setPrefError] = useState<string | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // <input webkitdirectory> (the one-shot folder flow) isn't supported on mobile
@@ -129,6 +164,12 @@ export function UploadModal({
     setNaming(false);
     setMixedOpen(false);
     setFirstRoot(null);
+    setResolvedGroups(null);
+    // Seeded on OPEN, not on entering step 2: the studio can toggle, press
+    // Back, and come forward again — their in-progress choice must survive that.
+    setDraftPrefs(preferences);
+    setSavingPrefs(false);
+    setPrefError(null);
     setEstimateGB(null);
     setEstimating(false);
     document.body.style.overflow = "hidden";
@@ -192,8 +233,10 @@ export function UploadModal({
     storageGated && files.length > 0 && (dlpLoading || estimating || estimateGB === null);
 
   // Escape unwinds one layer at a time: mixed popup → naming popup → close.
-  // Stepping back to the destination picker is an explicit footer action, so
-  // Escape stays predictable and always means "close this dialog".
+  // Stepping back — to the destination picker OR from Preferences to Select —
+  // is an explicit footer action, so Escape stays predictable and always means
+  // "close this dialog". From the Preferences step it closes the whole dialog
+  // and persists nothing, exactly like Cancel.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -229,6 +272,7 @@ export function UploadModal({
     setDirectName(null);
     setNaming(false);
     setFirstRoot(null);
+    setResolvedGroups(null);
   }
 
   /** Chose an existing (or just-created) folder → straight into single-folder mode. */
@@ -257,6 +301,9 @@ export function UploadModal({
     if (filtered.length === 0) return;
     const merged = [...files, ...filtered];
     setFiles(merged);
+    // A `mixed` resolution answered "where do THESE loose photos go?" — once the
+    // selection changes it no longer describes what is about to be uploaded.
+    setResolvedGroups(null);
     // Remember the first folder selection's root so analyze() applies first-level
     // subfolder grouping to it and flattens any folders added later.
     if (!single && firstRoot === null) {
@@ -319,10 +366,47 @@ export function UploadModal({
           ]
         : analysis.subGroups;
 
-  function start() {
+  /**
+   * Step 1's "Next". Every question about WHERE the photos go is settled here,
+   * before advancing — the Upload button on step 2 must be a plain commit, not
+   * a place where an unrelated folder question can still surface.
+   */
+  function goNext() {
     if (files.length === 0) return;
-    // Storage plans: never start an upload before we know it fits, or if it doesn't.
+    // Storage plans: don't walk the studio through a preferences step for a
+    // selection that can never upload.
     if (estimatePending || overStorage) return;
+    if (!single && analysis.kind === "mixed") {
+      // Hold until the user decides where loose photos go (§5c); resolveMixed
+      // stores the answer and advances.
+      setMixedOpen(true);
+      return;
+    }
+    setStep("preferences");
+  }
+
+  /**
+   * Step 2's "Upload". Persists any changed preferences FIRST and only then
+   * hands the plan over — a batch must never go live under preferences the
+   * studio believed they had already changed.
+   */
+  async function startUpload() {
+    // Re-check defensively: usage could have landed between the two steps.
+    if (files.length === 0 || estimatePending || overStorage || savingPrefs) return;
+
+    if (changedPreferenceKeys(draftPrefs, preferences).length > 0) {
+      setSavingPrefs(true);
+      setPrefError(null);
+      try {
+        await onSavePreferences(draftPrefs);
+      } catch (err) {
+        setPrefError(err instanceof Error ? err.message : "Couldn’t save preferences");
+        setSavingPrefs(false);
+        return; // stay on step 2 — nothing uploads
+      }
+      setSavingPrefs(false);
+    }
+
     if (single && target) {
       onStart({
         mode: "single",
@@ -330,6 +414,12 @@ export function UploadModal({
         targetFolderId: target.id,
         targetFolderName: target.name,
       });
+      onClose();
+      return;
+    }
+    if (resolvedGroups) {
+      // The `mixed` case, already answered on step 1.
+      onStart({ mode: "grouped", groups: resolvedGroups });
       onClose();
       return;
     }
@@ -341,16 +431,13 @@ export function UploadModal({
       onClose();
       return;
     }
-    if (analysis.kind === "mixed") {
-      // Hold the upload until the user decides where loose photos go (§5c).
-      setMixedOpen(true);
-      return;
-    }
     // grouped → every photo already belongs to a named folder.
     onStart({ mode: "grouped", groups: analysis.subGroups });
     onClose();
   }
 
+  /** Records the §5c decision and advances — it no longer starts the upload,
+   *  since the studio still has the Preferences step to pass through. */
   function resolveMixed(decision: { target: string } | "skip") {
     setMixedOpen(false);
     const groups = analysis.subGroups.map((g) => ({ name: g.name, files: [...g.files] }));
@@ -359,13 +446,24 @@ export function UploadModal({
       if (existing) existing.files.push(...analysis.looseFiles);
       else groups.push({ name: decision.target, files: [...analysis.looseFiles] });
     }
-    onStart({ mode: "grouped", groups });
-    onClose();
+    setResolvedGroups(groups);
+    setStep("preferences");
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-16 sm:pt-24"
+      /* The vertical offset lives in THIS element's padding and the panel below
+         is capped at `max-h-full`, so the panel can never be taller than the
+         viewport minus that offset. The old pairing — `pt-24` here plus
+         `max-h-[90vh]` on the panel — overflowed on every screen shorter than
+         960px (96px + 90% of h > h whenever h < 960), and what fell off the
+         bottom was the footer holding Cancel/Next/Upload. The drop-down offset
+         is now gated on available HEIGHT rather than width, so it still sits
+         below the topbar on a roomy screen and hugs the top on a short one,
+         where every pixel belongs to the content instead. Correctness no longer
+         depends on picking the right thresholds — `max-h-full` derives from
+         this box, so whatever the offset, the panel fits. */
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-hidden px-4 py-6 [@media(min-height:760px)]:pt-16 [@media(min-height:900px)]:pt-24"
       role="dialog"
       aria-modal="true"
       aria-label="Upload media"
@@ -377,25 +475,43 @@ export function UploadModal({
         className="drawer-fade absolute inset-0 bg-[var(--color-brand-ink)]/40 backdrop-blur-[1px]"
       />
       <div
-        className={`dash-rise relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white shadow-[0_12px_40px_rgba(42,34,24,0.12)] ${
-          step === "picker" ? "max-w-[480px]" : "max-w-[760px]"
+        className={`dash-rise relative flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white shadow-[0_12px_40px_rgba(42,34,24,0.12)] ${
+          step === "picker"
+            ? "max-w-[480px]"
+            : step === "preferences"
+              ? // A short list of rows — 760px leaves it stranded in space, but
+                // much under this and the explanatory rail is as wide as the
+                // controls it explains.
+                "max-w-[620px]"
+              : "max-w-[760px]"
         }`}
         style={{ transition: "max-width 220ms ease" }}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-brand-border)] px-6 py-4">
           <div>
+            {/* The destination picker is an unnumbered pre-step, so the counter
+                appears only once the studio is actually inside the two steps. */}
+            {step !== "picker" && dirSupported && (
+              <StepIndicator current={step === "preferences" ? 2 : 1} />
+            )}
             <h2 className="text-[18px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
-              {step === "picker" ? "Where should these photos go?" : "Upload media"}
+              {step === "picker"
+                ? "Where should these photos go?"
+                : step === "preferences"
+                  ? "Upload preferences"
+                  : "Upload media"}
             </h2>
             <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
               {step === "picker"
                 ? "Pick a folder, start a new one, or bring across a folder that already has subfolders."
                 : !dirSupported
                   ? "Uploading needs a desktop browser."
-                  : single
-                    ? "Pick photos to add to this folder."
-                    : "Drop the folder from your computer — we'll rebuild its subfolders here."}
+                  : step === "preferences"
+                    ? "Choose what guests can do with this gallery, then upload."
+                    : single
+                      ? "Pick photos to add to this folder."
+                      : "Drop the folder from your computer — we'll rebuild its subfolders here."}
             </p>
           </div>
           <button
@@ -420,14 +536,39 @@ export function UploadModal({
           <DesktopOnlyNotice onClose={onClose} />
         ) : (
           <>
-          {/* Body — same two-column shape in both modes: context on the left,
+          {step === "preferences" ? (
+            /* Step 2 keeps step 1's two-column shape so the dialog doesn't
+               visually restart: a plain-language summary of what guests will
+               see on the left, the controls themselves on the right. */
+            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[200px_1fr]">
+              {/* Rail hidden below 768px (not 640px): on a narrow window a
+                  280px explainer left the controls narrower than itself. */}
+              <div className="hidden flex-col overflow-y-auto border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-5 py-6 md:flex">
+                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+                  What guests will see
+                </div>
+                <GuestPreferenceSummary prefs={draftPrefs} />
+              </div>
+              <div className="flex min-h-0 flex-col overflow-y-auto px-5 py-6 sm:px-7">
+                <DeliveryPreferencesPanel
+                  value={draftPrefs}
+                  onChange={setDraftPrefs}
+                  disabled={savingPrefs}
+                />
+              </div>
+            </div>
+          ) : (
+          /* Body — same two-column shape in both modes: context on the left,
               the drop zone on the right. (Single-folder mode used to announce its
               destination in a tinted banner above a full-width drop zone, which
-              read as a different screen for no reason.) */}
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[280px_1fr]">
+              read as a different screen for no reason.) */
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[240px_1fr] lg:grid-cols-[280px_1fr]">
             {/* Left: the destination, or the subfolder guide when importing.
-                (Hidden on mobile — the guard replaces the whole body there.) */}
-            <div className="hidden flex-col border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-6 sm:flex">
+                (Hidden on mobile — the guard replaces the whole body there.)
+                Hidden below 768px too: at 640–767px a fixed 280px rail took
+                ~43% of the panel and squeezed the drop zone it was explaining.
+                Scrolls independently so a short viewport clips nothing. */}
+            <div className="hidden flex-col overflow-y-auto border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-6 md:flex">
               {single ? (
                 <>
                   <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
@@ -467,7 +608,7 @@ export function UploadModal({
             </div>
 
             {/* Right: drop zone OR content panel */}
-            <div className="flex min-h-0 flex-col overflow-y-auto px-7 py-6">
+            <div className="flex min-h-0 flex-col overflow-y-auto px-5 py-6 sm:px-7">
               {!hasSelection ? (
                 <DropZone
                   dragOver={dragOver}
@@ -508,8 +649,22 @@ export function UploadModal({
               />
             </div>
           </div>
+          )}
 
-          {/* Storage estimate / overrun warning (Monthly / Yearly plans only) */}
+          {/* A failed preferences save keeps the studio on step 2 with the
+              draft intact — nothing uploads under settings that didn't stick. */}
+          {step === "preferences" && prefError && (
+            <div className="border-t border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-3">
+              <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-warning)]">
+                <IconWarningCircle size={16} className="mt-0.5 shrink-0" />
+                <p>{prefError}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Storage estimate / overrun warning (Monthly / Yearly plans only).
+              Rendered on BOTH steps so the number doesn't vanish when the
+              studio steps forward. */}
           {storageGated && hasSelection && !dlpLoading && (
             <StorageEstimateNotice
               estimating={estimating}
@@ -521,34 +676,61 @@ export function UploadModal({
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-2.5 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
-            {/* Always available on this step — the destination picker is reachable
-                from any entry point (a folder tab, the banner's old "Change", or
-                after switching into the subfolder import). */}
-            <button
-              type="button"
-              onClick={goToPicker}
-              className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-            >
-              <IconChevronLeft size={15} />
-              Change destination
-            </button>
+            {step === "preferences" ? (
+              /* Back takes the leading slot on step 2. "Change destination" is
+                 deliberately NOT offered here — it clears the selection, and a
+                 selection-wiping control next to a confirm button is a trap. */
+              <button
+                type="button"
+                onClick={() => setStep("select")}
+                disabled={savingPrefs}
+                className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <IconChevronLeft size={15} />
+                Back
+              </button>
+            ) : (
+              /* Always available on this step — the destination picker is reachable
+                  from any entry point (a folder tab, the banner's old "Change", or
+                  after switching into the subfolder import). */
+              <button
+                type="button"
+                onClick={goToPicker}
+                className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              >
+                <IconChevronLeft size={15} />
+                Change destination
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+              disabled={savingPrefs}
+              className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={files.length === 0 || overStorage || estimatePending}
-              onClick={start}
-              className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {files.length > 0
-                ? `Start upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`
-                : "Start upload"}
-            </button>
+            {step === "preferences" ? (
+              <button
+                type="button"
+                disabled={files.length === 0 || overStorage || estimatePending || savingPrefs}
+                onClick={() => void startUpload()}
+                className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingPrefs
+                  ? "Saving preferences…"
+                  : `Upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={files.length === 0 || overStorage || estimatePending}
+                onClick={goNext}
+                className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            )}
           </div>
           </>
         )}
@@ -582,6 +764,76 @@ export function UploadModal({
         )}
       </div>
     </div>
+  );
+}
+
+/* ── step indicator ────────────────────────────────────────────── */
+
+/**
+ * "Step 1 of 2 · Select Media". Quiet by design — it orients, it doesn't
+ * navigate. The destination picker isn't counted here: it happens before the
+ * studio has committed to uploading anything.
+ */
+function StepIndicator({ current }: { current: 1 | 2 }) {
+  const label = current === 1 ? "Select Media" : "Preferences";
+  return (
+    <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
+      <span className="flex items-center gap-1" aria-hidden>
+        {[1, 2].map((n) => (
+          <span
+            key={n}
+            className="h-1 w-4 rounded-full transition-colors"
+            style={{
+              background:
+                n <= current ? "var(--color-brand-navy)" : "var(--color-brand-outline)",
+            }}
+          />
+        ))}
+      </span>
+      <span>
+        Step {current} of 2 · {label}
+      </span>
+    </div>
+  );
+}
+
+/* ── step 2 rail — plain-language read-out of the draft ────────── */
+
+/**
+ * Restates the draft preferences as the sentences a guest would experience, so
+ * the consequence is legible without decoding a row of switches. Driven off
+ * `DELIVERY_PREFERENCE_FIELDS` (each descriptor carries its own `summary`), so
+ * a new preference appears here without this component being touched — and off
+ * the same draft object the panel edits, so it can't drift from what is about
+ * to be saved.
+ */
+function GuestPreferenceSummary({ prefs }: { prefs: DeliveryPreferences }) {
+  return (
+    <>
+      <ul className="flex flex-col gap-2.5">
+        {DELIVERY_PREFERENCE_FIELDS.map((field) => {
+          const summary = field.summary;
+          if (!summary) return null;
+          const on = prefs[field.key];
+          return (
+            <li
+              key={field.key}
+              className="flex items-start gap-2 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]"
+            >
+              <span
+                aria-hidden
+                className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: on ? "var(--color-brand-navy)" : "var(--color-brand-outline)" }}
+              />
+              <span>{on ? summary.on : summary.off}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-4 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+        Not final — change these any time from the gear beside Upload more.
+      </div>
+    </>
   );
 }
 

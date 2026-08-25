@@ -17,8 +17,9 @@ import {
 
 /**
  * Immersive fullscreen viewer (near-black ground — never themed). Carries Like
- * (locked heart-red), Share (Web Share → local sheet, fallback copy-link) and
- * Download. In select mode the right action becomes the selection toggle.
+ * (locked heart-red), Share (Web Share → local sheet, fallback copy-link) and —
+ * when the studio allows it — Download. In select mode the right action becomes
+ * the selection toggle.
  */
 export function PhotoViewer({
   items,
@@ -31,6 +32,7 @@ export function PhotoViewer({
   isSelected,
   onToggleSelect,
   onToast,
+  canDownload,
   onDownloaded,
 }: {
   items: GuestMediaItem[];
@@ -45,6 +47,9 @@ export function PhotoViewer({
   isSelected: (id: string) => boolean;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToast: (msg: string) => void;
+  /** The event's studio preference. False renders no Download chip at all —
+   *  applies to every guest, passcode-unlocked hosts included. */
+  canDownload: boolean;
   /** Fired after a successful single-photo download — drives the post-download review nudge. */
   onDownloaded?: () => void;
 }) {
@@ -107,9 +112,11 @@ export function PhotoViewer({
             <ChipButton label="Like" onClick={() => onToggleLike(item)}>
               <IconHeart size={19} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
             </ChipButton>
-            <ChipButton label="Download" onClick={onDownload}>
-              <IconDownload size={19} />
-            </ChipButton>
+            {canDownload && (
+              <ChipButton label="Download" onClick={onDownload}>
+                <IconDownload size={19} />
+              </ChipButton>
+            )}
             {/* Web Share is a mobile affordance — hide it on desktop. */}
             <ChipButton label="Share" onClick={onShare} className="lg:hidden">
               <IconShare size={19} />

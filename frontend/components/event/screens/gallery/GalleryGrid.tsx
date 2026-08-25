@@ -48,8 +48,13 @@ export function GalleryGrid({
   onOpen: (index: number) => void;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToggleLike: (item: GuestMediaItem) => void;
-  onEnterSelectWith: (item: GuestMediaItem) => void;
-  onDownload: (item: GuestMediaItem) => void;
+  /** Absent when select mode is unavailable (its only action is Download, and
+   *  the studio has turned downloads off) — the select badge then only toggles
+   *  an already-active selection. */
+  onEnterSelectWith?: (item: GuestMediaItem) => void;
+  /** Absent when the studio has turned downloads off. The tile then renders NO
+   *  download button — a control that exists but refuses is worse than none. */
+  onDownload?: (item: GuestMediaItem) => void;
 }) {
   if (layout === "grid") {
     return (
@@ -67,8 +72,8 @@ export function GalleryGrid({
             onOpen={() => onOpen(index)}
             onToggleSelect={() => onToggleSelect(item)}
             onToggleLike={() => onToggleLike(item)}
-            onEnterSelectWith={() => onEnterSelectWith(item)}
-            onDownload={() => onDownload(item)}
+            onEnterSelectWith={onEnterSelectWith && (() => onEnterSelectWith(item))}
+            onDownload={onDownload && (() => onDownload(item))}
           />
         ))}
       </div>
@@ -134,8 +139,13 @@ function JustifiedGrid({
   onOpen: (index: number) => void;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToggleLike: (item: GuestMediaItem) => void;
-  onEnterSelectWith: (item: GuestMediaItem) => void;
-  onDownload: (item: GuestMediaItem) => void;
+  /** Absent when select mode is unavailable (its only action is Download, and
+   *  the studio has turned downloads off) — the select badge then only toggles
+   *  an already-active selection. */
+  onEnterSelectWith?: (item: GuestMediaItem) => void;
+  /** Absent when the studio has turned downloads off. The tile then renders NO
+   *  download button — a control that exists but refuses is worse than none. */
+  onDownload?: (item: GuestMediaItem) => void;
 }) {
   const [containerRef, width] = useContainerWidth();
   // Flatten the index onto each item (rather than wrapping) so it still carries
@@ -162,8 +172,8 @@ function JustifiedGrid({
               onOpen={() => onOpen(tile._index)}
               onToggleSelect={() => onToggleSelect(tile)}
               onToggleLike={() => onToggleLike(tile)}
-              onEnterSelectWith={() => onEnterSelectWith(tile)}
-              onDownload={() => onDownload(tile)}
+              onEnterSelectWith={onEnterSelectWith && (() => onEnterSelectWith(tile))}
+              onDownload={onDownload && (() => onDownload(tile))}
             />
           ))}
         </div>
@@ -200,8 +210,9 @@ function PhotoTile({
   onOpen: () => void;
   onToggleSelect: () => void;
   onToggleLike: () => void;
-  onEnterSelectWith: () => void;
-  onDownload: () => void;
+  onEnterSelectWith?: () => void;
+  /** Absent → no download button on this tile at all. */
+  onDownload?: () => void;
 }) {
   const isJustified = layout === "justified";
   const pad = selectMode && isSel ? 4 : 0;
@@ -277,11 +288,11 @@ function PhotoTile({
         onClick={(e) => {
           e.stopPropagation();
           if (selectMode) onToggleSelect();
-          else onEnterSelectWith();
+          else onEnterSelectWith?.();
         }}
         aria-label="Select photo"
         className={`absolute left-1.5 top-1.5 z-10 flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full ${
-          selectMode ? "flex" : `hidden sm:flex ${revealCls}`
+          selectMode ? "flex" : onEnterSelectWith ? `hidden sm:flex ${revealCls}` : "hidden"
         }`}
         style={{
           background: isSel ? t.brand : "rgba(20,16,8,0.3)",
@@ -315,18 +326,20 @@ function PhotoTile({
               </span>
             )}
           </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDownload();
-            }}
-            aria-label="Download photo"
-            className={`flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95 ${revealCls}`}
-            style={{ background: "rgba(20,16,8,0.38)" }}
-          >
-            <IconDownload size={12} style={{ color: "#fff" }} />
-          </button>
+          {onDownload && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload();
+              }}
+              aria-label="Download photo"
+              className={`flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95 ${revealCls}`}
+              style={{ background: "rgba(20,16,8,0.38)" }}
+            >
+              <IconDownload size={12} style={{ color: "#fff" }} />
+            </button>
+          )}
         </div>
       )}
     </div>

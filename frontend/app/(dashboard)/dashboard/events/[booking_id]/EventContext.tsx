@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { CustomFolder, MediaItem } from "@/lib/types";
+import type { DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -80,6 +81,12 @@ export type EventMeta = {
   /** Reusable QR pointed at this event, if any (joined by `getBookingById`). */
   qrUniqueId?: string;
   qrImageUrl?: string;
+  /**
+   * Event-scoped guest delivery preferences, already normalised (defaults
+   * filled) — so consumers can read `deliveryPreferences.allow_download`
+   * directly without re-checking for an absent key.
+   */
+  deliveryPreferences?: DeliveryPreferences;
 };
 
 /**
@@ -149,6 +156,13 @@ export type EventContextValue = {
   publishedEver: boolean;
   /** Edit name + type + date from the edit sheet. */
   saveMeta: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
+  /**
+   * Persist the event's guest delivery preferences. EVENT-SCOPED: there is one
+   * preference set per event, so this covers every photo in the gallery —
+   * already-uploaded ones included — and takes effect for guests immediately.
+   * Rejects on failure so the caller can keep its dialog open.
+   */
+  saveDeliveryPreferences: (next: DeliveryPreferences) => Promise<void>;
   /** Mint a fresh family passcode; returns the new code. */
   regenerateFamilyPasscode: () => Promise<string>;
   /** Set the cover from an already-uploaded R2 url, optionally with a focal position. */

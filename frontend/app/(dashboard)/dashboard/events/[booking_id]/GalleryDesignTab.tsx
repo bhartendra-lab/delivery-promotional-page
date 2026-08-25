@@ -38,6 +38,7 @@ export function GalleryDesignTab({
   initialCustomMessage,
   initialIncludeBranding,
   initialGuestTypes,
+  allowDownload,
   onSave,
 }: {
   eventName: string;
@@ -49,6 +50,13 @@ export function GalleryDesignTab({
   initialCustomMessage?: string;
   initialIncludeBranding?: boolean;
   initialGuestTypes?: string[];
+  /**
+   * The event's `allow_download` delivery preference. Read-only here — it's
+   * edited from the Media tab's gear — but the preview MUST honour it: a mockup
+   * showing a Download button the real gallery doesn't have is a lie the studio
+   * would act on.
+   */
+  allowDownload: boolean;
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
@@ -346,6 +354,7 @@ export function GalleryDesignTab({
                   message={message}
                   branding={branding}
                   scope={scope}
+                  allowDownload={allowDownload}
                 />
               </div>
             </div>
@@ -364,6 +373,7 @@ export function GalleryDesignTab({
                     message={message}
                     branding={branding}
                     scope={scope}
+                    allowDownload={allowDownload}
                     compact
                   />
                 </div>
@@ -388,6 +398,7 @@ function ClientPagePreview({
   message,
   branding,
   scope,
+  allowDownload,
   compact = false,
 }: {
   theme: ClientTheme;
@@ -399,6 +410,9 @@ function ClientPagePreview({
   message: string;
   branding: boolean;
   scope: "landing" | "gallery";
+  /** The event's `allow_download` preference — gates every download affordance
+   *  in the gallery-scope preview, exactly as it does in the real gallery. */
+  allowDownload: boolean;
   compact?: boolean;
 }) {
   const coverBg = coverUrl
@@ -406,7 +420,7 @@ function ClientPagePreview({
     : { backgroundImage: `repeating-linear-gradient(40deg, ${theme.cover[0]} 0 22px, ${theme.cover[1]} 22px 44px)` };
 
   if (scope === "gallery") {
-    return <GalleryScopePreview theme={theme} compact={compact} />;
+    return <GalleryScopePreview theme={theme} compact={compact} allowDownload={allowDownload} />;
   }
 
   return (
@@ -494,7 +508,15 @@ function ClientPagePreview({
  * actual images and own real selection/like state, which this static preview
  * has no need for and shouldn't take on the risk of embedding.
  */
-function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: boolean }) {
+function GalleryScopePreview({
+  theme,
+  compact,
+  allowDownload,
+}: {
+  theme: ClientTheme;
+  compact: boolean;
+  allowDownload: boolean;
+}) {
   const [tab, setTab] = useState<"mine" | "all">("all");
   const [folder, setFolder] = useState(ALL);
   const [likedView, setLikedView] = useState(false);
@@ -527,8 +549,9 @@ function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: 
             likedView={likedView}
             onSelectLiked={() => setLikedView((v) => !v)}
             selectMode={selectMode}
+            canSelect={allowDownload}
             onToggleSelectMode={() => setSelectMode((v) => !v)}
-            canDownloadAll={previewUnlocked}
+            canDownloadAll={previewUnlocked && allowDownload}
             zipping={false}
             onDownloadAll={() => { }}
             unlocked={previewUnlocked}
@@ -571,7 +594,9 @@ function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: 
           >
             {/* Static hints of the real tile's hover affordances (select
                 top-left, heart + download bottom-right) — always-on here
-                since a static mockup has no hover state to reveal them. */}
+                since a static mockup has no hover state to reveal them. The
+                download glyph follows the event's `allow_download` preference,
+                same as the real tile. */}
             <span
               className="absolute left-1 top-1 rounded-full"
               style={{ width: 14, height: 14, border: "1.5px solid rgba(255,255,255,0.9)", background: "rgba(20,16,8,0.25)" }}
@@ -580,9 +605,11 @@ function GalleryScopePreview({ theme, compact }: { theme: ClientTheme; compact: 
               <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
                 <IconHeart size={9} className="text-white" />
               </span>
-              <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
-                <IconDownload size={9} className="text-white" />
-              </span>
+              {allowDownload && (
+                <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
+                  <IconDownload size={9} className="text-white" />
+                </span>
+              )}
             </span>
           </div>
         ))}
