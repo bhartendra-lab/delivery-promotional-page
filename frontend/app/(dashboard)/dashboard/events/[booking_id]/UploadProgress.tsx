@@ -102,6 +102,8 @@ export function UploadProgress({
           <h3 className="mt-6 text-[22px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
             {cancelling
               ? "Stopping the upload…"
+              : paused && progress.storageFullWarning
+              ? `Storage full — paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : paused
               ? `Paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : progress.isSavingMetadata
@@ -111,6 +113,11 @@ export function UploadProgress({
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
             {cancelling ? (
               <>Finishing the photos already in flight so none are left half-uploaded.</>
+            ) : paused && progress.storageFullWarning ? (
+              <>
+                Every photo uploaded so far is saved and in the gallery. Free up space or upgrade
+                your plan, then <strong className="text-[var(--color-brand-ink)]">Resume</strong>.
+              </>
             ) : paused ? (
               <>
                 Nothing is transferring right now.{" "}
@@ -140,6 +147,20 @@ export function UploadProgress({
               <span className="text-[var(--color-brand-muted)]">
                 Photos already uploaded keep whatever mark they were uploaded with.
               </span>
+            </p>
+          </div>
+        )}
+
+        {/* Plan filled up mid-run. The engine already paused itself and drained
+            pending metadata, so everything on R2 is recorded — this explains
+            why nothing is moving and what unblocks it. Resume clears the
+            warning and re-checks against a fresh figure from the next
+            create-media chunk. */}
+        {progress.storageFullWarning && (
+          <div className="flex items-start gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-8 py-3.5">
+            <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+            <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              {progress.storageFullWarning}
             </p>
           </div>
         )}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
-import { coldFallback, downloadImage, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
+import { degradeGridSrc, downloadImage, gridSrc, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
 import { Lightbox } from "./Lightbox";
 import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
 
@@ -16,7 +16,7 @@ function isPersisted(m: MediaItem): boolean {
  * fades it in — so the grid fills smoothly instead of images popping in. Handles
  * already-cached images (whose `onLoad` may fire before React attaches).
  */
-function GridImage({ src }: { src: string }) {
+function GridImage({ item }: { item: MediaItem }) {
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLImageElement>(null);
   useEffect(() => {
@@ -28,17 +28,11 @@ function GridImage({ src }: { src: string }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         ref={ref}
-        src={src}
+        src={gridSrc(item)}
         alt=""
         loading="lazy"
         onLoad={() => setLoaded(true)}
-        onError={(e) => {
-          const el = e.currentTarget;
-          if (!el.dataset.fellBack) {
-            el.dataset.fellBack = "1";
-            el.src = coldFallback(src);
-          }
-        }}
+        onError={(e) => degradeGridSrc(e.currentTarget, item)}
         className={`h-full w-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-[1.02] ${
           loaded ? "opacity-100" : "opacity-0"
         }`}
@@ -319,7 +313,7 @@ export function MediaGrid({
                   aria-label="Open preview"
                   className="block h-full w-full"
                 >
-                  <GridImage src={m.url} />
+                  <GridImage item={m} />
                 </button>
               </div>
 

@@ -314,6 +314,11 @@ export type MediaItem = {
   /** True when at least one host liked this photo (drives the filled heart in Smart
    *  Selects). Independent of the active who-filter; present only on smart loads. */
   host_liked?: boolean;
+  /** Public URL of the 480px gallery-grid derivative. Absent on legacy media
+   *  (uploaded before thumbnails landed), on videos, and where the client's
+   *  thumbnail step failed — readers MUST fall back to `url`. Use `gridSrc`
+   *  from lib/media-actions rather than reading this directly. */
+  thumbnail_url?: string;
   /** Decoded pixel dimensions, captured client-side at upload. Absent on media
    *  uploaded before dimension capture landed — readers must fall back gracefully. */
   width?: number;
@@ -599,6 +604,11 @@ export type GuestMediaItem = {
   likes_count?: number;
   /** True when the current guest has liked this photo (drives persisted hearts). */
   liked_by_me?: boolean;
+  /** Public URL of the 480px gallery-grid derivative. Absent on legacy media
+   *  (uploaded before thumbnails landed), on videos, and where the client's
+   *  thumbnail step failed — readers MUST fall back to `url`. Use `gridSrc`
+   *  from lib/media-actions rather than reading this directly. */
+  thumbnail_url?: string;
   /** Decoded pixel dimensions, captured client-side at upload. Absent on media
    *  uploaded before dimension capture landed — the gallery falls back to its
    *  legacy no-reserved-height masonry behavior for those. */

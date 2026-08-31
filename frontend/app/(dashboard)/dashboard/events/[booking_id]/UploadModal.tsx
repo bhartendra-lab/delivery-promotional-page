@@ -35,7 +35,9 @@ export type UploadFolderOption = { id: string; name: string };
  *    UNNUMBERED pre-step: it happens before the studio has committed to
  *    uploading anything, so it isn't one of the two counted steps.
  *  - "select" — step 1 of 2, picking files (a folder tab, or the empty-state CTA).
- *  - "preferences" — step 2 of 2, the event's guest delivery preferences.
+ *  - "preferences" — step 2 of 2, the event's guest delivery preferences. Also
+ *    where the storage-plan size estimate is sampled and where an over-quota
+ *    selection is blocked — step 1 never gates on storage.
  *
  * `initialStep` only ever receives "picker" or "select"; the dialog never opens
  * directly on "preferences".
@@ -189,10 +191,21 @@ export function UploadModal({
   );
 
   // Debounced, off-render sampling estimate — only for storage plans with a
-  // selection. Ignores stale results if the selection changes mid-sample.
+  // selection, and only once the studio has reached step 2. Ignores stale
+  // results if the selection changes mid-sample.
+  //
+  // Deliberately NOT run on step 1: sampling really compresses a dozen photos
+  // through the full pipeline, and step 1 is exactly where the selection keeps
+  // changing — every add/remove would throw away an in-flight sample and start
+  // another. By step 2 the selection is settled, so the work runs once.
+  //
+  // Leaving step 2 clears the estimate rather than caching it: coming forward
+  // again re-samples (a second or two) and that is the only way a number on
+  // screen is guaranteed to describe the selection actually in hand. Keeping a
+  // cached value would show a stale figure for a selection edited on step 1.
   useEffect(() => {
-    if (!open || !storageGated || files.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale estimate synchronously when the selection becomes empty/ungated
+    if (!open || !storageGated || files.length === 0 || step !== "preferences") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale estimate synchronously when the selection becomes empty/ungated or the studio steps back
       setEstimateGB(null);
       setEstimating(false);
       return;
@@ -217,7 +230,7 @@ export function UploadModal({
     };
     // filesFingerprint captures the selection; files is read inside.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, storageGated, filesFingerprint]);
+  }, [open, storageGated, step, filesFingerprint]);
 
   // Only block once we have real numbers (never a false-positive before they land).
   const overStorage =
@@ -228,9 +241,15 @@ export function UploadModal({
     estimateGB > remainingGB;
 
   // True while a storage-gated selection's fit is still unknown — usage or the
-  // size estimate hasn't landed yet. Start upload stays disabled until this clears.
+  // size estimate hasn't landed yet. Start upload stays disabled until this
+  // clears. Scoped to step 2, where the estimate actually runs: on step 1 it
+  // would be permanently true (estimateGB is null there by design) and would
+  // wedge the Next button forever.
   const estimatePending =
-    storageGated && files.length > 0 && (dlpLoading || estimating || estimateGB === null);
+    storageGated &&
+    step === "preferences" &&
+    files.length > 0 &&
+    (dlpLoading || estimating || estimateGB === null);
 
   // Escape unwinds one layer at a time: mixed popup → naming popup → close.
   // Stepping back — to the destination picker OR from Preferences to Select —
@@ -370,12 +389,14 @@ export function UploadModal({
    * Step 1's "Next". Every question about WHERE the photos go is settled here,
    * before advancing — the Upload button on step 2 must be a plain commit, not
    * a place where an unrelated folder question can still surface.
+   *
+   * No storage check here any more: the size estimate is sampled on step 2, so
+   * on step 1 there is nothing to check against. An over-quota selection is
+   * caught on step 2 instead, where the Upload button is disabled and the
+   * overrun notice explains why.
    */
   function goNext() {
     if (files.length === 0) return;
-    // Storage plans: don't walk the studio through a preferences step for a
-    // selection that can never upload.
-    if (estimatePending || overStorage) return;
     if (!single && analysis.kind === "mixed") {
       // Hold until the user decides where loose photos go (§5c); resolveMixed
       // stores the answer and advances.
@@ -663,9 +684,9 @@ export function UploadModal({
           )}
 
           {/* Storage estimate / overrun warning (Monthly / Yearly plans only).
-              Rendered on BOTH steps so the number doesn't vanish when the
-              studio steps forward. */}
-          {storageGated && hasSelection && !dlpLoading && (
+              Step 2 only — that's where the estimate is sampled, and it's the
+              step whose Upload button the number actually gates. */}
+          {storageGated && step === "preferences" && hasSelection && !dlpLoading && (
             <StorageEstimateNotice
               estimating={estimating}
               estimateGB={estimateGB}
@@ -724,7 +745,9 @@ export function UploadModal({
             ) : (
               <button
                 type="button"
-                disabled={files.length === 0 || overStorage || estimatePending}
+                /* Storage fit is decided on step 2, where the estimate runs —
+                   see goNext. */
+                disabled={files.length === 0}
                 onClick={goNext}
                 className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
               >

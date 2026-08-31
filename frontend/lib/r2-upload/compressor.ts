@@ -23,6 +23,13 @@ import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
 const QUALITY = 0.80;
+/** Long edge of the gallery-grid derivative. The grid never renders larger than
+ *  this, so the 2560px delivery copy is reserved for the lightbox, downloads
+ *  and the ZIP. Must stay in sync with the backend's
+ *  backfill-media-thumbnails.js, which generates the same derivative for media
+ *  that predates this. */
+const THUMB_MAX_DIM = 480;
+const THUMB_QUALITY = 0.72;
 /** EXIF/APP1 sits at the very front of a JPEG; read only this much of the source
  *  to extract it rather than base64-ing the whole (often 15–20 MB) file per
  *  photo on the main thread. 256 KB comfortably covers APP0 + a max-size (64 KB)
@@ -82,8 +89,12 @@ export class CompressorPool {
 /* ── compression core ─────────────────────────────────────────────── */
 
 /** Compressed output plus its decoded pixel dimensions (undefined if the
- *  browser couldn't decode them — callers must treat that as "unknown"). */
-export type CompressResult = { blob: Blob; width?: number; height?: number };
+ *  browser couldn't decode them — callers must treat that as "unknown").
+ *
+ *  `thumbBlob` is the 480px gallery-grid derivative. Undefined whenever the
+ *  thumbnail step failed — callers must upload the photo anyway and simply omit
+ *  `thumbnail_url`, exactly as they do for a failed watermark. */
+export type CompressResult = { blob: Blob; thumbBlob?: Blob; width?: number; height?: number };
 
 export async function compressWithExif(
   file: File,
@@ -134,37 +145,98 @@ export async function compressWithExif(
     }
   }
 
-  // Decode the final (post-downscale, post-watermark) blob once to capture its
-  // pixel dimensions — cheap, since it's already ≤MAX_DIM on its long edge. A
-  // failure here must never fail the upload; callers treat missing dimensions
-  // as "unknown" and fall back to their legacy behaviour.
-  const { width, height } = await readDimensions(compressedBlob);
+  // Decode the final (post-downscale, post-watermark) blob ONCE and use that
+  // single bitmap for both the dimension capture and the thumbnail draw — cheap,
+  // since it's already ≤MAX_DIM on its long edge. Decoding the 15–25 MB source a
+  // second time to build the thumbnail would be the expensive mistake here; this
+  // way the thumbnail costs one canvas draw plus one small JPEG encode (~5–10 ms
+  // per photo) and ZERO additional decodes. A failure in either step must never
+  // fail the upload; callers treat missing dimensions as "unknown" and a missing
+  // thumbnail as "grid falls back to the delivery copy".
+  const { width, height, thumbBlob } = await measureAndThumbnail(compressedBlob);
 
   if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
-    return { blob: compressedBlob, width, height };
+    return { blob: compressedBlob, thumbBlob, width, height };
   }
 
   // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
   // must never fail the upload — losing metadata beats losing the photo.
+  // Deliberately NOT applied to thumbBlob: the grid derivative carries no
+  // metadata at all (see drawThumbnail).
   try {
     const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
     const blob = spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
-    return { blob, width, height };
+    return { blob, thumbBlob, width, height };
   } catch {
-    return { blob: compressedBlob, width, height };
+    return { blob: compressedBlob, thumbBlob, width, height };
   }
 }
 
-async function readDimensions(blob: Blob): Promise<{ width?: number; height?: number }> {
+/**
+ * Decode the compressed blob once, read its dimensions, and draw the 480px
+ * grid thumbnail from the SAME bitmap before closing it. The thumbnail source
+ * is the post-watermark blob, so the thumbnail carries the watermark — correct
+ * and intended for the grid.
+ */
+async function measureAndThumbnail(
+  blob: Blob,
+): Promise<{ width?: number; height?: number; thumbBlob?: Blob }> {
+  let bmp: ImageBitmap;
   try {
-    const bmp = await createImageBitmap(blob);
-    const { width, height } = bmp;
-    bmp.close();
-    return { width, height };
+    bmp = await createImageBitmap(blob);
   } catch {
     return {};
   }
+  const { width, height } = bmp;
+  let thumbBlob: Blob | undefined;
+  // Mirrors the watermark failure handling above: log and ship the photo
+  // without the derivative rather than failing the upload over it.
+  try {
+    thumbBlob = await drawThumbnail(bmp);
+  } catch (err) {
+    console.error("[upload:thumbnail] generation failed; uploading without a grid thumbnail", err);
+  } finally {
+    bmp.close();
+  }
+  return { width, height, thumbBlob };
+}
+
+/**
+ * Draw `bmp` scaled to fit inside THUMB_MAX_DIM (never upscaled — a source
+ * already under it is drawn at its own size) and encode it as JPEG. Canvas
+ * output carries no EXIF by construction, which is exactly what we want: the
+ * grid derivative needs no metadata and spliceExifIntoJpeg is never called for
+ * it.
+ */
+async function drawThumbnail(bmp: ImageBitmap): Promise<Blob | undefined> {
+  // fit: inside, never upscale — a source already under THUMB_MAX_DIM is drawn
+  // at its own size and used as-is.
+  const scale = Math.min(1, THUMB_MAX_DIM / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+
+  // OffscreenCanvas where available (keeps the draw off the DOM), same shape as
+  // watermark.ts's makeContext/canvasToJpeg — kept local rather than shared
+  // because those bake in the watermark re-encode quality, not THUMB_QUALITY.
+  if (typeof OffscreenCanvas !== "undefined") {
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(bmp, 0, 0, w, h);
+    return canvas.convertToBlob({ type: "image/jpeg", quality: THUMB_QUALITY });
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
+  ctx.drawImage(bmp, 0, 0, w, h);
+
+  return new Promise<Blob | undefined>((resolve) => {
+    canvas.toBlob((b) => resolve(b ?? undefined), "image/jpeg", THUMB_QUALITY);
+  });
 }
 
 /**

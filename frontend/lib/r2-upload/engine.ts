@@ -35,7 +35,7 @@ import {
   putBlobToPresignedUrl,
   R2PutError,
 } from "@/lib/api";
-import type { MediaMetadataItem } from "@/lib/api";
+import type { MediaMetadataItem, StorageMeter } from "@/lib/api";
 import type { WatermarkPreset } from "@/lib/types";
 
 import { CompressorPool } from "./compressor";
@@ -91,6 +91,7 @@ const PROGRESS_EMIT_MS = 200;
 const METADATA_SAVE_ATTEMPTS = 5;
 /** How often the dispatch loops re-check the pause flag. */
 const PAUSE_POLL_MS = 120;
+const BYTES_PER_GB = 1024 ** 3;
 
 type ChangeListener = (p: EngineProgress) => void;
 type UrlListener = (publicUrl: string, customFolderId: string) => void;
@@ -148,14 +149,38 @@ export class UploadEngineCore {
   private inputCursor = 0; // next input index for the compressor producer to pick
   private records = new Map<string, UploadRecord>(); // recordId → current state (mirror of IDB)
   private compressedBlobs = new Map<string, Blob>(); // recordId → compressed blob (cleared after upload)
+  // recordId → the 480px gallery-grid derivative, when the compressor produced
+  // one. Freed alongside compressedBlobs. Absent whenever the thumbnail step
+  // failed — every downstream step treats that as "no thumbnail", never an error.
+  // ~40 KB per outstanding record against the ~800 KB already held, so
+  // MAX_OUTSTANDING_BLOBS (which counts records, not blobs) needs no change.
+  private thumbBlobs = new Map<string, Blob>();
   // recordId → compressed blob size in bytes. Unlike compressedBlobs this is NOT
   // cleared on upload success — create-media (flushOneMetadataChunk) needs it
   // after the blob itself has already been freed.
   private compressedSizes = new Map<string, number>();
+  // recordId → thumbnail blob size in bytes. Kept after the blob is freed for
+  // the same reason as compressedSizes.
+  private thumbSizes = new Map<string, number>();
   private compressedQueue: string[] = []; // recordIds waiting to be presigned
   private presignedQueue: PresignedItem[] = []; // ready to be PUT
   private startedAt = 0;
   private bytesUploaded = 0;
+  /**
+   * Live storage metering for storage-based plans. `storageRemainingGB` is the
+   * authoritative GB-remaining figure from the most recent create-media
+   * response; `storageMarkBytes` is the cumulative `savedBytes` total that
+   * figure corresponds to. Projecting `remaining − (bytesUploaded −
+   * storageMarkBytes)` therefore subtracts exactly the bytes that are on R2 but
+   * not yet counted by the server, with no request of its own.
+   *
+   * Null on count-based plans and until the first create-media chunk returns.
+   * Before that the upload modal's pre-flight estimate is the gate.
+   */
+  private storageRemainingGB: number | null = null;
+  private storageMarkBytes = 0;
+  /** Cumulative bytes (delivery copy + thumbnail) the backend has recorded. */
+  private savedBytes = 0;
   private runningCompressors = 0;
   private runningUploaders = 0;
   private compressionFinished = false;
@@ -215,6 +240,9 @@ export class UploadEngineCore {
     this.inputCursor = 0;
     this.startedAt = Date.now();
     this.bytesUploaded = 0;
+    this.storageRemainingGB = null;
+    this.storageMarkBytes = 0;
+    this.savedBytes = 0;
     this.runningCompressors = 0;
     this.runningUploaders = 0;
     this.runningPresigns = 0;
@@ -230,7 +258,9 @@ export class UploadEngineCore {
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.compressedBlobs.clear();
+    this.thumbBlobs.clear();
     this.compressedSizes.clear();
+    this.thumbSizes.clear();
 
     // Fresh run: drop the in-memory mirror from any previous successful run
     // so progress counters start at zero. (We deliberately do NOT clear after
@@ -247,7 +277,14 @@ export class UploadEngineCore {
     await this.upsertPendingRecords(inputs, alreadyUploaded);
     this.seedMetadataQueue();
     this.scheduleEmit(
-      { isUploading: true, paused: false, metadataSaveError: null, watermarkWarning: null },
+      {
+        isUploading: true,
+        paused: false,
+        metadataSaveError: null,
+        watermarkWarning: null,
+        storageFullWarning: null,
+        storageRemainingGB: null,
+      },
       true,
     );
 
@@ -344,7 +381,15 @@ export class UploadEngineCore {
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
-    this.scheduleEmit({ paused: false }, true);
+    // Drop the storage figure that caused an auto-pause along with the warning.
+    // Keeping it would let the stale projection re-pause on the very next
+    // uploaded photo, before any new create-media response could reflect space
+    // the studio just freed — Resume would look broken. Cleared, the run gets
+    // at least one more chunk and then re-pauses on a fresh, authoritative
+    // number if the plan is still full.
+    this.storageRemainingGB = null;
+    this.storageMarkBytes = this.savedBytes;
+    this.scheduleEmit({ paused: false, storageFullWarning: null, storageRemainingGB: null }, true);
   }
 
   /** True while a run exists and is paused (used by the registry/UI). */
@@ -436,7 +481,9 @@ export class UploadEngineCore {
     await clearBooking(this.bookingId);
     this.records.clear();
     this.compressedBlobs.clear();
+    this.thumbBlobs.clear();
     this.compressedSizes.clear();
+    this.thumbSizes.clear();
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.metadataPendingIds = [];
@@ -583,7 +630,7 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const { blob, width, height } = await this.compressorPool.run(input.file, this.watermarkRenderer);
+      const { blob, thumbBlob, width, height } = await this.compressorPool.run(input.file, this.watermarkRenderer);
       if (this.abort.signal.aborted) return;
       console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
       const dims = width != null && height != null ? { width, height } : {};
@@ -592,6 +639,10 @@ export class UploadEngineCore {
       if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims });
       this.compressedBlobs.set(recordId, blob);
       this.compressedSizes.set(recordId, blob.size);
+      if (thumbBlob) {
+        this.thumbBlobs.set(recordId, thumbBlob);
+        this.thumbSizes.set(recordId, thumbBlob.size);
+      }
       this.compressedQueue.push(recordId);
     } catch (err) {
       const reason = err instanceof Error ? err.message : "compression failed";
@@ -738,18 +789,30 @@ export class UploadEngineCore {
         filename: r.filename,
         content_type: "image/jpeg",
         custom_folder_id: r.customFolderId,
+        // Only ask for a thumbnail PUT when we actually have bytes to put
+        // there — a file whose thumbnail step failed signs one URL, not two.
+        with_thumbnail: this.thumbBlobs.has(r.id),
       })),
     );
 
-    // Backend returns uploads in the same order it received them.
+    // Backend returns uploads in the same order it received them — one entry
+    // per file, both URLs on the same entry, so this index pairing holds.
     const idbPatches: Array<{ id: string; patch: Partial<UploadRecord> }> = [];
     for (let i = 0; i < recs.length; i++) {
       const rec = recs[i];
       const up = res.uploads[i];
       const blob = this.compressedBlobs.get(rec.id);
       if (!up || !blob) continue;
-      idbPatches.push({ id: rec.id, patch: { key: up.key, publicUrl: up.public_url } });
-      this.records.set(rec.id, { ...rec, key: up.key, publicUrl: up.public_url });
+      const thumbBlob = this.thumbBlobs.get(rec.id);
+      // Only claim a thumbnail once the backend actually signed one for it.
+      const thumbnailUrl = thumbBlob && up.thumb_presigned_url ? up.thumb_public_url : undefined;
+      const patch: Partial<UploadRecord> = {
+        key: up.key,
+        publicUrl: up.public_url,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      };
+      idbPatches.push({ id: rec.id, patch });
+      this.records.set(rec.id, { ...rec, ...patch });
       this.presignedQueue.push({
         recordId: rec.id,
         blob,
@@ -757,6 +820,9 @@ export class UploadEngineCore {
         publicUrl: up.public_url,
         contentType: up.content_type,
         customFolderId: rec.customFolderId,
+        ...(thumbnailUrl && thumbBlob
+          ? { thumbBlob, thumbPresignedUrl: up.thumb_presigned_url, thumbPublicUrl: thumbnailUrl }
+          : {}),
       });
     }
     if (idbPatches.length > 0) {
@@ -797,9 +863,27 @@ export class UploadEngineCore {
 
   private async uploadOne(item: PresignedItem): Promise<void> {
     const fileLabel = this.records.get(item.recordId)?.filename ?? item.recordId;
-    let succeeded = false;
-    try {
-      await withRetry(
+    const putOpts = (label: string) => ({
+      maxAttempts: MAX_ATTEMPTS,
+      signal: this.abort.signal,
+      classify: (err: unknown) =>
+        err instanceof R2PutError ? classifyHttp(err.status) : classifyError(err),
+      onAttemptError: (err: unknown, attempt: number, willRetry: boolean) => {
+        console.warn(
+          `[upload:put] ${label} failed (file=${fileLabel}, attempt ${attempt + 1}/${MAX_ATTEMPTS}, willRetry=${willRetry})`,
+          err instanceof R2PutError ? { status: err.status, message: err.message } : err,
+        );
+      },
+    });
+
+    const hasThumb = !!(item.thumbBlob && item.thumbPresignedUrl);
+
+    // Both objects go up in parallel — they're independent PUTs to different
+    // keys, and serialising them would roughly double each record's wall time
+    // for a ~40 KB payload. Only the MAIN PUT decides the record's fate and
+    // drives AIMD; the thumbnail is best-effort, exactly like the watermark.
+    const [mainResult, thumbResult] = await Promise.allSettled([
+      withRetry(
         async () => {
           await putBlobToPresignedUrl(
             item.presignedUrl,
@@ -808,28 +892,37 @@ export class UploadEngineCore {
             this.abort.signal,
           );
         },
-        {
-          maxAttempts: MAX_ATTEMPTS,
-          signal: this.abort.signal,
-          classify: (err) =>
-            err instanceof R2PutError ? classifyHttp(err.status) : classifyError(err),
-          onAttemptError: (err, attempt, willRetry) => {
-            console.warn(
-              `[upload:put] failed (file=${fileLabel}, attempt ${attempt + 1}/${MAX_ATTEMPTS}, willRetry=${willRetry})`,
-              err instanceof R2PutError ? { status: err.status, message: err.message } : err,
-            );
-          },
-        },
-      );
-      succeeded = true;
-    } catch (err) {
+        putOpts("main"),
+      ),
+      hasThumb
+        ? withRetry(
+            async () => {
+              await putBlobToPresignedUrl(
+                item.thumbPresignedUrl as string,
+                item.thumbBlob as Blob,
+                "image/jpeg",
+                this.abort.signal,
+              );
+            },
+            putOpts("thumbnail"),
+          )
+        : Promise.resolve(),
+    ]);
+
+    const freeBlobs = () => {
+      this.compressedBlobs.delete(item.recordId);
+      this.thumbBlobs.delete(item.recordId);
+    };
+
+    if (mainResult.status === "rejected") {
+      const err = mainResult.reason;
       // A cancelled run aborts in-flight PUTs — that's not a real failure. Bail
       // quietly (no error log, no `failed` status); cancel wipes state anyway.
       // Release the AIMD slot so the reused engine's concurrency accounting
       // doesn't leak into the next run.
       if (this.abort.signal.aborted || isAbortError(err)) {
         this.aimd.noteAborted();
-        this.compressedBlobs.delete(item.recordId);
+        freeBlobs();
         return;
       }
       const msg = err instanceof Error ? err.message : "upload failed";
@@ -854,21 +947,90 @@ export class UploadEngineCore {
         });
       }
       this.aimd.noteFailure();
-      this.compressedBlobs.delete(item.recordId);
+      freeBlobs();
       return;
     }
 
-    if (succeeded) {
-      this.bytesUploaded += item.blob.size;
-      this.aimd.noteSuccess();
-      this.compressedBlobs.delete(item.recordId);
-      this.queueIdbUpdate(item.recordId, { status: "uploaded" });
+    // The main object is on R2, so the photo is delivered whatever happened to
+    // its thumbnail. A thumbnail rejection is logged and otherwise ignored —
+    // drop its URL and size so create-media omits thumbnail_url entirely and
+    // every reader falls back to the delivery copy.
+    let thumbUploaded = hasThumb;
+    if (hasThumb && thumbResult.status === "rejected") {
+      thumbUploaded = false;
+      const err = thumbResult.reason;
+      if (!(this.abort.signal.aborted || isAbortError(err))) {
+        console.error("[upload:put] thumbnail failed; photo uploaded without one", {
+          file: fileLabel,
+          status: err instanceof R2PutError ? err.status : undefined,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      this.thumbSizes.delete(item.recordId);
+      this.queueIdbUpdate(item.recordId, { thumbnailUrl: undefined });
       const rec = this.records.get(item.recordId);
-      if (rec) this.records.set(item.recordId, { ...rec, status: "uploaded" });
-      this.metadataPendingIds.push(item.recordId);
-      this.scheduleMetadataFlushIfReady();
-      for (const fn of this.urlListeners) fn(item.publicUrl, item.customFolderId);
+      if (rec) this.records.set(item.recordId, { ...rec, thumbnailUrl: undefined });
     }
+
+    // Count the thumbnail's bytes too, so the speed and ETA labels stay honest.
+    this.bytesUploaded += item.blob.size + (thumbUploaded ? (item.thumbBlob as Blob).size : 0);
+    this.aimd.noteSuccess();
+    freeBlobs();
+    this.queueIdbUpdate(item.recordId, { status: "uploaded" });
+    const rec = this.records.get(item.recordId);
+    if (rec) this.records.set(item.recordId, { ...rec, status: "uploaded" });
+    this.metadataPendingIds.push(item.recordId);
+    this.scheduleMetadataFlushIfReady();
+    // Bytes just moved, so the storage projection did too. Pure arithmetic —
+    // no request, nothing that can slow the upload loop down.
+    this.maybePauseForStorage();
+    for (const fn of this.urlListeners) fn(item.publicUrl, item.customFolderId);
+  }
+
+  /* ── live storage metering ──────────────────────────────────── */
+
+  /**
+   * GB left on the plan right now: the server's last figure, minus the bytes
+   * uploaded since it was taken. Null when there's no figure yet (count-based
+   * plan, or before the first create-media chunk returns).
+   *
+   * Pure arithmetic over numbers already in hand — no request, no I/O, nothing
+   * on the upload path.
+   */
+  private projectedStorageRemainingGB(): number | null {
+    if (this.storageRemainingGB === null) return null;
+    const unsavedBytes = Math.max(0, this.bytesUploaded - this.storageMarkBytes);
+    return this.storageRemainingGB - unsavedBytes / BYTES_PER_GB;
+  }
+
+  /**
+   * Pause the run if the plan has filled up. Called after every successful
+   * upload (projection moves) and after every create-media response (the
+   * figure is re-baselined), so the stop lands within one photo of the plan
+   * actually running out.
+   *
+   * Photos already uploaded stay saved: `pause()` drains pending metadata, so
+   * nothing that reached R2 is stranded unrecorded.
+   */
+  private maybePauseForStorage(): void {
+    const projected = this.projectedStorageRemainingGB();
+    if (projected === null) return;
+    this.scheduleEmit({ storageRemainingGB: projected });
+    if (projected > 0) return;
+    if (this.state.storageFullWarning) return; // already paused for this reason
+    const remainingPhotos = Math.max(
+      0,
+      this.state.photosTotal - this.state.photosDone - this.state.photosFailed,
+    );
+    this.scheduleEmit(
+      {
+        storageFullWarning:
+          `Your storage plan is full — the upload paused with ${remainingPhotos.toLocaleString("en-IN")} photo` +
+          `${remainingPhotos === 1 ? "" : "s"} left. Free up space or upgrade your plan, then Resume.`,
+      },
+      true,
+    );
+    this.pause();
   }
 
   /* ── incremental metadata save ──────────────────────────────── */
@@ -965,20 +1127,35 @@ export class UploadEngineCore {
         const size = this.compressedSizes.get(r.id);
         return size != null ? { size } : {};
       })(),
+      // The 480px grid derivative. Omitted wholesale when its PUT failed —
+      // uploadOne clears the record's thumbnailUrl and its size in that case,
+      // so the backend records no thumbnail and readers fall back to `url`.
+      ...(r.thumbnailUrl ? { thumbnail_url: r.thumbnailUrl } : {}),
+      ...((): { thumbnail_size?: number } => {
+        const s = this.thumbSizes.get(r.id);
+        return r.thumbnailUrl && s != null ? { thumbnail_size: s } : {};
+      })(),
     }));
 
+    let storage: StorageMeter | undefined;
     try {
       // Metadata saves are never tied to the upload abort signal — cancelling
       // or interrupting must still persist bytes already on R2.
       await withRetry(
         async () => {
-          await createMediaBatch(
+          const res = await createMediaBatch(
             this.bookingId,
             payload,
             this.outOfSync
               ? { media_out_of_sync: true, unsynced_media_count: payload.length }
               : undefined,
           );
+          // Live storage figure, computed by the backend from the very byte
+          // counts this payload carries. It rides along on a response the
+          // engine already awaits, so it costs no extra round-trip. Absent for
+          // count-based plans and when the backend's meter update failed —
+          // treated as "no new information", never as zero.
+          storage = res?.storage;
         },
         {
           maxAttempts: METADATA_SAVE_ATTEMPTS,
@@ -997,7 +1174,17 @@ export class UploadEngineCore {
       for (const r of recs) {
         this.records.set(r.id, { ...r, status: "saved" });
       }
+      // Track what the backend has now counted, so the projection can subtract
+      // exactly the uploaded-but-unrecorded bytes and nothing else.
+      for (const r of recs) {
+        this.savedBytes += (this.compressedSizes.get(r.id) ?? 0) + (this.thumbSizes.get(r.id) ?? 0);
+      }
+      if (storage?.remaining != null) {
+        this.storageRemainingGB = storage.remaining;
+        this.storageMarkBytes = this.savedBytes;
+      }
       this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null });
+      this.maybePauseForStorage();
       for (const fn of this.metadataSavedListeners) fn(recs.length);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "metadata save failed";
@@ -1258,6 +1445,8 @@ export class UploadEngineCore {
       folders,
       metadataSaveError: this.state.metadataSaveError,
       watermarkWarning: this.state.watermarkWarning,
+      storageFullWarning: this.state.storageFullWarning,
+      storageRemainingGB: this.state.storageRemainingGB,
       isUploading: this.state.isUploading,
       needsMetadataSave,
       isSavingMetadata: this.state.isSavingMetadata,
@@ -1289,6 +1478,12 @@ type PresignedItem = {
   publicUrl: string;
   contentType: string;
   customFolderId: string;
+  /** The 480px gallery-grid derivative and its own signed PUT. All three are
+   *  present together or not at all — absent for a file whose thumbnail step
+   *  failed, or one the backend didn't sign a second URL for. */
+  thumbBlob?: Blob;
+  thumbPresignedUrl?: string;
+  thumbPublicUrl?: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -1317,6 +1512,8 @@ function makeIdleProgress(): EngineProgress {
     folders: [],
     metadataSaveError: null,
     watermarkWarning: null,
+    storageFullWarning: null,
+    storageRemainingGB: null,
     isUploading: false,
     needsMetadataSave: false,
     isSavingMetadata: false,

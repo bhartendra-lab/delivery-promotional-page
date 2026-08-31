@@ -172,12 +172,14 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // `settleStorage` re-walks R2 usage after a storage-changing upload
-  // transition (pause, cancel, completion) and refreshes the shared meter. It
-  // lives in the chrome so its "updating…" note lands on the sidebar meter —
-  // nothing in the upload UI waits on it, since it has no bearing on whether
-  // the upload itself stopped.
-  const { refreshDlpUsage, settleStorage } = useChrome();
+  // The backend now keeps the storage meter current incrementally — create-media
+  // $incs the bytes it just recorded and delete-media gives them back — so an
+  // upload transition only needs to RE-READ the figure, not re-walk R2 to
+  // rebuild it. `refreshDlpUsage` is one small indexed read; the full
+  // ListObjectsV2 re-walk (settleStorage) is now reserved for cancel, the one
+  // transition that can leave bytes on R2 the backend never recorded — see
+  // ActiveUploadsIndicator.
+  const { refreshDlpUsage } = useChrome();
 
   const engine = useUploadEngine(bookingId);
 
@@ -187,8 +189,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // quietly behind it.
   const pauseUpload = useCallback(() => {
     engine.pause();
-    void settleStorage();
-  }, [engine, settleStorage]);
+    // Pause drains pending metadata, so every uploaded byte is already recorded
+    // and counted — just re-read the number.
+    void refreshDlpUsage();
+  }, [engine, refreshDlpUsage]);
 
   // The view the media grid is loading. The Smart Selects tab shows the liked
   // feed; every other tab shows the Media tab's active folder. This decouples the
@@ -515,8 +519,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     if (wasActiveRef.current && !isActive) {
       void (async () => {
         // All three run together: the media/booking refresh drives the visible
-        // hand-off, while the storage re-walk settles alongside it.
-        const [list, fresh] = await Promise.all([reload(), reloadBooking(), settleStorage()]);
+        // hand-off, while the usage re-read settles alongside it. This used to
+        // be a full R2 re-walk (settleStorage) on every single completed
+        // upload — redundant now that create-media meters incrementally.
+        const [list, fresh] = await Promise.all([reload(), reloadBooking(), refreshDlpUsage()]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
         const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
@@ -524,7 +530,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       })();
     }
     wasActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, settleStorage]);
+  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, refreshDlpUsage]);
 
   /* ── derived ────────────────────────────────────────────────── */
 
@@ -667,13 +673,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (metaRef.current?.backgroundImage && deletedUrls.has(metaRef.current.backgroundImage)) {
           await persistBooking({ background_image: "" });
         }
+        // delete-media releases the deleted bytes back to the plan, so the
+        // sidebar meter is stale the moment this returns. A plain refetch, not
+        // settleStorage: the backend already adjusted the figure incrementally,
+        // so there's nothing to recalculate — this just reads it.
+        void refreshDlpUsage();
         toast(`${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} deleted`);
       } catch (err) {
         setMedia(prev); // restore on failure
         toast(err instanceof Error ? err.message : "Could not delete — try again", "error");
       }
     },
-    [persistBooking, reload, toast],
+    [persistBooking, reload, refreshDlpUsage, toast],
   );
 
   // Flag/unflag media as shortlisted (Smart Selects). Optimistic: flip the flag

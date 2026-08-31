@@ -49,6 +49,10 @@ export type UploadRecord = {
   publicUrl?: string;
   /** R2 object key (layout owned by the backend's presign endpoint). */
   key?: string;
+  /** Public URL of the 480px gallery-grid derivative, set after a successful
+   *  thumbnail PUT. Cleared when that PUT fails, so create-media omits it and
+   *  the grid transparently falls back to `publicUrl`. */
+  thumbnailUrl?: string;
   /** Decoded pixel dimensions of the compressed photo (set alongside
    *  `status: "compressed"`); absent if the browser couldn't decode them. */
   width?: number;
@@ -103,6 +107,23 @@ export type EngineProgress = {
    * be visible while the run is still on screen.
    */
   watermarkWarning: string | null;
+  /**
+   * Set when the run auto-paused because the studio's storage plan filled up
+   * mid-upload. Distinct from a manual pause: `paused` is true either way, but
+   * this carries the reason and tells the UI that Resume alone won't help
+   * until space is freed or the plan upgraded. Null on count-based plans and
+   * whenever the plan still has headroom.
+   *
+   * Photos already uploaded are saved and counted — pausing drains pending
+   * metadata — so nothing is lost and Resume picks up exactly where it stopped.
+   */
+  storageFullWarning: string | null;
+  /**
+   * Last known GB remaining on a storage plan, refreshed from every
+   * create-media response and projected downward from bytes uploaded since.
+   * Null on count-based plans and before the first figure lands.
+   */
+  storageRemainingGB: number | null;
   /** Set true while the engine is actively running (compress + upload). */
   isUploading: boolean;
   /** Set true if there are uploaded-but-unsaved records that need finalising. */

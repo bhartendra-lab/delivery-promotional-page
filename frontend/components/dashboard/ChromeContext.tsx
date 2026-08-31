@@ -19,24 +19,37 @@ type ChromeState = {
   dlpUsage: DlpUsage | null;
   dlpLoading: boolean;
   /**
-   * Re-fetch usage and update the shared value. Used by live-changing flows
-   * (e.g. storage-plan uploads) so the sidebar meter and any open upload modal
-   * reflect the current number without a full reload. Returns the fresh value
-   * (or null on error) so callers can act on it immediately.
+   * Re-fetch usage and update the shared value. Returns the fresh value (or
+   * null on error) so callers can act on it immediately.
+   *
+   * This is the DEFAULT way to update the meter after anything storage-changing
+   * — uploads (pause, completion) and deletes alike. The backend keeps
+   * `storage_used` current incrementally (create-media $incs the bytes it
+   * records, delete-media gives them back), so the number only needs re-reading,
+   * never rebuilding. One small indexed read; no R2 involved.
    */
   refreshDlpUsage: () => Promise<DlpUsage | null>;
   /**
-   * True while a storage re-walk kicked off by an upload transition (pause,
-   * cancel, completion) is still settling. Nothing waits on this — it only
-   * drives a quiet "syncing…" note on the usage meter, so the upload UI can
-   * hand off to its resting state the instant the engine says it's done.
+   * True while a `settleStorage` re-walk is still settling. Nothing waits on
+   * this — it only drives a quiet "syncing…" note on the usage meter, so the
+   * UI can hand off to its resting state without blocking on a reconciliation.
    */
   storageSyncing: boolean;
   /**
-   * Re-walk the studio's R2 usage and refresh the shared meter. Safe to call
-   * from anywhere (event page, floating upload indicator); overlapping calls
-   * are ref-counted so the "syncing…" note clears only once the last settles.
-   * Never throws — a failed recalculation must not strand a UI transition.
+   * Re-walk the studio's R2 usage from scratch and refresh the shared meter.
+   * EXPENSIVE: a paginated ListObjectsV2 fan-out over every one of the
+   * company's subscription bookings, plus the metering-comparison aggregate.
+   *
+   * Reserved for reconciliation, NOT for routine updates — prefer
+   * `refreshDlpUsage` everywhere the backend's incremental meter is already
+   * correct (which is every path except a torn-down upload). Its remaining
+   * caller is upload cancel, where a PUT can land after the run stops being
+   * tracked and leave bytes no create-media chunk ever counted; that also makes
+   * it the periodic drift correction for the incremental meter.
+   *
+   * Safe to call from anywhere; overlapping calls are ref-counted so the
+   * "syncing…" note clears only once the last settles. Never throws — a failed
+   * recalculation must not strand a UI transition.
    */
   settleStorage: () => Promise<void>;
   /**

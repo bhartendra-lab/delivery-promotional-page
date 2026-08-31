@@ -4,8 +4,9 @@
  * Compressing every selected file just to measure it would duplicate the work
  * the engine does on start and freeze the UI. Instead we compress a small,
  * evenly-spread sample through the real pipeline (`compressWithExif` — the same
- * downscale-to-2560px + JPEG q0.80 path the engine uses) and extrapolate the
- * mean compressed size across the whole selection. This tracks real output size
+ * downscale-to-2560px + JPEG q0.80 path the engine uses, which also emits the
+ * 480px grid thumbnail that gets uploaded alongside it) and extrapolate the
+ * mean per-photo size across the whole selection. This tracks real output size
  * far better than any fixed KB/photo constant, since sizes vary hugely by source
  * resolution and content.
  */
@@ -53,8 +54,11 @@ export async function estimateCompressedGB(files: File[]): Promise<number> {
   const sizes: number[] = [];
   for (const file of sample) {
     try {
-      const { blob } = await compressWithExif(file, null);
-      sizes.push(blob.size);
+      // Include the 480px grid thumbnail the same call now produces — it is a
+      // real second object per photo (~5% on top), and the plan-limit gate
+      // downstream must not see a figure that under-reports it.
+      const { blob, thumbBlob } = await compressWithExif(file, null);
+      sizes.push(blob.size + (thumbBlob?.size ?? 0));
     } catch {
       // A single un-compressible file shouldn't skew or break the estimate;
       // fall back to its original size so the total isn't understated.

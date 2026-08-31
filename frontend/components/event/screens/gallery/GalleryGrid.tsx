@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
-import { coldFallback } from "@/lib/media-actions";
+import { degradeGridSrc, gridSrc } from "@/lib/media-actions";
 import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
 import { IconHeart, IconCheck, IconDownload } from "@/components/ui/icons";
 
@@ -258,17 +258,11 @@ function PhotoTile({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imgRef}
-          src={item.url}
+          src={gridSrc(item)}
           alt=""
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          onError={(e) => {
-            const el = e.currentTarget;
-            if (!el.dataset.fellBack) {
-              el.dataset.fellBack = "1";
-              el.src = coldFallback(item.url);
-            }
-          }}
+          onError={(e) => degradeGridSrc(e.currentTarget, item)}
           className={
             isJustified
               ? `absolute inset-0 h-full w-full rounded-[8px] object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`

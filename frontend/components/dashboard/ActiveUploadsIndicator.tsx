@@ -86,7 +86,7 @@ function UploadRow({
   showDivider: boolean;
   hidden: boolean;
 }) {
-  const { settleStorage } = useChrome();
+  const { refreshDlpUsage, settleStorage } = useChrome();
   const [cancelling, setCancelling] = useState(false);
   const stalled = useUploadStalled(true, upload.paused, upload.photosDone);
 
@@ -147,10 +147,11 @@ function UploadRow({
                 if (upload.paused) {
                   resumeUploadFor(upload.bookingId);
                 } else {
-                  // The engine pauses instantly; the storage number catches up
-                  // quietly on the sidebar meter afterwards.
+                  // Pause drains pending metadata, so the backend's incremental
+                  // meter is already correct — just re-read it. (This used to
+                  // trigger a full R2 re-walk.)
                   pauseUploadFor(upload.bookingId);
-                  void settleStorage();
+                  void refreshDlpUsage();
                 }
               }}
               className="brand-focus inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-2.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -163,6 +164,14 @@ function UploadRow({
               disabled={cancelling}
               onClick={() => {
                 setCancelling(true);
+                // Cancel keeps the full R2 re-walk. It's the one transition
+                // that can strand bytes the backend never counted — a PUT that
+                // lands while the run is being torn down may never reach a
+                // create-media chunk, so the incremental meter can genuinely
+                // undercount here. It's also rare and user-initiated, which is
+                // exactly where a multi-second reconciliation belongs. This
+                // doubles as the periodic drift correction for the incremental
+                // meter, alongside teardownBooking's own recalculateStorage.
                 void cancelUploadFor(upload.bookingId).finally(() => void settleStorage());
               }}
               className="brand-focus inline-flex h-8 items-center rounded-md px-2.5 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:bg-white hover:text-[var(--color-brand-danger)] disabled:cursor-not-allowed disabled:opacity-60"

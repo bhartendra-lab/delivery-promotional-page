@@ -32,6 +32,45 @@ const COLD = "cold.media.vyavasth.in";
  */
 export const coldFallback = (url: string): string => url.replace(`//${HOT}/`, `//${COLD}/`);
 
+/** Grid source for a media item: the 480px thumbnail when one exists, else the
+ *  2560px delivery copy. Legacy media, videos, and uploads whose thumbnail step
+ *  failed all have no thumbnail and fall back transparently. */
+export const gridSrc = (m: { url: string; thumbnail_url?: string | null }) =>
+  m.thumbnail_url || m.url;
+
+/**
+ * Ordered list of sources a grid tile may fall through, most-preferred first.
+ * `gridSrc` is always element 0. Consecutive duplicates are dropped (an already
+ * cold URL's `coldFallback` is itself), so a tile never retries the exact same
+ * URL it just failed on.
+ */
+function gridSrcChain(m: { url: string; thumbnail_url?: string | null }): string[] {
+  const thumb = m.thumbnail_url || null;
+  const chain = thumb
+    ? // A thumbnail can be missing on either host while the delivery copy is
+      // fine — e.g. mid-migration, or a photo the backfill hasn't reached — so
+      // degrade to the 2560px copy (guaranteed to exist) before giving up.
+      [thumb, coldFallback(thumb), m.url, coldFallback(m.url)]
+    : [m.url, coldFallback(m.url)];
+  return chain.filter((url, i) => url && url !== chain[i - 1]);
+}
+
+/**
+ * `onError` handler for a grid tile: advance the image to the next source in
+ * its chain. Tracks position in a `dataset` counter rather than a boolean flag
+ * so the tile can degrade through every step instead of only once.
+ */
+export function degradeGridSrc(
+  el: HTMLImageElement,
+  m: { url: string; thumbnail_url?: string | null },
+): void {
+  const chain = gridSrcChain(m);
+  const next = Number(el.dataset.srcStep ?? "0") + 1;
+  if (next >= chain.length) return;
+  el.dataset.srcStep = String(next);
+  el.src = chain[next];
+}
+
 /** Download one photo by fetching from its public URL and saving locally.
  *  Retries once against the cold-storage host if the primary fetch fails
  *  (see coldFallback). */

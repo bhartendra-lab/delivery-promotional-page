@@ -804,6 +804,12 @@ export type MediaMetadataItem = {
    *  determine them. Powers the guest gallery's aspect-ratio-reserved tiles. */
   width?: number;
   height?: number;
+  /** Compressed blob size in bytes. Feeds the backend's storage metering. */
+  size?: number;
+  /** Public URL and byte size of the 480px gallery-grid derivative. Both absent
+   *  for videos and whenever the client's thumbnail step failed. */
+  thumbnail_url?: string;
+  thumbnail_size?: number;
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published
@@ -811,12 +817,28 @@ export type MediaMetadataItem = {
  * this chunk) — the backend increments the booking's unsynced count and flags it
  * so the workspace can prompt a Republish on return.
  */
+/**
+ * Live storage figure returned by create-media for storage-based plans. Absent
+ * for count-based plans, and whenever the backend's meter update failed — the
+ * uploader treats an absent value as "no new information" and keeps running on
+ * its last known figure rather than guessing.
+ */
+export type StorageMeter = {
+  /** GB consumed across the company's non-expired storage-plan bookings. */
+  used: number;
+  /** GB cap, or null when the subscription is malformed/absent. */
+  limit: number | null;
+  /** max(0, limit - used) in GB, or null when limit is null. */
+  remaining: number | null;
+  service_type: string | null;
+};
+
 export function createMediaBatch(
   bookingId: string,
   media_metadata: MediaMetadataItem[],
   outOfSync?: { media_out_of_sync: boolean; unsynced_media_count: number },
 ) {
-  return request<{ message: string }>(
+  return request<{ message: string; storage?: StorageMeter }>(
     `/deliverables/create-media/${encodeURIComponent(bookingId)}`,
     {
       method: "POST",
@@ -836,6 +858,10 @@ export type PresignRequest = {
   filename: string;
   content_type?: string;
   custom_folder_id?: string;
+  /** Ask for a SECOND presigned PUT, for the 480px gallery-grid derivative,
+   *  returned on the same response entry. Opt-in: guest selfies reuse this
+   *  endpoint and must never get one. */
+  with_thumbnail?: boolean;
 };
 export type PresignedUpload = {
   key: string;
@@ -844,6 +870,10 @@ export type PresignedUpload = {
   content_type: string;
   filename: string;
   custom_folder_id: string;
+  /** Present only when the request set `with_thumbnail`. Always image/jpeg. */
+  thumb_key?: string;
+  thumb_presigned_url?: string;
+  thumb_public_url?: string;
 };
 export function presignUploads(bookingId: string, files: PresignRequest[]) {
   return request<{ uploads: PresignedUpload[] }>(
@@ -1098,6 +1128,19 @@ export class R2PutError extends Error {
     this.body = body;
   }
 }
+/**
+ * Cache-Control the presign endpoint signs onto EVERY PUT it issues (delivery
+ * copies, thumbnails and guest selfies alike). Object keys carry an 8-hex
+ * nonce, so they are content-addressed and the bytes at a key can never change.
+ *
+ * ⚠ This value is part of the SigV4 canonical request, exactly like
+ * Content-Type below: it MUST stay byte-identical to `IMMUTABLE_CACHE_CONTROL`
+ * in the backend's media.service.js, and it MUST be sent on the PUT, or R2
+ * rejects the request with SignatureDoesNotMatch. The R2 bucket's CORS policy
+ * must also allow `cache-control` as a request header.
+ */
+const UPLOAD_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 export async function putBlobToPresignedUrl(
   presignedUrl: string,
   blob: Blob,
@@ -1109,7 +1152,7 @@ export async function putBlobToPresignedUrl(
   // image/jpeg; if you change that there, change it here too.
   const res = await fetch(presignedUrl, {
     method: "PUT",
-    headers: { "Content-Type": contentType },
+    headers: { "Content-Type": contentType, "Cache-Control": UPLOAD_CACHE_CONTROL },
     body: blob,
     signal,
   });
