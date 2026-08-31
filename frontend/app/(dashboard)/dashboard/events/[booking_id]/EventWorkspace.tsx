@@ -7,12 +7,14 @@ import {
   deleteMedia,
   getBookingById,
   getMedia,
+  getMediaIdsForView,
   recalculateStudioStorage,
   regenerateFamilyPasscode,
   restoreBooking,
   updateBooking,
   updateGalleryActivationStatus,
   updateMediaShortlist,
+  type MediaViewOptions,
   type UpdateBookingInput,
 } from "@/lib/api";
 import type {
@@ -236,32 +238,42 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── data load ──────────────────────────────────────────────── */
 
-  // Fetch one page of media for a view. ALL_MEDIA_ID → no folder filter;
-  // LIKED_MEDIA_ID → the liked feed (most-liked first) with the active who-filters
-  // (read via ref so paging/reloads always use the latest selection).
+  // The filters that define a view. ALL_MEDIA_ID → no folder filter;
+  // LIKED_MEDIA_ID → the liked feed (most-liked first) with the active
+  // who-filters (read via ref so paging/reloads/select-all always use the
+  // latest selection). Shared by the paged read and "Select all" so the two
+  // can't disagree about what the view contains.
+  const viewOptions = useCallback((folderId: string): MediaViewOptions => {
+    if (folderId === LIKED_MEDIA_ID) {
+      const f = likedFiltersRef.current;
+      return {
+        onlyLiked: true,
+        sort: f.sort,
+        likedGuestType: f.audience === "all" ? undefined : f.audience,
+        likedGuestSubTypes: f.subTypes,
+        likedGuestIds: f.guestIds,
+        shortlistedOnly: f.shortlistedOnly,
+      };
+    }
+    return {
+      customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
+      sort: mediaSortRef.current === "oldest" ? "oldest" : undefined,
+    };
+  }, []);
+
+  // Fetch one page of media for a view.
   const fetchPage = useCallback(
-    (folderId: string, skip: number, limit: number) => {
-      if (folderId === LIKED_MEDIA_ID) {
-        const f = likedFiltersRef.current;
-        return getMedia(bookingId, {
-          skip,
-          limit,
-          onlyLiked: true,
-          sort: f.sort,
-          likedGuestType: f.audience === "all" ? undefined : f.audience,
-          likedGuestSubTypes: f.subTypes,
-          likedGuestIds: f.guestIds,
-          shortlistedOnly: f.shortlistedOnly,
-        });
-      }
-      return getMedia(bookingId, {
-        customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
-        skip,
-        limit,
-        sort: mediaSortRef.current === "oldest" ? "oldest" : undefined,
-      });
-    },
-    [bookingId],
+    (folderId: string, skip: number, limit: number) =>
+      getMedia(bookingId, { ...viewOptions(folderId), skip, limit }),
+    [bookingId, viewOptions],
+  );
+
+  // Every Media id in the active view — what "Select all" needs, since the grid
+  // only holds the pages scrolled so far. Server-side, so a folder with 5,000
+  // photos selects all 5,000 and not just the loaded page.
+  const selectAllIds = useCallback(
+    () => getMediaIdsForView(bookingId, viewOptions(viewIdRef.current)),
+    [bookingId, viewOptions],
   );
 
   // Load the first page of a view and apply its extras (folders + counts). The
@@ -886,9 +898,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setCoverPosition,
       coverBusy,
       deleteMediaIds,
+      selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

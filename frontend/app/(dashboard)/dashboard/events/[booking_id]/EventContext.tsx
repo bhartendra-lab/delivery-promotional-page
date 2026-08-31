@@ -174,6 +174,12 @@ export type EventContextValue = {
   coverBusy: boolean;
   /** Delete media by id (optimistic removal + reconcile + cover refresh). */
   deleteMediaIds: (ids: string[]) => Promise<void>;
+  /**
+   * Every media id in the ACTIVE view (folder / liked / shortlist filters
+   * applied), fetched server-side and unpaginated — what "Select all" needs,
+   * since the grid only holds the pages scrolled so far.
+   */
+  selectAllIds: () => Promise<string[]>;
   toast: (msg: string, type?: "success" | "error") => void;
 };
 

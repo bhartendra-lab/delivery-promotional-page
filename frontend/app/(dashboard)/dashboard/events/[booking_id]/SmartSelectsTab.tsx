@@ -25,6 +25,7 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
     likedFilters,
     setLikedFilters,
     setShortlisted,
+    selectAllIds,
     totalForView,
     hasMore,
     loadingMore,
@@ -144,6 +145,9 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
               showLikes
               showShortlist
               onShortlistMany={setShortlisted}
+              onSelectAll={selectAllIds}
+              totalForView={totalForView}
+              viewKey={`smart:${JSON.stringify(likedFilters)}`}
               hasMore={hasMore}
               loadingMore={loadingMore}
               onLoadMore={loadMore}

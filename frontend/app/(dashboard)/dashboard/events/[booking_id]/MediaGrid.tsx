@@ -45,6 +45,9 @@ export function MediaGrid({
   items,
   disabled = false,
   onDeleteMany,
+  onSelectAll,
+  totalForView,
+  viewKey,
   hasMore = false,
   loadingMore = false,
   onLoadMore,
@@ -62,6 +65,20 @@ export function MediaGrid({
   disabled?: boolean;
   /** Delete the given Media ids (optimistic removal + reconcile lives upstream). */
   onDeleteMany?: (ids: string[]) => Promise<void>;
+  /**
+   * Resolve EVERY media id in the current view, server-side and unpaginated.
+   * Without it "Select all" can only reach `items` — i.e. the pages scrolled
+   * into the grid so far — which caps the studio at one page on a big folder.
+   */
+  onSelectAll?: () => Promise<string[]>;
+  /** Total photos in this view (not just the loaded ones) — the "Select all" count. */
+  totalForView?: number;
+  /**
+   * Identifies the current view (folder id / tab). Changing it clears the
+   * selection: a whole-view selection is meaningless once the view changes,
+   * and unlike a per-page selection it can't be pruned away by `liveIds`.
+   */
+  viewKey?: string;
   /** True while more pages exist for this view (drives the infinite-scroll sentinel). */
   hasMore?: boolean;
   /** True while the next page is loading (shows a spinner at the grid foot). */
@@ -95,6 +112,22 @@ export function MediaGrid({
   const [confirm, setConfirm] = useState<{ ids: string[]; fromLightbox: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // True while the selection holds ids resolved from the server for the whole
+  // view. Those ids deliberately include photos not paged into `items` yet, so
+  // the stale-id pruning below must leave the set alone while this is on.
+  const [wholeView, setWholeView] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+
+  // Switching folders/tabs invalidates the selection outright: a whole-view
+  // selection names photos this view doesn't contain, and it's exempt from the
+  // `liveIds` pruning below, so nothing else would clear it. Reset during
+  // render (not in an effect) so the stale set is never painted.
+  const [renderedView, setRenderedView] = useState(viewKey);
+  if (viewKey !== renderedView) {
+    setRenderedView(viewKey);
+    setSelected(new Set());
+    setWholeView(false);
+  }
 
   // Infinite scroll: observe a sentinel below the grid and pull the next page
   // when it nears the viewport. `onLoadMore` is read through a ref so the
@@ -122,15 +155,46 @@ export function MediaGrid({
   const selectableIds = useMemo(() => items.filter(isPersisted).map((m) => m._id), [items]);
 
   // Stale selections (items removed by a reload/delete) are dropped at read
-  // time rather than via a sync effect.
+  // time rather than via a sync effect. Skipped for a whole-view selection,
+  // whose ids are *expected* to outrun `items` — pruning there would silently
+  // shrink a 5,000-photo selection back to the loaded page, which is the very
+  // bug this exists to avoid.
   const selected = useMemo(() => {
-    if (rawSelected.size === 0) return rawSelected;
+    if (rawSelected.size === 0 || wholeView) return rawSelected;
     const next = new Set<string>();
     for (const id of rawSelected) if (liveIds.has(id)) next.add(id);
     return next;
-  }, [rawSelected, liveIds]);
+  }, [rawSelected, liveIds, wholeView]);
 
-  const allSelected = selectableIds.length > 0 && selected.size === selectableIds.length;
+  // The selectable universe: the whole view when the server can enumerate it,
+  // else just what's loaded.
+  const selectAllCount = onSelectAll && totalForView != null ? totalForView : selectableIds.length;
+  const allSelected = selectAllCount > 0 && selected.size >= selectAllCount;
+
+  // "Select all" over the whole view. Falls back to the loaded page when the
+  // host doesn't supply a resolver (e.g. Smart Selects).
+  const selectAll = useCallback(async () => {
+    if (!onSelectAll) {
+      setSelected(new Set(selectableIds));
+      return;
+    }
+    if (selectingAll) return;
+    setSelectingAll(true);
+    try {
+      const ids = await onSelectAll();
+      setSelected(new Set(ids));
+      setWholeView(true);
+    } catch {
+      notify?.("Could not select everything — please try again");
+    } finally {
+      setSelectingAll(false);
+    }
+  }, [onSelectAll, selectableIds, selectingAll, notify]);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setWholeView(false);
+  }, []);
   // Clamp the lightbox index as items shrink; an empty folder closes it.
   const safeIndex = lightboxIndex == null ? null : Math.min(lightboxIndex, items.length - 1);
 
@@ -149,6 +213,7 @@ export function MediaGrid({
     try {
       await onDeleteMany(confirm.ids);
       setSelected(new Set());
+      setWholeView(false);
       if (confirm.fromLightbox && items.length - confirm.ids.length <= 0) setLightboxIndex(null);
       setConfirm(null);
     } finally {
@@ -159,15 +224,19 @@ export function MediaGrid({
   // Download the selection: one photo saves directly; several are packed into a
   // single ZIP built in the browser (client-zip) — streamed to disk via the File
   // System Access API where available, else an in-memory Blob. No server-side zip.
+  // A whole-view selection can name photos that aren't loaded, and a download
+  // needs each photo's URL — which only the loaded items carry. So the ZIP
+  // covers what's in hand, and the studio is told rather than left to count.
   const downloadSelected = useCallback(async () => {
     const chosen = items.filter((m) => selected.has(m._id) && m.url);
     if (chosen.length === 0 || downloading) return;
+    const missing = selected.size - chosen.length;
     setDownloading(true);
     try {
-      if (chosen.length === 1) {
+      if (chosen.length === 1 && missing === 0) {
         notify?.("Downloading 1 photo…");
         downloadImage(chosen[0].url, chosen[0].filename);
-        setSelected(new Set());
+        clearSelection();
         return;
       }
       const entries = chosen.map((m) => ({ url: m.url, name: m.filename || nameFromUrl(m.url) }));
@@ -180,50 +249,73 @@ export function MediaGrid({
         notify?.("");
         return;
       }
+      const skipped = failed + missing;
       notify?.(
-        failed > 0
-          ? `Saved ${zipped.toLocaleString("en-IN")}, ${failed.toLocaleString("en-IN")} skipped`
+        skipped > 0
+          ? `Saved ${zipped.toLocaleString("en-IN")}, ${skipped.toLocaleString("en-IN")} skipped — scroll to load the rest`
           : "Saved to your downloads",
       );
-      setSelected(new Set());
+      clearSelection();
     } catch (err) {
       console.warn("[downloadSelected] failed", err);
       notify?.("Download failed — please try again");
     } finally {
       setDownloading(false);
     }
-  }, [items, selected, downloading, archiveName, notify]);
+  }, [items, selected, downloading, archiveName, notify, clearSelection]);
 
   // Shortlist toggle for the selection. If every selected photo is already
   // shortlisted the button removes them; otherwise it shortlists all of them.
+  // Under a whole-view selection the loaded slice can't answer "are they all
+  // shortlisted", so the button stays on its additive meaning.
   const selectedItems = useMemo(() => items.filter((m) => selected.has(m._id)), [items, selected]);
   const allSelectedShortlisted =
-    selectedItems.length > 0 && selectedItems.every((m) => m.shortlisted);
+    !wholeView && selectedItems.length > 0 && selectedItems.every((m) => m.shortlisted);
 
   // Single entry point for every shortlist action (tile star, selection bar,
-  // lightbox).
+  // lightbox). Ids are only filtered against `items` when they could be
+  // optimistic placeholders — a whole-view selection is server-resolved, so
+  // every id in it is already persisted and must survive.
   const requestShortlist = useCallback(
-    (ids: string[], next: boolean, opts?: { clearSelection?: boolean }) => {
+    (ids: string[], next: boolean, opts?: { clearSelection?: boolean; trusted?: boolean }) => {
       if (!onShortlistMany) return;
-      const real = items.filter((m) => ids.includes(m._id) && isPersisted(m)).map((m) => m._id);
+      const real = opts?.trusted
+        ? ids
+        : items.filter((m) => ids.includes(m._id) && isPersisted(m)).map((m) => m._id);
       if (real.length === 0) return;
-      const clearSelection = !!opts?.clearSelection;
-      void onShortlistMany(real, next).then(() => clearSelection && setSelected(new Set()));
+      const shouldClear = !!opts?.clearSelection;
+      void onShortlistMany(real, next).then(() => shouldClear && clearSelection());
     },
-    [items, onShortlistMany],
+    [items, onShortlistMany, clearSelection],
   );
 
   const shortlistSelected = useCallback(() => {
-    const ids = selectedItems.filter(isPersisted).map((m) => m._id);
+    const ids = wholeView
+      ? Array.from(selected)
+      : selectedItems.filter(isPersisted).map((m) => m._id);
     if (ids.length === 0) return;
-    requestShortlist(ids, !allSelectedShortlisted, { clearSelection: true });
-  }, [selectedItems, allSelectedShortlisted, requestShortlist]);
+    requestShortlist(ids, !allSelectedShortlisted, { clearSelection: true, trusted: wholeView });
+  }, [wholeView, selected, selectedItems, allSelectedShortlisted, requestShortlist]);
 
+  // Deleting the whole view empties `items` the moment the optimistic removal
+  // lands — long before the request and its reload finish. Keep the confirm
+  // dialog (and its busy spinner) mounted through that gap and show a working
+  // state instead of the empty state, so the screen never goes blank mid-delete.
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-[var(--color-brand-border)] bg-white px-6 py-12 text-center text-[13px] text-[var(--color-brand-muted)]">
-        {emptyMessage ?? "No photos in this folder yet."}
-      </div>
+      <>
+        <div className="rounded-lg border border-dashed border-[var(--color-brand-border)] bg-white px-6 py-12 text-center text-[13px] text-[var(--color-brand-muted)]">
+          {deleting ? <DeletingNotice /> : emptyMessage ?? "No photos in this folder yet."}
+        </div>
+        {confirm && (
+          <DeleteConfirm
+            count={confirm.ids.length}
+            busy={deleting}
+            onCancel={() => !deleting && setConfirm(null)}
+            onConfirm={runDelete}
+          />
+        )}
+      </>
     );
   }
 
@@ -238,15 +330,21 @@ export function MediaGrid({
           <span className="h-4 w-px bg-[var(--color-brand-border)]" />
           <button
             type="button"
-            onClick={() => setSelected(new Set(selectableIds))}
-            disabled={allSelected}
-            className="brand-focus rounded text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:underline disabled:opacity-40 disabled:no-underline"
+            onClick={() => void selectAll()}
+            disabled={allSelected || selectingAll}
+            className="brand-focus inline-flex items-center gap-1.5 rounded text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:underline disabled:opacity-40 disabled:no-underline"
           >
-            Select all ({selectableIds.length})
+            {selectingAll && (
+              <span
+                aria-hidden
+                className="h-3 w-3 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]"
+              />
+            )}
+            Select all ({selectAllCount.toLocaleString("en-IN")})
           </button>
           <button
             type="button"
-            onClick={() => setSelected(new Set())}
+            onClick={clearSelection}
             className="brand-focus rounded text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
           >
             Clear
@@ -471,6 +569,20 @@ function StatusStar({
     >
       <IconStar size={13} filled={shortlisted} />
     </button>
+  );
+}
+
+/** Stand-in for the empty state while a delete that cleared the view is still
+ *  in flight — the photos are gone from the grid but the work isn't done. */
+function DeletingNotice() {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span
+        aria-hidden
+        className="h-4 w-4 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]"
+      />
+      Deleting photos…
+    </span>
   );
 }
 

@@ -56,6 +56,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setCoverFromFile,
     setCoverPosition,
     deleteMediaIds,
+    selectAllIds,
     toast,
   } = useEvent();
 
@@ -432,6 +433,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
             onLoadMore={loadMore}
             disabled={activeLocked}
             onDeleteMany={deleteMediaIds}
+            onSelectAll={selectAllIds}
+            totalForView={totalForView}
+            viewKey={activeFolderId}
             coverUrl={meta.backgroundImage}
             onSetCover={pickCoverFromMedia}
             notify={toast}
@@ -800,6 +804,9 @@ function PopulatedBody({
   onLoadMore,
   disabled,
   onDeleteMany,
+  onSelectAll,
+  totalForView,
+  viewKey,
   onRename,
   coverUrl,
   onSetCover,
@@ -817,6 +824,12 @@ function PopulatedBody({
   onLoadMore: () => void;
   disabled: boolean;
   onDeleteMany: (ids: string[]) => Promise<void>;
+  /** Resolve every media id in this view (server-side) for "Select all". */
+  onSelectAll: () => Promise<string[]>;
+  /** How many photos this view holds in total — the "Select all" count. */
+  totalForView: number;
+  /** Active folder id — clears the grid's selection when the view changes. */
+  viewKey: string;
   onRename: () => void;
   /** Current event cover URL — flags the matching tile in the grid. */
   coverUrl?: string;
@@ -860,6 +873,9 @@ function PopulatedBody({
         items={items}
         disabled={disabled}
         onDeleteMany={onDeleteMany}
+        onSelectAll={onSelectAll}
+        totalForView={totalForView}
+        viewKey={viewKey}
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={onLoadMore}

@@ -893,30 +893,27 @@ export function presignUploads(bookingId: string, files: PresignRequest[]) {
  * returns `customFolders`, `total`, `totalCount` and `folderCounts`; later pages
  * return only `media`.
  */
-export function getMedia(
-  bookingId: string,
-  opts?: {
-    customFolderId?: string;
-    skip?: number;
-    limit?: number;
-    /** "Liked Media" view — only photos with at least one like. */
-    onlyLiked?: boolean;
-    /** "likes" → most-liked first (the Liked Media order); "oldest" → oldest-first (manual folder ordering); default is newest-first. */
-    sort?: "likes" | "recent" | "oldest";
-    /** Restrict likes to hosts / guests. */
-    likedGuestType?: "host" | "guest";
-    /** Restrict likes to guests in these teams (guest_sub_type). */
-    likedGuestSubTypes?: string[];
-    /** Restrict likes to these specific guest ids. */
-    likedGuestIds?: string[];
-    /** Smart Selects — only shortlisted media. */
-    shortlistedOnly?: boolean;
-  },
-) {
+/** The filters that define *which* photos a view shows, shared by the paged
+ *  read and the unpaginated "Select all" id read so the two can never drift. */
+export type MediaViewOptions = {
+  customFolderId?: string;
+  /** "Liked Media" view — only photos with at least one like. */
+  onlyLiked?: boolean;
+  /** "likes" → most-liked first (the Liked Media order); "oldest" → oldest-first (manual folder ordering); default is newest-first. */
+  sort?: "likes" | "recent" | "oldest";
+  /** Restrict likes to hosts / guests. */
+  likedGuestType?: "host" | "guest";
+  /** Restrict likes to guests in these teams (guest_sub_type). */
+  likedGuestSubTypes?: string[];
+  /** Restrict likes to these specific guest ids. */
+  likedGuestIds?: string[];
+  /** Smart Selects — only shortlisted media. */
+  shortlistedOnly?: boolean;
+};
+
+function mediaViewParams(opts?: MediaViewOptions): URLSearchParams {
   const params = new URLSearchParams();
   if (opts?.customFolderId) params.set("custom_folder_id", opts.customFolderId);
-  if (opts?.skip != null) params.set("skip", String(opts.skip));
-  if (opts?.limit != null) params.set("limit", String(opts.limit));
   if (opts?.onlyLiked) params.set("only_liked", "true");
   if (opts?.sort) params.set("sort", opts.sort);
   if (opts?.likedGuestType) params.set("liked_guest_type", opts.likedGuestType);
@@ -925,10 +922,37 @@ export function getMedia(
   if (opts?.likedGuestIds?.length)
     params.set("liked_guest_ids", opts.likedGuestIds.join(","));
   if (opts?.shortlistedOnly) params.set("shortlisted_only", "true");
+  return params;
+}
+
+export function getMedia(
+  bookingId: string,
+  opts?: MediaViewOptions & { skip?: number; limit?: number },
+) {
+  const params = mediaViewParams(opts);
+  if (opts?.skip != null) params.set("skip", String(opts.skip));
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
   const qs = params.toString();
   return request<GetMediaResponse>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}${qs ? `?${qs}` : ""}`,
   );
+}
+
+/**
+ * GET /deliverables/get-media/:booking_id?select_ids_only=true — every Media
+ * `_id` in the view described by `opts`, with no pagination. Backs the grid's
+ * "Select all", which must reach the whole folder (or the whole gallery on All
+ * Media), not just the pages scrolled into the grid so far.
+ *
+ * These are Media `_id`s — the ids `deleteMedia`/`updateMediaShortlist` take —
+ * NOT the content-fingerprint `media_id`s that `getUploadedMediaIds` returns.
+ */
+export function getMediaIdsForView(bookingId: string, opts?: MediaViewOptions): Promise<string[]> {
+  const params = mediaViewParams(opts);
+  params.set("select_ids_only", "true");
+  return request<{ ids: string[] }>(
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}?${params.toString()}`,
+  ).then((res) => res.ids ?? []);
 }
 
 /**
