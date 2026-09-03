@@ -6,8 +6,10 @@ import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
-import { downloadMany, nameFromUrl } from "@/lib/media-actions";
+import { nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
+import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
+import { QualityChoiceSheet } from "@/components/event/download/QualityChoiceSheet";
 import type { PlanSource } from "@/lib/download/plan";
 import type { ArchiveUrlResolver } from "@/lib/download/engines";
 import { DownloadPlanModal } from "@/components/event/download/DownloadPlanModal";
@@ -587,17 +589,35 @@ export function LoungeGallery({
     [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls],
   );
 
-  // Per-tile hover download (item 7) — same single-photo path as the select
-  // bar's one-item case, just triggered straight from the tile instead of
-  // going through select mode.
-  const downloadOne = useCallback(
-    async (item: GuestMediaItem) => {
-      setToast("Downloading 1 photo…");
-      await downloadMany([item.url]);
+  /**
+   * Every single-photo save in this gallery — the per-tile hover button, the
+   * lightbox chip, and a one-item selection — goes through here, so all three
+   * offer the same quality choice (and skip it identically when the photo has
+   * no unwatermarked copy, or this guest isn't entitled to one).
+   *
+   * `archiveAccess` already folds in the studio's `allow_download` and
+   * `archive_download_access`, so there is no separate preference check here.
+   */
+  const singleDownload = useSinglePhotoDownload({
+    archiveAccess,
+    resolveArchiveUrl: resolveOneArchiveUrl,
+    onStart: () => setToast("Downloading 1 photo…"),
+    onDone: () => {
       setToast("Download started");
       triggerNudge("download");
     },
-    [triggerNudge],
+    onError: () => setToast("Download failed — please try again"),
+  });
+
+  const downloadOne = useCallback(
+    (item: GuestMediaItem) => {
+      singleDownload.request({
+        mediaId: item.media_id,
+        url: item.url,
+        archiveVariant: item.archive_variant ?? null,
+      });
+    },
+    [singleDownload],
   );
 
   /** One media row as the download planner wants it. `folderName` comes from the
@@ -640,13 +660,13 @@ export function LoungeGallery({
       ? displayed.filter((i) => !excluded.has(i._id))
       : displayed.filter((i) => selected.has(i._id));
     if (!chosen.length) return;
-    // One photo → a straight download, no pre-flight: it works on every browser
-    // at any size, so there is nothing to warn about.
+    // One photo → a straight download, no bulk pre-flight: it works on every
+    // browser at any size, so there is nothing to warn about. It still gets the
+    // quality choice, via the same path the tile and lightbox use.
     if (chosen.length === 1) {
-      setToast("Downloading 1 photo…");
-      void downloadMany([chosen[0].url]).then(() => setToast("Download started"));
+      const only = chosen[0];
       exitSelect();
-      triggerNudge("download");
+      downloadOne(only);
       return;
     }
     const sources = chosen.map(toPlanSource);
@@ -1177,9 +1197,7 @@ export function LoungeGallery({
           onToggleSelect={toggleSel}
           onToast={setToast}
           canDownload={canDownload}
-          archiveAccess={archiveAccess}
-          resolveArchiveUrl={resolveOneArchiveUrl}
-          onDownloaded={() => triggerNudge("download")}
+          onDownload={downloadOne}
         />
       )}
 
@@ -1231,6 +1249,12 @@ export function LoungeGallery({
         shareUrl={typeof window !== "undefined" ? window.location.href : undefined}
         onSelectFewer={selectAllInView}
       />
+
+      {/* Quality choice for a SINGLE photo. Opens only when this guest is
+          entitled to the unwatermarked copy and the photo actually has one —
+          otherwise the tile, chip and one-item selection all save straight away
+          as they always did. */}
+      <QualityChoiceSheet {...singleDownload.sheet} theme={t} />
 
       {/* toast */}
       {toast && (

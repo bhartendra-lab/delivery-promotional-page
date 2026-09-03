@@ -31,40 +31,56 @@ export type UploadPlan = (
   variant: UploadVariant;
 };
 
-/** GB of plan storage a company needs before the archive tiers unlock. Mirrors
- *  ARCHIVE_TIER_MIN_STORAGE_GB in the backend's billing service, which is the
- *  gate that actually counts — this constant only decides what the UI offers. */
-const ARCHIVE_TIER_MIN_STORAGE_GB = 500;
+/** GB of plan storage a company needs before ORIGINAL-file uploads unlock.
+ *  Mirrors ORIGINAL_TIER_MIN_STORAGE_GB in the backend's billing service, which
+ *  is the gate that actually counts — this constant only decides what the UI
+ *  offers.
+ *
+ *  It is the SECOND of two conditions. Both archive tiers first need a
+ *  storage-metered plan at all: a count-based plan (Free / Event-based) is
+ *  metered by events created and has no byte cap, so an archive object under
+ *  one is storage nothing measures. On top of that, only Original needs 500 GB
+ *  — it stores the camera file byte for byte (~30x), where Cinema 4K is a lossy
+ *  re-encode about the size of the delivery copy, whose bytes any storage
+ *  plan's cap already counts. */
+const ORIGINAL_TIER_MIN_STORAGE_GB = 500;
 
 /** The three quality tiers, in the order they're offered.
  *
- *  The wording is deliberate and should not be softened. "High-res" is a lossy
+ *  The wording is deliberate and should not be softened. "Cinema 4K" is a lossy
  *  4096px JPEG, not an archive of the original, and a studio must not come away
  *  believing it has their negatives — only "Original file" means the camera
- *  file, byte for byte. */
+ *  file, byte for byte. That distinction is also why only Original is
+ *  plan-gated. */
 const QUALITY_TIERS: Array<{
   value: UploadVariant;
   label: string;
   detail: string;
-  archive: boolean;
+  /** Writes a third object per photo, so it needs a storage-metered plan. */
+  requiresStoragePlan: boolean;
+  /** Additionally needs 500 GB — true for Original alone. */
+  requiresLargePlan: boolean;
 }> = [
   {
     value: "2560",
     label: "QHD (2560px)",
     detail: "",
-    archive: false,
+    requiresStoragePlan: false,
+    requiresLargePlan: false,
   },
   {
     value: "4096",
     label: "Cinema 4K (4096px)",
     detail: "",
-    archive: true,
+    requiresStoragePlan: true,
+    requiresLargePlan: false,
   },
   {
     value: "original",
     label: "Original file",
     detail: "",
-    archive: true,
+    requiresStoragePlan: true,
+    requiresLargePlan: true,
   },
 ];
 
@@ -199,25 +215,34 @@ export function UploadModal({
   const [estimateGB, setEstimateGB] = useState<number | null>(null);
   const [estimating, setEstimating] = useState(false);
   /**
-   * The run's quality tier. Defaults to Web — the tier every run used before
+   * The run's quality tier. Defaults to QHD — the tier every run used before
    * this existed, and the only one that costs a studio nothing extra.
    *
-   * Archive tiers need a 500 GB+ plan. `limit` is the plan's storage cap in GB
-   * on a storage-based plan (see DlpUsage), so this mirrors the backend's gate;
-   * the backend is what actually enforces it, on every presign and every
-   * multipart call.
+   * Two gates, mirroring the backend's (which is what actually enforces them,
+   * on every presign and every multipart call): both archive tiers need a
+   * storage-metered plan, and Original needs 500 GB of it. `limit` is the
+   * plan's storage cap in GB on a storage-based plan (see DlpUsage) and an
+   * event count on a count-based one, which is exactly why the plan TYPE is
+   * tested first and the size second.
    */
   const [selectedVariant, setSelectedVariant] = useState<UploadVariant>("2560");
-  const archiveAllowed =
-    storageGated && !dlpLoading && (dlpUsage?.limit ?? 0) >= ARCHIVE_TIER_MIN_STORAGE_GB;
+  const archiveAllowed = storageGated && !dlpLoading;
+  const originalAllowed =
+    archiveAllowed && (dlpUsage?.limit ?? 0) >= ORIGINAL_TIER_MIN_STORAGE_GB;
+  const allowedFor = (v: UploadVariant) =>
+    v === "original" ? originalAllowed : v === "4096" ? archiveAllowed : true;
   /**
    * What the run will actually use. Derived rather than corrected in an effect:
-   * plan usage can land after the dialog opened, and an archive tier chosen
-   * before it did would otherwise stay on screen and be sent to a backend that
-   * answers 402. Deriving means there is never a moment where the selection and
-   * what would be uploaded disagree.
+   * plan usage can land after the dialog opened, and a tier chosen before it
+   * did would otherwise stay on screen and be sent to a backend that answers
+   * 402. Deriving means there is never a moment where the selection and what
+   * would be uploaded disagree.
+   *
+   * The fallback is QHD, never the next tier down: quietly promoting a refused
+   * Original run to Cinema 4K would still write an archive object, spending the
+   * studio's storage on a decision they did not make.
    */
-  const variant: UploadVariant = archiveAllowed ? selectedVariant : "2560";
+  const variant: UploadVariant = allowedFor(selectedVariant) ? selectedVariant : "2560";
 
   /**
    * Which archive tier the Downloads panel should describe.
@@ -669,7 +694,7 @@ export function UploadModal({
                   value={variant}
                   onChange={setSelectedVariant}
                   archiveAllowed={archiveAllowed}
-                  storageGated={storageGated}
+                  originalAllowed={originalAllowed}
                 />
               </StepSection>
 
@@ -1371,10 +1396,11 @@ function StepSection({
  * drives — change a tier and the number underneath moves, which is the whole
  * reason the two belong on the same screen.
  *
- * Tiers the plan can't use are rendered DISABLED with the reason, never hidden.
- * A studio who cannot see High-res and Original has no way to discover that
- * upgrading would give them originals — which is the one decision this control
- * exists to inform.
+ * Tiers the plan can't use are rendered DISABLED with the reason, never hidden:
+ * a studio who cannot see them has no way to discover that upgrading would give
+ * them their negatives — which is the one decision this control exists to
+ * inform. Which tiers those are depends on the plan, so the note underneath
+ * names only what is actually withheld and says what the studio already has.
  *
  * The section heading lives in the StepSection wrapper, not here, so this
  * renders only the choice itself.
@@ -1383,18 +1409,22 @@ function QualityTierSelector({
   value,
   onChange,
   archiveAllowed,
-  storageGated,
+  originalAllowed,
 }: {
   value: UploadVariant;
   onChange: (v: UploadVariant) => void;
+  /** Storage-metered plan — the condition BOTH archive tiers share. */
   archiveAllowed: boolean;
-  storageGated: boolean;
+  /** …plus 500 GB, which only Original needs. */
+  originalAllowed: boolean;
 }) {
   return (
     <div>
       <div role="radiogroup" aria-label="Upload quality" className="flex flex-col gap-2">
         {QUALITY_TIERS.map((tier) => {
-          const disabled = tier.archive && !archiveAllowed;
+          const disabled =
+            (tier.requiresStoragePlan && !archiveAllowed) ||
+            (tier.requiresLargePlan && !originalAllowed);
           const selected = value === tier.value;
           return (
             <button
@@ -1438,12 +1468,15 @@ function QualityTierSelector({
           );
         })}
       </div>
-      {!archiveAllowed && (
+      {!originalAllowed && (
         <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
-          {storageGated
-            ? `High-res and Original need a ${ARCHIVE_TIER_MIN_STORAGE_GB} GB plan or larger.`
-            : "High-res and Original are available on storage-based plans of " +
-              `${ARCHIVE_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
+          {/* Names only what is actually withheld. On a storage plan under
+              500 GB that is Original alone, and saying so while pointing out
+              that Cinema 4K is already included stops the note reading as an
+              upsell for something the studio can use today. */}
+          {archiveAllowed
+            ? `Original file needs a ${ORIGINAL_TIER_MIN_STORAGE_GB} GB plan or larger. Cinema 4K is included on your plan.`
+            : `Cinema 4K and Original file need a storage-based plan — Original on ${ORIGINAL_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
           <a
             href="/dashboard/billing"
             target="_blank"

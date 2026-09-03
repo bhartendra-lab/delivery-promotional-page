@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, MediaItem } from "@/lib/types";
-import { degradeGridSrc, downloadImage, gridSrc, nameFromUrl } from "@/lib/media-actions";
+import { degradeGridSrc, gridSrc, nameFromUrl } from "@/lib/media-actions";
 import { getArchiveDownloadUrls } from "@/lib/api";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import type { PlanSource } from "@/lib/download/plan";
 import type { ArchiveUrlResolver } from "@/lib/download/engines";
 import { DownloadPlanModal, type DownloadModalTheme } from "@/components/event/download/DownloadPlanModal";
+import { QualityChoiceSheet } from "@/components/event/download/QualityChoiceSheet";
+import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
+import type { SinglePhotoSource } from "@/lib/download/single";
 import { useEvent } from "./EventContext";
 import { Lightbox } from "./Lightbox";
 import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
@@ -308,6 +311,34 @@ export function MediaGrid({
   );
 
   /**
+   * Every single-photo save in the grid — the tile button, the "⋮" menu, the
+   * lightbox, and a one-item selection — goes through here, so all four offer
+   * the same quality choice and skip it identically for a photo with no
+   * unwatermarked copy. A studio member is always entitled to their own archive
+   * copies, so `archiveAccess` is simply true; the endpoint still authorises
+   * every call.
+   */
+  const singleDownload = useSinglePhotoDownload({
+    archiveAccess: true,
+    resolveArchiveUrl: resolveOneArchiveUrl,
+    onStart: () => notify?.("Downloading 1 photo…"),
+    onError: () => notify?.("Download failed — please try again"),
+  });
+
+  const downloadOne = useCallback(
+    (m: MediaItem) => {
+      const photo: SinglePhotoSource = {
+        mediaId: m.media_id ?? m._id,
+        url: m.url,
+        name: m.filename,
+        archiveVariant: m.archive_variant ?? null,
+      };
+      singleDownload.request(photo);
+    },
+    [singleDownload],
+  );
+
+  /**
    * Download the selection through the same pre-flight, plan and engines the
    * guest gallery uses — the studio is the single most important consumer of the
    * archive tier, since pulling their own originals is the reason that tier
@@ -322,13 +353,12 @@ export function MediaGrid({
     if (chosen.length === 0 || downloading) return;
     const missing = selected.size - chosen.length;
     if (chosen.length === 1 && missing === 0) {
-      // One photo: a direct download, no pre-flight. It works on every browser
-      // at any size, so there is nothing to warn about.
-      notify?.("Downloading 1 photo…");
-      void downloadImage(chosen[0].url, chosen[0].filename).catch(() =>
-        notify?.("Download failed — please try again"),
-      );
+      // One photo: a direct download, no bulk pre-flight. It works on every
+      // browser at any size, so there is nothing to warn about — but it still
+      // gets the quality choice, via the same path the tile and lightbox use.
+      const only = chosen[0];
       clearSelection();
+      downloadOne(only);
       return;
     }
     if (missing > 0) {
@@ -362,6 +392,7 @@ export function MediaGrid({
     archiveName,
     notify,
     clearSelection,
+    downloadOne,
     folders,
     bookingId,
     downloadFlow,
@@ -556,9 +587,7 @@ export function MediaGrid({
               {onSetCover && persisted && m.type === "image" ? (
                 <PhotoMenu
                   isCover={!!coverUrl && m.url === coverUrl}
-                  onDownload={() =>
-                    void downloadImage(m.url).catch(() => notify?.("Download failed — please try again"))
-                  }
+                  onDownload={() => downloadOne(m)}
                   onSetCover={() => void onSetCover(m)}
                   onDelete={
                     allowDelete && onDeleteMany
@@ -571,7 +600,7 @@ export function MediaGrid({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    downloadImage(m.url);
+                    downloadOne(m);
                   }}
                   aria-label="Download photo"
                   title="Download"
@@ -630,7 +659,7 @@ export function MediaGrid({
                 }
               : undefined
           }
-          resolveArchiveUrl={resolveOneArchiveUrl}
+          onDownload={downloadOne}
         />
       )}
 
@@ -645,6 +674,10 @@ export function MediaGrid({
 
       {/* The same pre-flight the guest gallery uses. It stays open for the whole
           run and becomes the progress surface. */}
+      {/* Quality choice for a SINGLE photo — opens only when the photo has an
+          unwatermarked copy, otherwise every affordance saves straight away. */}
+      <QualityChoiceSheet {...singleDownload.sheet} theme={DASHBOARD_MODAL_THEME} />
+
       <DownloadPlanModal
         flow={downloadFlow}
         theme={DASHBOARD_MODAL_THEME}

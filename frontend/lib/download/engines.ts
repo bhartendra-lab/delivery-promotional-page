@@ -13,7 +13,7 @@
  *   batchedZip  — memoryZip, once per part, each part user-initiated
  */
 
-import { coldFallback, fetchImageBlob, triggerBlobDownload } from "../media-actions";
+import { coldFallback, fetchImageBlob, triggerBlobDownload } from "../media-actions.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
 
 /* ── File System Access types ────────────────────────────────────────────────

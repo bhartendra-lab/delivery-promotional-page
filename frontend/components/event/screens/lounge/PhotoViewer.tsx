@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
-import { downloadImage, shareImage } from "@/lib/media-actions";
-import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
+import { shareImage } from "@/lib/media-actions";
 import { useEventTheme } from "../../EventThemeContext";
 import {
   IconX,
@@ -34,9 +33,7 @@ export function PhotoViewer({
   onToggleSelect,
   onToast,
   canDownload,
-  archiveAccess = false,
-  resolveArchiveUrl,
-  onDownloaded,
+  onDownload,
 }: {
   items: GuestMediaItem[];
   index: number;
@@ -53,26 +50,17 @@ export function PhotoViewer({
   /** The event's studio preference. False renders no Download chip at all —
    *  applies to every guest, passcode-unlocked hosts included. */
   canDownload: boolean;
-  /** Server-derived: may this viewer choose an unwatermarked archive tier? The
-   *  choice is offered only when this is true AND the photo actually has one. */
-  archiveAccess?: boolean;
-  /** Mints the archive download URL for one photo. Returns null when the server
-   *  declines or has no archive object — the web copy is saved instead. */
-  resolveArchiveUrl?: (mediaId: string) => Promise<{ url: string; filename: string } | null>;
-  /** Fired after a successful single-photo download — drives the post-download review nudge. */
-  onDownloaded?: () => void;
+  /**
+   * Save this photo. Owned by the gallery, not by this viewer, so the chip
+   * behaves exactly like the grid tile's download button: it offers the quality
+   * choice where the guest is entitled to the unwatermarked copy and the photo
+   * has one, and saves straight away where it doesn't. Also owns the toast and
+   * the post-download review nudge.
+   */
+  onDownload: (item: GuestMediaItem) => void;
 }) {
   const { theme: t, event } = useEventTheme();
   const item = items[index];
-  /** Whether the two-tier download choice is showing. Closed on navigation so
-   *  it never hangs over a different photo — reset during render rather than in
-   *  an effect, so the stale menu is never painted. */
-  const [tierOpen, setTierOpen] = useState(false);
-  const [menuIndex, setMenuIndex] = useState(index);
-  if (index !== menuIndex) {
-    setMenuIndex(index);
-    setTierOpen(false);
-  }
 
   const step = (d: number) => {
     if (items.length < 2) return;
@@ -93,45 +81,12 @@ export function PhotoViewer({
   if (!item) return null;
   const isLiked = liked.has(item._id);
   const isSel = isSelected(item._id);
-  const offersArchive =
-    archiveAccess && Boolean(resolveArchiveUrl) && Boolean(item.archive_variant);
 
   async function onShare() {
     const r = await shareImage(item.url, event.event_name);
     if (r === "copied") onToast("Link copied");
     else if (r === "failed") onToast("Couldn’t share");
   }
-  /**
-   * Single-photo download. NO pre-flight modal, no picker, no ZIP: it is a
-   * direct download and works on every browser including iOS, at any tier the
-   * viewer is entitled to. A single 50 MB original is never "too large for the
-   * device", so the bulk size rule never applies here.
-   *
-   * Archive objects already carry `Content-Disposition: attachment`, set at
-   * upload time, so a plain save lands correctly in Files on iOS and in
-   * Downloads on Android — no special handling needed.
-   */
-  async function onDownload(tier: "2560" | "archive") {
-    setTierOpen(false);
-    onToast("Downloading…");
-    try {
-      if (tier === "archive" && resolveArchiveUrl) {
-        const archive = await resolveArchiveUrl(item.media_id);
-        // A decline is not an error: fall back to the web copy rather than
-        // leaving the guest with nothing.
-        if (archive) {
-          await downloadImage(archive.url, archive.filename);
-          onDownloaded?.();
-          return;
-        }
-      }
-      await downloadImage(item.url);
-      onDownloaded?.();
-    } catch {
-      onToast("Download failed — please try again");
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: SIGNAL.viewer }}>
       {/* top chrome */}
@@ -158,40 +113,9 @@ export function PhotoViewer({
               <IconHeart size={19} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
             </ChipButton>
             {canDownload && (
-              <div className="relative">
-                <ChipButton
-                  label="Download"
-                  onClick={() => (offersArchive ? setTierOpen((v) => !v) : void onDownload("2560"))}
-                >
-                  <IconDownload size={19} />
-                </ChipButton>
-                {/* The tier choice appears only when the viewer is entitled to
-                    the archive copy AND this photo actually has one — otherwise
-                    the chip stays a one-tap download. */}
-                {offersArchive && tierOpen && (
-                  <div
-                    className="absolute right-0 top-12 z-10 w-56 overflow-hidden rounded-2xl"
-                    style={{ background: t.card, boxShadow: t.shadow }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => void onDownload("2560")}
-                      className="block w-full cursor-pointer px-4 py-3 text-left text-[13px] font-bold"
-                      style={{ color: t.text }}
-                    >
-                      Web (2560px)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onDownload("archive")}
-                      className="block w-full cursor-pointer border-t px-4 py-3 text-left text-[13px] font-bold"
-                      style={{ color: t.text, borderColor: t.border }}
-                    >
-                      {ARCHIVE_TIER_FULL[item.archive_variant === "4096" ? "4096" : "original"]}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ChipButton label="Download" onClick={() => onDownload(item)}>
+                <IconDownload size={19} />
+              </ChipButton>
             )}
             {/* Web Share is a mobile affordance — hide it on desktop. */}
             <ChipButton label="Share" onClick={onShare} className="lg:hidden">

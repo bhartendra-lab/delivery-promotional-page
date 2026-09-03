@@ -812,7 +812,7 @@ export type MediaMetadataItem = {
    *  for videos and whenever the client's thumbnail step failed. */
   thumbnail_url?: string;
   thumbnail_size?: number;
-  /** Archive copy, on a High-res or Original run. All absent on a "2560" run
+  /** Archive copy, on a Cinema 4K or Original run. All absent on a "2560" run
    *  and whenever the archive upload failed — the photo is delivered either
    *  way, so their absence means "no archive object exists". */
   archive_variant?: "4096" | "original";

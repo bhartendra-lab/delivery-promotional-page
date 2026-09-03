@@ -336,18 +336,6 @@ export async function streamZipToDisk(
   return { zipped, failed };
 }
 
-/** Download several photos sequentially (no ZIP — per the build spec). */
-export async function downloadMany(
-  urls: string[],
-  onProgress?: (done: number, total: number) => void,
-): Promise<void> {
-  for (let i = 0; i < urls.length; i++) {
-    await downloadImage(urls[i]);
-    onProgress?.(i + 1, urls.length);
-    if (i < urls.length - 1) await delay(600);
-  }
-}
-
 export type ShareResult = "shared" | "copied" | "cancelled" | "failed";
 
 /**

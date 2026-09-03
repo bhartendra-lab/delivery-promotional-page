@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
-import { downloadImage } from "@/lib/media-actions";
-import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
-import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
+import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
@@ -22,7 +20,7 @@ export function Lightbox({
   onClose,
   onDelete,
   onToggleShortlist,
-  resolveArchiveUrl,
+  onDownload,
 }: {
   items: MediaItem[];
   index: number;
@@ -32,12 +30,15 @@ export function Lightbox({
   onDelete?: (item: MediaItem) => void;
   /** Toggle the previewed item's shortlist flag (Smart Selects). */
   onToggleShortlist?: (item: MediaItem) => void;
-  /** Mints the archive (unwatermarked) URL for one photo. When present, a photo
-   *  that HAS an archive copy gets a second download button for it. Single-photo
-   *  downloads never go through the bulk pre-flight: they are direct, work on
-   *  every browser including iOS, and one 50 MB original is never "too large for
-   *  the device". */
-  resolveArchiveUrl?: (mediaId: string) => Promise<{ url: string; filename: string } | null>;
+  /**
+   * Save the previewed photo. Owned by the grid, not by this overlay, so the
+   * button behaves exactly like the tile's: it offers the quality choice where
+   * the photo has an unwatermarked copy, and saves straight away where it
+   * doesn't. Single-photo downloads never go through the bulk pre-flight —
+   * they are direct, work on every browser including iOS, and one 50 MB
+   * original is never "too large for the device".
+   */
+  onDownload: (item: MediaItem) => void;
 }) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
@@ -176,26 +177,9 @@ export function Lightbox({
               <IconStar size={16} filled={!!item.shortlisted} />
             </ToolButton>
           )}
-          <ToolButton label="Download photo (2560px)" onClick={() => downloadImage(item.url)}>
+          <ToolButton label="Download photo" onClick={() => onDownload(item)}>
             <IconDownload size={16} />
           </ToolButton>
-          {/* Offered only when this photo actually has an archive copy — a
-              web-tier upload has nothing to offer here. */}
-          {resolveArchiveUrl && item.archive_variant && (
-            <ToolButton
-              label={`Download ${ARCHIVE_TIER_FULL[item.archive_variant === "4096" ? "4096" : "original"]}`}
-              onClick={() => {
-                void resolveArchiveUrl(item.media_id ?? item._id).then((archive) => {
-                  // A decline falls back to the web copy rather than leaving the
-                  // studio with nothing.
-                  if (archive) void downloadImage(archive.url, archive.filename);
-                  else void downloadImage(item.url);
-                });
-              }}
-            >
-              <IconImage size={16} />
-            </ToolButton>
-          )}
           {onDelete && (
             <ToolButton label="Delete photo" danger onClick={() => onDelete(item)}>
               <IconTrash size={16} />

@@ -23,9 +23,9 @@ import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
 const QUALITY = 0.80;
-/** Long edge of the High-res archive copy. Lossy, and deliberately labelled
- *  "High-res" rather than "archive of the original" everywhere a studio can
- *  read it — a 4096px JPEG is not a negative. */
+/** Long edge of the Cinema 4K archive copy. Lossy, and deliberately never
+ *  called an "archive of the original" anywhere a studio can read it — a 4096px
+ *  JPEG is not a negative. */
 const ARCHIVE_DIM = 4096;
 /** Long edge of the gallery-grid derivative. The grid never renders larger than
  *  this, so the 2560px delivery copy is reserved for the lightbox, downloads
