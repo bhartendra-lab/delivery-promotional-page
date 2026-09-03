@@ -4,7 +4,8 @@ import { useId } from "react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
-  DELIVERY_PREFERENCE_FIELDS,
+  resolveDeliveryPreferenceFields,
+  type DeliveryPreferenceContext,
   type DeliveryPreferenceField,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
@@ -16,22 +17,31 @@ import {
  * can be rendered against a draft that hasn't been saved yet without either
  * host racing the other.
  *
- * Rows are generated from `DELIVERY_PREFERENCE_FIELDS`, so a new preference
- * appears in BOTH hosts by editing that registry alone.
+ * Rows are generated from the preference registry, so a new preference appears
+ * in BOTH hosts by editing that registry alone — and so does a change to what a
+ * row is called or when it shows at all.
+ *
+ * `context` carries the booking's archive quality tier. The registry uses it to
+ * name the archive row after the tier this event actually has, and to hide that
+ * row for a QHD-only event (nothing unwatermarked exists to govern) or when
+ * downloads are switched off outright.
  */
 export function DeliveryPreferencesPanel({
   value,
   onChange,
   disabled = false,
+  context,
 }: {
   value: DeliveryPreferences;
   onChange: (next: DeliveryPreferences) => void;
   disabled?: boolean;
+  context?: DeliveryPreferenceContext;
 }) {
+  const fields = resolveDeliveryPreferenceFields(value, context);
   return (
     <div className="flex flex-col gap-3">
       <div className="divide-y divide-[var(--color-brand-border)] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
-        {DELIVERY_PREFERENCE_FIELDS.map((field) => (
+        {fields.map((field) => (
           <PreferenceRow
             key={field.key}
             field={field}

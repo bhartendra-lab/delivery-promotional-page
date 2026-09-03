@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
 import {
   changedPreferenceKeys,
+  type DeliveryPreferenceContext,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
 
@@ -21,6 +22,7 @@ export function DeliveryPreferencesModal({
   saved,
   onSave,
   toast,
+  context,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,6 +32,9 @@ export function DeliveryPreferencesModal({
   saved: DeliveryPreferences;
   onSave: (next: DeliveryPreferences) => Promise<void>;
   toast: (msg: string, type?: "success" | "error") => void;
+  /** The booking's archive quality tier — decides whether the archive download
+   *  row is shown at all, and what it is called. */
+  context?: DeliveryPreferenceContext;
 }) {
   const [draft, setDraft] = useState<DeliveryPreferences>(saved);
   const [saving, setSaving] = useState(false);
@@ -91,7 +96,12 @@ export function DeliveryPreferencesModal({
         </div>
       }
     >
-      <DeliveryPreferencesPanel value={draft} onChange={setDraft} disabled={saving} />
+      <DeliveryPreferencesPanel
+        value={draft}
+        onChange={setDraft}
+        disabled={saving}
+        context={context}
+      />
     </Modal>
   );
 }

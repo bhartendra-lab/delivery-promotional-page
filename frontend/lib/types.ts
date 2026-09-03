@@ -550,6 +550,10 @@ export type GetMediaResponse = {
   /** Always true for the dashboard (the studio owns its own media); present so
    *  the same download pre-flight code reads one field in both hosts. */
   archive_access?: boolean;
+  /** The booking's archive quality tier, or null when every photo is QHD.
+   *  Booking-wide (not per page), returned on the first page only. Drives which
+   *  delivery preferences are worth showing the studio and what they're called. */
+  archive_tier?: "4096" | "original" | null;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */

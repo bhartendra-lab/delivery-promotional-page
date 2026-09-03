@@ -6,7 +6,11 @@ import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
 import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
-import { changedPreferenceKeys, type DeliveryPreferences } from "@/lib/delivery-preferences";
+import {
+  changedPreferenceKeys,
+  type ArchiveTier,
+  type DeliveryPreferences,
+} from "@/lib/delivery-preferences";
 import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
 import {
   IconUpload,
@@ -111,6 +115,10 @@ type Props = {
    * Rejects on failure; the dialog keeps the studio on step 2.
    */
   onSavePreferences: (next: DeliveryPreferences) => Promise<void>;
+  /** The archive tier this event's EXISTING photos carry, or null when they are
+   *  all QHD. Only used to decide what the Downloads step shows — the tier
+   *  selected for this run takes precedence. */
+  bookingArchiveTier?: ArchiveTier | null;
 };
 
 type Analysis = {
@@ -135,6 +143,7 @@ export function UploadModal({
   onCreateFolder,
   preferences,
   onSavePreferences,
+  bookingArchiveTier,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
   // modal that unmounted to make way for this one — that double backdrop
@@ -209,6 +218,21 @@ export function UploadModal({
    * what would be uploaded disagree.
    */
   const variant: UploadVariant = archiveAllowed ? selectedVariant : "2560";
+
+  /**
+   * Which archive tier the Downloads panel should describe.
+   *
+   * The tier chosen for THIS run wins, because the panel sits directly under
+   * the quality selector and the studio expects the two to agree the moment
+   * they change it — even though those copies don't exist yet. Falling back to
+   * the tier the event already has matters for the other direction: a studio
+   * that uploaded Cinema 4K last week and is adding a QHD batch today still
+   * needs to see (and be able to change) who may download those earlier files.
+   * Null on both counts means no unwatermarked copy exists or is coming, and
+   * the row is not shown at all.
+   */
+  const panelArchiveTier: ArchiveTier | null =
+    variant !== "2560" ? variant : (bookingArchiveTier ?? null);
 
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
@@ -657,6 +681,7 @@ export function UploadModal({
                   value={draftPrefs}
                   onChange={setDraftPrefs}
                   disabled={savingPrefs}
+                  context={{ archiveTier: panelArchiveTier }}
                 />
               </StepSection>
             </div>

@@ -3,10 +3,16 @@
  * of truth for the shape, the defaults, and how each preference is presented.
  *
  * To add a preference: add the key to `DeliveryPreferences`, a default to
- * `DELIVERY_PREFERENCE_DEFAULTS`, and a descriptor to `DELIVERY_PREFERENCE_FIELDS`.
+ * `DELIVERY_PREFERENCE_DEFAULTS`, and a spec to `DELIVERY_PREFERENCE_SPECS`.
  * Both the upload dialog's Preferences step and the standalone Preferences modal
- * render from `DELIVERY_PREFERENCE_FIELDS`, so neither needs touching. Mirror the
- * key in the backend's `deliveryPreferencesSchema` + `DELIVERY_PREFERENCE_DEFAULTS`.
+ * render whatever `resolveDeliveryPreferenceFields` returns, so neither needs
+ * touching. Mirror the key in the backend's `deliveryPreferencesSchema` +
+ * `DELIVERY_PREFERENCE_DEFAULTS`.
+ *
+ * A spec's copy and its visibility are both functions of the booking's context
+ * and the current draft, which is what lets one row be called "Cinema 4K
+ * downloads" for one event and "Original file downloads" for another — and lets
+ * it disappear entirely for an event that has neither.
  */
 
 /** Who may download the unwatermarked archive copy (4096px or original). */
@@ -40,8 +46,51 @@ export type DeliveryPreferenceOption = {
   description: string;
 };
 
-/** How one preference is presented. `type` exists so a non-boolean preference
- *  (a select, a number) can be added without reworking the panel. */
+/** The archive (unwatermarked) quality tiers a studio can upload at. */
+export type ArchiveTier = "4096" | "original";
+
+/**
+ * ONE studio-facing name per tier, used by the upload dialog's quality
+ * selector, this panel, and the guest download pre-flight alike. A tier called
+ * "Cinema 4K" while uploading and "high-res" while downloading reads as two
+ * different things.
+ */
+export const ARCHIVE_TIER_SHORT: Record<ArchiveTier, string> = {
+  "4096": "Cinema 4K",
+  original: "Original file",
+};
+export const ARCHIVE_TIER_FULL: Record<ArchiveTier, string> = {
+  "4096": "Cinema 4K (4096px)",
+  original: "Original file",
+};
+
+/**
+ * How each tier reads INSIDE a sentence, as a plural noun phrase. Kept separate
+ * from the labels above because those are headings and interpolating them into
+ * prose produces "the Original file files".
+ */
+const ARCHIVE_TIER_FILES: Record<ArchiveTier, string> = {
+  "4096": "Cinema 4K (4096px) files",
+  original: "original camera files",
+};
+
+/**
+ * What the panel needs to know about the booking beyond the preference values
+ * themselves.
+ *
+ * `archiveTier` is null for an event whose photos are all QHD — there is no
+ * unwatermarked copy in existence, so a preference governing who may download
+ * one has nothing to govern and is not shown. In the upload dialog this is the
+ * tier the studio has just SELECTED (the run is about to create those copies);
+ * in the standalone Preferences dialog it is the tier the event's photos
+ * actually carry.
+ */
+export type DeliveryPreferenceContext = {
+  archiveTier: ArchiveTier | null;
+};
+
+/** A preference row, resolved for one booking — concrete strings, ready to
+ *  render. The panel never sees the registry's functions. */
 export type DeliveryPreferenceField = {
   key: keyof DeliveryPreferences;
   type: "toggle" | "select";
@@ -51,55 +100,104 @@ export type DeliveryPreferenceField = {
   /** Extra line shown only while the preference is in its non-default state,
    *  so the studio sees the consequence at the moment it opts in to it. */
   consequence?: string;
-  /** Required for `type: "select"`, ignored otherwise. */
+  /** Present for `type: "select"`. */
   options?: DeliveryPreferenceOption[];
 };
 
+/**
+ * The registry entry. Copy is written as functions of the booking's context so
+ * that a tier's NAME is never hardcoded into a sentence — the same row reads
+ * "Cinema 4K downloads" for one event and "Original file downloads" for
+ * another, and the panel stays a dumb renderer.
+ */
+type DeliveryPreferenceSpec = {
+  key: keyof DeliveryPreferences;
+  type: "toggle" | "select";
+  label: (ctx: DeliveryPreferenceContext) => string;
+  description: (ctx: DeliveryPreferenceContext) => string;
+  consequence?: (ctx: DeliveryPreferenceContext) => string;
+  options?: (ctx: DeliveryPreferenceContext) => DeliveryPreferenceOption[];
+  /**
+   * Hide the row entirely when this returns false. It reads the CURRENT draft
+   * as well as the context, so a preference that only makes sense underneath
+   * another one disappears the moment that one is switched off.
+   */
+  isRelevant?: (ctx: DeliveryPreferenceContext, value: DeliveryPreferences) => boolean;
+};
+
 /** Render order in both hosts. */
-export const DELIVERY_PREFERENCE_FIELDS: DeliveryPreferenceField[] = [
+const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "allow_download",
     type: "toggle",
-    label: "Allow guests to download photos",
-    description: "",
-    consequence:
+    label: () => "Allow guests to download photos",
+    description: () => "",
+    consequence: () =>
       "Downloads are hidden for everyone — including family members who have entered the passcode. You can still download everything from this dashboard.",
   },
   {
     key: "archive_download_access",
     type: "select",
-    label: "Full-resolution downloads",
-    description:
-      "Who can download the unwatermarked copy you uploaded. Everyone else gets the watermarked 2560px version.",
-    // Shown for every booking, including one whose photos are all web-tier
-    // today: the preference is forward-looking (it governs the next upload as
-    // much as the last one), so a studio can set it before it matters. The
-    // gallery hides the tier selector on its own when no selected photo has an
-    // archive copy.
-    options: [
-      {
-        value: "host_only",
-        label: "Only the family (passcode holders)",
-        description:
-          "Guests who have entered the family passcode can download the full-resolution files. Everyone else gets the watermarked 2560px copy.",
-      },
-      {
-        value: "all_guests",
-        label: "Every guest",
-        // Blunt on purpose. A studio must not enable this believing it is the
-        // same file at a larger size.
-        description:
-          "Guests can download unwatermarked, full-resolution originals of photos they appear in.",
-      },
-      {
-        value: "none",
-        label: "Nobody",
-        description:
-          "Nobody in the gallery can download the full-resolution files — not even passcode holders. You can still download them from this dashboard.",
-      },
-    ],
+    // Named after the tier this event actually has, never a generic
+    // "Full-resolution": a studio that uploaded Cinema 4K did not upload
+    // originals, and calling those files "full-resolution originals" would be
+    // wrong as well as vague.
+    label: (ctx) => `${ARCHIVE_TIER_SHORT[ctx.archiveTier ?? "original"]} downloads`,
+    description: (ctx) =>
+      `Who can download the unwatermarked ${ARCHIVE_TIER_FILES[ctx.archiveTier ?? "original"]} you uploaded. Everyone else gets the watermarked QHD (2560px) version.`,
+    // Two independent reasons this row can be meaningless, and both hide it
+    // rather than showing a control that governs nothing:
+    //  - the event is QHD-only, so no unwatermarked copy exists at all;
+    //  - downloads are switched off outright, which overrides this setting
+    //    anyway (see the endpoint's authorisation order).
+    isRelevant: (ctx, value) => value.allow_download && ctx.archiveTier !== null,
+    options: (ctx) => {
+      const files = ARCHIVE_TIER_FILES[ctx.archiveTier ?? "original"];
+      return [
+        {
+          value: "host_only",
+          label: "Only the family (passcode holders)",
+          description: `Guests who have entered the family passcode can download the ${files}. Everyone else gets the watermarked QHD (2560px) copy.`,
+        },
+        {
+          value: "all_guests",
+          label: "Every guest",
+          // Blunt on purpose. A studio must not enable this believing it is the
+          // same file at a larger size — these copies carry no watermark.
+          description: `Every guest can download the unwatermarked ${files} for photos they appear in.`,
+        },
+        {
+          value: "none",
+          label: "Nobody",
+          description: `Nobody in the gallery can download the ${files} — not even passcode holders. You can still download them from this dashboard.`,
+        },
+      ];
+    },
   },
 ];
+
+/**
+ * The rows to render for one booking, in order, with every string resolved.
+ *
+ * The context defaults to "no archive tier", which hides the archive row — the
+ * safe direction for a host that has not been taught to supply one, since the
+ * setting it hides has a conservative default of its own.
+ */
+export function resolveDeliveryPreferenceFields(
+  value: DeliveryPreferences,
+  context: DeliveryPreferenceContext = { archiveTier: null },
+): DeliveryPreferenceField[] {
+  return DELIVERY_PREFERENCE_SPECS.filter(
+    (spec) => spec.isRelevant?.(context, value) ?? true,
+  ).map((spec) => ({
+    key: spec.key,
+    type: spec.type,
+    label: spec.label(context),
+    description: spec.description(context),
+    ...(spec.consequence ? { consequence: spec.consequence(context) } : {}),
+    ...(spec.options ? { options: spec.options(context) } : {}),
+  }));
+}
 
 /** Fill defaults and drop unknown keys. Use this for EVERY read — a gallery
  *  created before a preference existed has no value for it, and an absent

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
 import { downloadImage, shareImage } from "@/lib/media-actions";
+import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
 import { useEventTheme } from "../../EventThemeContext";
 import {
   IconX,
@@ -186,7 +187,7 @@ export function PhotoViewer({
                       className="block w-full cursor-pointer border-t px-4 py-3 text-left text-[13px] font-bold"
                       style={{ color: t.text, borderColor: t.border }}
                     >
-                      {item.archive_variant === "4096" ? "High-res (4096px)" : "Original file"}
+                      {ARCHIVE_TIER_FULL[item.archive_variant === "4096" ? "4096" : "original"]}
                     </button>
                   </div>
                 )}

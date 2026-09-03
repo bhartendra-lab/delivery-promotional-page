@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
 import { downloadImage } from "@/lib/media-actions";
+import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
 import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
@@ -182,11 +183,7 @@ export function Lightbox({
               web-tier upload has nothing to offer here. */}
           {resolveArchiveUrl && item.archive_variant && (
             <ToolButton
-              label={
-                item.archive_variant === "4096"
-                  ? "Download high-res (4096px)"
-                  : "Download original file"
-              }
+              label={`Download ${ARCHIVE_TIER_FULL[item.archive_variant === "4096" ? "4096" : "original"]}`}
               onClick={() => {
                 void resolveArchiveUrl(item.media_id ?? item._id).then((archive) => {
                   // A decline falls back to the web copy rather than leaving the

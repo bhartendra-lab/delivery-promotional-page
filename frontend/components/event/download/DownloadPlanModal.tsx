@@ -26,6 +26,7 @@ import {
   type DownloadTier,
 } from "@/lib/download/plan";
 import type { DownloadFlow } from "@/lib/download/useDownloadFlow";
+import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
 
 /** Token subset both hosts can supply — the guest gallery's `ClientTheme`, or
  *  the dashboard's brand CSS variables. */
@@ -46,10 +47,15 @@ export type DownloadModalTheme = {
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * The archive tiers borrow their names from the studio-facing registry, so a
+ * tier the studio uploaded as "Cinema 4K" is never offered for download under a
+ * different name. The delivery copy keeps a plain-language label instead of the
+ * studio's "QHD", because this selector is read by guests.
+ */
 const TIER_LABEL: Record<DownloadTier, string> = {
   "2560": "Web (2560px)",
-  "4096": "High-res (4096px)",
-  original: "Original file",
+  ...ARCHIVE_TIER_FULL,
 };
 
 export function DownloadPlanModal({

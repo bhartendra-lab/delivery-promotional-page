@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { CustomFolder, MediaItem } from "@/lib/types";
-import type { DeliveryPreferences } from "@/lib/delivery-preferences";
+import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -120,6 +120,13 @@ export type EventContextValue = {
   folderCounts: Record<string, number>;
   /** Count of liked media in the booking (drives the Smart Selects header). */
   likedCount: number;
+  /**
+   * The booking's archive (unwatermarked) quality tier, or null when every
+   * photo is QHD. Server-derived and booking-wide — NOT inferred from `media`,
+   * which only holds the active view's loaded pages. Drives which delivery
+   * preferences are worth showing and what the archive row is called.
+   */
+  archiveTier: ArchiveTier | null;
   /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
   shortlistedCount: number;
   /** Active filters for the Smart Selects (liked) view. */
