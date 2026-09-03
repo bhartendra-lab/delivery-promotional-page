@@ -38,6 +38,7 @@ export function useSinglePhotoDownload({
   resolveArchiveUrl,
   onStart,
   onDone,
+  onFellBack,
   onError,
 }: {
   /** Server-derived: may this viewer have the unwatermarked copy at all? */
@@ -47,6 +48,13 @@ export function useSinglePhotoDownload({
   onStart?: () => void;
   /** Fired after a successful save — drives the post-download review nudge. */
   onDone?: () => void;
+  /**
+   * Fired when an archive tier was asked for but only the delivery copy could
+   * be saved. Separate from `onError` because the file DID download — the
+   * viewer just didn't get the tier they picked, and must be told rather than
+   * left believing a 2560px file is their original.
+   */
+  onFellBack?: () => void;
   onError?: () => void;
 }): SinglePhotoDownload {
   // The photo awaiting a quality choice, plus the tier it can offer. Held
@@ -60,10 +68,13 @@ export function useSinglePhotoDownload({
     (photo: SinglePhotoSource, tier: SinglePhotoTier) => {
       onStart?.();
       void downloadSinglePhoto(photo, tier, resolveArchiveUrl)
-        .then(() => onDone?.())
+        .then((delivered) => {
+          if (delivered !== tier) onFellBack?.();
+          else onDone?.();
+        })
         .catch(() => onError?.());
     },
-    [resolveArchiveUrl, onStart, onDone, onError],
+    [resolveArchiveUrl, onStart, onDone, onFellBack, onError],
   );
 
   const request = useCallback(

@@ -17,6 +17,7 @@ import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ARCHIVE_TIER_FULL, type ArchiveTier } from "@/lib/delivery-preferences";
 import type { SinglePhotoTier } from "@/lib/download/single";
+import { Z_QUALITY_SHEET } from "@/lib/download/layers";
 import type { DownloadModalTheme } from "./DownloadPlanModal";
 
 const FOCUSABLE = 'button:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -93,11 +94,11 @@ export function QualityChoiceSheet({
   ];
 
   return createPortal(
-    // z-index sits above the guest lightbox (z-70) and the dashboard one, since
-    // this is opened FROM them.
+    // Topmost of the download surfaces: this is opened FROM a photo viewer and
+    // stays on screen while one is still open — see lib/download/layers.ts.
     <div
-      className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:p-6"
-      style={{ background: "rgba(31,26,14,0.55)" }}
+      className="fixed inset-0 flex items-end justify-center sm:items-center sm:p-6"
+      style={{ background: "rgba(31,26,14,0.55)", zIndex: Z_QUALITY_SHEET }}
       onClick={onClose}
     >
       <div

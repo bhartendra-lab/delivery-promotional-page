@@ -578,6 +578,11 @@ export function LoungeGallery({
     (baseName: string, resolveSources: (signal: AbortSignal) => Promise<PlanSource[]>) => {
       if (zipping) return;
       setToast(null);
+      // Close the photo viewer first. The pre-flight is a full-attention
+      // surface that stays up for the whole run, so leaving a viewer mounted
+      // underneath it means cancelling the download drops the guest back into a
+      // preview they had forgotten was open.
+      setViewerIndex(null);
       void downloadFlow.start({
         bookingId,
         baseName,
@@ -604,6 +609,12 @@ export function LoungeGallery({
     onStart: () => setToast("Downloading 1 photo…"),
     onDone: () => {
       setToast("Download started");
+      triggerNudge("download");
+    },
+    // The photo saved, just not at the tier they picked. Said out loud rather
+    // than left to look like a successful full-size download.
+    onFellBack: () => {
+      setToast("Full-size copy unavailable — saved the web version");
       triggerNudge("download");
     },
     onError: () => setToast("Download failed — please try again"),

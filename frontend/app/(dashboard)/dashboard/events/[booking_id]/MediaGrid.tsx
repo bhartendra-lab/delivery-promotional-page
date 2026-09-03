@@ -322,6 +322,10 @@ export function MediaGrid({
     archiveAccess: true,
     resolveArchiveUrl: resolveOneArchiveUrl,
     onStart: () => notify?.("Downloading 1 photo…"),
+    // The photo saved, just not at the tier they picked. Said out loud rather
+    // than left to look like a successful full-resolution download.
+    onFellBack: () =>
+      notify?.("Full-resolution copy unavailable — saved the 2560px version"),
     onError: () => notify?.("Download failed — please try again"),
   });
 

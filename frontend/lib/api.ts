@@ -1080,7 +1080,16 @@ export function getMediaIdsForView(bookingId: string, opts?: MediaViewOptions): 
 export function getArchiveDownloadUrls(bookingId: string, mediaIds: string[]) {
   return request<{ media: ArchiveDownloadUrl[] }>(
     `/deliverables/archive-download-urls/${encodeURIComponent(bookingId)}`,
-    { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
+    {
+      method: "POST",
+      // `request` does not add this — every POST here sets it explicitly.
+      // Without it Express never parses the body, `media_ids` arrives undefined,
+      // and the endpoint 400s; the caller then falls back to the delivery copy,
+      // so the studio silently gets a 2560px file where they asked for an
+      // original.
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: mediaIds }),
+    },
   ).then((res) => res.media ?? []);
 }
 

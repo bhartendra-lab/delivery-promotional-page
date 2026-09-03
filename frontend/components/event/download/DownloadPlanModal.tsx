@@ -27,6 +27,7 @@ import {
 } from "@/lib/download/plan";
 import type { DownloadFlow } from "@/lib/download/useDownloadFlow";
 import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
+import { Z_DOWNLOAD_CONFIRM, Z_DOWNLOAD_MODAL } from "@/lib/download/layers";
 
 /** Token subset both hosts can supply — the guest gallery's `ClientTheme`, or
  *  the dashboard's brand CSS variables. */
@@ -139,8 +140,9 @@ export function DownloadPlanModal({
 
   const body = (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-6"
-      style={{ background: "rgba(31,26,14,0.55)" }}
+      className="fixed inset-0 flex items-end justify-center sm:items-center sm:p-6"
+      // Above both photo viewers — a download can be started from inside either.
+      style={{ background: "rgba(31,26,14,0.55)", zIndex: Z_DOWNLOAD_MODAL }}
       onClick={() => {
         if (phase === "running") setConfirmCancel(true);
         else close();
@@ -373,8 +375,8 @@ export function DownloadPlanModal({
       {/* Stopping throws away everything fetched so far, so it asks first. */}
       {confirmCancel && (
         <div
-          className="fixed inset-0 z-[75] flex items-center justify-center p-5"
-          style={{ background: "rgba(31,26,14,0.55)" }}
+          className="fixed inset-0 flex items-center justify-center p-5"
+          style={{ background: "rgba(31,26,14,0.55)", zIndex: Z_DOWNLOAD_CONFIRM }}
           onClick={(e) => {
             e.stopPropagation();
             setConfirmCancel(false);

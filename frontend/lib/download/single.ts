@@ -69,24 +69,32 @@ export function offeredTierForPhoto(
 }
 
 /**
- * Save one photo at the requested tier.
+ * Save one photo at the requested tier. Resolves with the tier ACTUALLY saved.
  *
  * A declined or missing archive falls back to the delivery copy rather than
- * failing: the guest asked for this photo, and handing them the watermarked
+ * failing: the viewer asked for this photo, and handing them the watermarked
  * version is a better answer than handing them nothing. This is the same
  * fallback the bulk engines apply per item as `degraded`.
+ *
+ * But unlike a bulk run — where a handful of degraded items are counted and
+ * reported together — a single photo was an explicit choice of tier, so the
+ * fallback MUST be visible. Returning the delivered tier is what makes that
+ * possible: a caller that ignores it hands the viewer a 2560px file with no
+ * hint it isn't the original they asked for, which is precisely how a broken
+ * archive-URL request hid as "the download works, it's just the wrong file".
  */
 export async function downloadSinglePhoto(
   photo: SinglePhotoSource,
   tier: SinglePhotoTier,
   resolveArchiveUrl?: SingleArchiveUrlResolver,
-): Promise<void> {
+): Promise<SinglePhotoTier> {
   if (tier !== "2560" && resolveArchiveUrl) {
     const archive = await resolveArchiveUrl(photo.mediaId);
     if (archive) {
       await downloadImage(archive.url, archive.filename);
-      return;
+      return tier;
     }
   }
   await downloadImage(photo.url, photo.name);
+  return "2560";
 }
