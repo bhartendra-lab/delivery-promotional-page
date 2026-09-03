@@ -9,9 +9,14 @@
  * mean per-photo size across the whole selection. This tracks real output size
  * far better than any fixed KB/photo constant, since sizes vary hugely by source
  * resolution and content.
+ *
+ * On an archive tier the estimate must cover the archive object too — it is by
+ * far the largest thing the run stores. For "original" that term needs no
+ * sampling at all, since every file's exact size is already in hand.
  */
 
 import { compressWithExif } from "./compressor";
+import type { UploadVariant } from "./compressor";
 
 const BYTES_PER_GB = 1024 ** 3;
 /** Max files to actually compress for the estimate — a second or two of work. */
@@ -43,29 +48,58 @@ export function pickSample<T>(items: T[], sampleSize = ESTIMATE_SAMPLE_SIZE): T[
 }
 
 /**
- * Estimate the total compressed upload size (in GB) for `files`. Compresses an
- * even sample, averages the output blob sizes, and scales by the file count.
- * Returns 0 for an empty selection. Rejects only if every sampled compression
- * throws (extremely unlikely — the pipeline is failure-tolerant per file).
+ * Estimate the TOTAL upload size (in GB) for `files` at a given quality tier —
+ * every object the run will store, not just the delivery copy.
+ *
+ * Per tier:
+ *  - "2560"     sample the delivery pair and extrapolate (unchanged behaviour)
+ *  - "4096"     sample through the 4096 path, so the archive term is a real
+ *               measured 4096px blob rather than a guess
+ *  - "original" sample the derivatives as usual, but take the archive term as
+ *               `sum(file.size)` EXACTLY — no sampling, because an original's
+ *               size is already known precisely for every file. Extrapolating a
+ *               12-file mean across a mixed selection would be strictly worse
+ *               than arithmetic we can just do.
+ *
+ * This figure feeds the plan-limit gate, which is why the archive term is not
+ * optional: an originals run left on the old estimate would under-report by
+ * roughly 30x and sail through a check it should have failed.
+ *
+ * Returns 0 for an empty selection.
  */
-export async function estimateCompressedGB(files: File[]): Promise<number> {
+export async function estimateCompressedGB(
+  files: File[],
+  variant: UploadVariant = "2560",
+): Promise<number> {
   if (files.length === 0) return 0;
   const sample = pickSample(files);
-  const sizes: number[] = [];
+  // Derivative bytes per photo (delivery copy + grid thumbnail), and — for
+  // "4096" only — the archive blob, which really is sampled because its size
+  // depends on the source in a way we cannot compute.
+  const derivativeSizes: number[] = [];
+  const archiveSizes: number[] = [];
   for (const file of sample) {
     try {
-      // Include the 480px grid thumbnail the same call now produces — it is a
-      // real second object per photo (~5% on top), and the plan-limit gate
-      // downstream must not see a figure that under-reports it.
-      const { blob, thumbBlob } = await compressWithExif(file, null);
-      sizes.push(blob.size + (thumbBlob?.size ?? 0));
+      const { blob, thumbBlob, archiveBlob } = await compressWithExif(file, null, variant);
+      derivativeSizes.push(blob.size + (thumbBlob?.size ?? 0));
+      if (archiveBlob) archiveSizes.push(archiveBlob.size);
     } catch {
       // A single un-compressible file shouldn't skew or break the estimate;
       // fall back to its original size so the total isn't understated.
-      sizes.push(file.size);
+      derivativeSizes.push(file.size);
     }
   }
-  if (sizes.length === 0) return 0;
-  const avg = sizes.reduce((s, n) => s + n, 0) / sizes.length;
-  return (avg * files.length) / BYTES_PER_GB;
+  if (derivativeSizes.length === 0) return 0;
+
+  const mean = (xs: number[]) => xs.reduce((s, n) => s + n, 0) / xs.length;
+  let totalBytes = mean(derivativeSizes) * files.length;
+
+  if (variant === "4096" && archiveSizes.length > 0) {
+    totalBytes += mean(archiveSizes) * files.length;
+  } else if (variant === "original") {
+    // Exact, not sampled.
+    totalBytes += files.reduce((sum, f) => sum + f.size, 0);
+  }
+
+  return totalBytes / BYTES_PER_GB;
 }

@@ -1,10 +1,46 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MediaItem } from "@/lib/types";
-import { degradeGridSrc, downloadImage, gridSrc, nameFromUrl, streamZipToDisk } from "@/lib/media-actions";
+import type { CustomFolder, MediaItem } from "@/lib/types";
+import { degradeGridSrc, downloadImage, gridSrc, nameFromUrl } from "@/lib/media-actions";
+import { getArchiveDownloadUrls } from "@/lib/api";
+import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
+import type { PlanSource } from "@/lib/download/plan";
+import type { ArchiveUrlResolver } from "@/lib/download/engines";
+import { DownloadPlanModal, type DownloadModalTheme } from "@/components/event/download/DownloadPlanModal";
+import { useEvent } from "./EventContext";
 import { Lightbox } from "./Lightbox";
 import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
+
+/**
+ * The download pre-flight in dashboard clothing. The modal is shared with the
+ * guest gallery, which is themed per event, so it takes its palette as tokens —
+ * here they are the dashboard's brand CSS variables.
+ */
+const DASHBOARD_MODAL_THEME: DownloadModalTheme = {
+  card: "#fff",
+  sunken: "var(--color-brand-hover)",
+  border: "var(--color-brand-border)",
+  text: "var(--color-brand-ink)",
+  muted: "var(--color-brand-muted)",
+  brand: "var(--color-brand-navy-deep)",
+  onBrand: "#fff",
+  error: "var(--color-brand-danger, #b3261e)",
+  errorSoft: "var(--color-brand-danger-soft, #fdecea)",
+  shadow: "0 20px 60px rgba(20,20,30,0.22)",
+};
+
+/** The custom folder a photo is filed under when downloading. A photo can
+ *  belong to several; the first the registry knows about wins, and one in none
+ *  goes to the root of the target. Mirrored as a subdirectory by the `directory`
+ *  engine, which is what stops two DSC_4821.jpg from overwriting each other. */
+function folderNameOf(m: MediaItem, folders: CustomFolder[]): string {
+  for (const id of m.custom_folder_ids ?? []) {
+    const name = folders.find((f) => f._id === id)?.name?.trim();
+    if (name) return name;
+  }
+  return "";
+}
 
 /** Optimistic, not-yet-persisted items can't be deleted (no real id yet). */
 function isPersisted(m: MediaItem): boolean {
@@ -111,7 +147,6 @@ export function MediaGrid({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ ids: string[]; fromLightbox: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   // True while the selection holds ids resolved from the server for the whole
   // view. Those ids deliberately include photos not paged into `items` yet, so
   // the stale-id pruning below must leave the set alone while this is on.
@@ -221,48 +256,117 @@ export function MediaGrid({
     }
   }, [confirm, onDeleteMany, items.length]);
 
-  // Download the selection: one photo saves directly; several are packed into a
-  // single ZIP built in the browser (client-zip) — streamed to disk via the File
-  // System Access API where available, else an in-memory Blob. No server-side zip.
-  // A whole-view selection can name photos that aren't loaded, and a download
-  // needs each photo's URL — which only the loaded items carry. So the ZIP
-  // covers what's in hand, and the studio is told rather than left to count.
-  const downloadSelected = useCallback(async () => {
+  const { bookingId, folders } = useEvent();
+  const downloadFlow = useDownloadFlow();
+  // The flow owns the whole run — pre-flight, progress, cancel — so "a
+  // download is in progress" is simply "the modal is open".
+  const downloading = downloadFlow.state.open;
+
+  /**
+   * Mints archive (unwatermarked) download URLs, chunked at the endpoint's
+   * 500-id ceiling. Injected into the engine rather than called by it, so the
+   * engines stay free of any notion of a tier. A failed chunk is skipped rather
+   * than failing the run: its items fall back to their web copies and are
+   * counted as degraded.
+   */
+  const resolveArchiveUrls = useCallback<ArchiveUrlResolver>(
+    async (planItems, signal) => {
+      const resolved = new Map<string, { url: string; name?: string }>();
+      const CHUNK = 500;
+      for (let i = 0; i < planItems.length; i += CHUNK) {
+        if (signal.aborted) break;
+        const chunk = planItems.slice(i, i + CHUNK);
+        try {
+          const rows = await getArchiveDownloadUrls(
+            bookingId,
+            chunk.map((item) => item.mediaId),
+          );
+          for (const row of rows) resolved.set(row.media_id, { url: row.url, name: row.filename });
+        } catch (err) {
+          console.warn("[download] archive URL chunk failed", err);
+        }
+      }
+      return resolved;
+    },
+    [bookingId],
+  );
+
+  /** One photo's archive URL, for the lightbox's second download button. Null
+   *  when the server declines or the photo has no archive object. */
+  const resolveOneArchiveUrl = useCallback(
+    async (mediaId: string) => {
+      try {
+        const rows = await getArchiveDownloadUrls(bookingId, [mediaId]);
+        const row = rows[0];
+        return row ? { url: row.url, filename: row.filename } : null;
+      } catch (err) {
+        console.warn("[download] archive URL failed", err);
+        return null;
+      }
+    },
+    [bookingId],
+  );
+
+  /**
+   * Download the selection through the same pre-flight, plan and engines the
+   * guest gallery uses — the studio is the single most important consumer of the
+   * archive tier, since pulling their own originals is the reason that tier
+   * exists, so the dashboard does NOT keep a separate download path.
+   *
+   * A whole-view selection can name photos that aren't paged into the grid, and
+   * a download needs each photo's URL, which only the loaded items carry. So the
+   * download covers what's in hand and the studio is told, exactly as before.
+   */
+  const downloadSelected = useCallback(() => {
     const chosen = items.filter((m) => selected.has(m._id) && m.url);
     if (chosen.length === 0 || downloading) return;
     const missing = selected.size - chosen.length;
-    setDownloading(true);
-    try {
-      if (chosen.length === 1 && missing === 0) {
-        notify?.("Downloading 1 photo…");
-        downloadImage(chosen[0].url, chosen[0].filename);
-        clearSelection();
-        return;
-      }
-      const entries = chosen.map((m) => ({ url: m.url, name: m.filename || nameFromUrl(m.url) }));
-      const base = (archiveName || "photos").trim() || "photos";
-      notify?.("Preparing your download…");
-      const { zipped, failed, cancelled } = await streamZipToDisk(entries, `${base}.zip`, (done, total) =>
-        notify?.(`Downloading ${done.toLocaleString("en-IN")}/${total.toLocaleString("en-IN")}…`),
-      );
-      if (cancelled) {
-        notify?.("");
-        return;
-      }
-      const skipped = failed + missing;
-      notify?.(
-        skipped > 0
-          ? `Saved ${zipped.toLocaleString("en-IN")}, ${skipped.toLocaleString("en-IN")} skipped — scroll to load the rest`
-          : "Saved to your downloads",
+    if (chosen.length === 1 && missing === 0) {
+      // One photo: a direct download, no pre-flight. It works on every browser
+      // at any size, so there is nothing to warn about.
+      notify?.("Downloading 1 photo…");
+      void downloadImage(chosen[0].url, chosen[0].filename).catch(() =>
+        notify?.("Download failed — please try again"),
       );
       clearSelection();
-    } catch (err) {
-      console.warn("[downloadSelected] failed", err);
-      notify?.("Download failed — please try again");
-    } finally {
-      setDownloading(false);
+      return;
     }
-  }, [items, selected, downloading, archiveName, notify, clearSelection]);
+    if (missing > 0) {
+      notify?.(
+        `Downloading the ${chosen.length.toLocaleString("en-IN")} loaded photos — scroll to load the rest`,
+      );
+    }
+    const sources: PlanSource[] = chosen.map((m) => ({
+      mediaId: m.media_id ?? m._id,
+      url: m.url,
+      name: m.filename || nameFromUrl(m.url),
+      folderName: folderNameOf(m, folders),
+      bytes: m.size ?? 0,
+      archiveVariant: m.archive_variant ?? null,
+      archiveBytes: m.archive_size ?? null,
+    }));
+    clearSelection();
+    void downloadFlow.start({
+      bookingId,
+      baseName: (archiveName || "photos").trim() || "photos",
+      resolveSources: async () => sources,
+      // The studio owns its own media, so the archive tier is offered whenever
+      // the selection has one. The endpoint still authorises every call.
+      archiveAccess: true,
+      resolveArchiveUrls,
+    });
+  }, [
+    items,
+    selected,
+    downloading,
+    archiveName,
+    notify,
+    clearSelection,
+    folders,
+    bookingId,
+    downloadFlow,
+    resolveArchiveUrls,
+  ]);
 
   // Shortlist toggle for the selection. If every selected photo is already
   // shortlisted the button removes them; otherwise it shortlists all of them.
@@ -526,6 +630,7 @@ export function MediaGrid({
                 }
               : undefined
           }
+          resolveArchiveUrl={resolveOneArchiveUrl}
         />
       )}
 
@@ -537,6 +642,17 @@ export function MediaGrid({
           onConfirm={runDelete}
         />
       )}
+
+      {/* The same pre-flight the guest gallery uses. It stays open for the whole
+          run and becomes the progress surface. */}
+      <DownloadPlanModal
+        flow={downloadFlow}
+        theme={DASHBOARD_MODAL_THEME}
+        // Same escape hatch a blocked guest gets: a studio member stuck on an
+        // iPad sends themselves this event's dashboard link and finishes on a
+        // computer.
+        shareUrl={typeof window !== "undefined" ? window.location.href : undefined}
+      />
     </>
   );
 }

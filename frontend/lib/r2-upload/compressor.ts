@@ -23,6 +23,10 @@ import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
 const QUALITY = 0.80;
+/** Long edge of the High-res archive copy. Lossy, and deliberately labelled
+ *  "High-res" rather than "archive of the original" everywhere a studio can
+ *  read it — a 4096px JPEG is not a negative. */
+const ARCHIVE_DIM = 4096;
 /** Long edge of the gallery-grid derivative. The grid never renders larger than
  *  this, so the 2560px delivery copy is reserved for the lightbox, downloads
  *  and the ZIP. Must stay in sync with the backend's
@@ -57,10 +61,14 @@ export class CompressorPool {
   }
 
   /** Run a compression task, waiting if all slots are busy. */
-  async run(file: File, watermark?: WatermarkRenderer | null): Promise<CompressResult> {
+  async run(
+    file: File,
+    watermark?: WatermarkRenderer | null,
+    variant: UploadVariant = "2560",
+  ): Promise<CompressResult> {
     await this.acquire();
     try {
-      return await compressWithExif(file, watermark);
+      return await compressWithExif(file, watermark, variant);
     } finally {
       this.release();
     }
@@ -94,11 +102,39 @@ export class CompressorPool {
  *  `thumbBlob` is the 480px gallery-grid derivative. Undefined whenever the
  *  thumbnail step failed — callers must upload the photo anyway and simply omit
  *  `thumbnail_url`, exactly as they do for a failed watermark. */
-export type CompressResult = { blob: Blob; thumbBlob?: Blob; width?: number; height?: number };
+export type CompressResult = {
+  /** The 2560px watermarked delivery view. Produced in EVERY variant — a
+   *  quality tier adds an archive object, it never replaces the delivery pair.
+   *  The gallery, the lightbox and the embedding pump all read this. */
+  blob: Blob;
+  /** 480px grid thumbnail, derived from the watermarked view. Every variant. */
+  thumbBlob?: Blob;
+  /** 4096px UNWATERMARKED archive copy — only for variant "4096". The
+   *  "original" variant has none: the engine streams the raw File to B2 itself
+   *  and this function never touches those bytes. */
+  archiveBlob?: Blob;
+  width?: number;
+  height?: number;
+};
 
+/**
+ * The studio's per-run quality choice.
+ *  - "2560"     web delivery only (the default, and what every run did before)
+ *  - "4096"     plus a lossy high-res JPEG archived on B2
+ *  - "original" plus the source file itself, byte for byte, archived on B2
+ */
+export type UploadVariant = "2560" | "4096" | "original";
+
+/**
+ * @param variant Only "4096" changes what this function produces. "2560" and
+ *   "original" both run the byte-for-byte original path below: an original's
+ *   archive copy is the source File, which the engine streams straight to B2
+ *   without decoding it, so the compressor must never see or re-encode it.
+ */
 export async function compressWithExif(
   file: File,
   watermark?: WatermarkRenderer | null,
+  variant: UploadVariant = "2560",
 ): Promise<CompressResult> {
   // Read source EXIF before compression destroys it. Only meaningful for JPEG
   // sources (PNG/HEIC don't carry EXIF the same way). We read just the header
@@ -121,6 +157,10 @@ export async function compressWithExif(
       // Not all JPEGs have EXIF; ignore failures and proceed unmarked.
       exifSegmentBytes = null;
     }
+  }
+
+  if (variant === "4096") {
+    return compressHighRes(file, watermark, exifSegmentBytes);
   }
 
   let compressedBlob: Blob = await imageCompression(file, {
@@ -174,6 +214,118 @@ export async function compressWithExif(
 }
 
 /**
+ * The "4096" variant: one source decode produces BOTH the archive copy and the
+ * delivery view, and the delivery pair comes out identical in kind to what the
+ * 2560 path produces — same 2560px long edge, same q0.80, same watermark, same
+ * thumbnail derived from the watermarked view.
+ *
+ * The order here is load-bearing:
+ *
+ *   1. downscale the source to 4096 -> this IS the archive blob
+ *   2. splice the source EXIF into it
+ *   3. decode it once and draw a 2560px canvas from that bitmap -> the view
+ *   4. watermark the view (never fails the upload)
+ *   5. thumbnail from the WATERMARKED view
+ *   6. splice the source EXIF into the view
+ *
+ * Step 3 costs one extra decode against the 2560 path (~190 ms, entirely hidden
+ * behind the 4096 object's own upload time). Do NOT try to save it by drawing
+ * the thumbnail from the archive bitmap: the archive is unwatermarked by
+ * definition, so 4096 runs would produce unwatermarked thumbnails while every
+ * other run produced watermarked ones — a visible inconsistency in a gallery
+ * that mixes them, and one nobody would think to look for.
+ *
+ * The archive copy is never watermarked and never gets a thumbnail of its own.
+ * It is the studio's copy, not a delivery object.
+ */
+async function compressHighRes(
+  file: File,
+  watermark: WatermarkRenderer | null | undefined,
+  exifSegmentBytes: Uint8Array | null,
+): Promise<CompressResult> {
+  // 1. The archive copy.
+  let archiveBlob: Blob = await imageCompression(file, {
+    maxWidthOrHeight: ARCHIVE_DIM,
+    useWebWorker: true,
+    fileType: "image/jpeg",
+    initialQuality: QUALITY,
+  });
+
+  // 2. Re-inject the source metadata, exactly as the 2560 path does, and with
+  //    the same tolerance: losing metadata beats losing the photo.
+  if (exifSegmentBytes) {
+    try {
+      const bytes = new Uint8Array(await archiveBlob.arrayBuffer());
+      archiveBlob = spliceExifIntoJpeg(bytes, exifSegmentBytes) ?? archiveBlob;
+    } catch {
+      /* keep the un-spliced archive blob */
+    }
+  }
+
+  // 3. The delivery view, drawn from the 4096 bitmap rather than re-decoding
+  //    the (much larger) source a second time.
+  let viewBlob = await downscaleToView(archiveBlob);
+  if (!viewBlob) {
+    // The 4096 blob wouldn't decode. Rather than fail the photo, fall back to
+    // compressing the source straight to 2560 — the delivery pair is never
+    // optional, and this run still has a usable archive copy to upload.
+    console.error("[upload:compress] 4096 blob would not decode; deriving the view from the source instead");
+    viewBlob = await imageCompression(file, {
+      maxWidthOrHeight: MAX_DIM,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+      initialQuality: QUALITY,
+    });
+  }
+
+  // 4. Watermark the VIEW only. Same never-fail-the-upload contract as 2560.
+  if (watermark) {
+    try {
+      viewBlob = await watermark.apply(viewBlob);
+    } catch (err) {
+      console.error("[upload:watermark] compositing failed; uploading without watermark", err);
+    }
+  }
+
+  // 5. Dimensions + thumbnail from the watermarked view, unchanged.
+  const { width, height, thumbBlob } = await measureAndThumbnail(viewBlob);
+
+  // 6. Source EXIF into the view, last, exactly as the 2560 path does.
+  if (exifSegmentBytes) {
+    try {
+      const bytes = new Uint8Array(await viewBlob.arrayBuffer());
+      viewBlob = spliceExifIntoJpeg(bytes, exifSegmentBytes) ?? viewBlob;
+    } catch {
+      /* keep the un-spliced view */
+    }
+  }
+
+  return { blob: viewBlob, thumbBlob, archiveBlob, width, height };
+}
+
+/**
+ * Draw `blob` down to a MAX_DIM long edge and re-encode at QUALITY. Returns
+ * undefined if the blob couldn't be decoded, so the caller can fall back rather
+ * than lose the photo. Never upscales.
+ */
+async function downscaleToView(blob: Blob): Promise<Blob | undefined> {
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch {
+    return undefined;
+  }
+  try {
+    const scale = Math.min(1, MAX_DIM / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    return await drawToJpeg(bmp, w, h, QUALITY);
+  } finally {
+    bmp.close();
+  }
+}
+
+/**
  * Decode the compressed blob once, read its dimensions, and draw the 480px
  * grid thumbnail from the SAME bitmap before closing it. The thumbnail source
  * is the post-watermark blob, so the thumbnail carries the watermark — correct
@@ -215,16 +367,30 @@ async function drawThumbnail(bmp: ImageBitmap): Promise<Blob | undefined> {
   const scale = Math.min(1, THUMB_MAX_DIM / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * scale));
   const h = Math.max(1, Math.round(bmp.height * scale));
+  return drawToJpeg(bmp, w, h, THUMB_QUALITY);
+}
 
-  // OffscreenCanvas where available (keeps the draw off the DOM), same shape as
-  // watermark.ts's makeContext/canvasToJpeg — kept local rather than shared
-  // because those bake in the watermark re-encode quality, not THUMB_QUALITY.
+/**
+ * Draw a bitmap at w×h and encode it as JPEG at `quality`.
+ *
+ * OffscreenCanvas where available (keeps the draw off the DOM), same shape as
+ * watermark.ts's makeContext/canvasToJpeg — kept local rather than shared
+ * because those bake in the watermark re-encode quality. Canvas output carries
+ * no EXIF by construction, which is what the thumbnail wants; the 4096 path's
+ * view re-injects the source EXIF itself afterwards.
+ */
+async function drawToJpeg(
+  bmp: ImageBitmap,
+  w: number,
+  h: number,
+  quality: number,
+): Promise<Blob | undefined> {
   if (typeof OffscreenCanvas !== "undefined") {
     const canvas = new OffscreenCanvas(w, h);
     const ctx = canvas.getContext("2d");
     if (!ctx) return undefined;
     ctx.drawImage(bmp, 0, 0, w, h);
-    return canvas.convertToBlob({ type: "image/jpeg", quality: THUMB_QUALITY });
+    return canvas.convertToBlob({ type: "image/jpeg", quality });
   }
 
   const canvas = document.createElement("canvas");
@@ -235,7 +401,7 @@ async function drawThumbnail(bmp: ImageBitmap): Promise<Blob | undefined> {
   ctx.drawImage(bmp, 0, 0, w, h);
 
   return new Promise<Blob | undefined>((resolve) => {
-    canvas.toBlob((b) => resolve(b ?? undefined), "image/jpeg", THUMB_QUALITY);
+    canvas.toBlob((b) => resolve(b ?? undefined), "image/jpeg", quality);
   });
 }
 

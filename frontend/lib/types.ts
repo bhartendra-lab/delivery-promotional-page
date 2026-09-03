@@ -323,6 +323,16 @@ export type MediaItem = {
    *  uploaded before dimension capture landed — readers must fall back gracefully. */
   width?: number;
   height?: number;
+  /** Bytes of the 2560px delivery object. Summed by the download pre-flight to
+   *  show an EXACT total size before anything is fetched. Absent on media
+   *  uploaded before byte counts were recorded — readers treat that as 0. */
+  size?: number;
+  /** The archive (unwatermarked) tier this photo has, if any. Its URL is
+   *  deliberately NOT in this response — mint it through
+   *  `getArchiveDownloadUrls`, the only endpoint that hands one out. */
+  archive_variant?: "4096" | "original" | null;
+  /** Bytes of that archive object, for sizing an archive download up front. */
+  archive_size?: number;
 };
 
 /**
@@ -537,6 +547,9 @@ export type GetMediaResponse = {
   likedCount?: number;
   /** Count of shortlisted media. Drives the "Shortlisted" filter chip. */
   shortlistedCount?: number;
+  /** Always true for the dashboard (the studio owns its own media); present so
+   *  the same download pre-flight code reads one field in both hosts. */
+  archive_access?: boolean;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */
@@ -614,6 +627,16 @@ export type GuestMediaItem = {
    *  legacy no-reserved-height masonry behavior for those. */
   width?: number;
   height?: number;
+  /** Bytes of the 2560px delivery object. Summed by the download pre-flight to
+   *  show an EXACT total size before anything is fetched. Absent on media
+   *  uploaded before byte counts were recorded — readers treat that as 0. */
+  size?: number;
+  /** The archive (unwatermarked) tier this photo has, if any. Its URL is
+   *  deliberately NOT in this response — mint it through
+   *  `getArchiveDownloadUrls`, the only endpoint that hands one out. */
+  archive_variant?: "4096" | "original" | null;
+  /** Bytes of that archive object, for sizing an archive download up front. */
+  archive_size?: number;
 };
 
 export type GuestMediaResponse = {
@@ -622,6 +645,21 @@ export type GuestMediaResponse = {
   total?: number;
   totalCount?: number;
   folderCounts?: Record<string, number>;
+  /** DERIVED server-side: may THIS viewer choose an archive (unwatermarked)
+   *  tier? Drives whether the download pre-flight renders a tier selector, and
+   *  nothing more — `archive-download-urls` re-checks independently and is the
+   *  real gate. Absent on later pages and on older servers; treat as false. */
+  archive_access?: boolean;
+};
+
+/** One archive object's minted URL, from `archive-download-urls`. Ids the
+ *  server declines or has no archive for are simply absent from the list. */
+export type ArchiveDownloadUrl = {
+  media_id: string;
+  url: string;
+  filename: string;
+  size: number | null;
+  variant?: "4096" | "original";
 };
 
 /** The current guest's restorable session, from `get-guest-session`. */

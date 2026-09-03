@@ -23,6 +23,30 @@ export function classifyHttp(status: number): RetryClassification {
   return "terminal";
 }
 
+/**
+ * True when storage rejected a PUT because its presigned URL had already
+ * expired — R2 answers 403 with an `ExpiredRequest` body.
+ *
+ * Worth separating from every other 403: the rest (a bad signature, a bucket
+ * policy) genuinely are terminal and retrying the same URL is pointless, which
+ * is exactly what `classifyHttp` assumes. An expiry is the one 403 a NEW
+ * signature fixes outright, and it is the common failure on a run left in a
+ * background tab — browsers throttle background timers to about one tick a
+ * minute, so a queued PUT can easily outlive its 900 s window.
+ *
+ * Duck-typed rather than `instanceof R2PutError` so this stays importable by
+ * the unit tests, which cannot resolve the `@/lib` alias.
+ */
+export function isExpiredPresignError(err: unknown): boolean {
+  const e = err as { status?: unknown; body?: unknown } | null;
+  return (
+    !!e &&
+    e.status === 403 &&
+    typeof e.body === "string" &&
+    e.body.includes("ExpiredRequest")
+  );
+}
+
 /** Error-object classifier — network errors are retryable; anything else terminal. */
 export function classifyError(err: unknown): RetryClassification {
   // Fetch network errors throw TypeError ("Failed to fetch", "Network request failed").

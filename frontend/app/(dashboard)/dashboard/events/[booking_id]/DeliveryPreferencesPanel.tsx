@@ -60,20 +60,62 @@ function PreferenceRow({
   const current = value[field.key];
   const isDefault = current === DELIVERY_PREFERENCE_DEFAULTS[field.key];
 
-  // Switch on the descriptor's type even though "toggle" is the only one today
-  // — a future select/number field renders nothing rather than crashing the
-  // panel out from under a host that hasn't been taught about it yet.
-  let control: React.ReactNode;
+  // Switch on the descriptor's type — an unknown type renders nothing rather
+  // than crashing the panel out from under a host that hasn't been taught
+  // about it yet.
+  let control: React.ReactNode = null;
+  // A select's options are full-width rows under the label, not a control
+  // squeezed beside it: each carries a sentence the studio has to actually
+  // read before choosing.
+  let stacked: React.ReactNode = null;
   switch (field.type) {
     case "toggle":
       control = (
         <ToggleSwitch
-          checked={current}
+          checked={current as boolean}
           onChange={(next) => onChange({ ...value, [field.key]: next })}
           disabled={disabled}
           label={field.label}
           describedById={descriptionId}
         />
+      );
+      break;
+    case "select":
+      if (!field.options?.length) return null;
+      stacked = (
+        <div role="radiogroup" aria-label={field.label} className="flex flex-col gap-1.5">
+          {field.options.map((option) => {
+            const selected = current === option.value;
+            return (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
+                  selected
+                    ? "border-[var(--color-brand-navy-deep)] bg-[var(--color-brand-navy-soft)]"
+                    : "border-[var(--color-brand-border)] bg-white"
+                } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name={`${descriptionId}-${field.key}`}
+                  value={option.value}
+                  checked={selected}
+                  disabled={disabled}
+                  onChange={() => onChange({ ...value, [field.key]: option.value } as DeliveryPreferences)}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-brand-navy-deep)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[12.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
+                    {option.label}
+                  </span>
+                  <span className="mt-0.5 block text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
+                    {option.description}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
       );
       break;
     default:
@@ -96,6 +138,7 @@ function PreferenceRow({
         </div>
         {control}
       </div>
+      {stacked}
       {/* Only while the preference is away from its default — the studio sees
           what it just opted in to, at the moment it opts in. */}
       {field.consequence && !isDefault && (

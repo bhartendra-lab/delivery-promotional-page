@@ -9,7 +9,7 @@
 
 import { ApiError, type PresignRequest, type PresignedUpload } from "./api";
 import { ensureGuestToken, refreshGuest } from "./guest-auth";
-import type { GuestMediaResponse, GuestSession } from "./types";
+import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -187,6 +187,33 @@ export function getGuestMedia(
       body: JSON.stringify({ media_ids: mediaIds }),
     },
   );
+}
+
+/**
+ * Mint download URLs for the unwatermarked archive copies of `mediaIds`.
+ *
+ * The ONLY way a client ever obtains an `archive_url`: `get-media` deliberately
+ * does not project it, because a URL in a list response is readable from the
+ * network tab by any guest and these objects are protected by nothing but an
+ * unguessable key. The endpoint re-derives authorisation on every call — the
+ * studio's `archive_download_access` preference, and for a non-host guest an
+ * intersection with their own face-matched set — so the `archive_access` flag
+ * on `get-media` is advisory UI state, never the gate.
+ *
+ * Ids the server declines, or that have no archive object, are silently absent
+ * from the result; the caller downloads their web copy instead and reports them
+ * as degraded. Capped at 500 ids per call — chunk above that.
+ */
+export function getArchiveDownloadUrls(uid: string, bookingId: string, mediaIds: string[]) {
+  return guestFetch<{ media: ArchiveDownloadUrl[] }>(
+    uid,
+    `/deliverables/archive-download-urls/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: mediaIds }),
+    },
+  ).then((res) => res.media ?? []);
 }
 
 /** Like / unlike a photo. `mediaId` is the Media `media_id` field, sent in the

@@ -1,5 +1,6 @@
 import { getToken, clearToken, getCompany } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
+import type { UploadVariant } from "./r2-upload/compressor";
 import type {
   PlansResponse,
   PublicCoupon,
@@ -13,6 +14,7 @@ import type {
   CheckoutPreview,
 } from "./billing-types";
 import type {
+  ArchiveDownloadUrl,
   BookingDetail,
   BookingDetailResponse,
   BookingsListResponse,
@@ -810,6 +812,13 @@ export type MediaMetadataItem = {
    *  for videos and whenever the client's thumbnail step failed. */
   thumbnail_url?: string;
   thumbnail_size?: number;
+  /** Archive copy, on a High-res or Original run. All absent on a "2560" run
+   *  and whenever the archive upload failed — the photo is delivered either
+   *  way, so their absence means "no archive object exists". */
+  archive_variant?: "4096" | "original";
+  archive_url?: string;
+  archive_size?: number;
+  archive_checksum?: string;
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published
@@ -862,6 +871,11 @@ export type PresignRequest = {
    *  returned on the same response entry. Opt-in: guest selfies reuse this
    *  endpoint and must never get one. */
   with_thumbnail?: boolean;
+  /** The run's quality tier. Omitted means "2560". "4096" additionally signs a
+   *  single PUT to B2 for the archive copy; "original" signs none here and uses
+   *  the multipart endpoints below instead. Anything but "2560" is plan-gated
+   *  server-side and answers 402 below a 500 GB plan. */
+  variant?: UploadVariant;
 };
 export type PresignedUpload = {
   key: string;
@@ -874,6 +888,16 @@ export type PresignedUpload = {
   thumb_key?: string;
   thumb_presigned_url?: string;
   thumb_public_url?: string;
+  /** Present only for `variant: "4096"` — a single PUT straight to B2.
+   *  `archive_public_url` is the Cloudflare-proxied host, never a raw B2 one. */
+  archive_key?: string;
+  archive_presigned_url?: string;
+  archive_public_url?: string;
+  /** The EXACT headers `archive_presigned_url` was signed with. They must be
+   *  echoed back verbatim on the PUT or B2 answers SignatureDoesNotMatch — and
+   *  they cannot be hardcoded here the way the delivery PUT's are, because
+   *  Content-Disposition embeds a filename the backend sanitises. */
+  archive_headers?: Record<string, string>;
 };
 export function presignUploads(bookingId: string, files: PresignRequest[]) {
   return request<{ uploads: PresignedUpload[] }>(
@@ -883,6 +907,92 @@ export function presignUploads(bookingId: string, files: PresignRequest[]) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ files }),
     },
+  );
+}
+
+/* ── Archive multipart upload — the "original" quality tier ────────────────
+ *
+ * Four small JSON calls wrapping B2's multipart control plane. Not one of them
+ * carries image bytes: the browser PUTs each part straight to B2 with a URL
+ * signed by `signArchiveParts`. The backend's whole role is issuing ids and
+ * signatures and assembling a list of ETags the browser collected.
+ */
+
+export type ArchiveMultipartCreated = {
+  /** The archive object key, derived server-side from the delivery key so the
+   *  two share a nonce. Pass it back to every subsequent call. */
+  key: string;
+  upload_id: string;
+  part_size: number;
+  part_count: number;
+};
+
+/**
+ * Begin a multipart upload for one file's archive copy.
+ *
+ * @param key the DELIVERY key this file was already presigned for — the
+ *   archive key is derived from it, and the derivation re-checks that it
+ *   belongs to this company and booking.
+ */
+export function createArchiveMultipart(
+  bookingId: string,
+  body: { key: string; filename: string; size: number; content_type?: string },
+) {
+  return request<ArchiveMultipartCreated>(
+    `/deliverables/archive-multipart/create/${encodeURIComponent(bookingId)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Sign a WINDOW of part URLs, not the whole file. Signatures last 900 seconds
+ * and a run lasts hours, so the engine asks for parts just ahead of where it is
+ * uploading and re-asks for any that go stale while queued. Re-signing a part
+ * number already signed is expected and safe.
+ */
+export function signArchiveParts(
+  bookingId: string,
+  body: { key: string; upload_id: string; part_numbers: number[] },
+) {
+  return request<{ parts: Array<{ part_number: number; url: string }> }>(
+    `/deliverables/archive-multipart/sign-parts/${encodeURIComponent(bookingId)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Assemble the parts. The backend HeadObjects the result and rejects the
+ * completion if the assembled ContentLength doesn't match `size`, so a
+ * truncated or mis-assembled upload fails here rather than being recorded as a
+ * good archive.
+ */
+export function completeArchiveMultipart(
+  bookingId: string,
+  body: {
+    key: string;
+    upload_id: string;
+    size: number;
+    parts: Array<{ PartNumber: number; ETag: string }>;
+  },
+) {
+  return request<{ archive_public_url: string; size: number }>(
+    `/deliverables/archive-multipart/complete/${encodeURIComponent(bookingId)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Discard an incomplete multipart upload. B2 bills the parts of an abandoned
+ * upload as stored bytes indefinitely and nothing in the product would ever
+ * surface them, so this is called on cancel and on terminal failure.
+ */
+export function abortArchiveMultipart(
+  bookingId: string,
+  body: { key: string; upload_id: string },
+) {
+  return request<{ aborted: boolean }>(
+    `/deliverables/archive-multipart/abort/${encodeURIComponent(bookingId)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
   );
 }
 
@@ -953,6 +1063,25 @@ export function getMediaIdsForView(bookingId: string, opts?: MediaViewOptions): 
   return request<{ ids: string[] }>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}?${params.toString()}`,
   ).then((res) => res.ids ?? []);
+}
+
+/**
+ * POST /deliverables/archive-download-urls/:booking_id — download URLs for the
+ * unwatermarked archive copies of `mediaIds`.
+ *
+ * Same endpoint the guest gallery uses, and the ONLY place an `archive_url` is
+ * handed out: `get-media` deliberately does not project it. A studio member is
+ * never gated by `archive_download_access` (they own the media), but the check
+ * still happens server-side rather than being assumed here.
+ *
+ * Ids with no archive object are silently absent from the result. Capped at 500
+ * per call — chunk above that.
+ */
+export function getArchiveDownloadUrls(bookingId: string, mediaIds: string[]) {
+  return request<{ media: ArchiveDownloadUrl[] }>(
+    `/deliverables/archive-download-urls/${encodeURIComponent(bookingId)}`,
+    { method: "POST", body: JSON.stringify({ media_ids: mediaIds }) },
+  ).then((res) => res.media ?? []);
 }
 
 /**
@@ -1195,6 +1324,77 @@ export async function putBlobToPresignedUrl(
       body,
     );
   }
+}
+
+/**
+ * PUT the 4096 archive blob to its presigned B2 URL.
+ *
+ * Separate from putBlobToPresignedUrl because the archive object's headers are
+ * neither the delivery object's nor knowable to this client: the backend signs
+ * a Content-Disposition containing a filename it sanitised, so the exact header
+ * map comes back with the URL and is echoed here verbatim. Sending anything
+ * else is a SignatureDoesNotMatch.
+ */
+export async function putArchiveBlob(
+  presignedUrl: string,
+  blob: Blob,
+  headers: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(presignedUrl, { method: "PUT", headers, body: blob, signal });
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new R2PutError(
+      res.status,
+      `B2 archive PUT failed: ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 240)}` : ""}`,
+      body,
+    );
+  }
+}
+
+/**
+ * PUT one multipart part and return its ETag.
+ *
+ * `part` is a `Blob` from `file.slice()` — a lazy view over bytes still on
+ * disk. `fetch` streams it from there, so this never materialises the slice in
+ * memory and an "original" upload costs approximately no heap however large the
+ * file is. Do not read the slice before passing it in.
+ *
+ * The ETag is read off the RESPONSE, which only works because the bucket's CORS
+ * rule names `etag` in exposeHeaders (see src/scripts/b2-cors.py). A null here
+ * means that rule is missing or was replaced, not that the upload failed.
+ */
+export async function putArchivePart(
+  presignedUrl: string,
+  part: Blob,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetch(presignedUrl, { method: "PUT", body: part, signal });
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new R2PutError(
+      res.status,
+      `B2 part PUT failed: ${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 240)}` : ""}`,
+      body,
+    );
+  }
+  const etag = res.headers.get("ETag");
+  if (!etag) {
+    throw new Error(
+      "B2 did not expose an ETag on the part upload — the bucket's CORS rule is missing 'etag' in exposeHeaders (run src/scripts/b2-cors.py)",
+    );
+  }
+  return etag;
 }
 
 /** Read the cached company id once — used for upload UI display only. */

@@ -469,10 +469,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
               files: plan.files,
               targetFolderId: plan.targetFolderId,
               targetFolderName: plan.targetFolderName,
+              variant: plan.variant,
             });
           } else {
             void engine.startUpload({
               groups: plan.groups,
+              variant: plan.variant,
               existingFolders: folders.map((f) => ({ name: f.name, id: f._id })),
               onFoldersEnsured: (ensured) => {
                 setFolders((prev) => {

@@ -4,9 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
-import { downloadMany, nameFromUrl, streamZipToDisk, type ZipEntry } from "@/lib/media-actions";
+import { downloadMany, nameFromUrl } from "@/lib/media-actions";
+import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
+import type { PlanSource } from "@/lib/download/plan";
+import type { ArchiveUrlResolver } from "@/lib/download/engines";
+import { DownloadPlanModal } from "@/components/event/download/DownloadPlanModal";
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
@@ -24,6 +28,21 @@ import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSumm
 import { IconHeart, IconGrid, IconHome, IconLock } from "@/components/ui/icons";
 
 const PAGE = 60;
+/**
+ * The custom folder a photo should be filed under when downloading. A photo can
+ * belong to several folders (membership is an array); the first one the folder
+ * registry knows about wins, and a photo in none goes to the root. Read from the
+ * MEDIA DOCUMENT rather than from whatever folder view happened to be open,
+ * because a selection can span folders — the `directory` engine mirrors this as
+ * a subdirectory, which is what stops two DSC_4821.jpg from colliding.
+ */
+function folderNameOf(m: GuestMediaItem, folders: CustomFolder[]): string {
+  for (const id of m.custom_folder_ids ?? []) {
+    const name = folders.find((f) => f._id === id)?.name?.trim();
+    if (name) return name;
+  }
+  return "";
+}
 /** Guests who like this many photos in-session get the "loving the gallery?" nudge. */
 const LIKE_NUDGE_THRESHOLD = 3;
 /** Breathing room after the gallery first paints before the gentle load nudge. */
@@ -153,14 +172,18 @@ export function LoungeGallery({
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [zipping, setZipping] = useState(false);
-  /** Live download progress. Deliberately NOT routed through `toast`: that one
-   *  self-dismisses after 2.6s, so any single photo slower than that made the
-   *  progress line blink out and back on the next tick. This element stays up
-   *  for the whole run and owns the cancel affordance. */
-  const [download, setDownload] = useState<{ phase: "preparing" | "running"; done: number; total: number } | null>(null);
-  const [confirmCancelDownload, setConfirmCancelDownload] = useState(false);
-  const downloadAbort = useRef<AbortController | null>(null);
+  /**
+   * The bulk-download pre-flight + progress surface. Every bulk download in this
+   * gallery goes through it — the modal is where the plan is shown, the tier is
+   * chosen and progress lives, so there is no separate progress toast any more.
+   * Single-photo downloads still bypass it entirely.
+   */
+  const downloadFlow = useDownloadFlow();
+  const zipping = downloadFlow.state.open;
+  /** Server-derived: may this viewer pick an unwatermarked archive tier? Comes
+   *  back on the first page of get-media. Advisory only — the URL endpoint
+   *  re-checks and is the real gate. */
+  const [archiveAccess, setArchiveAccess] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [nudge, setNudge] = useState<NudgeReason | null>(null);
   /** One action-triggered nudge (download OR likes) per page load. */
@@ -286,6 +309,7 @@ export function LoungeGallery({
         const total = typeof res.total === "number" ? res.total : media.length;
         setTotalForView(total);
         if (!likedView && folder === ALL) setAllCount(total);
+        setArchiveAccess(res.archive_access === true);
         seedLikes(media);
       } catch (err) {
         if (cancelled) return;
@@ -485,87 +509,83 @@ export function LoungeGallery({
     setSelectAll(true);
   }, []);
 
-  // Build a ZIP in the browser and stream it to disk (client-zip + File System
-  // Access API, Blob fallback). `getEntries` resolves the {url,name} list (may
-  // paginate); the toast carries progress, and `zipping` guards against re-entry.
-  const runZip = useCallback(
-    async (getEntries: (signal: AbortSignal) => Promise<ZipEntry[]>, filename: string) => {
-      if (zipping) return;
-      const ctrl = new AbortController();
-      downloadAbort.current = ctrl;
-      setZipping(true);
-      setToast(null);
-      // "Preparing" covers the save dialog and the entry walk — everything
-      // before the first photo lands. It can be several seconds on a whole
-      // gallery, which is exactly when a bare spinner feels broken.
-      setDownload({ phase: "preparing", done: 0, total: 0 });
-      try {
-        // Pass the provider so the "Save as" dialog opens on the click gesture,
-        // before the (possibly slow) full-gallery pagination runs.
-        const { zipped, failed, cancelled, aborted } = await streamZipToDisk(
-          () => getEntries(ctrl.signal),
-          filename,
-          (done, total) => setDownload({ phase: "running", done, total }),
-          ctrl.signal,
-        );
-        if (cancelled) return; // save dialog dismissed — nothing had started
-        if (aborted) {
-          setToast("Download cancelled");
-          return;
+  /**
+   * Mints archive (unwatermarked) download URLs, chunked at the endpoint's
+   * 500-id ceiling. Passed to the engine rather than called by it, so the
+   * engines stay free of any notion of a tier.
+   *
+   * A chunk that fails is logged and skipped rather than failing the run: the
+   * items it covered fall back to their web copies and are reported as
+   * degraded, which is exactly what happens to a photo with no archive object.
+   */
+  const resolveArchiveUrls = useCallback<ArchiveUrlResolver>(
+    async (items, signal) => {
+      const resolved = new Map<string, { url: string; name?: string }>();
+      const CHUNK = 500;
+      for (let i = 0; i < items.length; i += CHUNK) {
+        if (signal.aborted) break;
+        const chunk = items.slice(i, i + CHUNK);
+        try {
+          const rows = await getArchiveDownloadUrls(
+            uniqueIdentifier,
+            bookingId,
+            chunk.map((item) => item.mediaId),
+          );
+          for (const row of rows) resolved.set(row.media_id, { url: row.url, name: row.filename });
+        } catch (err) {
+          if (err instanceof GuestAuthError) throw err;
+          console.warn("[download] archive URL chunk failed", err);
         }
-        setToast(
-          zipped === 0
-            ? "No photos to download"
-            : failed > 0
-              ? `Saved ${zipped.toLocaleString("en-IN")} — ${failed.toLocaleString("en-IN")} couldn't be fetched`
-              : "Saved to your downloads",
-        );
-        if (zipped > 0) triggerNudge("download");
-      } catch (e) {
-        if (ctrl.signal.aborted) {
-          setToast("Download cancelled");
-          return;
-        }
-        if (e instanceof GuestAuthError) {
-          onReauth();
-          return;
-        }
-        console.warn("[runZip] failed", e);
-        setToast("Download failed — please try again");
-      } finally {
-        downloadAbort.current = null;
-        setZipping(false);
-        setDownload(null);
-        setConfirmCancelDownload(false);
       }
+      return resolved;
     },
-    [zipping, onReauth, triggerNudge],
+    [uniqueIdentifier, bookingId],
   );
 
-  const cancelDownload = useCallback(() => {
-    downloadAbort.current?.abort();
-    setConfirmCancelDownload(false);
-  }, []);
-
-  // A refresh or a closed tab discards an in-flight archive — the ZIP only
-  // exists in this page. The browser owns the wording of this prompt; all we
-  // control is that it fires. If the guest leaves anyway, `pagehide` aborts so
-  // the half-written file on disk is discarded rather than left behind.
+  // The post-download review nudge. The modal owns the run now, so the nudge
+  // fires off its outcome rather than off a resolved promise — and only when
+  // photos actually landed, so a cancelled or wholly-failed run doesn't ask the
+  // guest for a review.
+  const downloadSaved = downloadFlow.state.result?.saved ?? 0;
+  const downloadFinished = downloadFlow.state.phase === "finished";
   useEffect(() => {
-    if (!zipping) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-      return "";
-    };
-    const onPageHide = () => downloadAbort.current?.abort();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    window.addEventListener("pagehide", onPageHide);
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      window.removeEventListener("pagehide", onPageHide);
-    };
-  }, [zipping]);
+    if (downloadFinished && downloadSaved > 0) triggerNudge("download");
+  }, [downloadFinished, downloadSaved, triggerNudge]);
+
+  /** One photo's archive URL, for the lightbox's tier choice. Null when the
+   *  server declines or the photo has no archive object — the caller falls back
+   *  to the web copy rather than failing. */
+  const resolveOneArchiveUrl = useCallback(
+    async (mediaId: string) => {
+      try {
+        const rows = await getArchiveDownloadUrls(uniqueIdentifier, bookingId, [mediaId]);
+        const row = rows[0];
+        return row ? { url: row.url, filename: row.filename } : null;
+      } catch (err) {
+        if (err instanceof GuestAuthError) onReauth();
+        else console.warn("[download] archive URL failed", err);
+        return null;
+      }
+    },
+    [uniqueIdentifier, bookingId, onReauth],
+  );
+
+  /** Open the download pre-flight. Every bulk download in this gallery goes
+   *  through here; the modal owns the plan, the tier, progress and cancelling. */
+  const startDownload = useCallback(
+    (baseName: string, resolveSources: (signal: AbortSignal) => Promise<PlanSource[]>) => {
+      if (zipping) return;
+      setToast(null);
+      void downloadFlow.start({
+        bookingId,
+        baseName,
+        resolveSources,
+        archiveAccess,
+        resolveArchiveUrls,
+      });
+    },
+    [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls],
+  );
 
   // Per-tile hover download (item 7) — same single-photo path as the select
   // bar's one-item case, just triggered straight from the tile instead of
@@ -580,19 +600,37 @@ export function LoungeGallery({
     [triggerNudge],
   );
 
-  async function downloadSelected() {
+  /** One media row as the download planner wants it. `folderName` comes from the
+   *  media document (via the folder registry), never from whatever folder view
+   *  happened to be open — a selection can span custom folders, and the
+   *  `directory` engine mirrors these as subdirectories. */
+  const toPlanSource = useCallback(
+    (m: GuestMediaItem): PlanSource => ({
+      mediaId: m.media_id,
+      url: m.url,
+      name: nameFromUrl(m.url),
+      folderName: folderNameOf(m, folders),
+      bytes: m.size ?? 0,
+      archiveVariant: m.archive_variant ?? null,
+      archiveBytes: m.archive_size ?? null,
+    }),
+    [folders],
+  );
+
+  function downloadSelected() {
     // Select-all with pages still unfetched: walk the same scope the grid is
     // showing and subtract the exclusions, so photos infinite scroll never
-    // reached are in the ZIP. `hasMore` guarantees at least a full page is
+    // reached are included. `hasMore` guarantees at least a full page is
     // loaded, so this branch can never resolve to the single-photo case below.
     if (selectAll && hasMore) {
-      const name = filenameForScope(selectedCount);
+      const name = nameForScope(selectedCount);
       const excludedIds = excluded;
+      const scope = currentScope();
       exitSelect();
-      void runZip(async (signal) => {
-        const all = await fetchMediaEntriesForZip(currentScope(), signal);
+      startDownload(name, async (signal) => {
+        const all = await fetchPlanSources(scope, signal);
         return excludedIds.size ? all.filter((e) => !excludedIds.has(e._id)) : all;
-      }, name);
+      });
       return;
     }
 
@@ -602,25 +640,32 @@ export function LoungeGallery({
       ? displayed.filter((i) => !excluded.has(i._id))
       : displayed.filter((i) => selected.has(i._id));
     if (!chosen.length) return;
-    // One photo → straight download; several → a single browser-built ZIP.
+    // One photo → a straight download, no pre-flight: it works on every browser
+    // at any size, so there is nothing to warn about.
     if (chosen.length === 1) {
       setToast("Downloading 1 photo…");
-      await downloadMany([chosen[0].url]);
-      setToast("Download started");
+      void downloadMany([chosen[0].url]).then(() => setToast("Download started"));
       exitSelect();
       triggerNudge("download");
       return;
     }
-    const entries = chosen.map((i) => ({ _id: i._id, url: i.url, name: nameFromUrl(i.url) }));
+    const sources = chosen.map(toPlanSource);
     exitSelect();
-    void runZip(async () => entries, filenameForScope(entries.length));
+    startDownload(nameForScope(sources.length), async () => sources);
   }
 
-  // Paginate the guest media API into ZIP entries. `_id` rides along so a
-  // select-all download can drop its exclusions without a second request.
-  const fetchMediaEntriesForZip = useCallback(
-    async (scope: MediaScope, signal?: AbortSignal) => {
-      const entries: { _id: string; url: string; name: string }[] = [];
+  /**
+   * Paginate the guest media API into plan sources. `_id` rides along so a
+   * select-all download can drop its exclusions without a second request.
+   *
+   * This walk now runs BEFORE the modal shows its plan rather than after the
+   * save picker opens: the pre-flight has to state an exact size, and resolving
+   * first is also what keeps the picker inside the confirm click's user
+   * activation (see useDownloadFlow).
+   */
+  const fetchPlanSources = useCallback(
+    async (scope: MediaScope, signal?: AbortSignal): Promise<(PlanSource & { _id: string })[]> => {
+      const entries: (PlanSource & { _id: string })[] = [];
       const seen = new Set<string>();
       const PAGE_SIZE = 500;
       for (let skip = 0; ; skip += PAGE_SIZE) {
@@ -643,7 +688,7 @@ export function LoungeGallery({
         for (const m of media) {
           if (seen.has(m._id)) continue;
           seen.add(m._id);
-          entries.push({ _id: m._id, url: m.url, name: nameFromUrl(m.url) });
+          entries.push({ _id: m._id, ...toPlanSource(m) });
         }
         // Stop on an empty or short page only — don't trust `total` for stopping;
         // the API may report a capped total (e.g. 1000) even when more media exists.
@@ -651,7 +696,7 @@ export function LoungeGallery({
       }
       return entries;
     },
-    [uniqueIdentifier, bookingId, mediaIds],
+    [uniqueIdentifier, bookingId, mediaIds, toPlanSource],
   );
 
   /** The scope of what the grid is currently showing. Liked wins over tab and
@@ -665,17 +710,18 @@ export function LoungeGallery({
     return folder === ALL ? { mine } : { mine, customFolderId: folder };
   }, [likedView, effTab, folder]);
 
-  /** ZIP filename for the active view, naming the scope and the count. */
-  const filenameForScope = useCallback(
+  /** Base name for the active view's download, naming the scope and the count.
+   *  The engines append ".zip" (or " - part i of n.zip"). */
+  const nameForScope = useCallback(
     (count: number) => {
       const base = (event.event_name || "gallery").trim() || "gallery";
       const n = `(${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"})`;
-      if (likedView) return `${base} - liked ${n}.zip`;
+      if (likedView) return `${base} - liked ${n}`;
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
-        return `${base} - ${folderName} ${n}.zip`;
+        return `${base} - ${folderName} ${n}`;
       }
-      return `${base} ${n}.zip`;
+      return `${base} ${n}`;
     },
     [event.event_name, likedView, folder, folders],
   );
@@ -685,8 +731,9 @@ export function LoungeGallery({
   // Photos + All quietly zipped the entire gallery; `currentScope` is now the
   // single source of truth for both this and the select-all download.
   const downloadGalleryZip = useCallback(() => {
-    void runZip((signal) => fetchMediaEntriesForZip(currentScope(), signal), filenameForScope(totalForView));
-  }, [runZip, fetchMediaEntriesForZip, currentScope, filenameForScope, totalForView]);
+    const scope = currentScope();
+    startDownload(nameForScope(totalForView), (signal) => fetchPlanSources(scope, signal));
+  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -1130,6 +1177,8 @@ export function LoungeGallery({
           onToggleSelect={toggleSel}
           onToast={setToast}
           canDownload={canDownload}
+          archiveAccess={archiveAccess}
+          resolveArchiveUrl={resolveOneArchiveUrl}
           onDownloaded={() => triggerNudge("download")}
         />
       )}
@@ -1172,103 +1221,16 @@ export function LoungeGallery({
         />
       )}
 
-      {/* Download progress. Persistent for the whole run — a self-dismissing
-          toast was what made this line blink out mid-download. Sits in the
-          select bar's slot; the two are mutually exclusive, since starting a
-          download exits select mode. */}
-      {download && (
-        <div className="fixed inset-x-0 bottom-[84px] z-40 flex justify-center px-5 lg:bottom-6">
-          <div className="flex w-full max-w-[460px] flex-col gap-2 rounded-2xl px-4 py-3" style={{ background: t.card, boxShadow: t.shadow }}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
-                  style={{ color: t.brand }}
-                  aria-hidden
-                />
-                {/* tabular-nums so the counter keeps a fixed width — proportional
-                    digits reflow the label on every tick, which reads as jitter. */}
-                <span
-                  className="truncate text-[12.5px] font-extrabold tabular-nums"
-                  style={{ color: t.text }}
-                  aria-live="polite"
-                >
-                  {download.phase === "preparing"
-                    ? "Preparing download…"
-                    : `Downloading ${download.done.toLocaleString("en-IN")}/${download.total.toLocaleString("en-IN")}…`}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setConfirmCancelDownload(true)}
-                className="shrink-0 cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-bold"
-                style={{ color: t.muted, border: `1px solid ${t.border}` }}
-              >
-                Cancel
-              </button>
-            </div>
-            {/* Indeterminate while preparing (no total yet), real once photos land. */}
-            <span className="block h-1 w-full overflow-hidden rounded-full" style={{ background: t.sunken }}>
-              <span
-                className="block h-full rounded-full transition-[width] duration-300 ease-out"
-                style={{
-                  background: t.brand,
-                  width:
-                    download.phase === "running" && download.total > 0
-                      ? `${Math.min(100, Math.round((download.done / download.total) * 100))}%`
-                      : "18%",
-                }}
-              />
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Stopping a download throws away everything fetched so far, so it asks
-          first — the guest may have been waiting on it for minutes. */}
-      {confirmCancelDownload && (
-        <div
-          className="dash-fade fixed inset-0 z-[65] flex items-center justify-center p-5"
-          style={{ background: "rgba(31,26,14,0.55)" }}
-          onClick={() => setConfirmCancelDownload(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-dl-title"
-            className="popup-pop w-full max-w-[360px] rounded-3xl p-6"
-            style={{ background: t.card, fontFamily: t.font, boxShadow: t.shadow }}
-          >
-            <div id="cancel-dl-title" className="text-[17px] font-extrabold" style={{ color: t.text }}>
-              Cancel this download?
-            </div>
-            <p className="mt-1.5 text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
-              {download?.phase === "running" && download.total > 0
-                ? `${download.done.toLocaleString("en-IN")} of ${download.total.toLocaleString("en-IN")} photos have been fetched. Stopping now discards them — you'd need to start over.`
-                : "Stopping now discards everything fetched so far — you'd need to start over."}
-            </p>
-            <div className="mt-5 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={cancelDownload}
-                className="cursor-pointer rounded-full py-3 text-[13px] font-extrabold"
-                style={{ background: t.error, color: "#fff" }}
-              >
-                Cancel download
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmCancelDownload(false)}
-                className="cursor-pointer rounded-full py-3 text-[13px] font-bold"
-                style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
-              >
-                Keep downloading
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The bulk-download pre-flight, and then the progress surface for the
+          same run — one component, deliberately not closed when the download
+          starts. A multi-hour download deserves better than a toast, and a
+          batched download structurally needs somewhere to click each part. */}
+      <DownloadPlanModal
+        flow={downloadFlow}
+        theme={t}
+        shareUrl={typeof window !== "undefined" ? window.location.href : undefined}
+        onSelectFewer={selectAllInView}
+      />
 
       {/* toast */}
       {toast && (

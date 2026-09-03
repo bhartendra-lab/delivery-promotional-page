@@ -54,9 +54,38 @@ export type UploadRecord = {
    *  the grid transparently falls back to `publicUrl`. */
   thumbnailUrl?: string;
   /** Decoded pixel dimensions of the compressed photo (set alongside
-   *  `status: "compressed"`); absent if the browser couldn't decode them. */
+   *  `status: "compressed"`); absent if the browser couldn't decode them.
+   *  ALWAYS the delivery view's dimensions, in every variant — the archive
+   *  copy's are never recorded, so nothing in the grid's reserved-height maths
+   *  changes when a run switches tier. */
   width?: number;
   height?: number;
+  /* ── Archive copy (the "4096" and "original" quality tiers) ──────────────
+   * All absent on a "2560" run, and cleared again whenever an archive upload
+   * fails — the photo still delivers, and create-media simply omits them. */
+  /** Public URL of the archive object on B2, set after its upload succeeds. */
+  /** Which tier produced the archive object. Persisted ALONGSIDE archiveUrl —
+   *  not read off the engine's current run — because a metadata flush can
+   *  happen on a later mount (resumePendingMetadata) when the engine has no
+   *  run and its variant has reset to the "2560" default. */
+  archiveVariant?: "4096" | "original";
+  archiveUrl?: string;
+  /** Bytes of the archive object. For "original" this is `fileSize`. */
+  archiveSize?: number;
+  /** SHA-256 of the archive bytes, computed in the browser by streaming the
+   *  file in slices. Client-asserted: nothing verifies it end to end, because
+   *  doing so would mean reading the bytes back through our own server. */
+  archiveChecksum?: string;
+  /* ── Multipart progress ("original" only) ────────────────────────────────
+   * These are what make a resumed run pick up MID-FILE instead of restarting a
+   * 75 MB upload from byte zero, so they are persisted as each part lands. */
+  uploadId?: string;
+  partSize?: number;
+  completedParts?: Array<{ n: number; etag: string }>;
+  /** The archive object's key on B2, derived server-side from `key` at
+   *  multipart-create time. Persisted so a resumed run can carry on with — and
+   *  a cancelled one can abort — an upload it did not itself start. */
+  archiveKey?: string;
   attempts: number;
   lastError?: string;
   updatedAt: number;
@@ -137,4 +166,16 @@ export type EngineProgress = {
    * left off without re-compressing or re-uploading completed files.
    */
   paused: boolean;
+  /**
+   * How many photos cancel() is still waiting on before it stops.
+   *
+   * Cancelling does not cut records off mid-upload: a photo's view, thumbnail
+   * and archive go up in parallel, and stopping between them would leave a
+   * gallery photo at the Original tier with no original. Those already in
+   * flight are finished first, so cancel is not instant on an archive-tier run
+   * — this is what lets the UI say so instead of appearing to hang.
+   *
+   * 0 whenever a cancel is not in its grace phase.
+   */
+  finishingInFlight: number;
 };

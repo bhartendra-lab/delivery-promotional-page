@@ -5,11 +5,8 @@ import { useChrome } from "@/components/dashboard/ChromeContext";
 import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
 import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate";
-import {
-  changedPreferenceKeys,
-  DELIVERY_PREFERENCE_FIELDS,
-  type DeliveryPreferences,
-} from "@/lib/delivery-preferences";
+import type { UploadVariant } from "@/lib/r2-upload/compressor";
+import { changedPreferenceKeys, type DeliveryPreferences } from "@/lib/delivery-preferences";
 import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
 import {
   IconUpload,
@@ -22,9 +19,50 @@ import {
 } from "./icons";
 
 /** What the modal hands back once the user commits a selection. */
-export type UploadPlan =
+export type UploadPlan = (
   | { mode: "grouped"; groups: Array<{ name: string; files: File[] }> }
-  | { mode: "single"; files: File[]; targetFolderId: string; targetFolderName: string };
+  | { mode: "single"; files: File[]; targetFolderId: string; targetFolderName: string }
+) & {
+  /** The run's quality tier. Fixed for the whole run once it starts. */
+  variant: UploadVariant;
+};
+
+/** GB of plan storage a company needs before the archive tiers unlock. Mirrors
+ *  ARCHIVE_TIER_MIN_STORAGE_GB in the backend's billing service, which is the
+ *  gate that actually counts — this constant only decides what the UI offers. */
+const ARCHIVE_TIER_MIN_STORAGE_GB = 500;
+
+/** The three quality tiers, in the order they're offered.
+ *
+ *  The wording is deliberate and should not be softened. "High-res" is a lossy
+ *  4096px JPEG, not an archive of the original, and a studio must not come away
+ *  believing it has their negatives — only "Original file" means the camera
+ *  file, byte for byte. */
+const QUALITY_TIERS: Array<{
+  value: UploadVariant;
+  label: string;
+  detail: string;
+  archive: boolean;
+}> = [
+  {
+    value: "2560",
+    label: "QHD (2560px)",
+    detail: "",
+    archive: false,
+  },
+  {
+    value: "4096",
+    label: "Cinema 4K (4096px)",
+    detail: "",
+    archive: true,
+  },
+  {
+    value: "original",
+    label: "Original file",
+    detail: "",
+    archive: true,
+  },
+];
 
 /** A destination folder the picker can send photos to. */
 export type UploadFolderOption = { id: string; name: string };
@@ -151,6 +189,26 @@ export function UploadModal({
   // null = not yet estimated; number = estimated GB. Re-derived on selection change.
   const [estimateGB, setEstimateGB] = useState<number | null>(null);
   const [estimating, setEstimating] = useState(false);
+  /**
+   * The run's quality tier. Defaults to Web — the tier every run used before
+   * this existed, and the only one that costs a studio nothing extra.
+   *
+   * Archive tiers need a 500 GB+ plan. `limit` is the plan's storage cap in GB
+   * on a storage-based plan (see DlpUsage), so this mirrors the backend's gate;
+   * the backend is what actually enforces it, on every presign and every
+   * multipart call.
+   */
+  const [selectedVariant, setSelectedVariant] = useState<UploadVariant>("2560");
+  const archiveAllowed =
+    storageGated && !dlpLoading && (dlpUsage?.limit ?? 0) >= ARCHIVE_TIER_MIN_STORAGE_GB;
+  /**
+   * What the run will actually use. Derived rather than corrected in an effect:
+   * plan usage can land after the dialog opened, and an archive tier chosen
+   * before it did would otherwise stay on screen and be sent to a backend that
+   * answers 402. Deriving means there is never a moment where the selection and
+   * what would be uploaded disagree.
+   */
+  const variant: UploadVariant = archiveAllowed ? selectedVariant : "2560";
 
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
@@ -174,6 +232,7 @@ export function UploadModal({
     setPrefError(null);
     setEstimateGB(null);
     setEstimating(false);
+    setSelectedVariant("2560");
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
@@ -213,7 +272,7 @@ export function UploadModal({
     let cancelled = false;
     setEstimating(true);
     const t = setTimeout(() => {
-      estimateCompressedGB(files)
+      estimateCompressedGB(files, variant)
         .then((gb) => {
           if (!cancelled) setEstimateGB(gb);
         })
@@ -228,9 +287,13 @@ export function UploadModal({
       cancelled = true;
       clearTimeout(t);
     };
-    // filesFingerprint captures the selection; files is read inside.
+    // filesFingerprint captures the selection; files is read inside. `variant`
+    // is a real dependency: each tier stores a different set of objects, and on
+    // an originals run the archive term is ~30x the delivery copy — an estimate
+    // carried over from another tier would gate on a number that describes a
+    // run the studio isn't about to start.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, storageGated, step, filesFingerprint]);
+  }, [open, storageGated, step, filesFingerprint, variant]);
 
   // Only block once we have real numbers (never a false-positive before they land).
   const overStorage =
@@ -434,13 +497,14 @@ export function UploadModal({
         files,
         targetFolderId: target.id,
         targetFolderName: target.name,
+        variant,
       });
       onClose();
       return;
     }
     if (resolvedGroups) {
       // The `mixed` case, already answered on step 1.
-      onStart({ mode: "grouped", groups: resolvedGroups });
+      onStart({ mode: "grouped", groups: resolvedGroups, variant });
       onClose();
       return;
     }
@@ -448,12 +512,13 @@ export function UploadModal({
       onStart({
         mode: "grouped",
         groups: [{ name: directName ?? defaultFolderName(), files: analysis.looseFiles }],
+        variant,
       });
       onClose();
       return;
     }
     // grouped → every photo already belongs to a named folder.
-    onStart({ mode: "grouped", groups: analysis.subGroups });
+    onStart({ mode: "grouped", groups: analysis.subGroups, variant });
     onClose();
   }
 
@@ -500,10 +565,12 @@ export function UploadModal({
           step === "picker"
             ? "max-w-[480px]"
             : step === "preferences"
-              ? // A short list of rows — 760px leaves it stranded in space, but
-                // much under this and the explanatory rail is as wide as the
-                // controls it explains.
-                "max-w-[620px]"
+              ? // One column of decisions, no rail. Wider than the old 620px
+                // (which was sized around a rail that took a third of it) so a
+                // tier's label and its one-line explanation sit on one line
+                // each, but short of step 1's 760px — this step is a list of
+                // choices, not a file browser.
+                "max-w-[680px]"
               : "max-w-[760px]"
         }`}
         style={{ transition: "max-width 220ms ease" }}
@@ -529,7 +596,7 @@ export function UploadModal({
                 : !dirSupported
                   ? "Uploading needs a desktop browser."
                   : step === "preferences"
-                    ? "Choose what guests can do with this gallery, then upload."
+                    ? ""
                     : single
                       ? "Pick photos to add to this folder."
                       : "Drop the folder from your computer — we'll rebuild its subfolders here."}
@@ -558,25 +625,40 @@ export function UploadModal({
         ) : (
           <>
           {step === "preferences" ? (
-            /* Step 2 keeps step 1's two-column shape so the dialog doesn't
-               visually restart: a plain-language summary of what guests will
-               see on the left, the controls themselves on the right. */
-            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[200px_1fr]">
-              {/* Rail hidden below 768px (not 640px): on a narrow window a
-                  280px explainer left the controls narrower than itself. */}
-              <div className="hidden flex-col overflow-y-auto border-r border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-5 py-6 md:flex">
-                <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">
-                  What guests will see
-                </div>
-                <GuestPreferenceSummary prefs={draftPrefs} />
-              </div>
-              <div className="flex min-h-0 flex-col overflow-y-auto px-5 py-6 sm:px-7">
+            /* Step 2 is a single column of decisions, in the order they matter.
+               It used to carry step 1's two-column shape with a "What guests
+               will see" rail, but that rail only ever restated one toggle
+               sitting three inches to its right, and it cost the controls a
+               third of the dialog's width — width the quality tiers actually
+               need to be readable.
+   
+               Order is deliberate: quality first, because it decides what the
+               run stores, how long it takes and whether it fits the plan (the
+               estimate below reacts to it live). Downloads second, because it
+               only decides what guests may do once the photos have landed. */
+            <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-6 sm:px-7">
+              <StepSection
+                title="Upload quality"
+                description=""
+              >
+                <QualityTierSelector
+                  value={variant}
+                  onChange={setSelectedVariant}
+                  archiveAllowed={archiveAllowed}
+                  storageGated={storageGated}
+                />
+              </StepSection>
+
+              <StepSection
+                title="Downloads"
+                description=""
+              >
                 <DeliveryPreferencesPanel
                   value={draftPrefs}
                   onChange={setDraftPrefs}
                   disabled={savingPrefs}
                 />
-              </div>
+              </StepSection>
             </div>
           ) : (
           /* Body — same two-column shape in both modes: context on the left,
@@ -683,6 +765,15 @@ export function UploadModal({
             </div>
           )}
 
+          {/* An archive-tier run is measured in hours, not minutes, and the
+              whole thing depends on this tab staying alive. Say so plainly
+              BEFORE the run starts — afterwards there is nothing to be done
+              about it, and the beforeunload prompt is far too late to be the
+              first a studio hears of it. */}
+          {step === "preferences" && variant !== "2560" && hasSelection && (
+            <ArchiveRunNotice variant={variant} />
+          )}
+
           {/* Storage estimate / overrun warning (Monthly / Yearly plans only).
               Step 2 only — that's where the estimate is sampled, and it's the
               step whose Upload button the number actually gates. */}
@@ -692,6 +783,7 @@ export function UploadModal({
               estimateGB={estimateGB}
               remainingGB={remainingGB}
               over={overStorage}
+              variant={variant}
             />
           )}
 
@@ -821,44 +913,6 @@ function StepIndicator({ current }: { current: 1 | 2 }) {
 }
 
 /* ── step 2 rail — plain-language read-out of the draft ────────── */
-
-/**
- * Restates the draft preferences as the sentences a guest would experience, so
- * the consequence is legible without decoding a row of switches. Driven off
- * `DELIVERY_PREFERENCE_FIELDS` (each descriptor carries its own `summary`), so
- * a new preference appears here without this component being touched — and off
- * the same draft object the panel edits, so it can't drift from what is about
- * to be saved.
- */
-function GuestPreferenceSummary({ prefs }: { prefs: DeliveryPreferences }) {
-  return (
-    <>
-      <ul className="flex flex-col gap-2.5">
-        {DELIVERY_PREFERENCE_FIELDS.map((field) => {
-          const summary = field.summary;
-          if (!summary) return null;
-          const on = prefs[field.key];
-          return (
-            <li
-              key={field.key}
-              className="flex items-start gap-2 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]"
-            >
-              <span
-                aria-hidden
-                className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: on ? "var(--color-brand-navy)" : "var(--color-brand-outline)" }}
-              />
-              <span>{on ? summary.on : summary.off}</span>
-            </li>
-          );
-        })}
-      </ul>
-      <div className="mt-4 rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
-        Not final — change these any time from the gear beside Upload more.
-      </div>
-    </>
-  );
-}
 
 /* ── drop zone ─────────────────────────────────────────────────── */
 
@@ -1197,13 +1251,19 @@ function StorageEstimateNotice({
   estimateGB,
   remainingGB,
   over,
+  variant,
 }: {
   estimating: boolean;
   estimateGB: number | null;
   remainingGB: number | null;
   over: boolean;
+  variant: UploadVariant;
 }) {
   const sizeLabel = estimateGB !== null ? `~${formatSizeFromGB(estimateGB)}` : "—";
+  // Named explicitly: the same selection estimates to wildly different totals
+  // per tier, so a bare number with no tier attached invites the studio to read
+  // a Web-tier figure as if it covered an originals run.
+  const tierLabel = QUALITY_TIERS.find((t) => t.value === variant)?.label ?? "";
 
   if (over && estimateGB !== null) {
     return (
@@ -1211,7 +1271,7 @@ function StorageEstimateNotice({
         <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-danger)]">
           <IconWarningCircle size={16} className="mt-0.5 shrink-0" />
           <p>
-            This upload needs about{" "}
+            This upload at <strong>{tierLabel}</strong> needs about{" "}
             <strong className="tabular-nums">{formatSizeFromGB(estimateGB)}</strong>, but you only have{" "}
             <strong className="tabular-nums">{formatSizeFromGB(remainingGB ?? 0)}</strong> left.{" "}
             <a
@@ -1222,7 +1282,8 @@ function StorageEstimateNotice({
             >
               Delete photos from older events
             </a>{" "}
-            to free up space, or reduce your selection.
+            to free up space, reduce your selection, or go back and choose a
+            lower quality tier.
           </p>
         </div>
       </div>
@@ -1238,13 +1299,163 @@ function StorageEstimateNotice({
         </>
       ) : (
         <>
-          <span>Estimated upload size:</span>
+          <span>Estimated upload size at {tierLabel}:</span>
           <strong className="tabular-nums text-[var(--color-brand-ink)]">{sizeLabel}</strong>
           {remainingGB !== null && (
             <span className="tabular-nums">· {formatSizeFromGB(remainingGB)} left on your plan</span>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/* ── step 2 section shell ──────────────────────────────────────── */
+
+/**
+ * One titled block on the Preferences step. Exists so the two decisions on that
+ * step (quality, then downloads) are visibly separate things with their own
+ * explanation, now that the explanatory rail is gone and both share one column.
+ */
+function StepSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <h3 className="text-[13.5px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
+        {title}
+      </h3>
+      <p className="mt-1 mb-3 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+        {description}
+      </p>
+      {children}
+    </section>
+  );
+}
+
+/* ── quality tier selector ─────────────────────────────────────── */
+
+/**
+ * The per-run quality choice, on step 2 directly above the size estimate it
+ * drives — change a tier and the number underneath moves, which is the whole
+ * reason the two belong on the same screen.
+ *
+ * Tiers the plan can't use are rendered DISABLED with the reason, never hidden.
+ * A studio who cannot see High-res and Original has no way to discover that
+ * upgrading would give them originals — which is the one decision this control
+ * exists to inform.
+ *
+ * The section heading lives in the StepSection wrapper, not here, so this
+ * renders only the choice itself.
+ */
+function QualityTierSelector({
+  value,
+  onChange,
+  archiveAllowed,
+  storageGated,
+}: {
+  value: UploadVariant;
+  onChange: (v: UploadVariant) => void;
+  archiveAllowed: boolean;
+  storageGated: boolean;
+}) {
+  return (
+    <div>
+      <div role="radiogroup" aria-label="Upload quality" className="flex flex-col gap-2">
+        {QUALITY_TIERS.map((tier) => {
+          const disabled = tier.archive && !archiveAllowed;
+          const selected = value === tier.value;
+          return (
+            <button
+              key={tier.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={disabled}
+              onClick={() => onChange(tier.value)}
+              className={`brand-focus flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                selected
+                  ? "border-[var(--color-brand-navy)] bg-white shadow-[0_0_0_1px_var(--color-brand-navy)]"
+                  : "border-[var(--color-brand-border)] bg-white hover:border-[var(--color-brand-outline)]"
+              } ${disabled ? "cursor-not-allowed opacity-55 hover:border-[var(--color-brand-border)]" : ""}`}
+            >
+              <span
+                aria-hidden
+                className={`mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                  selected
+                    ? "border-[var(--color-brand-navy)]"
+                    : "border-[var(--color-brand-outline)]"
+                }`}
+              >
+                {selected && (
+                  <span className="h-[7px] w-[7px] rounded-full bg-[var(--color-brand-navy)]" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
+                    {tier.label}
+                  </span>
+                </span>
+                {tier.detail && (
+                  <span className="mt-0.5 block text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+                    {tier.detail}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {!archiveAllowed && (
+        <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+          {storageGated
+            ? `High-res and Original need a ${ARCHIVE_TIER_MIN_STORAGE_GB} GB plan or larger.`
+            : "High-res and Original are available on storage-based plans of " +
+              `${ARCHIVE_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
+          <a
+            href="/dashboard/billing"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-[var(--color-brand-navy)] underline underline-offset-2"
+          >
+            See plans
+          </a>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ── archive-tier run warning ──────────────────────────────────── */
+
+/**
+ * Shown on step 2 before an archive-tier run starts.
+ *
+ * The existing beforeunload guard was written for a run measured in minutes.
+ * An originals run of a full event moves tens of gigabytes and takes hours, and
+ * the browser will not keep uploading from a closed tab or a sleeping machine.
+ * A studio who finds that out from a dialog on the way out has already lost the
+ * afternoon; they should hear it before they commit.
+ */
+function ArchiveRunNotice({ variant }: { variant: UploadVariant }) {
+  const tier = QUALITY_TIERS.find((t) => t.value === variant);
+  return (
+    <div className="border-t border-[var(--color-brand-navy)]/20 bg-[var(--color-brand-navy-soft)] px-6 py-3">
+      <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+        <IconMonitor size={16} className="mt-0.5 shrink-0" />
+        <p>
+          <strong>{tier?.label}</strong> will take considerably longer than a QHD upload —{" "}
+          <strong>Leave this tab open</strong> until it
+          finishes.
+        </p>
+      </div>
     </div>
   );
 }

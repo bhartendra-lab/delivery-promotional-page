@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ensureFolders, listResumableRecords } from "@/lib/r2-upload/engine";
 import { getUploadEngine } from "@/lib/r2-upload/registry";
 import type { EngineProgress, UploadInput, UploadRecord } from "@/lib/r2-upload/types";
+import type { UploadVariant } from "@/lib/r2-upload/compressor";
 
 export type UploadEngineHook = {
   progress: EngineProgress;
@@ -25,6 +26,8 @@ export type UploadEngineHook = {
     existingFolders?: Array<{ name: string; id: string }>;
     targetFolderId?: string;
     targetFolderName?: string;
+    /** The run's quality tier, chosen in the upload modal. Fixed for the run. */
+    variant?: UploadVariant;
     /**
      * Fired synchronously once folder ids are resolved (created or reused),
      * before the (potentially long) upload run itself. Lets the caller merge
@@ -173,6 +176,53 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
     return () => window.removeEventListener("beforeunload", handler);
   }, [progress.isUploading, progress.isSavingMetadata]);
 
+  /**
+   * Hold a screen wake lock for the duration of a run.
+   *
+   * An archive-tier run is measured in hours, and a machine that sleeps halfway
+   * through stops uploading — the run survives (it resumes per part), but the
+   * studio comes back to an upload that made no progress while they were away.
+   *
+   * The lock is released by the browser whenever the tab is hidden, so it is
+   * re-acquired on `visibilitychange` rather than assumed to persist. Every call
+   * is wrapped: the API is absent in some browsers (and on insecure origins),
+   * and a policy can refuse the request outright. None of that may break a run.
+   */
+  useEffect(() => {
+    const active = progress.isUploading || progress.isSavingMetadata;
+    if (!active) return;
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+
+    let released = false;
+    let sentinel: WakeLockSentinel | null = null;
+
+    const acquire = async () => {
+      if (released || document.visibilityState !== "visible") return;
+      try {
+        sentinel = await navigator.wakeLock.request("screen");
+      } catch (err) {
+        // Not fatal, and not worth a user-facing warning: the run continues,
+        // it just can't stop the machine sleeping.
+        console.warn("[upload:wakelock] could not acquire", err);
+      }
+    };
+
+    // The browser drops the lock when the tab is hidden; take it back on return.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+
+    void acquire();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      released = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      void sentinel?.release().catch(() => {
+        /* already released by the browser — nothing to do */
+      });
+    };
+  }, [progress.isUploading, progress.isSavingMetadata]);
+
   const startUpload = useCallback(
     async ({
       files,
@@ -180,6 +230,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       existingFolders = [],
       targetFolderId,
       targetFolderName,
+      variant = "2560",
       onFoldersEnsured,
     }: {
       files?: File[];
@@ -187,6 +238,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       existingFolders?: Array<{ name: string; id: string }>;
       targetFolderId?: string;
       targetFolderName?: string;
+      variant?: UploadVariant;
       onFoldersEnsured?: (folders: Array<{ id: string; name: string }>) => void;
     }) => {
       console.log("[upload:start] plan", {
@@ -195,6 +247,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
         groups: groups?.map((g) => ({ name: g.name, count: g.files.length })),
         targetFolderId,
         targetFolderName,
+        variant,
       });
 
       // Single-folder mode: every image goes to one already-created folder,
@@ -208,7 +261,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
           customFolderId: targetFolderId,
           folderName: targetFolderName ?? "Folder",
         }));
-        await engine.run(inputs);
+        await engine.run(inputs, variant);
         return;
       }
 
@@ -249,7 +302,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
           inputs.push({ file, customFolderId: cfId, folderName: g.name });
         }
       }
-      await engine.run(inputs);
+      await engine.run(inputs, variant);
     },
     [engine, bookingId],
   );

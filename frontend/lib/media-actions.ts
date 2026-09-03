@@ -1,11 +1,13 @@
 /**
- * Client-side photo actions — download, share, and browser-side ZIP. Single
- * downloads fetch originals directly from the public R2 URL (CORS must allow
- * this origin). The full-gallery / multi-select ZIP is built entirely in the
- * browser (`client-zip`) — no server-side zip. On browsers with the File System
- * Access API (Chrome/Edge desktop) it streams straight to disk (a "Save as"
- * dialog; bounded memory, any size); elsewhere it falls back to an in-memory
- * Blob download.
+ * Client-side photo actions — single-photo download, share, and the shared
+ * primitives the bulk download engines build on.
+ *
+ * Single downloads fetch directly from the public R2 URL (CORS must allow this
+ * origin) and work on every browser, including iOS, at any tier the viewer is
+ * entitled to. BULK downloads live in `lib/download` — `planDownload` decides
+ * the method and `lib/download/engines.ts` executes it. `fetchImageBlob` and
+ * `triggerBlobDownload` are exported for those engines; everything else here is
+ * for the single-photo and grid paths.
  */
 
 export function nameFromUrl(url: string): string {
@@ -112,7 +114,7 @@ const FETCH_ATTEMPTS = 4;
  * Returns null when the image can't be fetched after every attempt; the caller
  * skips it and keeps zipping the rest.
  */
-async function fetchImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
+export async function fetchImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
     if (signal?.aborted) return null;
     try {
@@ -189,7 +191,7 @@ async function openZipTarget(name: string): Promise<FsWritable | null> {
 
 /** Fallback save: trigger a normal download of an already-built Blob (used where
  *  the File System Access API isn't available). */
-function triggerBlobDownload(blob: Blob, filename: string): void {
+export function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -226,6 +228,12 @@ function dedupeNames(entries: ZipEntry[]): ZipEntry[] {
  * On browsers with the File System Access API the archive streams straight to
  * disk (bounded memory, any size); otherwise it's built into a Blob and
  * downloaded.
+ *
+ * NOT the gallery download path any more. Bulk gallery downloads — guest and
+ * studio alike — go through `planDownload` + `lib/download/engines.ts`, which
+ * add the pre-flight, the folder-picker method, quality tiers and batching.
+ * This remains for "Locate original images", whose not-found bundle is a small,
+ * always-web-tier ZIP with its own toast-driven UX and no notion of a plan.
  *
  * `source` may be a ready array OR a function returning one — pass the function
  * form when resolving the list is slow (e.g. paginating a whole gallery), so the

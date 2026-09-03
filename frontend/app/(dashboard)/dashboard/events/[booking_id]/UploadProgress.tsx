@@ -112,7 +112,22 @@ export function UploadProgress({
           </h3>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
             {cancelling ? (
-              <>Finishing the photos already in flight so none are left half-uploaded.</>
+              // Now literally what the engine does, and on an archive-tier run
+              // it can take minutes — an original is tens of MB and has to
+              // finish, or the photo lands in the gallery with no original.
+              // Naming the count is what keeps that wait from reading as a hang.
+              progress.finishingInFlight > 0 ? (
+                <>
+                  Finishing{" "}
+                  <strong className="text-[var(--color-brand-ink)]">
+                    {progress.finishingInFlight.toLocaleString("en-IN")}
+                  </strong>{" "}
+                  photo{progress.finishingInFlight === 1 ? "" : "s"} already in flight so none is
+                  left half-uploaded. Larger photos can take a few minutes.
+                </>
+              ) : (
+                <>Finishing the photos already in flight so none are left half-uploaded.</>
+              )
             ) : paused && progress.storageFullWarning ? (
               <>
                 Every photo uploaded so far is saved and in the gallery. Free up space or upgrade
