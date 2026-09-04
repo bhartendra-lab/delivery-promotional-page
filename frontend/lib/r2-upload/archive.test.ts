@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planArchivePartQueue, archiveMetadataFor } from "./archive.ts";
+import { planArchivePartQueue, archiveMetadataFor, shouldDeferEmbedding } from "./archive.ts";
 
 // Only the pure planners are unit tested here — same convention as the backend
 // (planDeletions, planMarkMigrated) and as dedup.test.ts. The surrounding
@@ -193,4 +193,59 @@ test("archiveMetadataFor: size and checksum are optional — a record missing th
     archiveMetadataFor({ variant: "4096", archiveUrl: "https://cold/x.jpg" }),
     { archive_url: "https://cold/x.jpg", archive_variant: "4096" },
   );
+});
+
+/* ── shouldDeferEmbedding — holding the GPU pump back ──────────────────── */
+// On an archive-tier run create-media chunks arrive minutes apart, further
+// apart than the pump's idle-exit, so an un-deferred pump boots (~4 min) to do
+// ~9 s of work and then dies — repeatedly. These pin when we hold it back.
+
+const ORIGINAL = 0.95;
+const HIGH_RES = 0.8;
+
+test("shouldDeferEmbedding: a 2560 run never defers — its chunks keep the pump warm", () => {
+  assert.equal(shouldDeferEmbedding({ threshold: 0, resolved: 0, total: 100 }), false);
+  assert.equal(shouldDeferEmbedding({ threshold: 0, resolved: 50, total: 100 }), false);
+});
+
+test("shouldDeferEmbedding: an original run defers below 95% and releases at it", () => {
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 94, total: 100 }), true);
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 95, total: 100 }), false);
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 100, total: 100 }), false);
+});
+
+test("shouldDeferEmbedding: a 4096 run releases earlier, at 80%", () => {
+  assert.equal(shouldDeferEmbedding({ threshold: HIGH_RES, resolved: 79, total: 100 }), true);
+  assert.equal(shouldDeferEmbedding({ threshold: HIGH_RES, resolved: 80, total: 100 }), false);
+  // The same progress that releases a 4096 run still defers an original one.
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 80, total: 100 }), true);
+});
+
+test("shouldDeferEmbedding: a run with nothing registered yet defers", () => {
+  // The safe direction — the backend's deadline is what releases it.
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 0, total: 0 }), true);
+});
+
+test("shouldDeferEmbedding: the terminal drain always releases", () => {
+  // No later chunk can cross the threshold, so waiting out the backend's
+  // deadline would be pure delay. True even for a run cancelled at 10%.
+  assert.equal(
+    shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 10, total: 100, final: true }),
+    false,
+  );
+  assert.equal(
+    shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 0, total: 0, final: true }),
+    false,
+  );
+});
+
+test("shouldDeferEmbedding: a tiny run still crosses its threshold", () => {
+  // 1 of 1 is 100%, so a single-photo run is never left waiting on a deadline.
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 1, total: 1 }), false);
+  assert.equal(shouldDeferEmbedding({ threshold: ORIGINAL, resolved: 0, total: 1 }), true);
+});
+
+test("shouldDeferEmbedding: a threshold of 1 releases only when everything is resolved", () => {
+  assert.equal(shouldDeferEmbedding({ threshold: 1, resolved: 99, total: 100 }), true);
+  assert.equal(shouldDeferEmbedding({ threshold: 1, resolved: 100, total: 100 }), false);
 });

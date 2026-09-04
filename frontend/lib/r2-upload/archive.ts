@@ -91,6 +91,50 @@ export function archiveMetadataFor({
 }
 
 /**
+ * Should this create-media chunk ask the backend to hold its rows back from
+ * booting the GPU embedding pump?
+ *
+ * On a "2560" run chunks arrive seconds apart, the pump stays warm on its own,
+ * and there is nothing to gain by waiting — threshold 0, never deferred.
+ *
+ * On an archive-tier run the archive is 10-20x the delivery copy, so chunks
+ * arrive minutes apart: further apart than the pump's idle-exit. Left alone the
+ * pump boots (~4 min), embeds a handful of photos (~9 s), idles out, and boots
+ * again for the next chunk — an instance that spends nearly all its life
+ * starting up. Deferring lets ONE pump drain the whole backlog continuously.
+ *
+ * `resolved` counts uploaded, saved AND failed records. Failed ones are counted
+ * for the same reason the progress ring counts them: those photos are not
+ * coming, and waiting on them would defer the run forever.
+ *
+ * Two deliberate edge cases:
+ *  - `total === 0` (nothing registered yet) defers. The safe direction — the
+ *    backend stamps a deadline that releases it regardless.
+ *  - `final` short-circuits to false. A run that has stopped producing work
+ *    (finished, cancelled, or a leftover chunk drained on a later mount) has no
+ *    later chunk left to cross the threshold and release it, so waiting out the
+ *    backend's deadline would be pure delay.
+ */
+export function shouldDeferEmbedding({
+  threshold,
+  resolved,
+  total,
+  final = false,
+}: {
+  /** Fraction of the run that must be uploaded first; <= 0 disables deferral. */
+  threshold: number;
+  resolved: number;
+  total: number;
+  /** True when no further chunks are coming for this run. */
+  final?: boolean;
+}): boolean {
+  if (final) return false;
+  if (!(threshold > 0)) return false;
+  if (total <= 0) return true;
+  return resolved / total < threshold;
+}
+
+/**
  * Integrity digest for an archived original, computed WITHOUT ever holding the
  * file in memory.
  *

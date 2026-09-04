@@ -76,26 +76,6 @@ export type UploadRecord = {
    *  file in slices. Client-asserted: nothing verifies it end to end, because
    *  doing so would mean reading the bytes back through our own server. */
   archiveChecksum?: string;
-  /* ── Two-phase archive bookkeeping ───────────────────────────────────────
-   * The delivery pair is recorded by create-media as soon as it lands, so the
-   * embedding pump can work while the archive (one to two orders of magnitude
-   * larger) is still uploading. These two track that split.
-   *
-   * Deliberately fields and not an `UploadStatus`, for exactly the reason
-   * `dedupeMatch` documents above: a new status falls outside every
-   * `"uploaded" | "saved"` check in the engine and would stall the ring. */
-  /** The archive object is still uploading. Set when the delivery pair lands,
-   *  cleared when the archive settles either way. A record carrying this is NOT
-   *  counted as done by the progress ring — the studio's progress reflects all
-   *  versions, even though the delivery pair reaches the database first. */
-  archivePending?: boolean;
-  /** A create-media call carrying `archive_pending: true` succeeded for this
-   *  row, so the backend now holds a row awaiting its archive. This — never the
-   *  record's status — is what decides whether the settled archive needs an
-   *  attach-archive call (or, on failure, a discard-media rollback): a record
-   *  whose archive landed BEFORE its create-media ran carries the archive
-   *  inline instead, exactly as it did before the split existed. */
-  archiveRecorded?: boolean;
   /* ── Multipart progress ("original" only) ────────────────────────────────
    * These are what make a resumed run pick up MID-FILE instead of restarting a
    * 75 MB upload from byte zero, so they are persisted as each part lands. */
