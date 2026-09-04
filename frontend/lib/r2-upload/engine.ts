@@ -169,8 +169,8 @@ const METADATA_FLUSH_POLICY: Record<UploadVariant, { size: number; maxAgeMs: num
  */
 const EMBED_DEFER_THRESHOLD: Record<UploadVariant, number> = {
   "2560": 0,
-  "4096": Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_4096 ?? 80) / 100,
-  original: Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_ORIGINAL ?? 90) / 100,
+  "4096": Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_4096 ?? 60) / 100,
+  original: Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_ORIGINAL ?? 70) / 100,
 };
 
 /** Hard cap on rows per create-media request, independent of tier. */
