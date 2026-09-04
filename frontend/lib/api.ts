@@ -819,6 +819,12 @@ export type MediaMetadataItem = {
   archive_url?: string;
   archive_size?: number;
   archive_checksum?: string;
+  /** Two-phase archive: the delivery pair is on R2 and can be recorded NOW —
+   *  which is what lets the embedding pump start while the (far larger) archive
+   *  is still uploading — and `attachArchiveBatch` completes the row later.
+   *  Mutually exclusive with the archive_* fields above: send those when the
+   *  archive is already done, this when it is not. */
+  archive_pending?: boolean;
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published
@@ -853,6 +859,54 @@ export function createMediaBatch(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ media_metadata, ...(outOfSync ?? {}) }),
+    },
+  );
+}
+
+/** One completed archive object, keyed by the client fingerprint create-media
+ *  recorded the row under. */
+export type ArchiveAttachItem = {
+  media_id: string;
+  archive_url: string;
+  archive_variant: "4096" | "original";
+  archive_size?: number;
+  archive_checksum?: string;
+};
+
+/**
+ * Phase two of the two-phase archive write: completes rows that create-media
+ * recorded with `archive_pending`.
+ *
+ * Safe to retry — the backend only transitions rows still flagged pending, so a
+ * replay attaches nothing and meters nothing.
+ */
+export function attachArchiveBatch(bookingId: string, archives: ArchiveAttachItem[]) {
+  return request<{ message: string; attached: number; storage?: StorageMeter }>(
+    `/deliverables/attach-archive/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archives }),
+    },
+  );
+}
+
+/**
+ * Roll back rows whose archive failed or was cancelled: removes the delivery
+ * copy, its thumbnail, any embeddings already computed, and the metered bytes.
+ *
+ * This is what keeps "an archive-tier photo is never delivered without its
+ * archive" true now that the delivery pair is recorded first. The backend only
+ * ever touches rows still flagged `archive_pending`, so this can never remove a
+ * completed photo, and `media_ids` are client fingerprints, not Mongo ids.
+ */
+export function discardMedia(bookingId: string, media_ids: string[]) {
+  return request<{ message: string; discarded: number }>(
+    `/deliverables/discard-media/${encodeURIComponent(bookingId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids }),
     },
   );
 }

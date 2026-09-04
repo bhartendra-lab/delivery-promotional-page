@@ -32,6 +32,8 @@ import {
   createArchiveMultipart,
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
+  attachArchiveBatch,
+  discardMedia,
   getUploadedMediaIds,
   getWatermarkPresets,
   presignUploads,
@@ -252,6 +254,13 @@ export class UploadEngineCore {
   private urlListeners = new Set<UrlListener>();
   private metadataSavedListeners = new Set<MetadataSavedListener>();
 
+  /**
+   * Archives that have settled and may owe the backend an attach-archive (or,
+   * on failure, a discard-media). Drained on `metadataSaveChain` so an attach
+   * can never overtake the create-media call that created the row it attaches
+   * to — the chain is the only thing providing that ordering.
+   */
+  private archiveSettleQueue: Array<{ id: string; ok: boolean }> = [];
   /** Uploaded record ids waiting for create-media (incremental flush). */
   private metadataPendingIds: string[] = [];
   private metadataSaveChain: Promise<void> = Promise.resolve();
@@ -424,6 +433,7 @@ export class UploadEngineCore {
     this.archiveBlobs.clear();
     this.archiveSizes.clear();
     this.archiveChecksums.clear();
+    this.archiveSettleQueue.length = 0;
     this.activeMultiparts.clear();
 
     // Fresh run: drop the in-memory mirror from any previous successful run
@@ -538,7 +548,8 @@ export class UploadEngineCore {
         if (!settled) {
           console.error(
             `[upload] cancel: in-flight uploads did not finish within ${CANCEL_GRACE_MS / 60000} min — aborting them. ` +
-              "Any photo cut off mid-archive will have no archive object; its record is discarded by the wipe below.",
+              "Any photo cut off mid-archive will have no archive object; its local record is dropped by the wipe below, " +
+              "and if create-media already recorded its delivery pair, discard-media rolls that row back before the wipe.",
           );
         }
       }
@@ -692,6 +703,7 @@ export class UploadEngineCore {
     this.archiveBlobs.clear();
     this.archiveSizes.clear();
     this.archiveChecksums.clear();
+    this.archiveSettleQueue.length = 0;
     this.compressedQueue = [];
     this.presignedQueue = [];
     this.metadataPendingIds = [];
@@ -1270,47 +1282,68 @@ export class UploadEngineCore {
     // "The delivery pair is never skipped" is enforced right here: the view PUT
     // is unconditional in every variant, and an archive failure below cannot
     // stop the record reaching `uploaded`.
-    const [mainResult, thumbResult, archiveResult] = await Promise.allSettled([
-      withRetry(
-        async () => {
-          await putBlobToPresignedUrl(
-            item.presignedUrl,
-            item.blob,
-            item.contentType,
-            this.abort.signal,
-          );
-        },
-        putOpts("main"),
-      ),
-      hasThumb
-        ? withRetry(
-            async () => {
-              await putBlobToPresignedUrl(
-                item.thumbPresignedUrl as string,
-                item.thumbBlob as Blob,
-                "image/jpeg",
-                this.abort.signal,
-              );
-            },
-            putOpts("thumbnail"),
-          )
-        : Promise.resolve(),
-      hasArchivePut
-        ? withRetry(
-            async () => {
-              await putArchiveBlob(
-                item.archivePresignedUrl as string,
-                item.archiveBlob as Blob,
-                item.archiveHeaders as Record<string, string>,
-                this.abort.signal,
-              );
-            },
-            putOpts("archive"),
-          )
-        : hasArchiveMultipart
-          ? this.uploadArchiveMultipartGuarded(item)
-          : Promise.resolve(),
-    ]);
+    // All three objects still start together and still share ONE uploader slot:
+    // the AIMD limit, `runningUploaders` and the MAX_OUTSTANDING_BLOBS cap are
+    // untouched by the split below, and cancel's grace phase still waits for
+    // the archive exactly as it did.
+    //
+    // What changes is only WHEN the delivery pair is recorded. The archive is
+    // one to two orders of magnitude larger, so waiting for it kept the 2560px
+    // copy invisible to the embedding pump for the whole archive upload —
+    // minutes per photo on a slow link. Settling the delivery pair first lets
+    // create-media record it immediately and the pump embed during the archive
+    // upload rather than after it.
+    const mainPromise = withRetry(
+      async () => {
+        await putBlobToPresignedUrl(
+          item.presignedUrl,
+          item.blob,
+          item.contentType,
+          this.abort.signal,
+        );
+      },
+      putOpts("main"),
+    );
+    const thumbPromise = hasThumb
+      ? withRetry(
+          async () => {
+            await putBlobToPresignedUrl(
+              item.thumbPresignedUrl as string,
+              item.thumbBlob as Blob,
+              "image/jpeg",
+              this.abort.signal,
+            );
+          },
+          putOpts("thumbnail"),
+        )
+      : Promise.resolve();
+    const hasArchive = hasArchivePut || hasArchiveMultipart;
+    const archivePromise = hasArchivePut
+      ? withRetry(
+          async () => {
+            await putArchiveBlob(
+              item.archivePresignedUrl as string,
+              item.archiveBlob as Blob,
+              item.archiveHeaders as Record<string, string>,
+              this.abort.signal,
+            );
+          },
+          putOpts("archive"),
+        )
+      : hasArchiveMultipart
+        ? this.uploadArchiveMultipartGuarded(item)
+        : Promise.resolve();
+    // Reflected the moment it is created, never left bare: an archive that
+    // rejects while we are awaiting the delivery pair must not surface as an
+    // unhandled rejection.
+    const archiveSettled: Promise<
+      { status: "fulfilled"; value: string | void } | { status: "rejected"; reason: unknown }
+    > = archivePromise.then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason) => ({ status: "rejected" as const, reason }),
+    );
+
+    const [mainResult, thumbResult] = await Promise.allSettled([mainPromise, thumbPromise]);
 
     const freeBlobs = () => {
       this.compressedBlobs.delete(item.recordId);
@@ -1355,6 +1388,9 @@ export class UploadEngineCore {
         return;
       }
 
+      // The delivery PUT failed, so nothing will reference the archive — but we
+      // still have to wait for it to settle before we can say so.
+      const archiveResult = await archiveSettled;
       const msg = err instanceof Error ? err.message : "upload failed";
       console.error("[upload:put] terminal failure", {
         file: fileLabel,
@@ -1419,8 +1455,33 @@ export class UploadEngineCore {
     // fields so create-media omits them entirely, and deliver the photo. A
     // half-recorded archive — a URL for an object that isn't there — would be
     // far worse than none, because nothing would ever re-check it.
+    // ── The delivery pair is on R2 ───────────────────────────────────────────
+    // Record it NOW, before waiting on the archive. `archivePending` keeps the
+    // photo out of the progress ring — the studio's progress still reflects all
+    // versions — while making the row eligible for create-media, which is the
+    // entire point of the split.
+    if (hasArchive) {
+      // The tier is stamped on the RECORD here, not read off `this` at flush
+      // time: a flush can happen on a later mount where the engine has no run
+      // and `this.variant` has reset to "2560". It reaches create-media
+      // alongside `archive_pending`, and is what lets the server-side strand
+      // sweep rebuild this archive's B2 key if the tab never comes back.
+      const early = {
+        status: "uploaded" as const,
+        archivePending: true,
+        archiveVariant: this.variant as "4096" | "original",
+      };
+      this.queueIdbUpdate(item.recordId, early);
+      const rEarly = this.records.get(item.recordId);
+      if (rEarly) this.records.set(item.recordId, { ...rEarly, ...early });
+      this.metadataPendingIds.push(item.recordId);
+      this.scheduleMetadataFlushIfReady();
+    }
+
+    const archiveResult = await archiveSettled;
+
     let archiveUrl: string | undefined;
-    if (hasArchivePut || hasArchiveMultipart) {
+    if (hasArchive) {
       if (archiveResult.status === "fulfilled") {
         // The single PUT resolves to nothing and its URL is already known; the
         // multipart path resolves to the URL the backend returned on complete.
@@ -1438,10 +1499,25 @@ export class UploadEngineCore {
           archiveVariant: undefined,
           archiveSize: undefined,
           archiveChecksum: undefined,
+          // Settled, whichever way it went — so it stops suppressing this
+          // photo in the progress ring.
+          archivePending: undefined,
         };
         this.queueIdbUpdate(item.recordId, cleared);
         const r0 = this.records.get(item.recordId);
         if (r0) this.records.set(item.recordId, { ...r0, ...cleared });
+
+        // If create-media already recorded the delivery pair, the database now
+        // holds exactly what the invariant below forbids: an archive-tier photo
+        // with no archive behind it. Roll it back — discard-media removes the
+        // delivery objects, any embeddings the pump computed in the meantime,
+        // and the metered bytes together.
+        //
+        // Before the split this could not arise (create-media had not run yet)
+        // and the delivery objects were simply orphaned on R2 for
+        // reclaim-orphaned-media.js to sweep. The rollback is strictly tidier:
+        // they go away deterministically instead of waiting for a sweep.
+        this.queueArchiveSettle(item.recordId, false);
 
         // FAIL THE RECORD. On an archive-tier run the archive is the point of
         // the run: recording this photo now would put it in the gallery labelled
@@ -1503,11 +1579,18 @@ export class UploadEngineCore {
           archiveVariant: this.variant as "4096" | "original",
           archiveSize: this.archiveSizes.get(item.recordId),
           archiveChecksum: this.archiveChecksums.get(item.recordId),
+          archivePending: undefined,
         };
         this.queueIdbUpdate(item.recordId, landed);
         const r = this.records.get(item.recordId);
         if (r) this.records.set(item.recordId, { ...r, ...landed });
       }
+
+      // Complete the row if create-media already wrote it. If it has not run
+      // yet the archive fields now on the record ride along inline on that
+      // call, exactly as they did before the split — which is why this is
+      // decided from `archiveRecorded` inside the drain, not from here.
+      this.queueArchiveSettle(item.recordId, true);
     }
 
     // Count the thumbnail's and the archive's bytes too, so the speed and ETA
@@ -1523,11 +1606,16 @@ export class UploadEngineCore {
         : 0);
     this.aimd.noteSuccess();
     freeBlobs();
-    this.queueIdbUpdate(item.recordId, { status: "uploaded" });
-    const rec = this.records.get(item.recordId);
-    if (rec) this.records.set(item.recordId, { ...rec, status: "uploaded" });
-    this.metadataPendingIds.push(item.recordId);
-    this.scheduleMetadataFlushIfReady();
+    // Already queued above on the archive path — and by now create-media may
+    // even have run, so re-stamping "uploaded" would walk a `saved` record
+    // backwards and flush it a second time.
+    if (!hasArchive) {
+      this.queueIdbUpdate(item.recordId, { status: "uploaded" });
+      const rec = this.records.get(item.recordId);
+      if (rec) this.records.set(item.recordId, { ...rec, status: "uploaded" });
+      this.metadataPendingIds.push(item.recordId);
+      this.scheduleMetadataFlushIfReady();
+    }
     // Bytes just moved, so the storage projection did too. Pure arithmetic —
     // no request, nothing that can slow the upload loop down.
     this.maybePauseForStorage();
@@ -1929,6 +2017,110 @@ export class UploadEngineCore {
     void this.enqueueMetadataFlush();
   }
 
+  /**
+   * Hand a settled archive to the metadata chain. Ordering is the whole reason
+   * this goes through `metadataSaveChain` rather than firing directly: an
+   * attach-archive must never overtake the create-media call that created the
+   * row, and a create-media flush may be in flight right now.
+   */
+  private queueArchiveSettle(recordId: string, ok: boolean): void {
+    this.archiveSettleQueue.push({ id: recordId, ok });
+    this.metadataSaveChain = this.metadataSaveChain
+      .then(() => this.drainArchiveSettles())
+      .catch(() => {
+        /* errors handled inside drainArchiveSettles */
+      });
+  }
+
+  /**
+   * Complete or roll back rows whose archive has settled. Runs on the metadata
+   * chain, so by the time it executes every create-media flush queued before it
+   * has finished and `archiveRecorded` is authoritative.
+   */
+  private async drainArchiveSettles(): Promise<void> {
+    if (this.archiveSettleQueue.length === 0) return;
+    const batch = this.archiveSettleQueue.splice(0);
+
+    const attach: Parameters<typeof attachArchiveBatch>[1] = [];
+    const discard: string[] = [];
+    for (const { id, ok } of batch) {
+      const r = this.records.get(id);
+      // `archiveRecorded`, never the record's status: it is the only thing that
+      // says the backend holds a row awaiting this archive. A record whose
+      // archive landed BEFORE its create-media ran carries the archive inline
+      // on that call and needs nothing here — and a failed one is checked the
+      // same way, because uploadOne has already walked its status to "failed".
+      if (!r?.archiveRecorded) continue;
+      if (ok && r.archiveUrl && r.archiveVariant) {
+        attach.push({
+          media_id: r.id,
+          archive_url: r.archiveUrl,
+          archive_variant: r.archiveVariant,
+          ...(r.archiveSize != null ? { archive_size: r.archiveSize } : {}),
+          ...(r.archiveChecksum ? { archive_checksum: r.archiveChecksum } : {}),
+        });
+      } else {
+        discard.push(r.id);
+      }
+    }
+
+    const clearRecorded = (ids: string[]) => {
+      for (const id of ids) {
+        const r = this.records.get(id);
+        if (!r) continue;
+        this.records.set(id, { ...r, archiveRecorded: undefined });
+        this.queueIdbUpdate(id, { archiveRecorded: undefined });
+        // Whatever the outcome, the archive is done moving: release the file
+        // handle and multipart state the saved-path deliberately held on to.
+        this.sourceFiles.delete(id);
+        this.activeMultiparts.delete(id);
+      }
+    };
+
+    if (attach.length > 0) {
+      const ids = attach.map((a) => a.media_id);
+      try {
+        await withRetry(() => attachArchiveBatch(this.bookingId, attach), {
+          maxAttempts: METADATA_SAVE_ATTEMPTS,
+          classify: classifyError,
+        });
+        clearRecorded(ids);
+      } catch (err) {
+        // Re-queue and log. The row stays flagged `archive_pending` in the
+        // database, which is exactly what makes it findable server-side if this
+        // run never recovers.
+        console.error("[upload:archive] attach failed; row still awaits its archive", {
+          count: ids.length,
+          error: err instanceof Error ? err.message : String(err),
+        }, err);
+        for (const id of ids) this.archiveSettleQueue.push({ id, ok: true });
+      }
+    }
+
+    if (discard.length > 0) {
+      try {
+        await withRetry(() => discardMedia(this.bookingId, discard), {
+          maxAttempts: METADATA_SAVE_ATTEMPTS,
+          classify: classifyError,
+        });
+        // The backend released these bytes, so the local projection has to give
+        // them back too — the mirror of the savedBytes increment on flush.
+        for (const id of discard) {
+          this.savedBytes -=
+            (this.compressedSizes.get(id) ?? 0) + (this.thumbSizes.get(id) ?? 0);
+        }
+        if (this.savedBytes < 0) this.savedBytes = 0;
+        clearRecorded(discard);
+      } catch (err) {
+        console.error("[upload:archive] discard failed; a photo is in the gallery without its archive", {
+          count: discard.length,
+          error: err instanceof Error ? err.message : String(err),
+        }, err);
+        for (const id of discard) this.archiveSettleQueue.push({ id, ok: false });
+      }
+    }
+  }
+
   private enqueueMetadataFlush(): Promise<void> {
     this.metadataSaveChain = this.metadataSaveChain
       .then(() => this.flushOneMetadataChunk())
@@ -1976,12 +2168,23 @@ export class UploadEngineCore {
       // ever meaningful together.
       // Every field read off the RECORD, never off `this` — a flush can happen
       // on a mount with no active run (see the persistence note in uploadOne).
-      ...archiveMetadataFor({
-        variant: r.archiveVariant,
-        archiveUrl: r.archiveUrl,
-        archiveSize: r.archiveSize,
-        archiveChecksum: r.archiveChecksum,
-      }),
+      // Two-phase archive. While the archive is still uploading, record the
+      // delivery pair alone and flag the row — the pump starts embedding now,
+      // and attach-archive completes the row when the archive lands. A fast
+      // link can finish the archive before this flush fires; then
+      // `archivePending` is already cleared and the fields ride along inline,
+      // exactly as they did before the split.
+      ...(r.archivePending
+        ? {
+            archive_pending: true,
+            ...(r.archiveVariant ? { archive_variant: r.archiveVariant } : {}),
+          }
+        : archiveMetadataFor({
+            variant: r.archiveVariant,
+            archiveUrl: r.archiveUrl,
+            archiveSize: r.archiveSize,
+            archiveChecksum: r.archiveChecksum,
+          })),
     }));
 
     let storage: StorageMeter | undefined;
@@ -2016,10 +2219,30 @@ export class UploadEngineCore {
         },
       );
 
-      const savedPatches = recs.map((r) => ({ id: r.id, patch: { status: "saved" as const } }));
+      const savedPatches = recs.map((r) => ({
+        id: r.id,
+        patch: {
+          status: "saved" as const,
+          // The backend now holds a row awaiting this archive. This flag — not
+          // the status — is what later tells the settled archive whether it
+          // needs an attach-archive call or a discard-media rollback.
+          ...(r.archivePending ? { archiveRecorded: true } : {}),
+        },
+      }));
       await updateRecords(savedPatches);
       for (const r of recs) {
-        this.records.set(r.id, { ...r, status: "saved" });
+        this.records.set(r.id, {
+          ...r,
+          status: "saved",
+          ...(r.archivePending ? { archiveRecorded: true } : {}),
+        });
+        if (r.archivePending) {
+          // Its archive is STILL UPLOADING, so neither handle can be dropped
+          // yet: on an "original" run the archive is the source file itself,
+          // streamed from disk, and a cancel still has a live multipart to
+          // abort. Both are released when the archive settles.
+          continue;
+        }
         // The row is in the gallery; nothing will read this file again. Handles
         // are cheap, but a run is not a reason to hold every one of 7,000 of
         // them for its whole duration.
@@ -2073,18 +2296,29 @@ export class UploadEngineCore {
       this.seedMetadataQueue();
     }
 
+    // Attaches and rollbacks ride the same chain, so awaiting it drains any
+    // archive that settled while the flushes above were running. A settle that
+    // FAILED has re-queued itself and is deliberately not retried here: it
+    // would loop, and the row it concerns stays flagged `archive_pending`
+    // server-side, which is what makes it recoverable later.
+    await this.metadataSaveChain.catch(() => {});
+
     const all = Array.from(this.records.values());
 
     // Metadata still owes the backend for some uploaded rows (chunk failed or
     // pending) — keep all state and let a later run / mount auto-resume finish it.
-    if (all.some((r) => r.status === "uploaded")) return;
+    // Also hold everything while an archive is still uploading or still owes the
+    // backend an attach — wiping now would drop the record that says a row in
+    // the database is still waiting for its archive.
+    if (all.some((r) => r.status === "uploaded" || r.archivePending || r.archiveRecorded)) return;
 
     // Only wipe the slate when the *entire* batch made it to the gallery. If
     // anything is still pending/failed (cancelled, paused, or a transient error),
     // we retain ALL records — including the saved ones — so re-selecting the same
     // folder resumes only the unfinished files (saved ones are skipped by
     // fingerprint in the compression loop) and never re-uploads what's already in.
-    const fullyComplete = all.length > 0 && all.every((r) => r.status === "saved");
+    const fullyComplete =
+      all.length > 0 && all.every((r) => r.status === "saved" && !r.archivePending);
     if (fullyComplete) {
       await clearBooking(this.bookingId);
       this.records.clear();
@@ -2257,7 +2491,12 @@ export class UploadEngineCore {
   private recomputeAndEmit(patch: Partial<EngineProgress>): void {
     const all = Array.from(this.records.values());
     const photosTotal = all.length;
-    const uploaded = all.filter((r) => r.status === "uploaded" || r.status === "saved").length;
+    // `!archivePending` is what keeps the studio's progress honest: the delivery
+    // pair reaching the database first is an internal optimisation, not
+    // progress. A photo counts once every one of its versions is up.
+    const uploaded = all.filter(
+      (r) => (r.status === "uploaded" || r.status === "saved") && !r.archivePending,
+    ).length;
     const failed = all.filter((r) => r.status === "failed").length;
     // Counted off the records (not off this run's decisions) so the number
     // survives a resume: re-selecting the same folder re-shows the same skips.
@@ -2280,7 +2519,7 @@ export class UploadEngineCore {
       const key = r.customFolderId || r.folderName;
       const f = folderMap.get(key) ?? { name: r.folderName, count: 0, done: 0, failed: 0 };
       f.count++;
-      if (r.status === "uploaded" || r.status === "saved") f.done++;
+      if ((r.status === "uploaded" || r.status === "saved") && !r.archivePending) f.done++;
       if (r.status === "failed") f.failed++;
       folderMap.set(key, f);
     }
