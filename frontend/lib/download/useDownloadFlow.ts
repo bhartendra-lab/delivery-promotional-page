@@ -71,8 +71,11 @@ export type DownloadFlowState = {
   phase: "resolving" | "plan" | "running" | "finished";
   /** The tier the guest picked. */
   tier: DownloadTier;
-  /** Archive tier offered for THIS selection, or null when none exists. */
-  offeredArchiveTier: "4096" | "original" | null;
+  /** True when SOMETHING in this selection has an unwatermarked copy and this
+   *  viewer may have it — i.e. whether to render the tier selector at all. The
+   *  tiers actually involved live on the plan (`plan.archiveTiers`), because a
+   *  selection can span upload runs and carry both. */
+  offersArchive: boolean;
   plan: DownloadPlan | null;
   env: DownloadEnvironment;
   /** Alerts to render: the plan's, plus any the engine added after the picker. */
@@ -92,18 +95,21 @@ export type DownloadFlowState = {
 const IDLE_ENV: DownloadEnvironment = { capability: "memoryZip", memoryCap: 0, ios: false };
 
 /**
- * Which archive tier, if any, this selection can offer. A booking never mixes
- * the two, so the first one seen decides; a selection where nothing has an
- * archive object offers no tier selector at all and behaves exactly as before
- * archives existed.
+ * Does anything in this selection have an unwatermarked copy?
+ *
+ * Only a yes/no: WHICH tiers are involved is the plan's business, because the
+ * quality tier is chosen per upload run and one selection routinely spans
+ * several. An earlier version returned the first tier it saw and offered that
+ * one alone, which meant the option a guest was shown depended on the grid's
+ * sort order, and the photos from every other run were quietly downgraded.
+ *
+ * A selection where nothing has an archive object offers no selector at all and
+ * behaves exactly as it did before the tiers existed.
  */
-function offeredTierFor(sources: PlanSource[]): "4096" | "original" | null {
-  for (const source of sources) {
-    if (source.archiveVariant === "4096" || source.archiveVariant === "original") {
-      return source.archiveVariant;
-    }
-  }
-  return null;
+function hasAnyArchive(sources: PlanSource[]): boolean {
+  return sources.some(
+    (source) => source.archiveVariant === "4096" || source.archiveVariant === "original",
+  );
 }
 
 export function useDownloadFlow() {
@@ -126,8 +132,8 @@ export function useDownloadFlow() {
   // Running totals across batched parts, which are separate engine runs.
   const totals = useRef({ saved: 0, skipped: 0, failed: 0 });
 
-  const offeredArchiveTier = useMemo(
-    () => (request?.archiveAccess && sources ? offeredTierFor(sources) : null),
+  const offersArchive = useMemo(
+    () => Boolean(request?.archiveAccess && sources && hasAnyArchive(sources)),
     [request?.archiveAccess, sources],
   );
 
@@ -423,7 +429,7 @@ export function useDownloadFlow() {
     open: request !== null,
     phase,
     tier,
-    offeredArchiveTier,
+    offersArchive,
     plan,
     env,
     alerts: [...(plan?.alerts ?? []), ...extraAlerts],

@@ -31,6 +31,7 @@ import {
   type ArchiveTier,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
+import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
@@ -160,13 +161,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [likedCount, setLikedCount] = useState(0); // liked media in the booking
   /**
-   * The booking's archive quality tier, or null when every photo is QHD.
-   * Booking-wide and server-derived (not inferred from the loaded page, which
-   * only covers the active view), so the Preferences panel can name the archive
-   * download row after the tier this event actually has — and hide it when
-   * there is nothing unwatermarked to govern.
+   * EVERY archive quality tier this booking holds — an array, because the tier
+   * is chosen per upload run, so one event routinely mixes original files
+   * with 4K. Empty when every photo is HD. Booking-wide and
+   * server-derived (not inferred from the loaded page, which only covers the
+   * active view), so the Preferences panel can name the archive download row
+   * after what the event actually has — and hide it when there is nothing
+   * unwatermarked to govern.
    */
-  const [archiveTier, setArchiveTier] = useState<ArchiveTier | null>(null);
+  const [archiveTiers, setArchiveTiers] = useState<ArchiveTier[]>([]);
+  /** The quality tier this event's last upload run used — seeds the upload
+   *  dialog so the studio picks once per event. Null until the first upload. */
+  const [uploadQualityTier, setUploadQualityTier] = useState<UploadVariant | null>(null);
   const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
@@ -302,7 +308,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
         // Only ever asserted by the first page; `undefined` on an older server
         // leaves the previous answer alone rather than blanking it.
-        if (res.archive_tier !== undefined) setArchiveTier(res.archive_tier ?? null);
+        if (res.archive_tiers !== undefined) setArchiveTiers(res.archive_tiers ?? []);
+        if (res.upload_quality_tier !== undefined) {
+          setUploadQualityTier(res.upload_quality_tier ?? null);
+        }
         if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
@@ -889,7 +898,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setMediaSort,
       folderCounts,
       likedCount,
-      archiveTier,
+      archiveTiers,
+      uploadQualityTier,
       shortlistedCount,
       likedFilters,
       setLikedFilters,
@@ -914,7 +924,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTier, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

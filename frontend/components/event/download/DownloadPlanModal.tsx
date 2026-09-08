@@ -26,7 +26,12 @@ import {
   type DownloadTier,
 } from "@/lib/download/plan";
 import type { DownloadFlow } from "@/lib/download/useDownloadFlow";
-import { ARCHIVE_TIER_FULL } from "@/lib/delivery-preferences";
+import {
+  DELIVERY_TIER_LABEL,
+  archiveLabelFor,
+  type ArchiveTier,
+  type TierAudience,
+} from "@/lib/quality-tiers";
 import { Z_DOWNLOAD_CONFIRM, Z_DOWNLOAD_MODAL } from "@/lib/download/layers";
 
 /** Token subset both hosts can supply — the guest gallery's `ClientTheme`, or
@@ -49,26 +54,44 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * The archive tiers borrow their names from the studio-facing registry, so a
- * tier the studio uploaded as "Cinema 4K" is never offered for download under a
- * different name. The delivery copy keeps a plain-language label instead of the
- * studio's "QHD", because this selector is read by guests.
+ * What the archive option is called for THIS selection and THIS reader.
+ *
+ * A guest always sees one generic name; a studio sees the exact tier, or the
+ * generic one only when the event's upload runs genuinely mixed them. See
+ * lib/quality-tiers.ts for why the two audiences differ.
  */
-const TIER_LABEL: Record<DownloadTier, string> = {
-  "2560": "Web (2560px)",
-  ...ARCHIVE_TIER_FULL,
-};
+function archiveNote(tiers: ArchiveTier[], audience: TierAudience): string | null {
+  // Only the studio is told about the mixture: to a guest, "High Resolution"
+  // already means "the best copy of each photo", and naming tiers they cannot
+  // choose between would only hint at something they are not getting.
+  if (audience === "guest" || tiers.length <= 1) return null;
+  return "Original files where they exist, 4K otherwise.";
+}
+
+/** The label for whichever tier the plan is currently set to. */
+function tierLabel(
+  tier: DownloadTier,
+  tiers: ArchiveTier[],
+  audience: TierAudience,
+): string {
+  return tier === "2560"
+    ? DELIVERY_TIER_LABEL[audience]
+    : archiveLabelFor(tiers, audience);
+}
 
 export function DownloadPlanModal({
   flow,
   theme: t,
-  /** Link a blocked guest can send themselves to finish on a computer. */
+  /** Which vocabulary to speak — see lib/quality-tiers.ts. */
+  audience,
+  /** Link a blocked viewer can send themselves to finish on a computer. */
   shareUrl,
   /** Returns to selection mode so the guest can pick fewer photos. */
   onSelectFewer,
 }: {
   flow: DownloadFlow;
   theme: DownloadModalTheme;
+  audience: TierAudience;
   shareUrl?: string;
   onSelectFewer?: () => void;
 }) {
@@ -182,37 +205,52 @@ export function DownloadPlanModal({
                   archive copy AND the studio lets this viewer have it. Two
                   options, never three: a booking never carries both archive
                   tiers, so whichever the studio uploaded is the only one shown. */}
-              {state.offeredArchiveTier && (
+              {state.offersArchive && (
                 <div role="radiogroup" aria-label="Quality" className="flex flex-col gap-1.5">
-                  {(["2560", state.offeredArchiveTier] as DownloadTier[]).map((option) => (
-                    <label
-                      key={option}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5"
-                      style={{
-                        borderColor: state.tier === option ? t.brand : t.border,
-                        background: state.tier === option ? t.sunken : "transparent",
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="download-tier"
-                        checked={state.tier === option}
-                        onChange={() => setTier(option)}
-                        className="h-3.5 w-3.5"
-                        style={{ accentColor: t.brand }}
-                      />
-                      <span className="text-[13px] font-bold" style={{ color: t.text }}>
-                        {TIER_LABEL[option]}
-                      </span>
-                    </label>
-                  ))}
+                  {(["2560", "archive"] as DownloadTier[]).map((option) => {
+                    const note =
+                      option === "archive" ? archiveNote(plan.archiveTiers, audience) : null;
+                    return (
+                      <label
+                        key={option}
+                        className="flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5"
+                        style={{
+                          borderColor: state.tier === option ? t.brand : t.border,
+                          background: state.tier === option ? t.sunken : "transparent",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="download-tier"
+                          checked={state.tier === option}
+                          onChange={() => setTier(option)}
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                          style={{ accentColor: t.brand }}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-bold" style={{ color: t.text }}>
+                            {tierLabel(option, plan.archiveTiers, audience)}
+                          </span>
+                          {note && (
+                            <span
+                              className="mt-0.5 block text-[11.5px] font-semibold"
+                              style={{ color: t.muted }}
+                            >
+                              {note}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
 
               {/* Exact size — summed from real byte counts, never estimated. */}
               <div className="text-[13px] font-semibold leading-relaxed" style={{ color: t.muted }}>
                 {count.toLocaleString("en-IN")} photo{count === 1 ? "" : "s"} ·{" "}
-                {TIER_LABEL[state.tier]} · {formatBytes(plan.totalBytes)}
+                {tierLabel(state.tier, plan.archiveTiers, audience)} ·{" "}
+                {formatBytes(plan.totalBytes)}
               </div>
 
               {!blocked && (
@@ -240,7 +278,7 @@ export function DownloadPlanModal({
                 </div>
               )}
 
-              <AlertList alerts={alerts} ios={env.ios} theme={t} />
+              <AlertList alerts={alerts} ios={env.ios} audience={audience} theme={t} />
 
               {state.error && (
                 <p className="text-[12.5px] font-bold" style={{ color: t.error }}>
@@ -268,7 +306,7 @@ export function DownloadPlanModal({
                   </p>
                 </>
               )}
-              <AlertList alerts={alerts} ios={env.ios} theme={t} />
+              <AlertList alerts={alerts} ios={env.ios} audience={audience} theme={t} />
             </div>
           )}
 
@@ -430,16 +468,23 @@ export function DownloadPlanModal({
 function AlertList({
   alerts,
   ios,
+  audience,
   theme: t,
 }: {
   alerts: DownloadAlert[];
   ios: boolean;
+  audience: TierAudience;
   theme: DownloadModalTheme;
 }) {
-  if (alerts.length === 0) return null;
+  // `alertCopy` returns null for an alert this audience should not see, which
+  // is how the mixed-tier notice stays studio-only.
+  const shown = alerts
+    .map((alert) => ({ alert, copy: alertCopy(alert, { ios, audience }) }))
+    .filter((row): row is { alert: DownloadAlert; copy: string } => row.copy !== null);
+  if (shown.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      {alerts.map((alert) => (
+      {shown.map(({ alert, copy }) => (
         <p
           key={`${alert.id}-${alert.severity}`}
           className="rounded-xl px-3 py-2.5 text-[12px] font-semibold leading-relaxed"
@@ -448,7 +493,7 @@ function AlertList({
             color: alert.severity === "blocking" ? t.error : t.muted,
           }}
         >
-          {alertCopy(alert, { ios })}
+          {copy}
         </p>
       ))}
     </div>

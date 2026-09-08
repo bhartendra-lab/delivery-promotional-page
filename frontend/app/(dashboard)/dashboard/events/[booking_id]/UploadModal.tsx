@@ -40,16 +40,16 @@ export type UploadPlan = (
  *  storage-metered plan at all: a count-based plan (Free / Event-based) is
  *  metered by events created and has no byte cap, so an archive object under
  *  one is storage nothing measures. On top of that, only Original needs 500 GB
- *  — it stores the camera file byte for byte (~30x), where Cinema 4K is a lossy
+ *  — it stores the camera file byte for byte (~30x), where 4K is a lossy
  *  re-encode about the size of the delivery copy, whose bytes any storage
  *  plan's cap already counts. */
 const ORIGINAL_TIER_MIN_STORAGE_GB = 500;
 
 /** The three quality tiers, in the order they're offered.
  *
- *  The wording is deliberate and should not be softened. "Cinema 4K" is a lossy
+ *  The wording is deliberate and should not be softened. "4K" is a lossy
  *  4096px JPEG, not an archive of the original, and a studio must not come away
- *  believing it has their negatives — only "Original file" means the camera
+ *  believing it has their original files — only "Original file" means the camera
  *  file, byte for byte. That distinction is also why only Original is
  *  plan-gated. */
 const QUALITY_TIERS: Array<{
@@ -63,14 +63,14 @@ const QUALITY_TIERS: Array<{
 }> = [
   {
     value: "2560",
-    label: "QHD (2560px)",
+    label: "HD (2560px)",
     detail: "",
     requiresStoragePlan: false,
     requiresLargePlan: false,
   },
   {
     value: "4096",
-    label: "Cinema 4K (4096px)",
+    label: "4K (4096px)",
     detail: "",
     requiresStoragePlan: true,
     requiresLargePlan: false,
@@ -131,10 +131,13 @@ type Props = {
    * Rejects on failure; the dialog keeps the studio on step 2.
    */
   onSavePreferences: (next: DeliveryPreferences) => Promise<void>;
-  /** The archive tier this event's EXISTING photos carry, or null when they are
-   *  all QHD. Only used to decide what the Downloads step shows — the tier
-   *  selected for this run takes precedence. */
-  bookingArchiveTier?: ArchiveTier | null;
+  /** Every archive tier this event's EXISTING photos carry; empty when they are
+   *  all HD. Only used to decide what the Downloads step shows — the tier
+   *  selected for THIS run is folded in on top. */
+  bookingArchiveTiers?: ArchiveTier[];
+  /** The tier this event's LAST upload run used. Seeds the quality selector so
+   *  the studio decides once per event; null before the first upload. */
+  bookingUploadTier?: UploadVariant | null;
 };
 
 type Analysis = {
@@ -159,7 +162,8 @@ export function UploadModal({
   onCreateFolder,
   preferences,
   onSavePreferences,
-  bookingArchiveTier,
+  bookingArchiveTiers,
+  bookingUploadTier,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
   // modal that unmounted to make way for this one — that double backdrop
@@ -215,7 +219,7 @@ export function UploadModal({
   const [estimateGB, setEstimateGB] = useState<number | null>(null);
   const [estimating, setEstimating] = useState(false);
   /**
-   * The run's quality tier. Defaults to QHD — the tier every run used before
+   * The run's quality tier. Defaults to HD — the tier every run used before
    * this existed, and the only one that costs a studio nothing extra.
    *
    * Two gates, mirroring the backend's (which is what actually enforces them,
@@ -225,7 +229,18 @@ export function UploadModal({
    * event count on a count-based one, which is exactly why the plan TYPE is
    * tested first and the size second.
    */
+  /**
+   * The tier the studio has chosen for this run.
+   *
+   * Seeded from the event's last run rather than reset to HD each time: the
+   * quality is an EVENT-level decision (every photo in one gallery should be
+   * the same quality), so a studio picks it on the first upload and every later
+   * batch inherits it. Re-seeded on the open transition, since the stored value
+   * can arrive after the first render.
+   */
   const [selectedVariant, setSelectedVariant] = useState<UploadVariant>("2560");
+  /** A change away from the event's established tier, awaiting confirmation. */
+  const [pendingTierChange, setPendingTierChange] = useState<UploadVariant | null>(null);
   const archiveAllowed = storageGated && !dlpLoading;
   const originalAllowed =
     archiveAllowed && (dlpUsage?.limit ?? 0) >= ORIGINAL_TIER_MIN_STORAGE_GB;
@@ -238,32 +253,54 @@ export function UploadModal({
    * 402. Deriving means there is never a moment where the selection and what
    * would be uploaded disagree.
    *
-   * The fallback is QHD, never the next tier down: quietly promoting a refused
-   * Original run to Cinema 4K would still write an archive object, spending the
+   * The fallback is HD, never the next tier down: quietly promoting a refused
+   * Original run to 4K would still write an archive object, spending the
    * studio's storage on a decision they did not make.
    */
   const variant: UploadVariant = allowedFor(selectedVariant) ? selectedVariant : "2560";
 
   /**
-   * Which archive tier the Downloads panel should describe.
+   * Apply a tier change, asking first when it would depart from the tier this
+   * event has already been uploaded at.
    *
-   * The tier chosen for THIS run wins, because the panel sits directly under
-   * the quality selector and the studio expects the two to agree the moment
-   * they change it — even though those copies don't exist yet. Falling back to
-   * the tier the event already has matters for the other direction: a studio
-   * that uploaded Cinema 4K last week and is adding a QHD batch today still
-   * needs to see (and be able to change) who may download those earlier files.
-   * Null on both counts means no unwatermarked copy exists or is coming, and
-   * the row is not shown at all.
+   * Only a departure from an ESTABLISHED tier is worth a dialog: the first
+   * upload has nothing to contradict, and returning to the established tier is
+   * undoing a change rather than making one.
    */
-  const panelArchiveTier: ArchiveTier | null =
-    variant !== "2560" ? variant : (bookingArchiveTier ?? null);
+  function requestTierChange(next: UploadVariant) {
+    if (!bookingUploadTier || next === bookingUploadTier) {
+      setSelectedVariant(next);
+      return;
+    }
+    setPendingTierChange(next);
+  }
+
+  /**
+   * Which archive tiers the Downloads panel should describe.
+   *
+   * The UNION of what the event already holds and what this run is about to
+   * add, because both are governed by the same preference. The run's own tier
+   * has to be in there because the panel sits directly under the quality
+   * selector and the studio expects the two to agree the moment they change it,
+   * even though those copies don't exist yet; the event's existing tiers matter
+   * for the other direction, since a studio adding a HD batch to an event that
+   * already has originals still needs to see (and change) who may download
+   * them. Empty on both counts means no unwatermarked copy exists or is coming,
+   * and the row is not shown at all.
+   */
+  const panelArchiveTiers: ArchiveTier[] = useMemo(() => {
+    const tiers = new Set<ArchiveTier>(bookingArchiveTiers ?? []);
+    if (variant !== "2560") tiers.add(variant);
+    return [...tiers];
+  }, [bookingArchiveTiers, variant]);
 
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resets all modal state on open transition, not a render loop
     setStep(initialStep);
+    setSelectedVariant(bookingUploadTier ?? "2560");
+    setPendingTierChange(null);
     setTarget(initialTarget);
     setFolderOnly(initialFolderOnly);
     setFiles([]);
@@ -692,7 +729,7 @@ export function UploadModal({
               >
                 <QualityTierSelector
                   value={variant}
-                  onChange={setSelectedVariant}
+                  onChange={requestTierChange}
                   archiveAllowed={archiveAllowed}
                   originalAllowed={originalAllowed}
                 />
@@ -706,7 +743,7 @@ export function UploadModal({
                   value={draftPrefs}
                   onChange={setDraftPrefs}
                   disabled={savingPrefs}
-                  context={{ archiveTier: panelArchiveTier }}
+                  context={{ archiveTiers: panelArchiveTiers }}
                 />
               </StepSection>
             </div>
@@ -822,6 +859,20 @@ export function UploadModal({
               first a studio hears of it. */}
           {step === "preferences" && variant !== "2560" && hasSelection && (
             <ArchiveRunNotice variant={variant} />
+          )}
+
+          {/* Only when moving OFF the tier this event already uses — see
+              requestTierChange. */}
+          {pendingTierChange && bookingUploadTier && (
+            <TierChangeConfirm
+              from={bookingUploadTier}
+              to={pendingTierChange}
+              onConfirm={() => {
+                setSelectedVariant(pendingTierChange);
+                setPendingTierChange(null);
+              }}
+              onCancel={() => setPendingTierChange(null)}
+            />
           )}
 
           {/* Storage estimate / overrun warning (Monthly / Yearly plans only).
@@ -1398,7 +1449,7 @@ function StepSection({
  *
  * Tiers the plan can't use are rendered DISABLED with the reason, never hidden:
  * a studio who cannot see them has no way to discover that upgrading would give
- * them their negatives — which is the one decision this control exists to
+ * them their original files — which is the one decision this control exists to
  * inform. Which tiers those are depends on the plan, so the note underneath
  * names only what is actually withheld and says what the studio already has.
  *
@@ -1472,11 +1523,11 @@ function QualityTierSelector({
         <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
           {/* Names only what is actually withheld. On a storage plan under
               500 GB that is Original alone, and saying so while pointing out
-              that Cinema 4K is already included stops the note reading as an
+              that 4K is already included stops the note reading as an
               upsell for something the studio can use today. */}
           {archiveAllowed
-            ? `Original file needs a ${ORIGINAL_TIER_MIN_STORAGE_GB} GB plan or larger. Cinema 4K is included on your plan.`
-            : `Cinema 4K and Original file need a storage-based plan — Original on ${ORIGINAL_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
+            ? `Original file needs a ${ORIGINAL_TIER_MIN_STORAGE_GB} GB plan or larger. 4K is included on your plan.`
+            : `4K and Original file need a storage-based plan — Original on ${ORIGINAL_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
           <a
             href="/dashboard/billing"
             target="_blank"
@@ -1509,10 +1560,76 @@ function ArchiveRunNotice({ variant }: { variant: UploadVariant }) {
       <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
         <IconMonitor size={16} className="mt-0.5 shrink-0" />
         <p>
-          <strong>{tier?.label}</strong> will take considerably longer than a QHD upload —{" "}
+          <strong>{tier?.label}</strong> will take considerably longer than an HD upload —{" "}
           <strong>Leave this tab open</strong> until it
           finishes.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── quality-tier change confirmation ──────────────────────────── */
+
+/**
+ * Shown when a studio moves this event off the tier it has already been
+ * uploaded at.
+ *
+ * Deliberately short. This is not a warning — mixing tiers is allowed and the
+ * gallery handles it — it exists so the decision is made knowingly rather than
+ * by a stray click on a selector that was pre-filled from last time.
+ */
+function TierChangeConfirm({
+  from,
+  to,
+  onConfirm,
+  onCancel,
+}: {
+  from: UploadVariant;
+  to: UploadVariant;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const label = (v: UploadVariant) => QUALITY_TIERS.find((t) => t.value === v)?.label ?? v;
+  return (
+    <div
+      className="fixed inset-0 z-[240] flex items-center justify-center p-5"
+      style={{ background: "rgba(31,26,14,0.55)" }}
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tier-change-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[380px] rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(20,20,30,0.22)]"
+      >
+        <div
+          id="tier-change-title"
+          className="text-[15px] font-bold text-[var(--color-brand-ink)]"
+        >
+          Change upload quality?
+        </div>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+          This event was uploaded at <strong>{label(from)}</strong>. New photos will be{" "}
+          <strong>{label(to)}</strong>, so the gallery will hold both.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="brand-focus cursor-pointer rounded-lg border border-[var(--color-brand-border)] px-4 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)]"
+          >
+            Keep {label(from)}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="brand-focus cursor-pointer rounded-lg bg-[var(--color-brand-navy-deep)] px-4 py-2 text-[12.5px] font-semibold text-white"
+          >
+            Change
+          </button>
+        </div>
       </div>
     </div>
   );

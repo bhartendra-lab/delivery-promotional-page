@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
+import { PhotoInfoTip } from "./PhotoInfoTip";
 import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
@@ -177,6 +178,7 @@ export function Lightbox({
               <IconStar size={16} filled={!!item.shortlisted} />
             </ToolButton>
           )}
+          <PhotoInfoTip item={item} placement="toolbar" />
           <ToolButton label="Download photo" onClick={() => onDownload(item)}>
             <IconDownload size={16} />
           </ToolButton>

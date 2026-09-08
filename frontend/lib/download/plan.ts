@@ -31,10 +31,30 @@
  */
 
 import type { SaveCapability } from "./capability.ts";
+import type { ArchiveTier, TierAudience } from "../quality-tiers.ts";
+
+export type { ArchiveTier };
 
 /* ── Types ───────────────────────────────────────────────────────────────── */
 
-export type DownloadTier = "2560" | "4096" | "original";
+/**
+ * What a BULK download targets.
+ *
+ * Note there is no per-tier archive option, and that is deliberate. The quality
+ * tier is chosen per UPLOAD RUN, not per booking, so one event routinely holds
+ * originals from one run, 4K from another and HD-only photos from a
+ * third. An earlier model asked the guest to pick ONE archive tier and matched
+ * items against it exactly, which meant asking for originals silently handed
+ * back 2560px copies of every 4K photo — a real quality loss, reported
+ * by an alert that claimed those photos were "only available in web size" when
+ * a 4096px copy existed all along.
+ *
+ * "archive" therefore means BEST AVAILABLE PER PHOTO: the original where there
+ * is one, the 4K copy where there is one, the delivery copy otherwise.
+ * There is no case where a guest wants the worse of two files they are entitled
+ * to, so there is nothing to choose between.
+ */
+export type DownloadTier = "2560" | "archive";
 
 export type DownloadMethod =
   /** Write each file into a chosen folder, streamed, no ZIP. */
@@ -62,7 +82,7 @@ export type PlanSource = {
   /** Bytes of the 2560px object. 0 when unknown (media predating `size`). */
   bytes?: number;
   /** The archive tier THIS photo has, if any. */
-  archiveVariant?: "4096" | "original" | null;
+  archiveVariant?: ArchiveTier | null;
   /** Bytes of the archive object. */
   archiveBytes?: number | null;
 };
@@ -97,6 +117,7 @@ export type AlertId =
   | "FOLDER_PERMISSION"
   | "LARGE_DOWNLOAD"
   | "DEGRADED_ITEMS"
+  | "MIXED_ARCHIVE_TIERS"
   | "SKIPPING_EXISTING";
 
 export type AlertSeverity = "blocking" | "warning" | "info";
@@ -117,6 +138,13 @@ export type DownloadPlan = {
   totalBytes: number;
   /** Length 1 unless `method === "batchedZip"`. */
   batches: PlanItem[][];
+  /**
+   * Which archive tiers this download actually includes, distinct and ordered
+   * best-first. Empty at the delivery tier, and empty when nothing selected has
+   * an archive copy. Two entries means the selection spans upload runs — the
+   * modal names the option honestly instead of picking one arbitrarily.
+   */
+  archiveTiers: ArchiveTier[];
   degradedCount: number;
   alerts: DownloadAlert[];
   canProceed: boolean;
@@ -154,6 +182,9 @@ export const LARGE_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 export function concurrencyForTier(tier: DownloadTier): number {
   return tier === "2560" ? 8 : 3;
 }
+
+/** Best-first, so `archiveTiers[0]` is the highest quality in the selection. */
+const ARCHIVE_TIER_RANK: Record<ArchiveTier, number> = { original: 0, "4096": 1 };
 
 /* ── Filenames ───────────────────────────────────────────────────────────── */
 
@@ -252,11 +283,13 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
 
   const planned: PlanItem[] = items.map((source) => {
     const folderName = source.folderName ? sanitiseFilename(source.folderName, "") : "";
-    // An item is degraded when the archive tier was asked for and this photo
-    // has no archive object of that tier — uploaded before the tier existed, or
-    // its archive step failed. Never dropped, never fatal: it downloads at web
-    // quality and is counted so the guest is told.
-    const hasArchive = wantsArchive && source.archiveVariant === tier;
+    // Any archive copy counts, whichever tier it is — see DownloadTier. An item
+    // is degraded only when it has NO archive object at all: uploaded at HD,
+    // uploaded before the tiers existed, or its archive step failed. Never
+    // dropped, never fatal: it downloads at web quality and is counted so the
+    // guest is told, and that count is now truthful rather than sweeping in
+    // photos whose only crime was coming from a different upload run.
+    const hasArchive = wantsArchive && source.archiveVariant != null;
     const degraded = wantsArchive && !hasArchive;
     // Per-folder namespacing: two photos called DSC_4821.jpg from different
     // folders must not collide, and within one folder the second one becomes
@@ -279,6 +312,23 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
 
   const totalBytes = planned.reduce((sum, item) => sum + item.bytes, 0);
   const degradedCount = planned.reduce((n, item) => n + (item.degraded ? 1 : 0), 0);
+  const archiveTiers = wantsArchive
+    ? [
+        ...new Set(
+          items
+            .map((source) => source.archiveVariant)
+            .filter((v): v is ArchiveTier => v === "4096" || v === "original"),
+        ),
+      ].sort((a, b) => ARCHIVE_TIER_RANK[a] - ARCHIVE_TIER_RANK[b])
+    : [];
+  // How many photos will arrive as a 4K re-encode rather than a camera
+  // original. Only meaningful — and only reported — when the selection spans
+  // both, because that is the one case where "full quality" means two different
+  // things and a studio must not assume it has the studio's original files.
+  const lesserTierCount =
+    archiveTiers.length > 1
+      ? items.reduce((n, source) => n + (source.archiveVariant === "4096" ? 1 : 0), 0)
+      : 0;
 
   // Pack once, up front. The method decision below reads `packed.length` rather
   // than `Math.ceil(totalBytes / cap)` because greedy packing can need MORE
@@ -311,8 +361,14 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
     alerts.push({ id: "SPLIT_INTO_PARTS", severity: "warning", count: batches.length });
   if (method === "directory") alerts.push({ id: "FOLDER_PERMISSION", severity: "info" });
   if (totalBytes > LARGE_DOWNLOAD_BYTES) alerts.push({ id: "LARGE_DOWNLOAD", severity: "warning" });
-  if (degradedCount > 0)
+  // Only worth saying when the selection HAS a better tier for some photos.
+  // With no archive copy anywhere, "these will download at 2560px" describes
+  // the whole download rather than an exception — noise for a studio, and for
+  // a guest a hint that something they cannot have exists.
+  if (degradedCount > 0 && archiveTiers.length > 0)
     alerts.push({ id: "DEGRADED_ITEMS", severity: "info", count: degradedCount });
+  if (lesserTierCount > 0)
+    alerts.push({ id: "MIXED_ARCHIVE_TIERS", severity: "info", count: lesserTierCount });
   alerts.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
   return {
@@ -321,6 +377,7 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
     items: planned,
     totalBytes,
     batches,
+    archiveTiers,
     degradedCount,
     alerts,
     // An empty selection is not "proceedable" either — there is nothing to
@@ -341,8 +398,17 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
  * because telling an iPhone user to open Chrome is useless (every iOS browser
  * is WebKit) while telling a desktop Firefox user the same thing is actionable.
  */
-export function alertCopy(alert: DownloadAlert, { ios }: { ios: boolean }): string {
-  const n = (alert.count ?? 0).toLocaleString("en-IN");
+export function alertCopy(
+  alert: DownloadAlert,
+  { ios, audience = "studio" }: { ios: boolean; audience?: TierAudience },
+): string | null {
+  const count = alert.count ?? 0;
+  const n = count.toLocaleString("en-IN");
+  /** "1 photo is" / "4 photos are" — a count of exactly one is common enough
+   *  here (one legacy upload, one failed archive) to be worth getting right. */
+  const photos = count === 1 ? "1 photo" : `${n} photos`;
+  const are = count === 1 ? "is" : "are";
+  const were = count === 1 ? "was" : "were";
   switch (alert.id) {
     case "TOO_LARGE_FOR_DEVICE":
       return ios
@@ -355,9 +421,20 @@ export function alertCopy(alert: DownloadAlert, { ios }: { ios: boolean }): stri
     case "LARGE_DOWNLOAD":
       return "Large download. Stay on wi-fi and keep this tab open until it finishes.";
     case "DEGRADED_ITEMS":
-      return `${n} photos are only available in web size and will download at 2560px.`;
+      return `${photos} ${are} only available in web size and will download at 2560px.`;
+    case "MIXED_ARCHIVE_TIERS":
+      // STUDIO ONLY. These photos came from a 4K upload run: a 4096px
+      // re-encode, not the file the studio picked, and "Full resolution"
+      // covering both would otherwise imply files they never uploaded.
+      //
+      // A guest is told nothing: they were offered "High Resolution", which
+      // already means "the best copy of each photo", and naming tiers they
+      // cannot choose between would only hint at something they are not
+      // getting.
+      if (audience === "guest") return null;
+      return `${photos} ${were} uploaded at 4K, so ${count === 1 ? "it'll" : "they'll"} download as a 4096px file rather than the original.`;
     case "SKIPPING_EXISTING":
-      return `${n} photos are already in this folder and will be skipped.`;
+      return `${photos} ${are} already in this folder and will be skipped.`;
   }
 }
 

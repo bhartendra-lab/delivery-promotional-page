@@ -6,16 +6,22 @@
  * Deliberately not the bulk pre-flight: there is no size to warn about, no
  * method to explain and no picker to open, so all this asks is the one question
  * that still has two answers. Shown only where a choice actually exists (see
- * `useSinglePhotoDownload`), so a QHD-only gallery never gains an extra tap.
+ * `useSinglePhotoDownload`), so a HD-only gallery never gains an extra tap.
  *
  * Tier names come from the shared registry, so a photo the studio uploaded as
- * "Cinema 4K" is offered under that name here, in the bulk pre-flight, and in
+ * "4K" is offered under that name here, in the bulk pre-flight, and in
  * the studio's own delivery preferences.
  */
 
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ARCHIVE_TIER_FULL, type ArchiveTier } from "@/lib/delivery-preferences";
+import {
+  ARCHIVE_TIER_FULL,
+  DELIVERY_TIER_LABEL,
+  GUEST_ARCHIVE_LABEL,
+  type ArchiveTier,
+  type TierAudience,
+} from "@/lib/quality-tiers";
 import type { SinglePhotoTier } from "@/lib/download/single";
 import { Z_QUALITY_SHEET } from "@/lib/download/layers";
 import type { DownloadModalTheme } from "./DownloadPlanModal";
@@ -27,6 +33,7 @@ export function QualityChoiceSheet({
   archiveTier,
   onPick,
   onClose,
+  audience,
   theme: t,
 }: {
   open: boolean;
@@ -35,6 +42,8 @@ export function QualityChoiceSheet({
   archiveTier: ArchiveTier | null;
   onPick: (tier: SinglePhotoTier) => void;
   onClose: () => void;
+  /** Which vocabulary to speak — see lib/quality-tiers.ts. */
+  audience: TierAudience;
   theme: DownloadModalTheme;
 }) {
   const titleId = useId();
@@ -80,16 +89,23 @@ export function QualityChoiceSheet({
   const options: { tier: SinglePhotoTier; label: string; note: string }[] = [
     {
       tier: "2560",
-      label: "Web (2560px)",
+      label: DELIVERY_TIER_LABEL[audience],
       note: "Great for phones, sharing and printing small.",
     },
     {
       tier: archiveTier,
-      label: ARCHIVE_TIER_FULL[archiveTier],
+      // A guest sees one name for both tiers; the studio sees the exact one.
+      label: audience === "guest" ? GUEST_ARCHIVE_LABEL : ARCHIVE_TIER_FULL[archiveTier],
+      // The guest's note is deliberately identical for both tiers. A note that
+      // said "the full-size file" for one and "print resolution" for the other
+      // would tell them which tier this photo happens to be — the distinction
+      // they are never shown and cannot act on.
       note:
-        archiveTier === "original"
-          ? "The full camera file, with no watermark."
-          : "Print resolution, with no watermark.",
+        audience === "guest"
+          ? "The best quality available, with no watermark."
+          : archiveTier === "original"
+            ? "The full-size file, with no watermark."
+            : "Print resolution, with no watermark.",
     },
   ];
 

@@ -13,6 +13,7 @@ import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import type { SinglePhotoSource } from "@/lib/download/single";
 import { useEvent } from "./EventContext";
 import { Lightbox } from "./Lightbox";
+import { PhotoInfoTip } from "./PhotoInfoTip";
 import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
 
 /**
@@ -573,6 +574,11 @@ export function MediaGrid({
                 </button>
               )}
 
+              {/* Metadata tip. Bottom-left is the one corner no other tile
+                  affordance uses — top-left is the select box, top-right the
+                  star or the "⋮", bottom-right the download button. */}
+              {persisted && <PhotoInfoTip item={m} />}
+
               {/* Persistent status star (top-right) — the single status signal.
                   Not shortlisted → hover-only outline star. Shortlisted → amber.
                   One click toggles the shortlist. */}
@@ -680,11 +686,12 @@ export function MediaGrid({
           run and becomes the progress surface. */}
       {/* Quality choice for a SINGLE photo — opens only when the photo has an
           unwatermarked copy, otherwise every affordance saves straight away. */}
-      <QualityChoiceSheet {...singleDownload.sheet} theme={DASHBOARD_MODAL_THEME} />
+      <QualityChoiceSheet {...singleDownload.sheet} audience="studio" theme={DASHBOARD_MODAL_THEME} />
 
       <DownloadPlanModal
         flow={downloadFlow}
         theme={DASHBOARD_MODAL_THEME}
+        audience="studio"
         // Same escape hatch a blocked guest gets: a studio member stuck on an
         // iPad sends themselves this event's dashboard link and finishes on a
         // computer.

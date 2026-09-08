@@ -52,7 +52,7 @@ export type SingleArchiveUrlResolver = (
  *    studio member on their own dashboard it is simply true. The
  *    archive-download-urls endpoint re-derives it on every call, so this only
  *    decides whether a choice is worth showing.
- *  - the photo must actually have an archive object. A booking uploaded at QHD
+ *  - the photo must actually have an archive object. A booking uploaded at HD
  *    has none, and neither does a photo whose archive step failed.
  *
  * Returning null means the download affordance stays a single tap, exactly as

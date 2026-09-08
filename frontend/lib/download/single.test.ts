@@ -19,7 +19,7 @@ test("a photo with an archive copy offers that tier", () => {
 });
 
 test("no archive copy means no choice — the download stays one tap", () => {
-  // A QHD booking, and a photo whose archive step failed, are the same case
+  // A HD booking, and a photo whose archive step failed, are the same case
   // here: there is nothing to choose between.
   assert.equal(offer(photo()), null);
   assert.equal(offer(photo({ archiveVariant: null })), null);

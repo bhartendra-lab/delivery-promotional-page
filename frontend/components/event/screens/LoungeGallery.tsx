@@ -1257,6 +1257,7 @@ export function LoungeGallery({
       <DownloadPlanModal
         flow={downloadFlow}
         theme={t}
+        audience="guest"
         shareUrl={typeof window !== "undefined" ? window.location.href : undefined}
         onSelectFewer={selectAllInView}
       />
@@ -1265,7 +1266,7 @@ export function LoungeGallery({
           entitled to the unwatermarked copy and the photo actually has one —
           otherwise the tile, chip and one-item selection all save straight away
           as they always did. */}
-      <QualityChoiceSheet {...singleDownload.sheet} theme={t} />
+      <QualityChoiceSheet {...singleDownload.sheet} audience="guest" theme={t} />
 
       {/* toast */}
       {toast && (

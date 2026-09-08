@@ -40,7 +40,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     mediaSort,
     setMediaSort,
     folderCounts,
-    archiveTier,
+    archiveTiers,
+    uploadQualityTier,
     totalCount,
     totalForView,
     hasMore,
@@ -464,7 +465,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
         onCreateFolder={createFolder}
         preferences={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
         onSavePreferences={saveDeliveryPreferences}
-        bookingArchiveTier={archiveTier}
+        bookingArchiveTiers={archiveTiers}
+        bookingUploadTier={uploadQualityTier}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -510,7 +512,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         toast={toast}
         // A QHD-only event has no unwatermarked copy, so the archive download
         // row is not shown here at all.
-        context={{ archiveTier }}
+        context={{ archiveTiers }}
       />
 
       {cancelSummary && (

@@ -119,7 +119,7 @@ test("planDownload: a guest's ~40 archive photos on iOS is four parts, NOT block
   // The case the old tier gate wrongly blocked, and the main reason for the
   // size rule. ~1 GB of originals on a phone: four clicks, and it works.
   const p = plan(sources(40, { bytes: 2 * MB, archiveBytes: 25 * MB }), {
-    tier: "original",
+    tier: "archive",
     capability: "memoryZip",
     memoryCap: MEMORY_ZIP_CAP_MOBILE,
   });
@@ -131,7 +131,7 @@ test("planDownload: a guest's ~40 archive photos on iOS is four parts, NOT block
 
 test("planDownload: a whole gallery at archive tier on a phone is blocked", () => {
   const p = plan(sources(3000, { bytes: 2 * MB, archiveBytes: 25 * MB }), {
-    tier: "original",
+    tier: "archive",
     memoryCap: MEMORY_ZIP_CAP_MOBILE,
   });
   assert.equal(p.method, "blocked");
@@ -165,7 +165,9 @@ test("planDownload: exactly MAX_BATCHES parts is allowed; one more is blocked", 
 
 test("planDownload never reads the tier when choosing a method", () => {
   // The regression guard for the design error the size rule replaced. Same
-  // sizes, three tiers, identical method — every time, at every capability.
+  // bytes, both tiers, identical method — at every capability. Each side is
+  // given the SAME per-item byte count for the copy it will actually fetch, so
+  // any divergence could only come from the tier.
   const cases: { count: number; bytes: number; memoryCap: number }[] = [
     { count: 40, bytes: 2 * MB, memoryCap: MEMORY_ZIP_CAP_MOBILE },
     { count: 40, bytes: 25 * MB, memoryCap: MEMORY_ZIP_CAP_MOBILE },
@@ -174,23 +176,20 @@ test("planDownload never reads the tier when choosing a method", () => {
   ];
   for (const { count, bytes, memoryCap } of cases) {
     for (const capability of ["directory", "streamZip", "memoryZip"] as SaveCapability[]) {
-      // Each tier is given the SAME per-item byte count for the tier it will
-      // actually use, so any difference in outcome can only come from the tier.
       const web = plan(sources(count, { bytes }), { tier: "2560", capability, memoryCap });
-      const hi = plan(sources(count, { bytes: 1, archiveBytes: bytes, variant: "4096" }), {
-        tier: "4096",
-        capability,
-        memoryCap,
-      });
-      const orig = plan(sources(count, { bytes: 1, archiveBytes: bytes }), {
-        tier: "original",
-        capability,
-        memoryCap,
-      });
-      assert.equal(hi.method, web.method, `4096 diverged at ${capability}/${count}×${bytes}`);
-      assert.equal(orig.method, web.method, `original diverged at ${capability}/${count}×${bytes}`);
-      assert.equal(hi.batches.length, web.batches.length);
-      assert.equal(orig.batches.length, web.batches.length);
+      for (const variant of ["4096", "original"] as ("4096" | "original")[]) {
+        const archive = plan(sources(count, { bytes: 1, archiveBytes: bytes, variant }), {
+          tier: "archive",
+          capability,
+          memoryCap,
+        });
+        assert.equal(
+          archive.method,
+          web.method,
+          `${variant} diverged at ${capability}/${count}×${bytes}`,
+        );
+        assert.equal(archive.batches.length, web.batches.length);
+      }
     }
   }
 });
@@ -238,7 +237,7 @@ test("alerts: DEGRADED_ITEMS only when the archive tier can't serve some items",
     ...sources(3, { bytes: 2 * MB, archiveBytes: 20 * MB }),
     ...sources(2, { bytes: 2 * MB }).map((s, i) => ({ ...s, mediaId: `legacy${i}` })),
   ];
-  const p = plan(mixed, { tier: "original" });
+  const p = plan(mixed, { tier: "archive" });
   const alert = p.alerts.find((a) => a.id === "DEGRADED_ITEMS");
   assert.ok(alert);
   assert.equal(alert.count, 2);
@@ -247,7 +246,7 @@ test("alerts: DEGRADED_ITEMS only when the archive tier can't serve some items",
   assert.ok(!alertIds(plan(mixed, { tier: "2560" })).includes("DEGRADED_ITEMS"));
   // Nor when every item has the requested archive tier.
   assert.ok(
-    !alertIds(plan(sources(3, { archiveBytes: 20 * MB }), { tier: "original" })).includes(
+    !alertIds(plan(sources(3, { archiveBytes: 20 * MB }), { tier: "archive" })).includes(
       "DEGRADED_ITEMS",
     ),
   );
@@ -255,7 +254,7 @@ test("alerts: DEGRADED_ITEMS only when the archive tier can't serve some items",
 
 test("alerts: ordered blocking → warning → info", () => {
   const p = plan(sources(3000, { bytes: 2 * MB, archiveBytes: 25 * MB }), {
-    tier: "original",
+    tier: "archive",
     memoryCap: MEMORY_ZIP_CAP_MOBILE,
   });
   const ranks = p.alerts.map((a) => ["blocking", "warning", "info"].indexOf(a.severity));
@@ -266,8 +265,8 @@ test("alertCopy: TOO_LARGE_FOR_DEVICE differs only in wording between iOS and no
   const p = plan(sources(3000, { bytes: 25 * MB }), { memoryCap: MEMORY_ZIP_CAP_MOBILE });
   const alert = p.alerts.find((a) => a.id === "TOO_LARGE_FOR_DEVICE");
   assert.ok(alert);
-  const ios = alertCopy(alert, { ios: true });
-  const other = alertCopy(alert, { ios: false });
+  const ios = alertCopy(alert, { ios: true })!;
+  const other = alertCopy(alert, { ios: false })!;
   assert.notEqual(ios, other);
   // The id, condition and severity are identical — only the sentence moves.
   assert.equal(alert.severity, "blocking");
@@ -278,9 +277,17 @@ test("alertCopy: TOO_LARGE_FOR_DEVICE differs only in wording between iOS and no
 });
 
 test("alertCopy: interpolates the count for every alert that has one", () => {
-  assert.match(alertCopy({ id: "SPLIT_INTO_PARTS", severity: "warning", count: 4 }, { ios: false }), /4 parts/);
-  assert.match(alertCopy({ id: "DEGRADED_ITEMS", severity: "info", count: 12 }, { ios: false }), /^12 photos/);
-  assert.match(alertCopy({ id: "SKIPPING_EXISTING", severity: "info", count: 7 }, { ios: false }), /^7 photos/);
+  assert.match(alertCopy({ id: "SPLIT_INTO_PARTS", severity: "warning", count: 4 }, { ios: false })!, /4 parts/);
+  assert.match(alertCopy({ id: "DEGRADED_ITEMS", severity: "info", count: 12 }, { ios: false })!, /^12 photos are/);
+  assert.match(alertCopy({ id: "SKIPPING_EXISTING", severity: "info", count: 7 }, { ios: false })!, /^7 photos are/);
+  // A count of exactly one is common here (one legacy upload, one failed
+  // archive) and "1 photos are" is the kind of thing a studio notices.
+  assert.match(alertCopy({ id: "DEGRADED_ITEMS", severity: "info", count: 1 }, { ios: false })!, /^1 photo is/);
+  assert.match(alertCopy({ id: "SKIPPING_EXISTING", severity: "info", count: 1 }, { ios: false })!, /^1 photo is/);
+  assert.match(
+    alertCopy({ id: "MIXED_ARCHIVE_TIERS", severity: "info", count: 1 }, { ios: false })!,
+    /^1 photo was/,
+  );
 });
 
 /* ── Batch packing ───────────────────────────────────────────────────────── */
@@ -339,7 +346,7 @@ test("planDownload: degraded items are kept, sized from the web copy, and pointe
       { mediaId: "a", url: "https://m/a.jpg", name: "a.jpg", bytes: 2 * MB, archiveVariant: "original", archiveBytes: 30 * MB },
       { mediaId: "b", url: "https://m/b.jpg", name: "b.jpg", bytes: 3 * MB },
     ],
-    { tier: "original" },
+    { tier: "archive" },
   );
   assert.equal(p.items.length, 2, "a degraded item is never silently dropped");
   assert.equal(p.degradedCount, 1);
@@ -353,13 +360,115 @@ test("planDownload: degraded items are kept, sized from the web copy, and pointe
   assert.equal(b.url, "https://m/b.jpg");
 });
 
-test("planDownload: an item whose archive is a DIFFERENT tier is degraded", () => {
-  // A booking never offers both archive tiers, but a photo re-uploaded across
-  // a settings change can carry the other one. Asking for "original" must not
-  // hand back a 4096 file and call it an original.
-  const p = plan(sources(1, { archiveBytes: 20 * MB, variant: "4096" }), { tier: "original" });
-  assert.equal(p.degradedCount, 1);
-  assert.equal(p.items[0].needsArchiveUrl, false);
+/* ── A booking that MIXES upload tiers ───────────────────────────────────── */
+
+/** 3 original files, 3 4K, 3 HD-only — one event, three upload runs. */
+const mixedEvent = (): PlanSource[] => [
+  ...Array.from({ length: 3 }, (_, i) => ({
+    mediaId: `orig${i}`,
+    url: `https://m/o${i}.jpg`,
+    name: `O${i}.CR3`,
+    bytes: 2 * MB,
+    archiveVariant: "original" as const,
+    archiveBytes: 50 * MB,
+  })),
+  ...Array.from({ length: 3 }, (_, i) => ({
+    mediaId: `4k${i}`,
+    url: `https://m/f${i}.jpg`,
+    name: `F${i}.jpg`,
+    bytes: 2 * MB,
+    archiveVariant: "4096" as const,
+    archiveBytes: 8 * MB,
+  })),
+  ...Array.from({ length: 3 }, (_, i) => ({
+    mediaId: `web${i}`,
+    url: `https://m/w${i}.jpg`,
+    name: `W${i}.jpg`,
+    bytes: 2 * MB,
+  })),
+];
+
+test("mixed event: every photo gets the BEST copy it has, not one chosen tier", () => {
+  // The bug this replaces: matching items against a single chosen tier meant
+  // asking for originals silently handed back 2560px copies of every 4K
+  // photo, even though a 4096px file existed.
+  const p = plan(mixedEvent(), { tier: "archive" });
+  const byId = Object.fromEntries(p.items.map((i) => [i.mediaId, i]));
+  for (const id of ["orig0", "orig1", "orig2"]) {
+    assert.equal(byId[id].needsArchiveUrl, true);
+    assert.equal(byId[id].bytes, 50 * MB);
+    assert.equal(byId[id].degraded, false);
+  }
+  for (const id of ["4k0", "4k1", "4k2"]) {
+    assert.equal(byId[id].needsArchiveUrl, true, "a 4K photo must fetch its 4096 copy");
+    assert.equal(byId[id].bytes, 8 * MB);
+    assert.equal(byId[id].degraded, false, "having a different tier is not a degradation");
+  }
+  for (const id of ["web0", "web1", "web2"]) {
+    assert.equal(byId[id].needsArchiveUrl, false);
+    assert.equal(byId[id].bytes, 2 * MB);
+    assert.equal(byId[id].degraded, true, "only a photo with NO archive copy is degraded");
+  }
+});
+
+test("mixed event: the degraded count names only the genuinely web-only photos", () => {
+  // The old alert claimed 6 photos were "only available in web size" when 3 of
+  // them had a 4K copy all along.
+  const p = plan(mixedEvent(), { tier: "archive" });
+  assert.equal(p.degradedCount, 3);
+  const degraded = p.alerts.find((a) => a.id === "DEGRADED_ITEMS");
+  assert.equal(degraded?.count, 3);
+});
+
+test("mixed event: the sizing is the sum of the best copies", () => {
+  const p = plan(mixedEvent(), { tier: "archive" });
+  // 3×50 MB originals + 3×8 MB 4K + 3×2 MB web copies.
+  assert.equal(p.totalBytes, (3 * 50 + 3 * 8 + 3 * 2) * MB);
+});
+
+test("mixed event: archiveTiers lists both, best first", () => {
+  assert.deepEqual(plan(mixedEvent(), { tier: "archive" }).archiveTiers, ["original", "4096"]);
+  // Order of the SOURCES must not change the answer.
+  assert.deepEqual(
+    plan([...mixedEvent()].reverse(), { tier: "archive" }).archiveTiers,
+    ["original", "4096"],
+  );
+});
+
+test("mixed event: MIXED_ARCHIVE_TIERS warns that some photos are re-encodes, not negatives", () => {
+  const p = plan(mixedEvent(), { tier: "archive" });
+  const alert = p.alerts.find((a) => a.id === "MIXED_ARCHIVE_TIERS");
+  assert.ok(alert, "a selection spanning both tiers must say so");
+  assert.equal(alert.count, 3);
+  assert.equal(alert.severity, "info");
+  assert.match(alertCopy(alert, { ios: false, audience: "studio" })!, /4K/);
+  // A guest is never told about the mixture: "High Resolution" already means
+  // "the best copy of each photo", and naming tiers they cannot choose between
+  // would only hint at something they are not getting.
+  assert.equal(alertCopy(alert, { ios: false, audience: "guest" }), null);
+});
+
+test("a UNIFORM selection names its one tier and raises no mixture alert", () => {
+  for (const variant of ["4096", "original"] as ("4096" | "original")[]) {
+    const p = plan(sources(5, { archiveBytes: 20 * MB, variant }), { tier: "archive" });
+    assert.deepEqual(p.archiveTiers, [variant]);
+    assert.ok(!alertIds(p).includes("MIXED_ARCHIVE_TIERS"));
+  }
+});
+
+test("a selection with NO archive copy raises no degraded notice — that is just the tier", () => {
+  // "These will download at 2560px" describes the whole download rather than an
+  // exception, and for a guest it hints at something they cannot have.
+  const p = plan(sources(3), { tier: "archive" });
+  assert.equal(p.degradedCount, 3, "the items are still marked, for the engine");
+  assert.ok(!alertIds(p).includes("DEGRADED_ITEMS"), "but nothing is announced");
+});
+
+test("archiveTiers is empty at the delivery tier, and when nothing has an archive", () => {
+  assert.deepEqual(plan(mixedEvent(), { tier: "2560" }).archiveTiers, []);
+  assert.deepEqual(plan(sources(3), { tier: "archive" }).archiveTiers, []);
+  // Nothing to mix, so no mixture alert either.
+  assert.ok(!alertIds(plan(mixedEvent(), { tier: "2560" })).includes("MIXED_ARCHIVE_TIERS"));
 });
 
 test("planDownload: media with no recorded size contributes 0 rather than NaN", () => {

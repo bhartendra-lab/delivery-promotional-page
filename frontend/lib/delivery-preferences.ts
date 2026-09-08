@@ -10,12 +10,21 @@
  * `DELIVERY_PREFERENCE_DEFAULTS`.
  *
  * A spec's copy and its visibility are both functions of the booking's context
- * and the current draft, which is what lets one row be called "Cinema 4K
- * downloads" for one event and "Original file downloads" for another — and lets
- * it disappear entirely for an event that has neither.
+ * and the current draft, which is what lets one row be called "4K downloads"
+ * for one event and "Original file downloads" for another — and lets it
+ * disappear entirely for an event that has neither.
  */
 
-/** Who may download the unwatermarked archive copy (4096px or original). */
+import {
+  ARCHIVE_TIER_SHORT,
+  DELIVERY_TIER_LABEL,
+  archiveFilesPhrase,
+  type ArchiveTier,
+} from "./quality-tiers.ts";
+
+export type { ArchiveTier };
+
+/** Who may download the unwatermarked archive copy (4K or original). */
 export type ArchiveDownloadAccess = "none" | "host_only" | "all_guests";
 
 export type DeliveryPreferences = {
@@ -46,47 +55,23 @@ export type DeliveryPreferenceOption = {
   description: string;
 };
 
-/** The archive (unwatermarked) quality tiers a studio can upload at. */
-export type ArchiveTier = "4096" | "original";
-
-/**
- * ONE studio-facing name per tier, used by the upload dialog's quality
- * selector, this panel, and the guest download pre-flight alike. A tier called
- * "Cinema 4K" while uploading and "high-res" while downloading reads as two
- * different things.
- */
-export const ARCHIVE_TIER_SHORT: Record<ArchiveTier, string> = {
-  "4096": "Cinema 4K",
-  original: "Original file",
-};
-export const ARCHIVE_TIER_FULL: Record<ArchiveTier, string> = {
-  "4096": "Cinema 4K (4096px)",
-  original: "Original file",
-};
-
-/**
- * How each tier reads INSIDE a sentence, as a plural noun phrase. Kept separate
- * from the labels above because those are headings and interpolating them into
- * prose produces "the Original file files".
- */
-const ARCHIVE_TIER_FILES: Record<ArchiveTier, string> = {
-  "4096": "Cinema 4K (4096px) files",
-  original: "original camera files",
-};
+/* Tier vocabulary lives in one module — see lib/quality-tiers.ts for why the
+   studio and a guest are shown different names for the same file. */
 
 /**
  * What the panel needs to know about the booking beyond the preference values
  * themselves.
  *
- * `archiveTier` is null for an event whose photos are all QHD — there is no
- * unwatermarked copy in existence, so a preference governing who may download
- * one has nothing to govern and is not shown. In the upload dialog this is the
- * tier the studio has just SELECTED (the run is about to create those copies);
- * in the standalone Preferences dialog it is the tier the event's photos
- * actually carry.
+ * `archiveTiers` is EVERY archive tier this event holds, because the quality
+ * tier is chosen per upload run and one event routinely mixes original files
+ * from one run with 4K from another. Empty means every photo is HD —
+ * there is no unwatermarked copy in existence, so a preference governing who
+ * may download one has nothing to govern and is not shown. In the upload dialog
+ * this also folds in the tier the studio has just SELECTED, since that run is
+ * about to create those copies.
  */
 export type DeliveryPreferenceContext = {
-  archiveTier: ArchiveTier | null;
+  archiveTiers: ArchiveTier[];
 };
 
 /** A preference row, resolved for one booking — concrete strings, ready to
@@ -107,7 +92,7 @@ export type DeliveryPreferenceField = {
 /**
  * The registry entry. Copy is written as functions of the booking's context so
  * that a tier's NAME is never hardcoded into a sentence — the same row reads
- * "Cinema 4K downloads" for one event and "Original file downloads" for
+ * "4K downloads" for one event and "Original file downloads" for
  * another, and the panel stays a dumb renderer.
  */
 type DeliveryPreferenceSpec = {
@@ -139,25 +124,31 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
     key: "archive_download_access",
     type: "select",
     // Named after the tier this event actually has, never a generic
-    // "Full-resolution": a studio that uploaded Cinema 4K did not upload
+    // "Full-resolution": a studio that uploaded 4K did not upload
     // originals, and calling those files "full-resolution originals" would be
     // wrong as well as vague.
-    label: (ctx) => `${ARCHIVE_TIER_SHORT[ctx.archiveTier ?? "original"]} downloads`,
+    label: (ctx) =>
+      ctx.archiveTiers.length === 1
+        ? `${ARCHIVE_TIER_SHORT[ctx.archiveTiers[0]]} downloads`
+        : // An event holding both has no single honest tier name, and this is
+          // where the generic label earns its place — the setting governs both
+          // equally.
+          "Full-resolution downloads",
     description: (ctx) =>
-      `Who can download the unwatermarked ${ARCHIVE_TIER_FILES[ctx.archiveTier ?? "original"]} you uploaded. Everyone else gets the watermarked QHD (2560px) version.`,
+      `Who can download the unwatermarked ${archiveFilesPhrase(ctx.archiveTiers)} you uploaded. Everyone else gets the watermarked ${DELIVERY_TIER_LABEL.studio} version.`,
     // Two independent reasons this row can be meaningless, and both hide it
     // rather than showing a control that governs nothing:
-    //  - the event is QHD-only, so no unwatermarked copy exists at all;
+    //  - the event is HD-only, so no unwatermarked copy exists at all;
     //  - downloads are switched off outright, which overrides this setting
     //    anyway (see the endpoint's authorisation order).
-    isRelevant: (ctx, value) => value.allow_download && ctx.archiveTier !== null,
+    isRelevant: (ctx, value) => value.allow_download && ctx.archiveTiers.length > 0,
     options: (ctx) => {
-      const files = ARCHIVE_TIER_FILES[ctx.archiveTier ?? "original"];
+      const files = archiveFilesPhrase(ctx.archiveTiers);
       return [
         {
           value: "host_only",
           label: "Only the family (passcode holders)",
-          description: `Guests who have entered the family passcode can download the ${files}. Everyone else gets the watermarked QHD (2560px) copy.`,
+          description: `Guests who have entered the family passcode can download the ${files}. Everyone else gets the watermarked ${DELIVERY_TIER_LABEL.studio} copy.`,
         },
         {
           value: "all_guests",
@@ -185,7 +176,7 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
  */
 export function resolveDeliveryPreferenceFields(
   value: DeliveryPreferences,
-  context: DeliveryPreferenceContext = { archiveTier: null },
+  context: DeliveryPreferenceContext = { archiveTiers: [] },
 ): DeliveryPreferenceField[] {
   return DELIVERY_PREFERENCE_SPECS.filter(
     (spec) => spec.isRelevant?.(context, value) ?? true,

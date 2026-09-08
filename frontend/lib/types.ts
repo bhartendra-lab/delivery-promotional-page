@@ -550,10 +550,17 @@ export type GetMediaResponse = {
   /** Always true for the dashboard (the studio owns its own media); present so
    *  the same download pre-flight code reads one field in both hosts. */
   archive_access?: boolean;
-  /** The booking's archive quality tier, or null when every photo is QHD.
-   *  Booking-wide (not per page), returned on the first page only. Drives which
-   *  delivery preferences are worth showing the studio and what they're called. */
-  archive_tier?: "4096" | "original" | null;
+  /** Every archive quality tier this booking holds, e.g. `["original", "4096"]`
+   *  for an event whose upload runs mixed them; empty on a HD-only event. The
+   *  tier is chosen per RUN, not per booking, so this is a set rather than one
+   *  value. Booking-wide (not per page), returned on the first page only.
+   *  Drives which delivery preferences are worth showing and what they're
+   *  called. */
+  archive_tiers?: ("4096" | "original")[];
+  /** The quality tier the last upload run for this event used. Seeds the upload
+   *  dialog's selector so a studio decides once per event. Null on an event
+   *  never uploaded to. Dashboard only, first page only. */
+  upload_quality_tier?: "2560" | "4096" | "original" | null;
 };
 
 /* ── Guest-facing client gallery ───────────────────────────────── */
