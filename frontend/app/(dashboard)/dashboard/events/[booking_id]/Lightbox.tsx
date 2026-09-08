@@ -138,8 +138,11 @@ export function Lightbox({
       className="fixed inset-0 z-[210] flex flex-col"
       style={{ background: "rgba(42,34,24,0.92)" }}
     >
-      {/* Top toolbar */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      {/* Top toolbar. `relative z-10` is load-bearing: the stage below is also
+          positioned and comes later in DOM order, so at the default z-index it
+          paints over anything overflowing this bar — which is exactly what the
+          photo-details panel does. */}
+      <div className="relative z-10 flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <span className="text-[13px] font-semibold tabular-nums text-white/80">
             {index + 1} / {count.toLocaleString("en-IN")}

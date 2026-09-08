@@ -107,6 +107,9 @@ export type PlanItem = {
   /** Sanitised folder name, "" for the root of the target. */
   folderName: string;
   bytes: number;
+  /** True when `bytes` is an assumption, not a recorded byte count — see
+   *  ASSUMED_BYTES. The engines don't care; the modal stops saying "exactly". */
+  bytesEstimated: boolean;
   /** Archive requested, but this item only has the web copy. */
   degraded: boolean;
 };
@@ -145,6 +148,9 @@ export type DownloadPlan = {
    * modal names the option honestly instead of picking one arbitrarily.
    */
   archiveTiers: ArchiveTier[];
+  /** How many items had no recorded size and were assumed. 0 means the total
+   *  is exact, summed from real byte counts. */
+  estimatedCount: number;
   degradedCount: number;
   alerts: DownloadAlert[];
   canProceed: boolean;
@@ -169,6 +175,29 @@ export const MAX_BATCHES = 8;
 
 /** Threshold for the "this will take a while, stay on wi-fi" warning. */
 export const LARGE_DOWNLOAD_BYTES = 500 * 1024 * 1024;
+
+/**
+ * What to assume a photo weighs when its byte count was never recorded.
+ *
+ * `Media.size` is absent on everything uploaded before byte counts existed, and
+ * a gallery whose backfill has not been run is entirely made of such documents.
+ * Treating those as 0 — the obvious reading of a missing number — disables the
+ * size rule completely: a 3,000-photo legacy gallery sums to "0 MB", plans a
+ * single in-memory ZIP, and kills the tab on the phone it was planned for. An
+ * absent size is not a small photo, it is an unknown one.
+ *
+ * These are the uploader's own output shape (2560px long edge at quality 0.80,
+ * and the archive tiers alongside it), rounded UP. Erring high is deliberate:
+ * over-estimating pushes a borderline selection towards batching or a clean
+ * "too large for this device", where under-estimating pushes it towards a
+ * crash. A plan that used any of them reports its total as approximate rather
+ * than claiming an exactness it does not have.
+ */
+export const ASSUMED_BYTES: Record<"2560" | ArchiveTier, number> = {
+  "2560": 1.2 * 1024 * 1024,
+  "4096": 3 * 1024 * 1024,
+  original: 8 * 1024 * 1024,
+};
 
 /**
  * How many photos to fetch in parallel while building a ZIP.
@@ -299,19 +328,28 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
       taken = new Set<string>();
       takenNames.set(folderName, taken);
     }
+    // The recorded byte count for the copy this item will actually fetch, or
+    // an assumption when there isn't one. Never 0 — see ASSUMED_BYTES.
+    const recorded = hasArchive ? source.archiveBytes : source.bytes;
+    const bytesEstimated = recorded == null || recorded <= 0;
+    const assumedTier: "2560" | ArchiveTier = hasArchive
+      ? (source.archiveVariant as ArchiveTier)
+      : "2560";
     return {
       mediaId: source.mediaId,
       url: source.url,
       needsArchiveUrl: hasArchive,
       name: dedupeName(taken, sanitiseFilename(source.name, source.mediaId)),
       folderName,
-      bytes: (hasArchive ? source.archiveBytes : source.bytes) ?? source.bytes ?? 0,
+      bytes: bytesEstimated ? ASSUMED_BYTES[assumedTier] : recorded,
+      bytesEstimated,
       degraded,
     };
   });
 
   const totalBytes = planned.reduce((sum, item) => sum + item.bytes, 0);
   const degradedCount = planned.reduce((n, item) => n + (item.degraded ? 1 : 0), 0);
+  const estimatedCount = planned.reduce((n, item) => n + (item.bytesEstimated ? 1 : 0), 0);
   const archiveTiers = wantsArchive
     ? [
         ...new Set(
@@ -378,6 +416,7 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
     totalBytes,
     batches,
     archiveTiers,
+    estimatedCount,
     degradedCount,
     alerts,
     // An empty selection is not "proceedable" either — there is nothing to

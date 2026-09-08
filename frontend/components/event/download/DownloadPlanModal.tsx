@@ -246,10 +246,15 @@ export function DownloadPlanModal({
                 </div>
               )}
 
-              {/* Exact size — summed from real byte counts, never estimated. */}
+              {/* Summed from real byte counts — and said to be approximate when
+                  some of those counts don't exist. Media uploaded before byte
+                  counts were recorded is sized by assumption (see
+                  ASSUMED_BYTES), and presenting that as an exact figure would
+                  be the one number here nobody could trust. */}
               <div className="text-[13px] font-semibold leading-relaxed" style={{ color: t.muted }}>
                 {count.toLocaleString("en-IN")} photo{count === 1 ? "" : "s"} ·{" "}
                 {tierLabel(state.tier, plan.archiveTiers, audience)} ·{" "}
+                {plan.estimatedCount > 0 ? "about " : ""}
                 {formatBytes(plan.totalBytes)}
               </div>
 

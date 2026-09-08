@@ -4,6 +4,7 @@ import {
   alertCopy,
   dedupeName,
   formatBytes,
+  ASSUMED_BYTES,
   LARGE_DOWNLOAD_BYTES,
   MAX_BATCHES,
   packBatches,
@@ -299,6 +300,7 @@ const item = (bytes: number, id = "x"): PlanItem => ({
   name: `${id}.jpg`,
   folderName: "",
   bytes,
+  bytesEstimated: false,
   degraded: false,
 });
 
@@ -471,10 +473,54 @@ test("archiveTiers is empty at the delivery tier, and when nothing has an archiv
   assert.ok(!alertIds(plan(mixedEvent(), { tier: "2560" })).includes("MIXED_ARCHIVE_TIERS"));
 });
 
-test("planDownload: media with no recorded size contributes 0 rather than NaN", () => {
+/* ── Media whose byte count was never recorded ───────────────────────────── */
+
+test("an unrecorded size is ASSUMED, never treated as zero", () => {
+  // The hazard this closes: `Media.size` is absent on everything uploaded
+  // before byte counts existed, so a gallery whose backfill has not been run
+  // summed to "0 MB" and disabled the size rule entirely.
   const p = plan([{ mediaId: "a", url: "https://m/a.jpg", name: "a.jpg" }]);
-  assert.equal(p.totalBytes, 0);
+  assert.equal(p.totalBytes, ASSUMED_BYTES["2560"]);
+  assert.equal(p.items[0].bytesEstimated, true);
+  assert.equal(p.estimatedCount, 1);
+});
+
+test("a legacy gallery is still bounded on a phone", () => {
+  // 3,000 photos with no recorded size: roughly 3.5 GB assumed, well past the
+  // 8 × 300 MB ceiling. Previously this planned ONE in-memory ZIP.
+  const legacy = Array.from({ length: 3000 }, (_, i) => ({
+    mediaId: `m${i}`,
+    url: `https://m/${i}.jpg`,
+    name: `IMG_${i}.jpg`,
+  }));
+  const p = plan(legacy, { memoryCap: MEMORY_ZIP_CAP_MOBILE });
+  assert.equal(p.method, "blocked");
+  assert.equal(p.canProceed, false);
+});
+
+test("a small legacy selection still downloads normally", () => {
+  // Erring high must not block what plainly works: 40 photos ≈ 48 MB assumed.
+  const p = plan(sources(40, { bytes: 0 }), { memoryCap: MEMORY_ZIP_CAP_MOBILE });
   assert.equal(p.method, "memoryZip");
+  assert.equal(p.canProceed, true);
+});
+
+test("a recorded size is never overridden by the assumption", () => {
+  const p = plan(sources(3, { bytes: 2 * MB }));
+  assert.equal(p.totalBytes, 6 * MB);
+  assert.equal(p.estimatedCount, 0, "a fully-recorded selection reports an exact total");
+  assert.ok(p.items.every((i) => !i.bytesEstimated));
+});
+
+test("an archive item with no recorded archive size is assumed at its OWN tier", () => {
+  // An original is an order of magnitude larger than a delivery copy, so
+  // assuming the delivery figure for it would under-count badly.
+  const p = plan(
+    [{ mediaId: "a", url: "u", name: "a.jpg", bytes: 2 * MB, archiveVariant: "original" }],
+    { tier: "archive" },
+  );
+  assert.equal(p.totalBytes, ASSUMED_BYTES.original);
+  assert.equal(p.items[0].bytesEstimated, true);
 });
 
 test("planDownload: an empty selection cannot proceed", () => {

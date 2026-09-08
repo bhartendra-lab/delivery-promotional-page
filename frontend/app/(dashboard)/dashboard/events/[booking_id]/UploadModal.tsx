@@ -241,6 +241,27 @@ export function UploadModal({
   const [selectedVariant, setSelectedVariant] = useState<UploadVariant>("2560");
   /** A change away from the event's established tier, awaiting confirmation. */
   const [pendingTierChange, setPendingTierChange] = useState<UploadVariant | null>(null);
+  /** True once the studio has picked a tier themselves in this dialog session.
+   *  Until then the selection tracks the event's stored tier. */
+  const [tierTouched, setTierTouched] = useState(false);
+  /** The stored tier the selection was last seeded from, so a value arriving
+   *  after the dialog opened still lands. */
+  const [seededFrom, setSeededFrom] = useState<UploadVariant | null | undefined>(undefined);
+
+  /**
+   * Keep the selection on the event's established tier until the studio moves
+   * it. Done during render rather than in an effect (the pattern MediaGrid uses
+   * for its view reset) so the stale value is never painted.
+   *
+   * A one-shot seed on the open transition is NOT enough: `bookingUploadTier`
+   * arrives with the media page, which can resolve after the dialog is already
+   * open — the selector would then sit on HD forever, which is exactly the bug
+   * this replaces.
+   */
+  if (open && !tierTouched && seededFrom !== bookingUploadTier) {
+    setSeededFrom(bookingUploadTier);
+    setSelectedVariant(bookingUploadTier ?? "2560");
+  }
   const archiveAllowed = storageGated && !dlpLoading;
   const originalAllowed =
     archiveAllowed && (dlpUsage?.limit ?? 0) >= ORIGINAL_TIER_MIN_STORAGE_GB;
@@ -269,6 +290,7 @@ export function UploadModal({
    */
   function requestTierChange(next: UploadVariant) {
     if (!bookingUploadTier || next === bookingUploadTier) {
+      setTierTouched(true);
       setSelectedVariant(next);
       return;
     }
@@ -299,7 +321,10 @@ export function UploadModal({
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resets all modal state on open transition, not a render loop
     setStep(initialStep);
-    setSelectedVariant(bookingUploadTier ?? "2560");
+    // Re-seed from scratch: a tier the studio picked and then cancelled out of
+    // must not survive into the next time the dialog opens.
+    setTierTouched(false);
+    setSeededFrom(undefined);
     setPendingTierChange(null);
     setTarget(initialTarget);
     setFolderOnly(initialFolderOnly);
@@ -868,6 +893,7 @@ export function UploadModal({
               from={bookingUploadTier}
               to={pendingTierChange}
               onConfirm={() => {
+                setTierTouched(true);
                 setSelectedVariant(pendingTierChange);
                 setPendingTierChange(null);
               }}
