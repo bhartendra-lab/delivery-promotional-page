@@ -1072,6 +1072,22 @@ export function getMediaIdsForView(bookingId: string, opts?: MediaViewOptions): 
 }
 
 /**
+ * GET /deliverables/archive-tiers/:booking_id — the booking-level archive
+ * tiers plus the tier the last upload run used.
+ *
+ * These used to ride along on `get-media`'s first page. The tier lookup scans
+ * every media document in the booking (134 ms on a 20,000-photo event,
+ * measured server-side), which is a lot to pay on every gallery load for a
+ * label on a row the studio may never open. Fetched once per event instead.
+ */
+export function getArchiveTiers(bookingId: string) {
+  return request<{
+    archive_tiers: ("4096" | "original")[];
+    upload_quality_tier: "2560" | "4096" | "original" | null;
+  }>(`/deliverables/archive-tiers/${encodeURIComponent(bookingId)}`);
+}
+
+/**
  * POST /deliverables/archive-download-urls/:booking_id — download URLs for the
  * unwatermarked archive copies of `mediaIds`.
  *

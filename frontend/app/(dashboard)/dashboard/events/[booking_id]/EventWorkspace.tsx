@@ -6,6 +6,7 @@ import {
   clearBookingData,
   deleteMedia,
   getBookingById,
+  getArchiveTiers,
   getMedia,
   getMediaIdsForView,
   recalculateStudioStorage,
@@ -306,12 +307,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (res.customFolders) setFolders(res.customFolders);
         if (res.folderCounts) setFolderCounts(res.folderCounts);
         if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
-        // Only ever asserted by the first page; `undefined` on an older server
-        // leaves the previous answer alone rather than blanking it.
-        if (res.archive_tiers !== undefined) setArchiveTiers(res.archive_tiers ?? []);
-        if (res.upload_quality_tier !== undefined) {
-          setUploadQualityTier(res.upload_quality_tier ?? null);
-        }
         if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
@@ -543,6 +538,27 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     };
   }, [engine, reload]);
 
+  // Archive tiers + the last run's upload quality. These used to ride along on
+  // get-media's first page, but the tier lookup scans every media document in
+  // the booking (134 ms on a 20,000-photo event) and it was paying that on
+  // every gallery load and every folder switch. Once per event instead, and
+  // again after an upload run, which is the only thing that can change it.
+  const refreshArchiveTiers = useCallback(async () => {
+    try {
+      const res = await getArchiveTiers(bookingId);
+      setArchiveTiers(res.archive_tiers ?? []);
+      setUploadQualityTier(res.upload_quality_tier ?? null);
+    } catch {
+      // Advisory only — it labels the download row and seeds the upload
+      // dialog. A failure here must not disturb the grid.
+    }
+  }, [bookingId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
+    void refreshArchiveTiers();
+  }, [refreshArchiveTiers]);
+
   // On run completion: reconcile media + booking, then surface the post-upload
   // banner. Purely informational — the pipeline is already embedding + syncing
   // the new photos (the pill shows "Syncing" until the backend reports done).
@@ -555,7 +571,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         // hand-off, while the usage re-read settles alongside it. This used to
         // be a full R2 re-walk (settleStorage) on every single completed
         // upload — redundant now that create-media meters incrementally.
-        const [list, fresh] = await Promise.all([reload(), reloadBooking(), refreshDlpUsage()]);
+        const [list, fresh] = await Promise.all([
+          reload(),
+          reloadBooking(),
+          refreshDlpUsage(),
+          // A finished run can have introduced a tier the event did not hold.
+          refreshArchiveTiers(),
+        ]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
         const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
@@ -563,7 +585,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       })();
     }
     wasActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, refreshDlpUsage]);
+  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, refreshDlpUsage, refreshArchiveTiers]);
 
   /* ── derived ────────────────────────────────────────────────── */
 
