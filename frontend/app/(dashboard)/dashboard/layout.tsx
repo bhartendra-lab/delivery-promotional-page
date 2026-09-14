@@ -12,6 +12,7 @@ import { SubscriptionProvider, useSubscription } from "@/components/billing/Subs
 import { UpgradeModalProvider } from "@/components/billing/UpgradeModalProvider";
 import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
 import { RemindersProvider } from "@/components/dashboard/RemindersProvider";
+import { CustomDomainDialog } from "@/components/dashboard/CustomDomainDialog";
 
 export default function DashboardLayout({
   children,
@@ -66,6 +67,13 @@ export default function DashboardLayout({
         <UpgradeModalProvider>
           <RemindersProvider>
             <DashboardShell>{children}</DashboardShell>
+            {/* Layout-level, not page-level (unlike WelcomeDialog, which is
+                mounted on the dashboard home): a studio's plan can activate on
+                the billing page, on /checkout, or silently via a Razorpay
+                webhook they see the result of on whatever page they open next.
+                `should_show` is computed server-side, so wherever they land is
+                where the prompt appears. */}
+            <CustomDomainDialog />
           </RemindersProvider>
         </UpgradeModalProvider>
       </SubscriptionProvider>

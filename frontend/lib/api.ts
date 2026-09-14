@@ -33,6 +33,8 @@ import type {
   LoginResponse,
   QrCode,
   ReminderStatus,
+  CustomDomainStatusResponse,
+  CustomDomainRequestResponse,
   ServiceType,
   StyleVariant,
   TrackingType,
@@ -277,7 +279,10 @@ export function verifyBusinessEmailOtp(input: { code: string }) {
   });
 }
 
-/* ── Branding-readiness reminders ──────────────────────────────── */
+/* ── Dashboard reminders ───────────────────────────────────────── */
+
+/** The one-shot dashboard prompts, all driven by the same status/dismiss pair. */
+export type ReminderName = "watermark" | "branding" | "custom_domain";
 
 /** GET /onboarding/reminder-status — computes every checkpoint server-side. */
 export function getReminderStatus() {
@@ -285,11 +290,59 @@ export function getReminderStatus() {
 }
 
 /** POST /onboarding/dismiss-reminder — idempotent; returns the recomputed status so the caller can replace its state from one response. */
-export function dismissReminder(reminder: "watermark" | "branding") {
+export function dismissReminder(reminder: ReminderName) {
   return request<{ message: string; status: ReminderStatus }>("/onboarding/dismiss-reminder", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reminder }),
+  });
+}
+
+/* ── Custom gallery domain ─────────────────────────────────────────────
+ *
+ * Every route here 404s while the backend's CUSTOM_DOMAINS_ENABLED kill switch
+ * is off, which is deliberate: the feature should look absent, not forbidden.
+ * Callers surface that as "not available" rather than an error.
+ */
+
+/**
+ * GET /onboarding/custom-domain/status — read-only and cheap (no Cloudflare
+ * call), which is what makes it safe for the Settings tab to poll while a
+ * domain is pending. `allowed: false` is the Free-plan answer and is NOT an
+ * error — the tab renders its locked state from it.
+ */
+export function getCustomDomainStatus() {
+  return request<CustomDomainStatusResponse>("/onboarding/custom-domain/status");
+}
+
+/**
+ * POST /onboarding/custom-domain/request — claim a hostname and order its
+ * certificate. Returns the CNAME record the studio now has to create. 402 on
+ * the Free plan, 409 when another studio already claimed the hostname.
+ */
+export function requestCustomDomain(hostname: string) {
+  return request<CustomDomainRequestResponse>("/onboarding/custom-domain/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hostname }),
+  });
+}
+
+/**
+ * POST /onboarding/custom-domain/recheck — ask Cloudflare where the hostname
+ * actually is now. Rate-limited (20 per 10 min): a 429 carries `retryAfter`,
+ * which the UI turns into a countdown rather than an error.
+ */
+export function recheckCustomDomain() {
+  return request<CustomDomainStatusResponse>("/onboarding/custom-domain/recheck", {
+    method: "POST",
+  });
+}
+
+/** DELETE /onboarding/custom-domain — disconnect and stop billing for it. Idempotent. */
+export function removeCustomDomain() {
+  return request<{ message: string; status: "none" }>("/onboarding/custom-domain", {
+    method: "DELETE",
   });
 }
 
