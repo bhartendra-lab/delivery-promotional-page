@@ -56,9 +56,16 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
     isStorageBasedPlan(row.service_type as ServiceType | null | undefined) &&
     status === "published";
 
+  // The landing page's slug, not the booking id — that's what /event/<slug>
+  // takes. Absent on a booking whose landing page hasn't been created yet, in
+  // which case there is no gallery to share and the menu is hidden entirely
+  // rather than handing out a broken URL.
+  const shareUrl = row.unique_identifier ? buildShareUrl(row.unique_identifier) : null;
+
   async function copy() {
+    if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(buildShareUrl(row._id));
+      await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -67,7 +74,8 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
   }
 
   function send() {
-    const text = `Your photos are ready: ${buildShareUrl(row._id)}`;
+    if (!shareUrl) return;
+    const text = `Your photos are ready: ${shareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
   }
 
@@ -248,7 +256,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
             <p className="min-w-0 truncate text-xs text-[var(--color-brand-muted)]">
               {pluralize(row.folder_count ?? 0, "folder")} · {pluralize(row.media_count ?? 0, "photo")}
             </p>
-            <ShareMenu copied={copied} onCopy={copy} onSend={send} />
+            {shareUrl && <ShareMenu copied={copied} onCopy={copy} onSend={send} />}
           </div>
         ))}
 
