@@ -11,7 +11,8 @@
     "deploy:prod": "bash scripts/cf-deploy.sh prod",
     "deploy:dev": "bash scripts/cf-deploy.sh dev",
     "dev:deploy": "npm run deploy:dev",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview"
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "preview:worker": "wrangler dev --config wrangler.dev.jsonc"
   },
   "dependencies": {
     "@cloudflare/workerd-darwin-arm64": "^1.20260518.1",
