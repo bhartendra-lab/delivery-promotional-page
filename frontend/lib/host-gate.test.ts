@@ -79,6 +79,13 @@ test("isGuestSurfacePath: next/image is allowed — a gallery without it has no 
   assert.equal(isGuestSurfacePath("/_next/static/chunks/main.js"), true);
 });
 
+test("isGuestSurfacePath: the gallery's listing-portal marks are allowed", () => {
+  // A studio domain serves the gallery, and the gallery's social row renders
+  // these. Blocked, they would silently degrade to monograms.
+  assert.equal(isGuestSurfacePath("/social/wedmegood.png"), true);
+  assert.equal(isRequestAllowed("gallery.studioxyz.com", "/social/justdial.png"), true);
+});
+
 test("isGuestSurfacePath: /_next/data is NOT allowed", () => {
   // Blanket-allowing /_next/ is exactly how a protected page leaks through its
   // own data route. Only /_next/static and /_next/image are allowed.

@@ -329,6 +329,136 @@ export function Field({
 }
 
 /**
+ * One platform on Settings → Social Links: chip + name | link | required-visit
+ * marker.
+ *
+ * Deliberately not `Field` with a trailing slot bolted on: `Field` is a single
+ * <label> around its input, and a second interactive control inside a label is
+ * invalid and steals its clicks. Same `lg:grid-cols-[200px_minmax(0,440px)]`
+ * rhythm as `Field layout="row"`, with the marker in a third column at `lg`+
+ * and stacked under the input below `lg`.
+ */
+export function PlatformLinkRow({
+  chip,
+  label,
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  error,
+  marker,
+}: {
+  chip: React.ReactNode;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  /** Field-level validation message, shown under the input. */
+  error?: string | null;
+  marker?: React.ReactNode;
+}) {
+  const inputId = useId();
+  const errorId = useId();
+  return (
+    <div className="lg:grid lg:grid-cols-[200px_minmax(0,440px)_auto] lg:items-start lg:gap-x-6">
+      <label
+        htmlFor={inputId}
+        className="mb-1.5 flex items-center gap-2.5 text-[13px] font-medium text-[var(--color-brand-ink)] lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-1.5"
+      >
+        {chip}
+        {label}
+      </label>
+      <input
+        id={inputId}
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        placeholder={placeholder}
+        inputMode="url"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        aria-invalid={!!error}
+        aria-describedby={error ? errorId : undefined}
+        className={`brand-focus h-10 w-full rounded-field border bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 focus:border-[var(--color-brand-outline)] lg:col-start-2 lg:row-start-1 ${
+          error ? "border-[var(--color-brand-danger)]" : "border-[var(--color-brand-border)]"
+        }`}
+      />
+      {error && (
+        <span id={errorId} role="alert" className="mt-1 block text-xs text-[var(--color-brand-danger)] lg:col-start-2 lg:row-start-2">
+          {error}
+        </span>
+      )}
+      {marker && <div className="mt-1.5 lg:col-start-3 lg:row-start-1 lg:mt-0">{marker}</div>}
+    </div>
+  );
+}
+
+/**
+ * The "Required visit" marker on a `PlatformLinkRow`. Radio semantics inside
+ * the page's single radiogroup, but a custom control rather than
+ * <input type="radio">, because it must be clickable OFF again — a native radio
+ * cannot be unchecked. A real <button>, so Space and Enter already activate it.
+ *
+ * Disabled until the row has a link. `aria-disabled` rather than `disabled`, so
+ * it stays focusable and the reason stays reachable by keyboard and screen
+ * reader, not only by hovering.
+ */
+export function RequiredVisitMarker({
+  checked,
+  disabled,
+  onToggle,
+  onKeyDown,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+}) {
+  const hintId = useId();
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={checked}
+        aria-disabled={disabled || undefined}
+        aria-describedby={disabled ? hintId : undefined}
+        onClick={() => {
+          if (!disabled) onToggle();
+        }}
+        onKeyDown={onKeyDown}
+        className={`brand-focus inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-field border px-3 text-[12.5px] font-semibold transition-colors lg:min-h-10 ${
+          checked
+            ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
+            : "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] text-[var(--color-brand-muted)]"
+        } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"}`}
+      >
+        <span
+          aria-hidden
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2"
+          style={{ borderColor: checked ? "var(--color-brand-navy)" : "var(--color-brand-outline)" }}
+        >
+          {checked && <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand-navy)]" />}
+        </span>
+        Required visit
+      </button>
+      {disabled && (
+        <span
+          id={hintId}
+          role="tooltip"
+          className="pointer-events-none absolute bottom-[calc(100%+6px)] left-0 z-20 hidden whitespace-nowrap rounded-lg bg-[var(--color-brand-ink)] px-2.5 py-1.5 text-[11.5px] font-medium text-white shadow-[0_6px_20px_rgba(42,34,24,0.22)] group-focus-within:block group-hover:block"
+        >
+          Add the link first.
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * India-only (+91) phone number input. Strips non-digits and caps at 10 as
  * the user types; the +91 prefix is a fixed, non-editable chip rather than
  * part of the value, so `onChange` always receives bare digits (0-10 long).

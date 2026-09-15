@@ -932,6 +932,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // object on every path after that — so the fallback only covers first paint.
   const allowDownload =
     meta?.deliveryPreferences?.allow_download ?? DELIVERY_PREFERENCE_DEFAULTS.allow_download;
+  // Same for the review preference: the design preview must not show a review
+  // prompt the real gallery won't.
+  const showGoogleReview =
+    meta?.deliveryPreferences?.show_google_review ?? DELIVERY_PREFERENCE_DEFAULTS.show_google_review;
 
   return (
     <EventProvider value={ctx}>
@@ -985,6 +989,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 initialIncludeBranding={ctx.meta.includeBranding}
                 initialGuestTypes={ctx.meta.guestTypes}
                 allowDownload={allowDownload}
+                showGoogleReview={showGoogleReview}
                 onSave={async (vals) => {
                   // Pass through current event_type/date (never event_name) so the
                   // landing-page save can't churn the shared URL or clobber the event.

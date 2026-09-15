@@ -1,4 +1,5 @@
 import type { DeliveryPreferences } from "./delivery-preferences";
+import type { SocialPlatformKey } from "./social-platforms";
 
 export type EventType =
   | "Wedding"
@@ -108,14 +109,9 @@ export type TrackingCounts = {
   contact?: number;
 };
 
-export type SocialLinks = {
-  instagram?: string;
-  facebook?: string;
-  youtube?: string;
-  vimeo?: string;
-  pinterest?: string;
-  x?: string;
-};
+/** Canonical https URLs keyed by platform. The platform list lives in
+ *  lib/social-platforms.ts, so a new platform needs no edit here. */
+export type SocialLinks = Partial<Record<SocialPlatformKey, string>>;
 
 export type WatermarkPosition =
   | "top-left"
@@ -162,6 +158,13 @@ export type Company = {
   instagram_link?: string;
   facebook_link?: string;
   social_links?: SocialLinks;
+  /** The one platform every Guest is asked to open before entering any of
+   *  this Studio's galleries; null/absent means no required visit. Holds a
+   *  platform key — the URL lives in `social_links`. */
+  mandatory_visit_platform?: SocialPlatformKey | null;
+  /** Company-wide master switch for every Guest-facing Google review
+   *  affordance. Absent on a company cached before it existed: read `!== false`. */
+  google_review_enabled?: boolean;
   google_place_id?: string;
   /** The studio's one phone number — always the number that passed WhatsApp OTP verification. */
   whatsapp_number?: string;
@@ -686,6 +689,12 @@ export type DeliveryLandingPageData = {
   company_facebook_link?: string;
   company_social_links?: SocialLinks;
   company_google_place_id?: string;
+  /** The Studio's required visit platform, raw. Read it only through
+   *  `resolveSocialVisitGate`, which also checks the URL still exists. */
+  company_mandatory_visit_platform?: string | null;
+  /** Company-wide review switch. Absent on a company that predates it, and
+   *  absent must read as ON — compare `!== false`. */
+  company_google_review_enabled?: boolean;
   company_watermark_url?: string;
   /** Activation toggle from the booking — false = studio has temporarily paused the gallery. */
   is_active?: boolean;
@@ -770,5 +779,13 @@ export type GuestSession = {
    * server-side — they live in `sessionStorage` (see `getCachedMediaIds`).
    */
   selfie_id: string | null;
+  /**
+   * Epoch ms this Guest opened the Studio's required visit link for this event,
+   * or null. Server-side, so it survives a reload and a second device. Once set
+   * the Guest is never asked again, whatever the Studio changes afterwards —
+   * satisfaction deliberately ignores which platform it was.
+   */
+  mandatory_link_visited_at?: number | null;
+  mandatory_link_platform?: string | null;
 };
 

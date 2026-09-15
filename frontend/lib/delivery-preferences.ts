@@ -4,10 +4,9 @@
  *
  * To add a preference: add the key to `DeliveryPreferences`, a default to
  * `DELIVERY_PREFERENCE_DEFAULTS`, and a spec to `DELIVERY_PREFERENCE_SPECS`.
- * Both the upload dialog's Preferences step and the standalone Preferences modal
- * render whatever `resolveDeliveryPreferenceFields` returns, so neither needs
- * touching. Mirror the key in the backend's `deliveryPreferencesSchema` +
- * `DELIVERY_PREFERENCE_DEFAULTS`.
+ * Every host renders whatever `resolveDeliveryPreferenceFields` returns for its
+ * surface, so none of them needs touching. Mirror the key in the backend's
+ * `deliveryPreferencesSchema` + `DELIVERY_PREFERENCE_DEFAULTS`.
  *
  * A spec's copy and its visibility are both functions of the booking's context
  * and the current draft, which is what lets one row be called "4K downloads"
@@ -30,11 +29,19 @@ export type ArchiveDownloadAccess = "none" | "host_only" | "all_guests";
 export type DeliveryPreferences = {
   allow_download: boolean;
   archive_download_access: ArchiveDownloadAccess;
+  /** Per-event opt-OUT of the Studio's required visit link. True follows the
+   *  Studio, which for a Studio that has set none is still no gate. */
+  require_social_visit: boolean;
+  /** Every Google review affordance in this gallery. The company-wide
+   *  `google_review_enabled` is the master switch. */
+  show_google_review: boolean;
 };
 
 export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
   allow_download: true,
   archive_download_access: "host_only",
+  require_social_visit: true,
+  show_google_review: true,
 };
 
 /** Allowed values for each non-boolean preference. `normalizeDeliveryPreferences`
@@ -55,6 +62,12 @@ export type DeliveryPreferenceOption = {
   description: string;
 };
 
+/**
+ * Where a preference row renders. "gallery" = the Media tab's gear modal and
+ * the upload dialog's Preferences step. "access" = the Access & Sharing tab.
+ */
+export type DeliveryPreferenceSurface = "gallery" | "access";
+
 /* Tier vocabulary lives in one module — see lib/quality-tiers.ts for why the
    studio and a guest are shown different names for the same file. */
 
@@ -72,6 +85,11 @@ export type DeliveryPreferenceOption = {
  */
 export type DeliveryPreferenceContext = {
   archiveTiers: ArchiveTier[];
+  /** Label of the Studio's required visit platform, for the row's copy. */
+  requiredVisitLabel?: string;
+  /** The company-wide review switch. False means the per-event row is
+   *  overridden and must say so rather than claiming a state it does not have. */
+  googleReviewEnabledGlobally?: boolean;
 };
 
 /** A preference row, resolved for one booking — concrete strings, ready to
@@ -87,6 +105,12 @@ export type DeliveryPreferenceField = {
   consequence?: string;
   /** Present for `type: "select"`. */
   options?: DeliveryPreferenceOption[];
+  /**
+   * Present when a setting OUTSIDE this event overrides the row. The panel
+   * renders it disabled, showing `value` (the effective state, not the stored
+   * one) and `note` in place of the consequence line.
+   */
+  locked?: { value: DeliveryPreferences[keyof DeliveryPreferences]; note: string };
 };
 
 /**
@@ -108,9 +132,20 @@ type DeliveryPreferenceSpec = {
    * another one disappears the moment that one is switched off.
    */
   isRelevant?: (ctx: DeliveryPreferenceContext, value: DeliveryPreferences) => boolean;
+  /** Where this row renders. Defaults to ["gallery"] so every existing spec is
+   *  unchanged. "gallery" = the Media tab's gear modal + the upload dialog's
+   *  Preferences step. "access" = the Access & Sharing tab. */
+  surfaces?: DeliveryPreferenceSurface[];
+  /**
+   * The row is overridden from outside this event: return the value it
+   * effectively has and the sentence that says why, or null when it is not.
+   * Use this rather than `isRelevant` for a setting that still EXISTS but is
+   * switched off elsewhere — hiding it would teach the studio it does not exist.
+   */
+  lock?: (ctx: DeliveryPreferenceContext) => DeliveryPreferenceField["locked"] | null;
 };
 
-/** Render order in both hosts. */
+/** Render order within each surface. */
 const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "allow_download",
@@ -165,10 +200,39 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
       ];
     },
   },
+  {
+    key: "show_google_review",
+    type: "toggle",
+    surfaces: ["gallery"],
+    label: () => "Ask Guests for reviews",
+    description: () => "Show the Google review button and prompt in this gallery.",
+    consequence: () =>
+      "No review button or prompt anywhere in this gallery. Guests can still find you through your other links.",
+    // Disabled and shown OFF, never hidden, while the Studio has reviews off
+    // for every gallery: the event's own value is kept but has no effect, and
+    // a row claiming "on" would be a lie the studio acts on.
+    lock: (ctx) =>
+      ctx.googleReviewEnabledGlobally === false
+        ? { value: false, note: "Turned off for every gallery in Settings." }
+        : null,
+  },
+  {
+    key: "require_social_visit",
+    type: "toggle",
+    // Access & Sharing only — the tab that decides how Guests get in. The link
+    // itself is chosen Studio-wide in Settings → Social Links; an event can
+    // only opt out of it, never point somewhere else.
+    surfaces: ["access"],
+    label: (ctx) => `Ask Guests to open ${ctx.requiredVisitLabel ?? "your required link"}`,
+    description: (ctx) =>
+      `Every Guest opens your ${ctx.requiredVisitLabel ?? "required"} page once before they see their photos. The link is set in Settings → Social Links.`,
+    consequence: () => "Guests of this event go straight to their photos. Your other events still ask.",
+  },
 ];
 
 /**
- * The rows to render for one booking, in order, with every string resolved.
+ * The rows to render for one booking on one surface, in order, with every
+ * string resolved.
  *
  * The context defaults to "no archive tier", which hides the archive row — the
  * safe direction for a host that has not been taught to supply one, since the
@@ -177,17 +241,22 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
 export function resolveDeliveryPreferenceFields(
   value: DeliveryPreferences,
   context: DeliveryPreferenceContext = { archiveTiers: [] },
+  surface: DeliveryPreferenceSurface = "gallery",
 ): DeliveryPreferenceField[] {
   return DELIVERY_PREFERENCE_SPECS.filter(
-    (spec) => spec.isRelevant?.(context, value) ?? true,
-  ).map((spec) => ({
-    key: spec.key,
-    type: spec.type,
-    label: spec.label(context),
-    description: spec.description(context),
-    ...(spec.consequence ? { consequence: spec.consequence(context) } : {}),
-    ...(spec.options ? { options: spec.options(context) } : {}),
-  }));
+    (spec) => (spec.surfaces ?? ["gallery"]).includes(surface) && (spec.isRelevant?.(context, value) ?? true),
+  ).map((spec) => {
+    const locked = spec.lock?.(context) ?? null;
+    return {
+      key: spec.key,
+      type: spec.type,
+      label: spec.label(context),
+      description: spec.description(context),
+      ...(spec.consequence ? { consequence: spec.consequence(context) } : {}),
+      ...(spec.options ? { options: spec.options(context) } : {}),
+      ...(locked ? { locked } : {}),
+    };
+  });
 }
 
 /** Fill defaults and drop unknown keys. Use this for EVERY read — a gallery

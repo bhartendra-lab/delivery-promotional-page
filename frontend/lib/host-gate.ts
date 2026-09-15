@@ -53,6 +53,12 @@ const ALLOWED_PREFIXES = [
   "/event/",
   "/_next/static/",
   "/_next/image",
+  // Listing-portal marks in the Guest gallery's social row (see
+  // lib/social-platforms.ts). A prefix, so a new portal's file needs no edit
+  // here. Served by the asset binding in practice — allowed for the same
+  // reason as /_next/static below, and because a blocked mark would not look
+  // broken: the chip quietly falls back to a monogram and hides the 404.
+  "/social/",
   // Cloudflare's own image-resizing path. These never reach a production
   // Worker; it is allowed so local/preview behaviour matches production.
   "/cdn-cgi/",

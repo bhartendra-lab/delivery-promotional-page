@@ -353,6 +353,12 @@ export type CompanyUpdateInput = {
   gmb_link?: string;
   social_links?: SocialLinks;
   google_place_id?: string;
+  /** A platform key, or "" to clear the required visit — `null` does not
+   *  survive FormData. The server also clears it whenever that platform's
+   *  link is empty. */
+  mandatory_visit_platform?: keyof SocialLinks | "";
+  /** Sent as the string "true"/"false"; the server parses it explicitly. */
+  google_review_enabled?: boolean;
   logo?: File | null;
   logo_light?: File | null;
 };
@@ -365,6 +371,8 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
   if (input.gmb_link !== undefined) fd.append("gmb_link", input.gmb_link);
   if (input.social_links !== undefined) fd.append("social_links", JSON.stringify(input.social_links));
   if (input.google_place_id !== undefined) fd.append("google_place_id", input.google_place_id);
+  if (input.mandatory_visit_platform !== undefined) fd.append("mandatory_visit_platform", input.mandatory_visit_platform);
+  if (input.google_review_enabled !== undefined) fd.append("google_review_enabled", String(input.google_review_enabled));
   if (input.logo) fd.append("logo", input.logo);
   if (input.logo_light) fd.append("logo_light", input.logo_light);
   return request<{ company: Company }>("/onboarding/update-company-details", {

@@ -12,6 +12,8 @@ import {
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
 import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import { useCompany } from "@/lib/useCompany";
+import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
 import {
   IconUpload,
   IconFolder,
@@ -310,6 +312,8 @@ export function UploadModal({
    * them. Empty on both counts means no unwatermarked copy exists or is coming,
    * and the row is not shown at all.
    */
+  // The company-wide review switch locks this event's review preference row.
+  const company = useCompany();
   const panelArchiveTiers: ArchiveTier[] = useMemo(() => {
     const tiers = new Set<ArchiveTier>(bookingArchiveTiers ?? []);
     if (variant !== "2560") tiers.add(variant);
@@ -691,7 +695,7 @@ export function UploadModal({
           <div>
             {/* The destination picker is an unnumbered pre-step, so the counter
                 appears only once the studio is actually inside the two steps. */}
-            {step !== "picker" && dirSupported && (
+            {step !== "picker" && (dirSupported || MOBILE_UPLOAD_ENABLED) && (
               <StepIndicator current={step === "preferences" ? 2 : 1} />
             )}
             <h2 className="text-[18px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
@@ -704,13 +708,15 @@ export function UploadModal({
             <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
               {step === "picker"
                 ? "Pick a folder, start a new one, or bring across a folder that already has subfolders."
-                : !dirSupported
+                : !dirSupported && !MOBILE_UPLOAD_ENABLED
                   ? "Uploading needs a desktop browser."
                   : step === "preferences"
                     ? ""
                     : single
                       ? "Pick photos to add to this folder."
-                      : "Drop the folder from your computer — we'll rebuild its subfolders here."}
+                      : !dirSupported
+                        ? "Pick photos — you'll name the folder they go into."
+                        : "Drop the folder from your computer — we'll rebuild its subfolders here."}
             </p>
           </div>
           <button
@@ -731,7 +737,7 @@ export function UploadModal({
             onImportWithSubfolders={pickImportWithSubfolders}
             dirSupported={dirSupported}
           />
-        ) : !dirSupported ? (
+        ) : !dirSupported && !MOBILE_UPLOAD_ENABLED ? (
           <DesktopOnlyNotice onClose={onClose} />
         ) : (
           <>
@@ -761,14 +767,17 @@ export function UploadModal({
               </StepSection>
 
               <StepSection
-                title="Downloads"
+                title="Guest gallery"
                 description=""
               >
                 <DeliveryPreferencesPanel
                   value={draftPrefs}
                   onChange={setDraftPrefs}
                   disabled={savingPrefs}
-                  context={{ archiveTiers: panelArchiveTiers }}
+                  context={{
+                    archiveTiers: panelArchiveTiers,
+                    googleReviewEnabledGlobally: company?.google_review_enabled !== false,
+                  }}
                 />
               </StepSection>
             </div>
@@ -779,7 +788,7 @@ export function UploadModal({
               read as a different screen for no reason.) */
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[240px_1fr] lg:grid-cols-[280px_1fr]">
             {/* Left: the destination, or the subfolder guide when importing.
-                (Hidden on mobile — the guard replaces the whole body there.)
+                (Hidden on mobile — in production the guard replaces the whole body there.)
                 Hidden below 768px too: at 640–767px a fixed 280px rail took
                 ~43% of the panel and squeezed the drop zone it was explaining.
                 Scrolls independently so a short viewport clips nothing. */}
@@ -833,6 +842,7 @@ export function UploadModal({
                   onBrowseFiles={() => fileInputRef.current?.click()}
                   single={single}
                   folderOnly={folderOnly}
+                  dirSupported={dirSupported}
                   skipped={skipped}
                 />
               ) : (
@@ -841,7 +851,7 @@ export function UploadModal({
                   totalImages={files.length}
                   groups={previewGroups}
                   skipped={skipped}
-                  onAddMore={() => (single ? fileInputRef.current?.click() : folderInputRef.current?.click())}
+                  onAddMore={() => (single || !dirSupported ? fileInputRef.current?.click() : folderInputRef.current?.click())}
                 />
               )}
 
@@ -915,7 +925,7 @@ export function UploadModal({
           )}
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2.5 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-3.5">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-4 py-3.5 sm:gap-2.5 sm:px-6">
             {step === "preferences" ? (
               /* Back takes the leading slot on step 2. "Change destination" is
                  deliberately NOT offered here — it clears the selection, and a
@@ -939,7 +949,7 @@ export function UploadModal({
                 className="brand-focus mr-auto inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-[13.5px] font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
               >
                 <IconChevronLeft size={15} />
-                Change destination
+                Change<span className="hidden sm:inline"> destination</span>
               </button>
             )}
             <button
@@ -1051,6 +1061,7 @@ function DropZone({
   onBrowseFiles,
   single,
   folderOnly,
+  dirSupported,
   skipped,
 }: {
   dragOver: boolean;
@@ -1060,16 +1071,19 @@ function DropZone({
   onBrowseFiles: () => void;
   single: boolean;
   folderOnly: boolean;
+  /** False on phones: no directory picker, so photos are the only route in. */
+  dirSupported: boolean;
   /** Files dropped from the last pick because we can't publish them. */
   skipped: number;
 }) {
-  // Single-folder mode picks loose photos; the import flow picks a directory.
-  const canBrowseFolder = !single;
+  // Single-folder mode picks loose photos; the import flow picks a directory
+  // where the browser can.
+  const canBrowseFolder = !single && dirSupported;
   // In the import flow, individual photos are the secondary route — unless the
   // caller asked for folders only.
-  const showFileButton = single || !folderOnly;
+  const showFileButton = !canBrowseFolder || !folderOnly;
   const fileButtonPrimary = !canBrowseFolder;
-  const fileButtonLabel = single ? "Browse photos" : "Or pick photos";
+  const fileButtonLabel = canBrowseFolder ? "Or pick photos" : "Browse photos";
 
   return (
     <>
@@ -1097,7 +1111,7 @@ function DropZone({
           <IconUpload size={26} />
         </div>
         <div className="text-center text-[15px] font-semibold text-[var(--color-brand-ink)]">
-          {single ? "Drop your photos here" : "Drop your folder here"}
+          {!dirSupported ? "Choose your photos" : single ? "Drop your photos here" : "Drop your folder here"}
         </div>
         <div className="max-w-[280px] text-center text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
           JPG · PNG · HEIC · WebP · no size limit
@@ -1145,7 +1159,8 @@ function DropZone({
  * — neither of which mobile browsers give us. The entry points are already
  * desktop-only, so this is the belt to that pair of braces: if the dialog is
  * ever opened on an unsupported device, it says so instead of offering a drop
- * zone and file input that would half-work.
+ * zone and file input that would half-work. Where MOBILE_UPLOAD_ENABLED (dev
+ * builds) both are lifted, and the dialog falls back to the photo picker.
  */
 function DesktopOnlyNotice({ onClose }: { onClose: () => void }) {
   return (

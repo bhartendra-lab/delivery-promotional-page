@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
 import { occasionFor, collectionsFor, messageLabelFor, type Occasion } from "@/lib/event-occasion";
 import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
+import { resolveGoogleReviewUrl } from "@/lib/google-review";
+import { useCompany } from "@/lib/useCompany";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "@/components/event/screens/gallery/GalleryControls";
 import {
   IconArrowRight,
@@ -28,6 +30,13 @@ const OCCASION_TIP_LABEL: Record<Occasion, string> = {
 
 const MAX = 500;
 
+/** Narrowest the desktop mockup is laid out at. A narrower preview column shows
+ *  it scaled down whole — reflowed into a phone's width it stops looking like
+ *  anything a desktop guest would see. */
+const DESKTOP_PREVIEW_MIN_WIDTH = 640;
+/** The phone mockup's frame width, fixed like the device it stands for. */
+const PHONE_FRAME_WIDTH = 300;
+
 export function GalleryDesignTab({
   eventName,
   eventType,
@@ -39,6 +48,7 @@ export function GalleryDesignTab({
   initialIncludeBranding,
   initialGuestTypes,
   allowDownload,
+  showGoogleReview,
   onSave,
 }: {
   eventName: string;
@@ -57,6 +67,13 @@ export function GalleryDesignTab({
    * would act on.
    */
   allowDownload: boolean;
+  /**
+   * The event's `show_google_review` preference, also edited from the Media
+   * tab's gear. Combined with the company switch and listing through the same
+   * resolver the guest gallery uses, so the preview never shows a review ask
+   * the real gallery won't make.
+   */
+  showGoogleReview: boolean;
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
@@ -90,11 +107,20 @@ export function GalleryDesignTab({
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const previewWidth = useContentWidth(previewRef);
 
   // Single source of truth — the exact same theme the guest gallery resolves,
   // so this preview can never drift from what guests actually see (it used to
   // keep its own duplicate palette dict, hand-copied from client-theme.ts).
   const theme = resolveTheme(variant);
+  const company = useCompany();
+  const showReviewPrompt = !!resolveGoogleReviewUrl({
+    placeId: company?.google_place_id,
+    gmbLink: company?.gmb_link,
+    enabledGlobally: company?.google_review_enabled,
+    enabledForEvent: showGoogleReview,
+  });
   const copyLabel = messageLabelFor(eventType);
   const activeCollection = collections.find((c) => c.id === collectionId) ?? collections[0];
 
@@ -131,9 +157,12 @@ export function GalleryDesignTab({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+    // Side by side from lg, each half scrolling on its own. Below that the two
+    // stack and the tab scrolls as ONE column — two scrollers sharing a phone's
+    // height left each a sliver, and clipped the preview.
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
       {/* LEFT — controls */}
-      <div className="overflow-auto border-b border-[var(--color-brand-border)] px-6 py-6 lg:w-[45%] lg:shrink-0 lg:border-b-0 lg:border-r">
+      <div className="border-b border-[var(--color-brand-border)] px-4 py-5 sm:px-6 sm:py-6 lg:w-[45%] lg:shrink-0 lg:overflow-auto lg:border-b-0 lg:border-r">
         <SectionCard
           overline="Theme"
           tip={`A theme sets the colour palette of the guest-facing gallery. Collections are grouped for ${OCCASION_TIP_LABEL[occasion]} events — pick one, then a variant to preview it live.`}
@@ -275,13 +304,15 @@ export function GalleryDesignTab({
             <span className="text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
               Inject Studio Socials &amp; Review Links
               <span className="mt-0.5 block text-[12px] font-normal text-[var(--color-brand-muted)]">
-                Shows your Instagram, Facebook and a Google review prompt at the foot of the gallery.
+                {showReviewPrompt
+                  ? "Shows your Instagram, Facebook and a Google review prompt at the foot of the gallery."
+                  : "Shows your social links at the foot of the gallery. Google review prompts are off for this gallery."}
               </span>
             </span>
           </label>
         </SectionCard>
 
-        <div className="mt-1 flex items-center gap-3">
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
           <button
             type="button"
             onClick={save}
@@ -309,7 +340,7 @@ export function GalleryDesignTab({
 
       {/* RIGHT — preview */}
       <div className="flex min-w-0 flex-1 flex-col bg-[#F2F0EB]">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-white px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-brand-border)] bg-white px-4 py-3 sm:gap-3 sm:px-5">
           <Segmented
             value={scope}
             options={[
@@ -329,40 +360,22 @@ export function GalleryDesignTab({
           />
         </div>
 
-        <div className="flex flex-1 justify-center overflow-hidden p-6">
+        <div ref={previewRef} className="flex flex-1 justify-center p-4 sm:p-6 lg:overflow-hidden">
           {device === "desktop" ? (
-            <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-[var(--color-brand-outline)] bg-white shadow-[0_14px_36px_rgba(42,34,24,0.12)]">
-              <div className="flex items-center gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-2.5">
-                <span className="flex gap-1.5">
-                  {["#E0796A", "#E6B84F", "#74B36A"].map((c) => (
-                    <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ background: c }} />
-                  ))}
-                </span>
-                <div className="flex flex-1 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-3 py-1 font-mono text-[11px] text-[var(--color-brand-muted)]">
-                  <IconLink size={11} className="text-[var(--color-brand-success)]" />
-                  vyavasth.in/k/{slug(eventName)}
+            <FitWidth available={previewWidth} naturalWidth={DESKTOP_PREVIEW_MIN_WIDTH}>
+              <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-[var(--color-brand-outline)] bg-white shadow-[0_14px_36px_rgba(42,34,24,0.12)]">
+                <div className="flex items-center gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-2.5">
+                  <span className="flex gap-1.5">
+                    {["#E0796A", "#E6B84F", "#74B36A"].map((c) => (
+                      <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ background: c }} />
+                    ))}
+                  </span>
+                  <div className="flex flex-1 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-3 py-1 font-mono text-[11px] text-[var(--color-brand-muted)]">
+                    <IconLink size={11} className="text-[var(--color-brand-success)]" />
+                    vyavasth.in/k/{slug(eventName)}
+                  </div>
                 </div>
-              </div>
-              <div className="h-[480px] overflow-hidden">
-                <ClientPagePreview
-                  theme={theme}
-                  eventName={eventName}
-                  eventType={eventType}
-                  eventDateLabel={eventDateLabel}
-                  coverUrl={coverUrl}
-                  coverPosition={coverPosition}
-                  message={message}
-                  branding={branding}
-                  scope={scope}
-                  allowDownload={allowDownload}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="shrink-0 rounded-[34px] bg-[var(--color-brand-ink)] p-2.5 shadow-[0_14px_36px_rgba(42,34,24,0.18)]" style={{ width: 300 }}>
-              <div className="relative overflow-hidden rounded-[26px] bg-white">
-                <div className="absolute left-1/2 top-2 z-10 h-5 w-[90px] -translate-x-1/2 rounded-full bg-[var(--color-brand-ink)]" />
-                <div className="h-[540px] overflow-hidden">
+                <div className="h-[480px] overflow-hidden">
                   <ClientPagePreview
                     theme={theme}
                     eventName={eventName}
@@ -374,11 +387,35 @@ export function GalleryDesignTab({
                     branding={branding}
                     scope={scope}
                     allowDownload={allowDownload}
-                    compact
+                    showReviewPrompt={showReviewPrompt}
                   />
                 </div>
               </div>
-            </div>
+            </FitWidth>
+          ) : (
+            <FitWidth available={previewWidth} naturalWidth={PHONE_FRAME_WIDTH}>
+              <div className="shrink-0 rounded-[34px] bg-[var(--color-brand-ink)] p-2.5 shadow-[0_14px_36px_rgba(42,34,24,0.18)]" style={{ width: PHONE_FRAME_WIDTH }}>
+                <div className="relative overflow-hidden rounded-[26px] bg-white">
+                  <div className="absolute left-1/2 top-2 z-10 h-5 w-[90px] -translate-x-1/2 rounded-full bg-[var(--color-brand-ink)]" />
+                  <div className="h-[540px] overflow-hidden">
+                    <ClientPagePreview
+                      theme={theme}
+                      eventName={eventName}
+                      eventType={eventType}
+                      eventDateLabel={eventDateLabel}
+                      coverUrl={coverUrl}
+                      coverPosition={coverPosition}
+                      message={message}
+                      branding={branding}
+                      scope={scope}
+                      allowDownload={allowDownload}
+                      showReviewPrompt={showReviewPrompt}
+                      compact
+                    />
+                  </div>
+                </div>
+              </div>
+            </FitWidth>
           )}
         </div>
       </div>
@@ -399,6 +436,7 @@ function ClientPagePreview({
   branding,
   scope,
   allowDownload,
+  showReviewPrompt,
   compact = false,
 }: {
   theme: ClientTheme;
@@ -413,6 +451,8 @@ function ClientPagePreview({
   /** The event's `allow_download` preference — gates every download affordance
    *  in the gallery-scope preview, exactly as it does in the real gallery. */
   allowDownload: boolean;
+  /** Whether the real gallery would show any review ask (see the tab's prop). */
+  showReviewPrompt: boolean;
   compact?: boolean;
 }) {
   const coverBg = coverUrl
@@ -488,7 +528,9 @@ function ClientPagePreview({
                 </span>
               ))}
             </div>
-            <span style={{ fontSize: compact ? 11 : 12.5, fontWeight: 600, color: theme.brand }}>★ Leave us a Google review</span>
+            {showReviewPrompt && (
+              <span style={{ fontSize: compact ? 11 : 12.5, fontWeight: 600, color: theme.brand }}>★ Leave us a Google review</span>
+            )}
           </div>
         )}
       </div>
@@ -618,6 +660,44 @@ function GalleryScopePreview({
   );
 }
 
+/* ── preview fitting ────────────────────────────────────────────────────── */
+
+/** The content-box width of `ref`'s element, tracked live; null until measured. */
+function useContentWidth(ref: React.RefObject<HTMLElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
+/**
+ * Lays a mockup out at `naturalWidth` and scales it down whole when the column
+ * is narrower. Wide enough, the children render untouched. `zoom` rather than a
+ * transform, because zoom shrinks the layout box too — the column's height
+ * follows the scaled mockup with nothing to measure.
+ */
+function FitWidth({
+  available,
+  naturalWidth,
+  children,
+}: {
+  available: number | null;
+  naturalWidth: number;
+  children: React.ReactNode;
+}) {
+  if (available === null || available >= naturalWidth) return <>{children}</>;
+  return (
+    <div className="shrink-0 self-start" style={{ width: naturalWidth, zoom: available / naturalWidth }}>
+      {children}
+    </div>
+  );
+}
+
 /* ── small controls ─────────────────────────────────────────────────────── */
 
 function SectionCard({
@@ -633,9 +713,9 @@ function SectionCard({
 }) {
   return (
     <section
-      className={`rounded-xl border border-[var(--color-brand-border)] bg-white px-5 pb-5 pt-4 ${last ? "mb-4" : "mb-4"}`}
+      className={`rounded-xl border border-[var(--color-brand-border)] bg-white px-4 pb-5 pt-4 sm:px-5 ${last ? "mb-4" : "mb-4"}`}
     >
-      <div className="mb-3.5 flex items-center gap-1.5">
+      <div className="relative mb-3.5 flex items-center gap-1.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brand-muted)]">{overline}</span>
         {tip && <InfoTip text={tip} />}
       </div>
@@ -646,24 +726,64 @@ function SectionCard({
 
 function FieldLabel({ children, tip }: { children: React.ReactNode; tip?: string }) {
   return (
-    <label className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-brand-ink)]">
+    <label className="relative mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-brand-ink)]">
       {children}
       {tip && <InfoTip text={tip} />}
     </label>
   );
 }
 
+/**
+ * Hover opens it with a mouse; touch has no hover, so a tap toggles it and a tap
+ * anywhere else closes it. Below sm the bubble drops under the row it sits in
+ * and spans it (the nearest `relative` ancestor — the card header or field
+ * label): centred on the icon, it ran off the edge of a phone screen.
+ */
 function InfoTip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  // Set on pointerdown so the click that follows knows whether hover already
+  // handled it. Keyboard activation has no pointerdown, so it toggles too.
+  const viaMouse = useRef(false);
+
+  useEffect(() => {
+    if (!show) return;
+    const closeOutside = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setShow(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [show]);
+
   return (
-    <span
-      className="relative inline-flex align-middle"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
-      <IconInfo size={14} className="cursor-help text-[#B5ADA4]" />
+    <span ref={wrapRef} className="inline-flex align-middle sm:relative">
+      <button
+        type="button"
+        aria-label="More info"
+        aria-expanded={show}
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse") setShow(true);
+        }}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") setShow(false);
+        }}
+        onPointerDown={(e) => {
+          viaMouse.current = e.pointerType === "mouse";
+        }}
+        onClick={() => {
+          if (!viaMouse.current) setShow((s) => !s);
+          viaMouse.current = false;
+        }}
+        onBlur={() => setShow(false)}
+        className="brand-focus inline-flex cursor-help rounded-full"
+      >
+        <IconInfo size={14} className="text-[#B5ADA4]" />
+      </button>
       {show && (
-        <span className="absolute bottom-[calc(100%+8px)] left-1/2 z-40 w-[224px] -translate-x-1/2 rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-left text-[12px] font-medium leading-relaxed text-white shadow-[0_8px_24px_rgba(42,34,24,0.22)]">
+        <span
+          role="tooltip"
+          className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-left text-[12px] font-medium normal-case leading-relaxed tracking-normal text-white shadow-[0_8px_24px_rgba(42,34,24,0.22)] sm:bottom-[calc(100%+8px)] sm:left-1/2 sm:right-auto sm:top-auto sm:w-[224px] sm:-translate-x-1/2"
+        >
           {text}
         </span>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CompanyUpdateInput } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { ImageUpload } from "@/components/ui/ImageUpload";
@@ -8,6 +8,8 @@ import { useSettings, useSectionSave, useReportDirty } from "./SettingsContext";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
 import { ChangeBusinessEmailModal } from "./ChangeBusinessEmailModal";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   SectionHeading,
   Card,
@@ -49,6 +51,16 @@ export default function StudioIdentityPage() {
 
   const [address, setAddress] = useState(company.address ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(company.google_place_id ?? "");
+  // Absent on a company that predates the switch, and absent is ON.
+  const savedReviewEnabled = company.google_review_enabled !== false;
+  const [reviewEnabled, setReviewEnabled] = useState(savedReviewEnabled);
+  const [confirmReviewsOff, setConfirmReviewsOff] = useState(false);
+  const reviewDescriptionId = useId();
+  // A Studio's own call whether to ask for reviews, so the switch works whenever
+  // a review button could exist at all — a picked listing, or the legacy GMB
+  // link some older Studios still carry. With neither there is no button to
+  // switch off.
+  const hasReviewListing = !!googlePlaceId.trim() || !!company.gmb_link?.trim();
 
   // The formatted address Google last committed via onPlaceSelect. Initialised
   // from the loaded company address (not "") so an already-saved listing
@@ -123,6 +135,7 @@ export default function StudioIdentityPage() {
     changed(website, company.website) ||
     changed(address, company.address) ||
     changed(googlePlaceId, company.google_place_id) ||
+    reviewEnabled !== savedReviewEnabled ||
     !!darkFile ||
     !!lightFile;
   useReportDirty(dirty);
@@ -158,6 +171,7 @@ export default function StudioIdentityPage() {
     if (changed(website, company.website)) payload.website = trimmedWebsite;
     if (changed(address, company.address)) payload.address = address.trim();
     if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
+    if (reviewEnabled !== savedReviewEnabled) payload.google_review_enabled = reviewEnabled;
     if (darkFile) payload.logo = darkFile;
     if (lightFile) payload.logo_light = lightFile;
     const ok = await submit(payload);
@@ -172,6 +186,7 @@ export default function StudioIdentityPage() {
     setWebsite(company.website ?? "");
     setAddress(company.address ?? "");
     setGooglePlaceId(company.google_place_id ?? "");
+    setReviewEnabled(savedReviewEnabled);
     committedAddressRef.current = company.address ?? "";
     setDarkFile(null);
     setLightFile(null);
@@ -293,6 +308,29 @@ export default function StudioIdentityPage() {
               }
             />
           )}
+
+          <div className="lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6">
+            <span className="mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] lg:mb-0 lg:pt-0.5">
+              Ask Guests for reviews
+            </span>
+            <div className="flex items-start justify-between gap-4">
+              <p id={reviewDescriptionId} className="text-xs leading-relaxed text-[var(--color-brand-muted)]">
+                Galleries show a Google review button and an occasional prompt. Turn this off to remove both everywhere.
+                {!hasReviewListing && (
+                  <span className="mt-1 block font-medium text-[var(--color-brand-ink)]">
+                    Add your Google Business listing first.
+                  </span>
+                )}
+              </p>
+              <ToggleSwitch
+                checked={reviewEnabled}
+                onChange={(next) => (next ? setReviewEnabled(true) : setConfirmReviewsOff(true))}
+                disabled={!hasReviewListing}
+                label="Ask Guests for reviews"
+                describedById={reviewDescriptionId}
+              />
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -329,6 +367,18 @@ export default function StudioIdentityPage() {
         idleHint="Changes apply to all delivery pages immediately."
         blockedReason={blockedReason}
         onDiscard={handleDiscard}
+      />
+
+      <ConfirmDialog
+        open={confirmReviewsOff}
+        title="Stop asking Guests for reviews?"
+        description="No gallery will show a review button or prompt, including events where it is switched on. Your Google listing is not affected."
+        confirmLabel="Turn it off"
+        onCancel={() => setConfirmReviewsOff(false)}
+        onConfirm={() => {
+          setReviewEnabled(false);
+          setConfirmReviewsOff(false);
+        }}
       />
 
       <ChangeWhatsappModal

@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
+import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
+import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, likePhoto, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, likePhoto, recordSocialVisit, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
@@ -53,6 +55,10 @@ const LOAD_NUDGE_DELAY_MS = 6000;
  *  the download runs — but never a confirm dialog, since the toast already
  *  streams per-photo progress. */
 const LARGE_SELECTION = 300;
+/** Upper bound on one attempt to record the required visit. Continue waits on
+ *  this at most twice (the click's attempt, then one retry), and then lets the
+ *  Guest in regardless — see submitIntake. */
+const VISIT_RECORD_TIMEOUT_MS = 6000;
 
 /** What the grid is currently showing, in the shape `getGuestMedia` and the
  *  ZIP paginator both take. Never carries `skip`/`limit` — it describes the
@@ -92,19 +98,10 @@ export function LoungeGallery({
 
   // "Tell us about you" sheet — raised once, over the Lounge, for whichever
   // of these the guest hasn't answered yet. Computed locally (not routed to
-  // by EventFlow) so a returning guest who already has both never sees it.
+  // by EventFlow) so a returning guest who already has them all never sees it.
   const needsName = !session.name || session.name === "Guest";
   const intakeTeams = event.guest_types ?? [];
   const needsTeam = intakeTeams.length > 0 && !session.guest_sub_type;
-  const showIntakeSheet = needsName || needsTeam;
-
-  async function submitIntake(patch: { name?: string; team?: string }) {
-    await updateGuestSubType(uniqueIdentifier, { name: patch.name, guestSubType: patch.team });
-    onSessionChange({
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.team !== undefined ? { guest_sub_type: patch.team } : {}),
-    });
-  }
 
   // Only ONE shell is mounted at a time (not two CSS-toggled trees): a hidden
   // `display:none` GalleryGrid measures 0 width and would render nothing, and
@@ -122,6 +119,84 @@ export function LoungeGallery({
   );
   const canDownload = prefs.allow_download;
 
+  // The Studio's required visit. Catches EVERY Guest once per gallery — not
+  // just Guests missing a name — so a Guest who signed in with Google (name
+  // already present) still gets the sheet, for the link alone.
+  const gate = useMemo(
+    () =>
+      resolveSocialVisitGate({
+        socialLinks: event.company_social_links,
+        mandatoryPlatform: event.company_mandatory_visit_platform,
+        preferences: prefs,
+        includeCompanyBranding: event.include_company_branding,
+      }),
+    [event.company_social_links, event.company_mandatory_visit_platform, event.include_company_branding, prefs],
+  );
+  // Satisfaction is once per event and platform-independent by design — see the
+  // comment on `mandatory_link_visited_at`.
+  const needsSocialVisit = !!gate && !session.mandatory_link_visited_at;
+  const showIntakeSheet = needsName || needsTeam || needsSocialVisit;
+
+  /** The Guest opened the gate's link from the sheet. Local and optimistic: set
+   *  by the link's own click, before (and regardless of) the record request. */
+  const [visitedPlatform, setVisitedPlatform] = useState<SocialPlatformKey | null>(null);
+  /** The record request fired by that click, resolving to the stored stamp or
+   *  null on any failure. It never rejects. */
+  const visitAttempt = useRef<Promise<{ mandatory_link_visited_at: number | null; mandatory_link_platform: string | null } | null> | null>(null);
+
+  const sendVisit = useCallback(
+    (platform: SocialPlatformKey) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), VISIT_RECORD_TIMEOUT_MS);
+      return recordSocialVisit(uniqueIdentifier, platform, controller.signal)
+        .catch((err) => {
+          console.warn("[recordSocialVisit] failed", err);
+          return null;
+        })
+        .finally(() => clearTimeout(timer));
+    },
+    [uniqueIdentifier],
+  );
+
+  const onVisit = useCallback(
+    (platform: SocialPlatformKey) => {
+      setVisitedPlatform(platform);
+      // One request per sheet; "Open again" doesn't resend. A failure is
+      // retried once from Continue instead.
+      if (!visitAttempt.current) visitAttempt.current = sendVisit(platform);
+    },
+    [sendVisit],
+  );
+
+  async function submitIntake(patch: { name?: string; team?: string }) {
+    // The visit never blocks entry. A failed or timed-out record is retried
+    // once here; if that fails too the Guest is let in on a local stamp. The
+    // Studio losing one recorded click is nothing; a Guest locked out of their
+    // wedding photos is a support call and a broken promise. (On a reload
+    // before a record lands, the Guest is simply asked again.)
+    let visit: Partial<Pick<GuestSession, "mandatory_link_visited_at" | "mandatory_link_platform">> = {};
+    if (needsSocialVisit && visitedPlatform) {
+      const result = (await visitAttempt.current) ?? (await sendVisit(visitedPlatform));
+      visit = {
+        mandatory_link_visited_at: result?.mandatory_link_visited_at ?? Date.now(),
+        mandatory_link_platform: result?.mandatory_link_platform ?? visitedPlatform,
+      };
+    }
+    // Only when there is something to save: a Guest who only had the link to
+    // open must not be held up by a request with nothing in it.
+    if (patch.name !== undefined || patch.team !== undefined) {
+      await updateGuestSubType(uniqueIdentifier, { name: patch.name, guestSubType: patch.team });
+    }
+    // The session is patched HERE, on Continue, and not when the record lands:
+    // for a Guest who only had the link, that would close the sheet while they
+    // are still in the portal's tab.
+    onSessionChange({
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.team !== undefined ? { guest_sub_type: patch.team } : {}),
+      ...visit,
+    });
+  }
+
   // Full-gallery ZIP is host-only and now built in the browser (client-zip,
   // streamed to disk), so it's available whenever the guest is unlocked — there's
   // no backend zip state to gate on any more. The studio preference gates it too.
@@ -134,9 +209,17 @@ export function LoungeGallery({
    */
   const canSelect = canDownload;
 
-  const reviewUrl = event.company_google_place_id
-    ? `https://search.google.com/local/writereview?placeid=${event.company_google_place_id}`
-    : event.company_gmb_link || null;
+  // One value governs every review affordance in the gallery: the pop-up, the
+  // top-bar link (both breakpoints) and the outro CTA each render behind a
+  // `reviewUrl &&`, so null here removes them all. Null when the Studio has no
+  // listing, has switched reviews off company-wide, or has switched them off
+  // for this event (the company field is read `!== false` — see the helper).
+  const reviewUrl = resolveGoogleReviewUrl({
+    placeId: event.company_google_place_id,
+    gmbLink: event.company_gmb_link,
+    enabledGlobally: event.company_google_review_enabled,
+    enabledForEvent: prefs.show_google_review,
+  });
   // Contact opens a WhatsApp chat with the studio's number (digits only).
   // company_whatsapp_number is the OTP-verified field; company_contact_number
   // is a legacy fallback for delivery pages published before its removal.
@@ -412,9 +495,12 @@ export function LoungeGallery({
   // Gated on the guest actually looking at photos: desktop is one continuous
   // scroll so that's always true, but on mobile the data loads while Home is
   // still showing — without this the nudge would pop over the Home tab before
-  // any gallery had rendered.
+  // any gallery had rendered. Nor while the intake sheet is up: a Guest who
+  // is still being asked for a name or to open the Studio's link is not
+  // looking at photos yet, and two asks at once is one too many. The delay
+  // simply starts once the sheet closes.
   const galleryReady =
-    !loading && !loadError && items.length > 0 && (isDesktop || view === "gallery");
+    !loading && !loadError && items.length > 0 && (isDesktop || view === "gallery") && !showIntakeSheet;
   useEffect(() => {
     if (!reviewUrl || !galleryReady || loadNudgeShown.current) return;
     const id = setTimeout(() => {
@@ -1213,7 +1299,16 @@ export function LoungeGallery({
       )}
 
       {/* "tell us about you" — non-dismissible, held over everything else */}
-      {showIntakeSheet && <IntakeSheet showName={needsName} teams={needsTeam ? intakeTeams : []} onSubmit={submitIntake} />}
+      {showIntakeSheet && (
+        <IntakeSheet
+          showName={needsName}
+          teams={needsTeam ? intakeTeams : []}
+          gate={needsSocialVisit ? gate : null}
+          visited={visitedPlatform !== null}
+          onVisit={onVisit}
+          onSubmit={submitIntake}
+        />
+      )}
 
       {/* passcode */}
       {passcodeOpen && (

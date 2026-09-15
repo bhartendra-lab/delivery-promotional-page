@@ -15,6 +15,8 @@ import { WatermarkReminderDialog } from "./WatermarkReminderDialog";
 import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { DELIVERY_PREFERENCE_DEFAULTS } from "@/lib/delivery-preferences";
+import { useCompany } from "@/lib/useCompany";
+import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
 import { IconCheck, IconX, IconUpload, IconEdit, IconWarning, IconGear } from "./icons";
 
 /** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
@@ -29,6 +31,8 @@ type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "
  * (modals, active folder) stays here.
  */
 export function MediaTab({ loading }: { loading: boolean }) {
+  // The company-wide review switch locks this event's review preference row.
+  const company = useCompany();
   const {
     bookingId: ctxBookingId,
     meta,
@@ -512,7 +516,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         toast={toast}
         // A QHD-only event has no unwatermarked copy, so the archive download
         // row is not shown here at all.
-        context={{ archiveTiers }}
+        context={{ archiveTiers, googleReviewEnabledGlobally: company?.google_review_enabled !== false }}
       />
 
       {cancelSummary && (
@@ -627,8 +631,8 @@ function EventHeader({
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         {/* Preferences is reachable in every non-loading state — the studio must
             be able to set download rights BEFORE the first upload and DURING
-            one — and on mobile, unlike "Upload more" (uploading is desktop-only,
-            changing a preference isn't). Not gated by `activeLocked` either:
+            one — and on mobile, unlike "Upload more" (uploading is desktop-only in
+            production, changing a preference isn't). Not gated by `activeLocked` either:
             that guard protects folder structure from racing an in-flight
             upload, and a delivery-landing-page write touches neither. */}
         {state !== "loading" && (
@@ -646,7 +650,7 @@ function EventHeader({
               <button
                 type="button"
                 onClick={onUploadMore}
-                className="brand-focus hidden items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] md:inline-flex"
+                className={`brand-focus items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
               >
                 <IconUpload size={14} />
                 Upload more
@@ -657,9 +661,11 @@ function EventHeader({
         {state === "populated" && (
           <>
             {activeIsSystem && (
-              <span className="hidden text-[11px] text-[var(--color-brand-muted)] md:inline">Tap to choose a folder to upload into</span>
+              <span className={`text-[11px] text-[var(--color-brand-muted)] ${MOBILE_UPLOAD_ENABLED ? "inline" : "hidden md:inline"}`}>Tap to choose a folder to upload into</span>
             )}
-            <span className="text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
+            {!MOBILE_UPLOAD_ENABLED && (
+              <span className="text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
+            )}
           </>
         )}
       </div>
@@ -690,12 +696,14 @@ function EmptyUploadCTA({ onUpload, dirSupported }: { onUpload: () => void; dirS
       <button
         type="button"
         onClick={onUpload}
-        className="brand-focus mt-1.5 hidden h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] md:inline-flex"
+        className={`brand-focus mt-1.5 h-11 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[14px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
       >
         <IconUpload size={16} />
         {dirSupported ? "Upload media" : "Add photos"}
       </button>
-      <span className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
+      {!MOBILE_UPLOAD_ENABLED && (
+        <span className="mt-1.5 text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
+      )}
       <div className="mt-1 text-[12px] text-[var(--color-brand-muted)]">JPG · PNG · HEIC · WebP · no size limit</div>
     </div>
   );

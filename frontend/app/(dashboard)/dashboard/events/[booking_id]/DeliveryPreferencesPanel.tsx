@@ -8,6 +8,7 @@ import {
   type DeliveryPreferenceContext,
   type DeliveryPreferenceField,
   type DeliveryPreferences,
+  type DeliveryPreferenceSurface,
 } from "@/lib/delivery-preferences";
 
 /**
@@ -25,19 +26,25 @@ import {
  * name the archive row after the tier this event actually has, and to hide that
  * row for a QHD-only event (nothing unwatermarked exists to govern) or when
  * downloads are switched off outright.
+ *
+ * `surface` picks which rows this host shows: the gallery hosts (gear modal,
+ * upload dialog) and Access & Sharing each render their own slice of the same
+ * registry, so no row is rendered by two different components.
  */
 export function DeliveryPreferencesPanel({
   value,
   onChange,
   disabled = false,
   context,
+  surface = "gallery",
 }: {
   value: DeliveryPreferences;
   onChange: (next: DeliveryPreferences) => void;
   disabled?: boolean;
   context?: DeliveryPreferenceContext;
+  surface?: DeliveryPreferenceSurface;
 }) {
-  const fields = resolveDeliveryPreferenceFields(value, context);
+  const fields = resolveDeliveryPreferenceFields(value, context, surface);
   return (
     <div className="flex flex-col gap-3">
       <div className="divide-y divide-[var(--color-brand-border)] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
@@ -67,8 +74,12 @@ function PreferenceRow({
   disabled: boolean;
 }) {
   const descriptionId = useId();
-  const current = value[field.key];
+  // A row overridden from outside this event shows its EFFECTIVE value and
+  // can't be changed here; the stored value is kept untouched underneath.
+  const locked = field.locked ?? null;
+  const current = locked ? locked.value : value[field.key];
   const isDefault = current === DELIVERY_PREFERENCE_DEFAULTS[field.key];
+  const rowDisabled = disabled || !!locked;
 
   // Switch on the descriptor's type — an unknown type renders nothing rather
   // than crashing the panel out from under a host that hasn't been taught
@@ -84,7 +95,7 @@ function PreferenceRow({
         <ToggleSwitch
           checked={current as boolean}
           onChange={(next) => onChange({ ...value, [field.key]: next })}
-          disabled={disabled}
+          disabled={rowDisabled}
           label={field.label}
           describedById={descriptionId}
         />
@@ -103,14 +114,14 @@ function PreferenceRow({
                   selected
                     ? "border-[var(--color-brand-navy-deep)] bg-[var(--color-brand-navy-soft)]"
                     : "border-[var(--color-brand-border)] bg-white"
-                } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+                } ${rowDisabled ? "cursor-not-allowed opacity-60" : ""}`}
               >
                 <input
                   type="radio"
                   name={`${descriptionId}-${field.key}`}
                   value={option.value}
                   checked={selected}
-                  disabled={disabled}
+                  disabled={rowDisabled}
                   onChange={() => onChange({ ...value, [field.key]: option.value } as DeliveryPreferences)}
                   className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-brand-navy-deep)]"
                 />
@@ -150,11 +161,19 @@ function PreferenceRow({
       </div>
       {stacked}
       {/* Only while the preference is away from its default — the studio sees
-          what it just opted in to, at the moment it opts in. */}
-      {field.consequence && !isDefault && (
+          what it just opted in to, at the moment it opts in. A locked row says
+          why it is locked instead. */}
+      {locked ? (
         <div className="rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
-          {field.consequence}
+          {locked.note}
         </div>
+      ) : (
+        field.consequence &&
+        !isDefault && (
+          <div className="rounded-md bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-navy-deep)]">
+            {field.consequence}
+          </div>
+        )
       )}
     </div>
   );

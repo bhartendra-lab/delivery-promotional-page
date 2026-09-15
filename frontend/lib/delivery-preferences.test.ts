@@ -25,10 +25,10 @@ const archiveRow = (value: DeliveryPreferences, ...archiveTiers: ArchiveTier[]) 
 /* ── Which rows show at all ──────────────────────────────────────────────── */
 
 test("a HD-only event shows no archive download row — there is nothing to govern", () => {
-  assert.deepEqual(keys(prefs()), ["allow_download"]);
+  assert.deepEqual(keys(prefs()), ["allow_download", "show_google_review"]);
   // Even with the preference set to its most permissive value: no unwatermarked
   // copy exists, so the control would govern nothing.
-  assert.deepEqual(keys(prefs({ archive_download_access: "all_guests" })), ["allow_download"]);
+  assert.deepEqual(keys(prefs({ archive_download_access: "all_guests" })), ["allow_download", "show_google_review"]);
 });
 
 test("downloads switched off hides the archive row, whatever the tier", () => {
@@ -36,13 +36,13 @@ test("downloads switched off hides the archive row, whatever the tier", () => {
   // outright (see the endpoint's authorisation order), so offering the finer
   // control underneath it would be offering a setting with no effect.
   for (const tier of ["4096", "original"] as ArchiveTier[]) {
-    assert.deepEqual(keys(prefs({ allow_download: false }), tier), ["allow_download"]);
+    assert.deepEqual(keys(prefs({ allow_download: false }), tier), ["allow_download", "show_google_review"]);
   }
 });
 
 test("an archive event with downloads on shows both rows, in order", () => {
   for (const tier of ["4096", "original"] as ArchiveTier[]) {
-    assert.deepEqual(keys(prefs(), tier), ["allow_download", "archive_download_access"]);
+    assert.deepEqual(keys(prefs(), tier), ["allow_download", "archive_download_access", "show_google_review"]);
   }
 });
 
@@ -107,14 +107,15 @@ test("a mixed event still shows the row, and a HD-only one still hides it", () =
   assert.deepEqual(keys(prefs(), "original", "4096"), [
     "allow_download",
     "archive_download_access",
+    "show_google_review",
   ]);
-  assert.deepEqual(keys(prefs()), ["allow_download"]);
+  assert.deepEqual(keys(prefs()), ["allow_download", "show_google_review"]);
 });
 
 test("an omitted context hides the archive row rather than guessing a tier", () => {
   assert.deepEqual(
     resolveDeliveryPreferenceFields(prefs()).map((f) => f.key),
-    ["allow_download"],
+    ["allow_download", "show_google_review"],
   );
 });
 
@@ -162,4 +163,59 @@ test("changedPreferenceKeys: reports every differing key", () => {
     ),
     ["allow_download", "archive_download_access"],
   );
+});
+
+/* ── Surfaces ────────────────────────────────────────────────────────────── */
+
+test("the gallery surface never shows the required visit row", () => {
+  // The link is chosen Studio-wide and overridden per event on Access &
+  // Sharing — offering it in the gear modal too would be two places to
+  // change one thing.
+  assert.ok(!keys(prefs(), "original").includes("require_social_visit"));
+});
+
+test("the access surface shows only the required visit row", () => {
+  assert.deepEqual(
+    resolveDeliveryPreferenceFields(prefs(), { archiveTiers: ["original"] }, "access").map((f) => f.key),
+    ["require_social_visit"],
+  );
+});
+
+test("the required visit row names the Studio's platform", () => {
+  const row = resolveDeliveryPreferenceFields(
+    prefs(),
+    { archiveTiers: [], requiredVisitLabel: "WedMeGood" },
+    "access",
+  )[0];
+  assert.equal(row.label, "Ask Guests to open WedMeGood");
+  assert.match(row.description, /WedMeGood page/);
+});
+
+/* ── The review row and the company-wide switch ──────────────────────────── */
+
+const reviewRow = (value: DeliveryPreferences, googleReviewEnabledGlobally?: boolean) =>
+  resolveDeliveryPreferenceFields(value, { archiveTiers: [], googleReviewEnabledGlobally }).find(
+    (f) => f.key === "show_google_review",
+  );
+
+test("the review row is live while the company switch is on or has never been set", () => {
+  assert.equal(reviewRow(prefs(), true)?.locked, undefined);
+  // A company cached before the switch shipped has no value, and absent is ON.
+  assert.equal(reviewRow(prefs(), undefined)?.locked, undefined);
+});
+
+test("the company switch off locks the row OFF and says why — it is not hidden", () => {
+  for (const eventValue of [true, false]) {
+    const row = reviewRow(prefs({ show_google_review: eventValue }), false);
+    assert.ok(row, "the row must still render");
+    assert.deepEqual(row.locked, { value: false, note: "Turned off for every gallery in Settings." });
+  }
+});
+
+/* ── New preferences on old events ───────────────────────────────────────── */
+
+test("an event created before the new preferences reads both as on", () => {
+  const resolved = normalizeDeliveryPreferences({ allow_download: false, archive_download_access: "none" });
+  assert.equal(resolved.require_social_visit, true);
+  assert.equal(resolved.show_google_review, true);
 });
