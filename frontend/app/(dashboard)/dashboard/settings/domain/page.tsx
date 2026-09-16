@@ -73,19 +73,26 @@ export default function CustomDomainPage() {
 
   const status = data?.status ?? "none";
   const isPending = status === "pending_dns" || status === "pending_certificate";
+  /** A domain the studio's plan no longer covers is frozen: recheck is refused
+   *  and the reconciliation cron skips it, so nothing about it can change. */
+  const planCoversDomain = Boolean(data?.allowed);
+  /** A domain exists (in any state) that the current plan doesn't cover. */
+  const isPaused = data != null && !data.allowed && status !== "none";
 
   // Poll only while there is something to wait for, and stop on unmount. The
   // terminal states (active / failed / none) never change without the studio
   // doing something, which re-fetches anyway.
   useEffect(() => {
-    if (!isPending) return;
+    // Polling a frozen domain would spin forever against a status that cannot
+    // move — see planCoversDomain.
+    if (!isPending || !planCoversDomain) return;
     const id = setInterval(() => {
       void load().catch(() => {
         /* best-effort; the next tick retries */
       });
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [isPending, load]);
+  }, [isPending, planCoversDomain, load]);
 
   useEffect(() => {
     if (cooldownUntil === 0) return;
@@ -179,7 +186,27 @@ export default function CustomDomainPage() {
         description="Serve your galleries from your own domain, so every link you send carries your studio's name instead of ours."
       />
 
-      {!data.allowed ? (
+      {isPaused ? (
+        /* The studio HAS a domain but their plan no longer covers it — a
+           downgrade to Free, or a subscription that lapsed without a
+           replacement. Showing LockedCard here (the old behaviour) hid their
+           own domain from them and, worse, hid the Remove action, leaving them
+           unable to disconnect it without contacting support. */
+        <Card title="Your gallery domain" icon={<GlobeIcon />}>
+          <PausedState
+            hostname={data.hostname ?? data.pending_hostname}
+            isLive={status === "active"}
+            onUpgrade={() => openUpgradeModal()}
+            onRemove={() => setConfirmRemove(true)}
+            removing={removing}
+          />
+          {actionError && (
+            <p role="alert" className="mt-4 text-sm text-[var(--color-brand-danger)]">
+              {actionError}
+            </p>
+          )}
+        </Card>
+      ) : !data.allowed ? (
         <LockedCard onUpgrade={() => openUpgradeModal()} />
       ) : (
         <Card title="Your gallery domain" icon={<GlobeIcon />}>
@@ -269,6 +296,87 @@ export default function CustomDomainPage() {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * A domain that exists but whose plan no longer covers it — a downgrade to
+ * Free, or a lapsed subscription with nothing replacing it.
+ *
+ * Deliberately NOT the locked upsell card. The studio owns this hostname; they
+ * need to see which one it is and be able to disconnect it themselves. The two
+ * ways out are both offered: upgrade to get control back, or remove it.
+ *
+ * No "Check again" and no setup panel: `recheck` is refused for an uncovered
+ * plan and the reconciliation cron skips it, so offering either would be a
+ * button that cannot work.
+ *
+ * `isLive` is the honest distinction, not a cosmetic one. An ALREADY-ACTIVE
+ * domain keeps serving — nothing revokes it on downgrade, by design, because
+ * killing it would break gallery links guests already hold. A domain still
+ * mid-setup will simply never finish.
+ */
+function PausedState({
+  hostname,
+  isLive,
+  onUpgrade,
+  onRemove,
+  removing,
+}: {
+  hostname: string | null;
+  isLive: boolean;
+  onUpgrade: () => void;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className="font-mono text-sm text-[var(--color-brand-ink)]">{hostname ?? "—"}</span>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-brand-warning-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-brand-warning)]">
+          <AlertIcon className="h-3 w-3" />
+          Paused
+        </span>
+      </div>
+
+      <p className="text-sm text-[var(--color-brand-muted)]">
+        {isLive ? (
+          <>
+            Your galleries are still being served from this domain, but custom domains
+            aren&apos;t part of your current plan — so you can&apos;t change it until you upgrade.
+          </>
+        ) : (
+          <>
+            Setting up this domain is on hold: custom domains aren&apos;t part of your current
+            plan.
+          </>
+        )}
+      </p>
+
+      <p className="text-xs text-[var(--color-brand-muted)]">
+        {isLive
+          ? "Removing it sends new gallery links back to deliver.vyavasth.in, and links you've already shared on this domain would stop working."
+          : "Upgrade to finish setting it up, or remove it if you've changed your mind."}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          onClick={onUpgrade}
+          className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+        >
+          Upgrade plan
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={removing}
+          className="brand-focus text-xs font-semibold text-[var(--color-brand-danger)] underline-offset-2 hover:underline disabled:opacity-60"
+        >
+          Remove domain
+        </button>
+      </div>
     </div>
   );
 }
