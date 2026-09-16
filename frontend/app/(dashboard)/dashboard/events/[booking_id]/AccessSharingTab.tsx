@@ -7,6 +7,7 @@ import { exportGuestsCsv, getAllGuests, revokeGuestAccess } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { Guest } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
+import { galleryUrlFor } from "@/lib/gallery-url";
 import { normalizeDeliveryPreferences, type DeliveryPreferences } from "@/lib/delivery-preferences";
 import { SOCIAL_PLATFORM_BY_KEY, isSocialPlatformKey } from "@/lib/social-platforms";
 import { SocialChip } from "@/components/event/screens/lounge/SocialIcons";
@@ -58,10 +59,12 @@ export function AccessSharingTab({
   /** Mint a fresh passcode server-side; resolves to the new code. */
   onRegenerate: () => Promise<string>;
 }) {
-  const base = (
-    process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "")
-  ).replace(/\/$/, "");
-  const shareUrl = uniqueIdentifier ? `${base}/event/${uniqueIdentifier}` : "";
+  // Built from the COMPANY, not from NEXT_PUBLIC_BASE_URL. This is the link a
+  // studio reads off the screen and hands to a client by hand, so it has to be
+  // the same one their guests get by email — their own domain once they have a
+  // live one. See lib/gallery-url, which mirrors the backend's rule.
+  const company = useCompany();
+  const shareUrl = galleryUrlFor(company, uniqueIdentifier) ?? "";
 
   const message = `Namaste! The photos from ${eventName} are ready. 🎉
 

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  getCompanyDetails,
   getCustomDomainStatus,
   recheckCustomDomain,
   removeCustomDomain,
   ApiError,
 } from "@/lib/api";
+import { setCompany } from "@/lib/auth";
 import type { CustomDomainStatus, CustomDomainStatusResponse } from "@/lib/types";
 import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
@@ -48,6 +50,28 @@ export default function CustomDomainPage() {
     const res = await getCustomDomainStatus();
     setData(res);
     return res;
+  }, []);
+
+  /**
+   * Re-read the company into the cached copy that `useCompany()` serves.
+   *
+   * Load-bearing, not housekeeping: every gallery link in the dashboard —
+   * Access & Sharing, the Copy button on an event card — is now built from that
+   * cached company (see lib/gallery-url). Activating or removing a domain
+   * changes which host those links carry, and nothing else on this page writes
+   * the cache, so without this a studio would connect their domain and keep
+   * copying deliver.vyavasth.in links until they next logged in.
+   *
+   * Best-effort: a failure here costs a stale link base until the next
+   * dashboard mount refreshes it, and must never fail the action that ran it.
+   */
+  const syncCachedCompany = useCallback(async () => {
+    try {
+      const res = await getCompanyDetails();
+      setCompany(res.company);
+    } catch {
+      /* see above */
+    }
   }, []);
 
   useEffect(() => {
@@ -121,7 +145,10 @@ export default function CustomDomainPage() {
     if (status !== "active" || refreshedRef.current) return;
     refreshedRef.current = true;
     void refreshReminders();
-  }, [status, refreshReminders]);
+    // The moment the domain goes live, every gallery link in the dashboard
+    // should start showing it.
+    void syncCachedCompany();
+  }, [status, refreshReminders, syncCachedCompany]);
 
   async function handleRecheck() {
     setRechecking(true);
@@ -169,6 +196,9 @@ export default function CustomDomainPage() {
       setConfirmRemove(false);
       await load();
       void refreshReminders();
+      // Symmetric with activation: links must fall back to deliver.vyavasth.in
+      // immediately, not on the next login.
+      void syncCachedCompany();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't remove the domain.");
     } finally {

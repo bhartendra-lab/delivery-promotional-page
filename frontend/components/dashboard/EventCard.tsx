@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Booking, EventType, GalleryPublishStatus, ServiceType } from "@/lib/types";
 import { isStorageBasedPlan } from "@/lib/types";
-import { buildShareUrl, formatEventDate, getExpiryWarning } from "./shared";
+import { formatEventDate, getExpiryWarning } from "./shared";
+import { galleryUrlFor } from "@/lib/gallery-url";
+import { useCompany } from "@/lib/useCompany";
 import { EventBadge } from "./EventBadge";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
 import {
@@ -42,6 +44,7 @@ type Props = {
 type Acting = "archive" | "restore" | "delete" | null;
 
 export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, onClearData }: Props) {
+  const company = useCompany();
   const [copied, setCopied] = useState(false);
   const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
   const [acting, setActing] = useState<Acting>(null);
@@ -57,10 +60,14 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
     status === "published";
 
   // The landing page's slug, not the booking id — that's what /event/<slug>
-  // takes. Absent on a booking whose landing page hasn't been created yet, in
+  // takes. Null on a booking whose landing page hasn't been created yet, in
   // which case there is no gallery to share and the menu is hidden entirely
   // rather than handing out a broken URL.
-  const shareUrl = row.unique_identifier ? buildShareUrl(row.unique_identifier) : null;
+  //
+  // Built from the COMPANY, not from NEXT_PUBLIC_BASE_URL: a studio with a live
+  // custom domain must copy their own domain here, the same URL their guests
+  // receive by email. See lib/gallery-url.
+  const shareUrl = galleryUrlFor(company, row.unique_identifier);
 
   async function copy() {
     if (!shareUrl) return;

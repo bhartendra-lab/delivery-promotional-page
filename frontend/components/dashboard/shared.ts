@@ -29,19 +29,6 @@ export function formatCreatedAt(iso: string): string {
   });
 }
 
-/**
- * The public gallery URL for a delivery landing page.
- *
- * Takes the landing page's `unique_identifier` (the slug), NOT the booking id.
- * This used to build `/c/<booking_id>`, which is not a route this app has ever
- * had — every "Copy link" and WhatsApp share produced a 404. `/event/<slug>` is
- * the real route (see app/(client)/event/[unique_identifier]).
- */
-export function buildShareUrl(uniqueIdentifier: string): string {
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  return `${base.replace(/\/$/, "")}/event/${uniqueIdentifier}`;
-}
-
 export function toDateInputValue(epochMs?: number): string {
   if (!epochMs) return "";
   const date = new Date(toMillis(epochMs));
