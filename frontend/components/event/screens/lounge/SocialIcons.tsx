@@ -1,51 +1,75 @@
 "use client";
 
-import {
-  IconInstagram,
-  IconFacebook,
-  IconYoutube,
-  IconVimeo,
-  IconPinterest,
-  IconXLogo,
-} from "@/components/ui/icons";
+import { useState } from "react";
+import { SOCIAL_PLATFORM_BY_KEY, type SocialPlatformKey } from "@/lib/social-platforms";
 
 /**
- * Studio social links, drawn as a colored chip (this app's own composite —
- * no library carries a "brand mark in a colored circle" treatment) with the
- * real react-icons/simple-icons brand mark inside, rendered white.
+ * One platform's chip, drawn from the registry in lib/social-platforms.ts. Every
+ * chip is the same circle at the same size, whatever is inside it — a row of
+ * circles with one rectangle in it reads as a bug.
+ *
+ *  - "knockout": the real react-icons/simple-icons brand mark, rendered white on
+ *    the platform's colour (this app's own composite — no library carries a
+ *    "brand mark in a coloured circle" treatment).
+ *  - "plate": a portal's official PNG on a white chip. Raster, so it is drawn at
+ *    an explicit size with `object-fit: contain` — never cover, never stretched.
+ *  - monogram: a plate platform whose asset is not in yet (`hasAsset: false`),
+ *    or whose file failed to load. Deliberate, not broken: brand fill, white
+ *    letters, identical geometry and hover.
  */
+export function SocialChip({ platform, size = 32 }: { platform: SocialPlatformKey; size?: number }) {
+  const spec = SOCIAL_PLATFORM_BY_KEY[platform];
+  // Second line of defence behind `hasAsset`: a missing or malformed file flips
+  // just this chip to its monogram instead of showing a broken-image icon.
+  const [assetFailed, setAssetFailed] = useState(false);
+  const innerW = Math.round(size * (1 - (2 * spec.markInset.x) / 100));
+  const innerH = Math.round(size * (1 - (2 * spec.markInset.y) / 100));
+  const className = "social-chip flex shrink-0 items-center justify-center overflow-hidden rounded-full";
 
-export type SocialPlatform = "Instagram" | "Facebook" | "YouTube" | "Vimeo" | "Pinterest" | "X";
+  if (spec.treatment === "knockout" && spec.glyph) {
+    const Glyph = spec.glyph;
+    return (
+      <span aria-hidden className={className} style={{ width: size, height: size, background: spec.chip }}>
+        <Glyph size={Math.min(innerW, innerH)} style={{ color: "#fff" }} />
+      </span>
+    );
+  }
 
-/** Chip fill per platform. Instagram gets its signature gradient. */
-const CHIP: Record<SocialPlatform, string> = {
-  Instagram: "linear-gradient(45deg, #F58529, #DD2A7B 45%, #8134AF 75%, #515BD4)",
-  Facebook: "#1877F2",
-  YouTube: "#FF0000",
-  Vimeo: "#1AB7EA",
-  Pinterest: "#E60023",
-  X: "#0F1419",
-};
+  if (spec.treatment === "plate" && spec.hasAsset && spec.assetSrc && !assetFailed) {
+    return (
+      <span
+        aria-hidden
+        className={className}
+        style={{ width: size, height: size, background: "#fff", boxShadow: "inset 0 0 0 1px rgba(31,26,14,0.12)" }}
+      >
+        {/* A plain <img>, not next/image: three decorative chips are no reason to
+            start depending on the image optimiser on Cloudflare Workers. The
+            explicit box keeps a slow asset from shifting the row as it lands. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={spec.assetSrc}
+          alt=""
+          width={innerW}
+          height={innerH}
+          decoding="async"
+          loading="lazy"
+          draggable={false}
+          onError={() => setAssetFailed(true)}
+          style={{ width: innerW, height: innerH, objectFit: "contain" }}
+        />
+      </span>
+    );
+  }
 
-const GLYPH: Record<SocialPlatform, typeof IconInstagram> = {
-  Instagram: IconInstagram,
-  Facebook: IconFacebook,
-  YouTube: IconYoutube,
-  Vimeo: IconVimeo,
-  Pinterest: IconPinterest,
-  X: IconXLogo,
-};
-
-export function SocialChip({ platform, size = 32 }: { platform: SocialPlatform; size?: number }) {
-  const glyph = Math.round(size * 0.58);
-  const Glyph = GLYPH[platform];
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-full transition-transform duration-200 group-hover/social:scale-110"
-      style={{ width: size, height: size, background: CHIP[platform] }}
+      className={className}
+      style={{ width: size, height: size, background: spec.brand, color: "#fff" }}
     >
-      <Glyph size={glyph} style={{ color: "#fff" }} />
+      <span style={{ fontSize: Math.round(size * 0.44), fontWeight: 800, lineHeight: 1, letterSpacing: "-0.02em" }}>
+        {spec.monogram}
+      </span>
     </span>
   );
 }

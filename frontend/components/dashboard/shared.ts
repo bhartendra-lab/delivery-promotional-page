@@ -29,11 +29,6 @@ export function formatCreatedAt(iso: string): string {
   });
 }
 
-export function buildShareUrl(id: string): string {
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  return `${base.replace(/\/$/, "")}/c/${id}`;
-}
-
 export function toDateInputValue(epochMs?: number): string {
   if (!epochMs) return "";
   const date = new Date(toMillis(epochMs));

@@ -112,7 +112,7 @@ export function StudioMenu({
       {open && (
         <div
           role="menu"
-          className="popup-pop absolute left-0 top-[calc(100%+10px)] z-50 w-[268px] overflow-hidden rounded-2xl"
+          className="popup-pop absolute left-0 top-[calc(100%+10px)] z-50 w-[268px] rounded-2xl"
           style={{ background: t.card, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
         >
           {/* identity header */}
@@ -172,7 +172,10 @@ export function StudioMenu({
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: t.faint }}>
                   Follow along
                 </div>
-                <SocialRow event={event} size={30} align="start" />
+                {/* No overflow-hidden on this popup: the chips' hover labels are
+                    wider than the chips and would be clipped at its edges.
+                    Nothing inside paints into the rounded corners. */}
+                <SocialRow t={t} event={event} size={30} align="start" />
               </div>
             </>
           )}

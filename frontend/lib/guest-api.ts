@@ -255,6 +255,32 @@ export function verifyFamilyPasscode(uid: string, deliveryLandingPageId: string,
  * the token, so only the clicked flag is sent. Fire-and-forget analytics: the
  * caller must never let a failure block the link's navigation.
  */
+/**
+ * Record that the Guest opened the Studio's required visit link.
+ *
+ * Load-bearing for the IntakeSheet gate, which is why it is not folded into
+ * `catchGuestBehavior` (fire-and-forget analytics). Even so, the caller must
+ * never make entering the gallery depend on this succeeding: it is fired
+ * optimistically, retried once, and then ignored.
+ *
+ * `keepalive` because the request is sent from the link's own click: an in-app
+ * browser (Instagram, WhatsApp) may open a `target="_blank"` link in the SAME
+ * view, and a plain fetch would be cancelled as the gallery navigates away.
+ */
+export function recordSocialVisit(uid: string, platform: string, signal?: AbortSignal) {
+  return guestFetch<{ mandatory_link_visited_at: number | null; mandatory_link_platform: string | null }>(
+    uid,
+    "/deliverables/record-social-visit",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform }),
+      keepalive: true,
+      signal,
+    },
+  );
+}
+
 export function catchGuestBehavior(
   uid: string,
   behavior: { review_button_clicked?: boolean; contact_button_clicked?: boolean },

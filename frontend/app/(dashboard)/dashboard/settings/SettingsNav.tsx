@@ -11,8 +11,10 @@ import {
   IconUser,
   IconCreditCard,
   IconCaretDown,
+  IconGlobe,
   type IconProps,
 } from "@/components/ui/icons";
+import type { Company } from "@/lib/types";
 
 export type SettingsItem = {
   label: string;
@@ -30,6 +32,9 @@ export type SettingsGroup = {
  * three separate routes (Studio Identity, Online Presence, Studio Logo) into
  * one tab, since they're all facets of the same "how the studio shows up"
  * concern. Your Account holds the two studio-owner-level sections.
+ *
+ * Custom Domain sits in Brand & Delivery with the rest of "how the studio shows
+ * up", and is the one entry that isn't unconditional — see `settingsGroupsFor`.
  */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
@@ -49,9 +54,39 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   },
 ];
 
-/** The section label for a pathname, used to build the top-bar breadcrumb. */
+const CUSTOM_DOMAIN_ITEM: SettingsItem = {
+  label: "Custom Domain",
+  href: "/dashboard/settings/domain",
+  Icon: IconGlobe,
+};
+
+/**
+ * The nav for a given company. Custom Domain appears only while the backend's
+ * CUSTOM_DOMAINS_ENABLED kill switch is on — with it off, every
+ * /custom-domain/* route 404s, so a visible tab would be a link to a broken
+ * page. The flag rides on the company payload rather than a second config
+ * endpoint (see withCustomDomainMeta on the backend); an absent flag reads as
+ * off, which is the safe default for an older cached company.
+ *
+ * Note this hides the ENTRY, not the ROUTE: someone who types the URL still
+ * reaches the page, which loads, gets its 404 and says the feature isn't
+ * available yet. That's the honest outcome, and it keeps the gate in one place
+ * (the backend) rather than two.
+ */
+export function settingsGroupsFor(company: Company | null | undefined): SettingsGroup[] {
+  if (!company?.custom_domains_enabled) return SETTINGS_GROUPS;
+  return SETTINGS_GROUPS.map((group) =>
+    group.heading === "Brand & Delivery"
+      ? { ...group, items: [...group.items, CUSTOM_DOMAIN_ITEM] }
+      : group,
+  );
+}
+
+/** The section label for a pathname, used to build the top-bar breadcrumb.
+ *  Reads the full map including the conditional entry: the breadcrumb should
+ *  name the page you are actually on, flag or no flag. */
 export function sectionLabelFor(pathname: string): string | null {
-  for (const group of SETTINGS_GROUPS) {
+  for (const group of settingsGroupsFor({ custom_domains_enabled: true } as Company)) {
     for (const item of group.items) {
       if (item.href === pathname) return item.label;
     }
@@ -79,6 +114,10 @@ function useSettingsNavGuard() {
   const router = useRouter();
   const settings = useSettingsMaybe();
   const isDirty = settings?.isDirty ?? false;
+  // Null while the company is still loading — `settingsGroupsFor` treats that
+  // as "flag off", so the Custom Domain entry appears once the fetch lands
+  // rather than flashing in and out.
+  const groups = settingsGroupsFor(settings?.company);
 
   function handleNavClick(e: React.MouseEvent, href: string) {
     if (href === pathname || !isDirty) return;
@@ -88,15 +127,15 @@ function useSettingsNavGuard() {
     }
   }
 
-  return { pathname, handleNavClick };
+  return { pathname, handleNavClick, groups };
 }
 
 export function SettingsNav() {
-  const { pathname, handleNavClick } = useSettingsNavGuard();
+  const { pathname, handleNavClick, groups } = useSettingsNavGuard();
 
   return (
     <nav className="space-y-9" aria-label="Settings sections">
-      {SETTINGS_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.heading}>
           <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
             {group.heading}
@@ -148,7 +187,7 @@ export function SettingsNav() {
  * away via the trigger, not something needed mid-scroll.
  */
 export function SettingsMobileNav() {
-  const { pathname, handleNavClick } = useSettingsNavGuard();
+  const { pathname, handleNavClick, groups } = useSettingsNavGuard();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -168,7 +207,7 @@ export function SettingsMobileNav() {
     };
   }, [open]);
 
-  const current = SETTINGS_GROUPS.flatMap((g) => g.items).find((item) => item.href === pathname);
+  const current = groups.flatMap((g) => g.items).find((item) => item.href === pathname);
   const CurrentIcon = current?.Icon;
 
   return (
@@ -195,7 +234,7 @@ export function SettingsMobileNav() {
           aria-label="Settings sections"
           className="dash-rise absolute inset-x-0 z-30 mt-1.5 overflow-hidden rounded-card border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-2 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
         >
-          {SETTINGS_GROUPS.map((group) => (
+          {groups.map((group) => (
             <div key={group.heading} className="mb-1 last:mb-0">
               <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
                 {group.heading}

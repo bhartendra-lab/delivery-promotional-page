@@ -23,7 +23,32 @@ export function nameFromUrl(url: string): string {
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const HOT = "media.vyavasth.in";
-const COLD = "cold.media.vyavasth.in";
+/**
+ * The cold-storage (Backblaze B2) public host.
+ *
+ * This was hardcoded as "cold.media.vyavasth.in", which is NXDOMAIN — there has
+ * never been such a record on the zone. The live host is `cold-media`, with a
+ * hyphen (the backend's own COLD_MEDIA_PUBLIC_URL: cold-media.vyavasth.in in
+ * production, cold-media-dev.vyavasth.in on dev). Every cold-tier retry in the
+ * gallery grid and single-photo download was therefore failing at DNS rather
+ * than falling back.
+ *
+ * Driven by the env var so a dev build points at the dev bucket instead of
+ * production's, with the production host as the fallback for a build that
+ * doesn't set it.
+ */
+const COLD = hostFrom(process.env.NEXT_PUBLIC_COLD_MEDIA_URL) ?? "cold-media.vyavasth.in";
+
+/** Hostname out of a full URL (or a bare host), or null if there isn't one. */
+function hostFrom(value: string | undefined): string | null {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Rewrite a stale hot-host media URL to the cold-storage host. A URL can

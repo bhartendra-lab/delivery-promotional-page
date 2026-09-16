@@ -12,6 +12,7 @@ import { SubscriptionProvider, useSubscription } from "@/components/billing/Subs
 import { UpgradeModalProvider } from "@/components/billing/UpgradeModalProvider";
 import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
 import { RemindersProvider } from "@/components/dashboard/RemindersProvider";
+import { CustomDomainDialog } from "@/components/dashboard/CustomDomainDialog";
 
 export default function DashboardLayout({
   children,
@@ -35,6 +36,24 @@ export default function DashboardLayout({
       }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- auth/onboarding gate: flips once after a synchronous cache check
       setReady(true);
+      // Refresh the cache in the BACKGROUND, without re-running the gate above.
+      //
+      // The cached company used to be written only at login and on a Settings
+      // save, so a tab that stayed signed in could serve a week-old company.
+      // That was survivable when the cache only fed the Topbar's studio name;
+      // it is not now that every gallery link is derived from it
+      // (lib/gallery-url) — a studio who connected their domain on their laptop
+      // would keep copying deliver.vyavasth.in links on their desktop until the
+      // token expired.
+      //
+      // Deliberately does NOT re-evaluate needsOnboarding: the gate has already
+      // decided from the cache, and letting a late response redirect someone
+      // mid-session would be a behaviour change well beyond keeping links fresh.
+      getCompanyDetails()
+        .then((res) => setCompany(res.company))
+        .catch(() => {
+          /* best-effort; the cache simply stays as it was */
+        });
     } else {
       getCompanyDetails()
         .then((res) => {
@@ -66,6 +85,13 @@ export default function DashboardLayout({
         <UpgradeModalProvider>
           <RemindersProvider>
             <DashboardShell>{children}</DashboardShell>
+            {/* Layout-level, not page-level (unlike WelcomeDialog, which is
+                mounted on the dashboard home): a studio's plan can activate on
+                the billing page, on /checkout, or silently via a Razorpay
+                webhook they see the result of on whatever page they open next.
+                `should_show` is computed server-side, so wherever they land is
+                where the prompt appears. */}
+            <CustomDomainDialog />
           </RemindersProvider>
         </UpgradeModalProvider>
       </SubscriptionProvider>

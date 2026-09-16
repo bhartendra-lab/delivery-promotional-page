@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { exportGuestsCsv, getAllGuests, revokeGuestAccess } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { Guest } from "@/lib/types";
+import { useCompany } from "@/lib/useCompany";
+import { galleryUrlFor } from "@/lib/gallery-url";
+import { normalizeDeliveryPreferences, type DeliveryPreferences } from "@/lib/delivery-preferences";
+import { SOCIAL_PLATFORM_BY_KEY, isSocialPlatformKey } from "@/lib/social-platforms";
+import { SocialChip } from "@/components/event/screens/lounge/SocialIcons";
 import { BrandingReminderDialog } from "./BrandingReminderDialog";
+import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import { useEvent } from "./EventContext";
 import {
   IconCheck,
   IconCopy,
@@ -51,10 +59,12 @@ export function AccessSharingTab({
   /** Mint a fresh passcode server-side; resolves to the new code. */
   onRegenerate: () => Promise<string>;
 }) {
-  const base = (
-    process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "")
-  ).replace(/\/$/, "");
-  const shareUrl = uniqueIdentifier ? `${base}/event/${uniqueIdentifier}` : "";
+  // Built from the COMPANY, not from NEXT_PUBLIC_BASE_URL. This is the link a
+  // studio reads off the screen and hands to a client by hand, so it has to be
+  // the same one their guests get by email — their own domain once they have a
+  // live one. See lib/gallery-url, which mirrors the backend's rule.
+  const company = useCompany();
+  const shareUrl = galleryUrlFor(company, uniqueIdentifier) ?? "";
 
   const message = `Namaste! The photos from ${eventName} are ready. 🎉
 
@@ -62,16 +72,23 @@ Open the gallery, sign in with Google and take one quick selfie — you'll insta
 ${shareUrl}`;
 
   return (
-    // Below `lg` the two panels stack and the whole tab scrolls as one region
-    // (normal mobile behaviour). At `lg`+ this outer box no longer scrolls —
-    // the left column and the guest panel each own their own scroll region,
-    // both bound to the tab's actual height, so neither can stretch the page.
-    <div className="h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)] lg:overflow-hidden">
+    // Breakpoints on this tab follow the width the TAB actually gets (a
+    // container query on this box), not the viewport: the dashboard sidebar
+    // takes a different share of the screen expanded vs collapsed, and a
+    // viewport `lg` switched to two columns at widths where neither was usable.
+    //
+    // Narrow: the panels stack and this box scrolls as one region. Wide (@4xl,
+    // ≥ 896px of tab): the left column and the guest panel each own a scroll
+    // region bound to the tab's height, so this box has nothing left to scroll.
+    <div className="@container h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
       <BrandingReminderDialog />
-      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] lg:items-stretch lg:px-8">
-        {/* Left — existing sharing link + passcode. */}
-        <div className="flex flex-col lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-          <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
+      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 @2xl:gap-6 @2xl:px-6 @2xl:py-6 @4xl:h-full @4xl:min-h-0 @4xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] @4xl:items-stretch @4xl:px-8">
+        {/* Left — sharing link, passcode, required visit. Every card here is
+            shrink-0: in the wide layout this column has a fixed height and
+            scrolls, and a shrinkable card is squashed to fit instead, clipping
+            its own contents behind overflow-hidden. */}
+        <div className="flex flex-col @4xl:h-full @4xl:min-h-0 @4xl:overflow-y-auto @4xl:pr-1">
+          <section className="@container flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
             <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
               <span
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
@@ -101,8 +118,10 @@ ${shareUrl}`;
                   </div>
 
                   {/* Compact message actions (3/4) beside a QR visibility panel
-                      (1/4). Stacks on mobile — message first, then the QR. */}
-                  <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 lg:grid-cols-[3fr_1fr]">
+                      (1/4), once THIS CARD is wide enough (@xl, ≥ 576px) for the
+                      QR panel to hold its button. Stacked below that — message
+                      first, then the QR. */}
+                  <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 @xl:grid-cols-[3fr_1fr]">
                     <Dispatch key={shareUrl} eventName={eventName} message={message} />
                     <QrPanel qrUniqueId={qrUniqueId} qrImageUrl={qrImageUrl} eventName={eventName} />
                   </div>
@@ -117,6 +136,7 @@ ${shareUrl}`;
           </section>
 
           <PasscodeCard passcode={familyPasscode ?? ""} onRegenerate={onRegenerate} />
+          <RequiredVisitCard />
         </div>
 
         {/* Right — guest list, host/guest filter, export, revoke access. */}
@@ -179,10 +199,10 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
   };
 
   return (
-    // Fills the grid cell's full height at `lg`+ (stretched by the parent
-    // grid) instead of growing with content — the row list below is the only
-    // part that scrolls, so this box's on-screen height stays fixed.
-    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white lg:h-full lg:min-h-0">
+    // Fills the grid cell's full height in the wide layout (stretched by the
+    // parent grid) instead of growing with content — the row list below is the
+    // only part that scrolls, so this box's on-screen height stays fixed.
+    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white @4xl:h-full @4xl:min-h-0">
       <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
@@ -226,10 +246,10 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         </div>
       )}
 
-      {/* Capped on mobile (a "consistent height" rather than growing to fit
-          every guest); at `lg`+ it fills whatever room is left in the panel
-          instead, since the panel itself is now bound to the tab's height. */}
-      <div className="min-h-0 max-h-[50vh] flex-1 overflow-y-auto lg:max-h-none">
+      {/* Capped when stacked (a "consistent height" rather than growing to fit
+          every guest); in the wide layout it fills whatever room is left in the
+          panel instead, since the panel itself is bound to the tab's height. */}
+      <div className="min-h-0 max-h-[50vh] flex-1 overflow-y-auto @4xl:max-h-none">
         {loading && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-[var(--color-brand-muted)]">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
@@ -383,6 +403,78 @@ function Avatar({ name, selfieUrl }: { name: string; selfieUrl?: string | null }
   );
 }
 
+/**
+ * This event's off switch for the Studio's required visit link. The link itself
+ * is chosen Studio-wide in Settings → Social Links; an event can only opt out of
+ * it, never point somewhere else.
+ *
+ * Renders nothing unless there is a live gate to switch off: no required
+ * platform, a platform whose link is gone, or an event that hides Studio
+ * branding (the gallery never gates those — see resolveSocialVisitGate). An
+ * off switch for something already off is noise, and there is nothing for the
+ * Studio to do about it on this tab.
+ *
+ * Saves the moment it is toggled, with a toast. It is a single switch — the
+ * control for an immediately-applied setting — and a Save button beside it
+ * would leave a changed-but-unsaved state that is easy to navigate away from.
+ */
+function RequiredVisitCard() {
+  const { meta, saveDeliveryPreferences, toast } = useEvent();
+  const company = useCompany();
+  // The value being saved, shown optimistically; null once the save settles and
+  // `meta` (refreshed by the save) is the truth again.
+  const [pending, setPending] = useState<DeliveryPreferences | null>(null);
+
+  const platform = company?.mandatory_visit_platform;
+  const spec = isSocialPlatformKey(platform) ? SOCIAL_PLATFORM_BY_KEY[platform] : null;
+  const hasLink = !!(spec && company?.social_links?.[spec.key]?.trim());
+  // `=== true`, as the guest gallery reads it.
+  if (!spec || !hasLink || meta.includeBranding !== true) return null;
+
+  const value = pending ?? normalizeDeliveryPreferences(meta.deliveryPreferences);
+
+  async function change(next: DeliveryPreferences) {
+    if (!spec) return;
+    setPending(next);
+    try {
+      await saveDeliveryPreferences(next);
+      toast(
+        next.require_social_visit
+          ? `Guests of this event will be asked to open ${spec.label}`
+          : "Guests of this event go straight to their photos",
+      );
+    } catch (err) {
+      // Reverts on its own: clearing `pending` shows the saved value again.
+      toast(err instanceof Error ? err.message : "Couldn’t save — try again", "error");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
+      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
+        <SocialChip platform={spec.key} size={36} />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">Required visit</h3>
+          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+            {spec.label} · set for all your galleries in Settings → Social Links.
+          </p>
+        </div>
+      </div>
+      <div className="p-4">
+        <DeliveryPreferencesPanel
+          value={value}
+          onChange={(next) => void change(next)}
+          disabled={pending !== null}
+          context={{ archiveTiers: [], requiredVisitLabel: spec.label }}
+          surface="access"
+        />
+      </div>
+    </section>
+  );
+}
+
 function PasscodeCard({
   passcode,
   onRegenerate,
@@ -406,7 +498,7 @@ function PasscodeCard({
   }
 
   return (
-    <section className="mt-4 flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
+    <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
       <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
@@ -456,7 +548,7 @@ function PasscodeCard({
             <IconRefresh size={13} /> Regenerate
           </button>
         ) : (
-          <span className="inline-flex items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
+          <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
             Regenerate? This invalidates the shared code.
             <button
               type="button"
@@ -674,20 +766,71 @@ function Label({ children, tip }: { children: React.ReactNode; tip?: string }) {
   );
 }
 
+const TIP_WIDTH = 250;
+/** Room a tip needs below its icon before it flips above instead. */
+const TIP_FLIP_AT = 120;
+
+/**
+ * Info tip. Rendered into <body> at a fixed, viewport-clamped position rather
+ * than absolutely inside its card: on this tab every card sits in a scrolling
+ * column (and the cards clip their own overflow), so an in-place tooltip was
+ * cut off at those edges — and a centred 250px one ran off a phone screen.
+ *
+ * Opens on hover, keyboard focus, and tap. Its position is a snapshot of the
+ * icon's, so it closes on any scroll or resize rather than drifting away.
+ */
 function Tip({ text }: { text: string }) {
-  const [show, setShow] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const tipId = useId();
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null);
+
+  const open = () => {
+    const r = anchorRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.min(TIP_WIDTH, window.innerWidth - 16);
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8);
+    const above = r.bottom + TIP_FLIP_AT > window.innerHeight;
+    setPos({ top: above ? r.top - 8 : r.bottom + 8, left, width, above });
+  };
+  const close = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const dismiss = () => setPos(null);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [pos]);
+
   return (
-    <span
-      className="relative inline-flex items-center"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
-      <IconInfo size={14} className="cursor-help text-[#B5ADA4]" />
-      {show && (
-        <span className="absolute bottom-[calc(100%+8px)] left-1/2 z-50 w-[250px] -translate-x-1/2 rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-left text-[11.5px] font-medium leading-relaxed text-white shadow-[0_6px_20px_rgba(42,34,24,0.22)]">
-          {text}
-        </span>
-      )}
+    <span className="inline-flex items-center" onMouseEnter={open} onMouseLeave={close}>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-label="More info"
+        aria-describedby={pos ? tipId : undefined}
+        onFocus={open}
+        onBlur={close}
+        onClick={() => (pos ? close() : open())}
+        className="brand-focus inline-flex cursor-help items-center rounded-full"
+      >
+        <IconInfo size={14} className="text-[#B5ADA4]" />
+      </button>
+      {pos &&
+        createPortal(
+          <span
+            id={tipId}
+            role="tooltip"
+            className="pointer-events-none fixed z-[70] rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-left text-[11.5px] font-medium normal-case leading-relaxed tracking-normal text-white shadow-[0_6px_20px_rgba(42,34,24,0.22)]"
+            style={{ top: pos.top, left: pos.left, width: pos.width, transform: pos.above ? "translateY(-100%)" : undefined }}
+          >
+            {text}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }

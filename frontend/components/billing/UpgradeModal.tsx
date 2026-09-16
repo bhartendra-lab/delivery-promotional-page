@@ -10,6 +10,7 @@ import type { CheckoutPreview } from "@/lib/billing-types";
 import { isStorageBasedPlan } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { PlanChooser, type PlanChooserSelection } from "@/components/billing/PlanChooser";
 import { CouponField, type AppliedCoupon } from "@/components/billing/CouponField";
 import { CheckoutSummary } from "@/components/billing/CheckoutSummary";
@@ -52,6 +53,7 @@ export function UpgradeModal({
   const router = useRouter();
   const company = useCompany();
   const { snapshot, refresh } = useSubscription();
+  const { refresh: refreshReminders } = useReminders();
   const [step, setStep] = useState<Step>("choose");
   const [selection, setSelection] = useState<PlanChooserSelection | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
@@ -257,6 +259,12 @@ export function UpgradeModal({
             handleClose();
             router.push("/dashboard/settings/billing");
             refresh();
+            // The studio has just become entitled to a custom domain, and the
+            // custom-domain prompt is driven by a server-computed flag that
+            // RemindersProvider fetched once at dashboard mount — before the
+            // upgrade. Without this refresh the dialog wouldn't appear until
+            // their next visit. Best-effort; never blocks the navigation.
+            void refreshReminders();
           }}
         />
       ) : step === "billing" ? (

@@ -1,4 +1,5 @@
 import type { DeliveryPreferences } from "./delivery-preferences";
+import type { SocialPlatformKey } from "./social-platforms";
 
 export type EventType =
   | "Wedding"
@@ -108,14 +109,9 @@ export type TrackingCounts = {
   contact?: number;
 };
 
-export type SocialLinks = {
-  instagram?: string;
-  facebook?: string;
-  youtube?: string;
-  vimeo?: string;
-  pinterest?: string;
-  x?: string;
-};
+/** Canonical https URLs keyed by platform. The platform list lives in
+ *  lib/social-platforms.ts, so a new platform needs no edit here. */
+export type SocialLinks = Partial<Record<SocialPlatformKey, string>>;
 
 export type WatermarkPosition =
   | "top-left"
@@ -162,6 +158,13 @@ export type Company = {
   instagram_link?: string;
   facebook_link?: string;
   social_links?: SocialLinks;
+  /** The one platform every Guest is asked to open before entering any of
+   *  this Studio's galleries; null/absent means no required visit. Holds a
+   *  platform key — the URL lives in `social_links`. */
+  mandatory_visit_platform?: SocialPlatformKey | null;
+  /** Company-wide master switch for every Guest-facing Google review
+   *  affordance. Absent on a company cached before it existed: read `!== false`. */
+  google_review_enabled?: boolean;
   google_place_id?: string;
   /** The studio's one phone number — always the number that passed WhatsApp OTP verification. */
   whatsapp_number?: string;
@@ -177,8 +180,76 @@ export type Company = {
   onboarding_completed_at?: number | null;
   /** One-shot flag for the "2 free events" welcome dialog. */
   welcome_dialog_seen_at?: number | null;
+  /* ── Custom gallery domain ────────────────────────────────────────────
+   * Mirrors the pending/verified shape of business_email above. The backend
+   * deliberately never sends `cloudflare_custom_hostname_id` (stripped in
+   * withCustomDomainMeta), so it has no type here either. */
+  /** The studio's live gallery hostname — only ever set once Cloudflare reports it active. */
+  custom_domain?: string | null;
+  /** Holds the in-flight hostname while DNS/certificate validation runs. */
+  custom_domain_pending?: string | null;
+  custom_domain_status?: CustomDomainStatus;
+  /** Last human-readable failure from Cloudflare, shown verbatim in Settings. */
+  custom_domain_error?: string | null;
+  custom_domain_verified_at?: number | null;
+  custom_domain_last_checked_at?: number | null;
+  /** One-shot dismissal for the post-upgrade setup prompt. */
+  custom_domain_reminder_dismissed_at?: number | null;
+  /**
+   * The CUSTOM_DOMAINS_ENABLED kill switch, surfaced on the company payload
+   * rather than a second config endpoint. Optional because it is only carried
+   * by the /onboarding company endpoints (the ones the Settings area reads and
+   * writes) — a company cached from the login response won't have it, and an
+   * absent flag must read as "off".
+   */
+  custom_domains_enabled?: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+/**
+ * Where a studio's custom domain is in setup. Mirrors the backend enum exactly.
+ *  none                 nothing configured
+ *  pending_dns          waiting for the studio's CNAME to resolve through us
+ *  pending_certificate  hostname validated, certificate still issuing
+ *  active               live — the only state that mints links on this domain
+ *  failed               needs the studio to act (CAA record, wrong CNAME, ...)
+ *  moved                stopped pointing at us; Cloudflare drops it after 7 days
+ */
+export type CustomDomainStatus =
+  | "none"
+  | "pending_dns"
+  | "pending_certificate"
+  | "active"
+  | "failed"
+  | "moved";
+
+/** `GET /onboarding/custom-domain/status` — everything the Settings tab renders. */
+export type CustomDomainStatusResponse = {
+  /** False on the Free plan. The tab renders its LOCKED state rather than an error. */
+  allowed: boolean;
+  status: CustomDomainStatus;
+  /** The live hostname, present only when `status` is "active". */
+  hostname: string | null;
+  /** The hostname being set up (or the one that regressed), otherwise null. */
+  pending_hostname: string | null;
+  error: string | null;
+  /** What the studio CNAMEs their hostname to. */
+  cname_target: string;
+  verified_at: number | null;
+  last_checked_at: number | null;
+};
+
+/** `POST /onboarding/custom-domain/request` — the DNS record to go and create. */
+export type CustomDomainRequestResponse = {
+  message: string;
+  hostname: string;
+  status: CustomDomainStatus;
+  record_type: "CNAME";
+  /** The record NAME — the studio's own hostname. */
+  name: string;
+  /** The record VALUE — our fallback origin. */
+  value: string;
 };
 
 /** Shared response shape for every endpoint that mutates and returns the Company. */
@@ -212,6 +283,19 @@ export type ReminderStatus = {
     complete: boolean;
     dismissed_at: number | null;
     checkpoints: BrandingCheckpoints;
+  };
+  /**
+   * The post-upgrade custom-domain prompt. Unlike the two above, `should_show`
+   * is NOT simply `!complete && dismissed_at == null` — it is additionally
+   * gated on the paid plan, the kill switch, a healthy subscription and setup
+   * not already being under way. All of that is decided server-side; the client
+   * never re-derives it. Optional so a response from an older backend still
+   * type-checks and the dialog simply never opens.
+   */
+  custom_domain?: {
+    should_show: boolean;
+    complete: boolean;
+    dismissed_at: number | null;
   };
 };
 
@@ -605,6 +689,12 @@ export type DeliveryLandingPageData = {
   company_facebook_link?: string;
   company_social_links?: SocialLinks;
   company_google_place_id?: string;
+  /** The Studio's required visit platform, raw. Read it only through
+   *  `resolveSocialVisitGate`, which also checks the URL still exists. */
+  company_mandatory_visit_platform?: string | null;
+  /** Company-wide review switch. Absent on a company that predates it, and
+   *  absent must read as ON — compare `!== false`. */
+  company_google_review_enabled?: boolean;
   company_watermark_url?: string;
   /** Activation toggle from the booking — false = studio has temporarily paused the gallery. */
   is_active?: boolean;
@@ -689,5 +779,13 @@ export type GuestSession = {
    * server-side — they live in `sessionStorage` (see `getCachedMediaIds`).
    */
   selfie_id: string | null;
+  /**
+   * Epoch ms this Guest opened the Studio's required visit link for this event,
+   * or null. Server-side, so it survives a reload and a second device. Once set
+   * the Guest is never asked again, whatever the Studio changes afterwards —
+   * satisfaction deliberately ignores which platform it was.
+   */
+  mandatory_link_visited_at?: number | null;
+  mandatory_link_platform?: string | null;
 };
 

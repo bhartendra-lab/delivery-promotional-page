@@ -2,7 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "delivery-promotional-page-dev",
   "account_id": "dfdab1b96c7a2ebf50e3834b2f52db10",
-  "main": ".open-next/worker.js",
+  // The Host gate for studio custom domains wraps OpenNext's generated
+  // handler — see worker-entry.js and lib/host-gate.ts. It must stay ahead of
+  // .open-next/worker.js in the chain, which is the whole reason `main` points
+  // here rather than straight at the generated worker.
+  "main": "worker-entry.js",
   "compatibility_date": "2026-06-08",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 

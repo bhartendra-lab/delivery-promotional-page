@@ -126,6 +126,10 @@ export function ReviewNudge({
  * Studio "outro" band at the end of the gallery scroll — both breakpoints.
  * The last thing a guest sees, so it carries every way to keep in touch:
  * the Google review CTA, "Talk to us", and the studio's socials.
+ *
+ * `reviewUrl` is null when the gallery shows no review ask at all, and then the
+ * copy stops asking for one too — otherwise the ending asks for a review and
+ * offers no way to leave it.
  */
 export function OutroBand({
   t,
@@ -155,8 +159,11 @@ export function OutroBand({
       </span>
       <div className="text-[15px] font-extrabold" style={{ color: t.text }}>That&rsquo;s the whole gallery!</div>
       <p className="max-w-[320px] text-[13px] font-medium" style={{ color: t.muted }}>
-        Thank you for celebrating with {event.company_name}. If you enjoyed your photos, a quick review means a lot.
+        {reviewUrl
+          ? <>Thank you for celebrating with {event.company_name}. If you enjoyed your photos, a quick review means a lot.</>
+          : <>Thank you for celebrating with {event.company_name}. We hope you love your photos.</>}
       </p>
+      {(reviewUrl || contactUrl) && (
       <div className="mt-1 flex flex-wrap items-center justify-center gap-2.5">
         {reviewUrl && (
           <a
@@ -177,13 +184,20 @@ export function OutroBand({
             rel="noopener noreferrer"
             onClick={onContactClick}
             className="flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold"
-            style={{ background: t.card, border: `1.5px solid ${t.border}`, color: t.text }}
+            // The only button left once reviews are off: it takes the primary
+            // fill so the band still ends on a clear action, not a lone outline.
+            style={
+              reviewUrl
+                ? { background: t.card, border: `1.5px solid ${t.border}`, color: t.text }
+                : { background: t.brand, border: `1.5px solid ${t.brand}`, color: t.onBrand }
+            }
           >
             Talk to us
           </a>
         )}
       </div>
-      <SocialRow event={event} size={34} />
+      )}
+      <SocialRow t={t} event={event} size={34} />
     </div>
   );
 }

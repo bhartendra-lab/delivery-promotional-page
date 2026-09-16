@@ -2,15 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { coldFallback, gridSrc } from "./media-actions.ts";
 
+// The cold host is `cold-media`, with a hyphen — `cold.media.vyavasth.in` is
+// NXDOMAIN and was silently breaking every cold-tier retry. These assertions
+// are what stop the wrong spelling coming back.
 test("coldFallback: a hot-host URL is rewritten to the cold host", () => {
   assert.equal(
     coldFallback("https://media.vyavasth.in/companies/c1/event-media/b1/a.jpg"),
-    "https://cold.media.vyavasth.in/companies/c1/event-media/b1/a.jpg",
+    "https://cold-media.vyavasth.in/companies/c1/event-media/b1/a.jpg",
   );
 });
 
 test("coldFallback: an already-cold URL is returned unchanged", () => {
-  const url = "https://cold.media.vyavasth.in/companies/c1/event-media/b1/a.jpg";
+  const url = "https://cold-media.vyavasth.in/companies/c1/event-media/b1/a.jpg";
   assert.equal(coldFallback(url), url);
 });
 

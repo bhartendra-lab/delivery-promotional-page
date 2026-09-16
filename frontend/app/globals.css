@@ -366,6 +366,72 @@ body {
    hover stays themed without threading another token through. */
 .menu-row:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
 
+/* Studio social row (components/event/screens/lounge/StudioCard.tsx). Both
+   layouts render; the device decides which one shows. A pointer device gets
+   bare chips with a label on hover/focus. A touch device has no hover state,
+   so bare chips would be unlabelled circles — it gets labelled pills in one
+   scrolling line instead. display:none also drops the other layout from the
+   accessibility tree, so no link is announced twice. */
+.social-row-pointer { display: flex; }
+.social-row-touch { display: none; }
+@media (hover: none) {
+  .social-row-pointer { display: none; }
+  .social-row-touch {
+    display: block;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .social-row-touch::-webkit-scrollbar { display: none; }
+  /* Only while there is more to the right (set by useOverflowFade), so the
+     overflow is discoverable without fading pills that already fit. */
+  .social-row-touch[data-fade="true"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+}
+.social-pill { scroll-snap-align: start; }
+.social-pill:focus-visible { outline: 2px solid var(--social-brand); outline-offset: 2px; }
+
+.social-link { position: relative; }
+.social-link:focus-visible { outline: 2px solid var(--social-brand); outline-offset: 2px; }
+.social-link .social-chip { transition: transform 140ms ease-out; }
+.social-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 10;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 3px);
+  transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+/* Caret, in the label's own fill. */
+.social-label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -4px;
+  border: 4px solid transparent;
+  border-top-color: var(--social-label-bg);
+}
+@media (hover: hover) {
+  .social-link:hover .social-label { opacity: 1; transform: translate(-50%, 0); }
+  .social-link:hover .social-chip { transform: scale(1.08); }
+}
+/* Keyboard parity: the same label on focus, on every device. */
+.social-link:focus-visible .social-label { opacity: 1; transform: translate(-50%, 0); }
+.social-link:focus-visible .social-chip { transform: scale(1.08); }
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the label appearing; drop the movement. */
+  .social-label { transform: translate(-50%, 0); }
+  .social-link .social-chip,
+  .social-link:hover .social-chip,
+  .social-link:focus-visible .social-chip { transform: none; }
+}
+
 /* ---------------------------------------------------------------- */
 /* Guest flow — shared motion language (loader → login → scan →      */
 /* team → lounge). Additive polish; layout/structure unchanged.     */
