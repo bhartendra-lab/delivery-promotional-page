@@ -7,7 +7,7 @@ import {
   removeCustomDomain,
   ApiError,
 } from "@/lib/api";
-import type { CustomDomainStatusResponse } from "@/lib/types";
+import type { CustomDomainStatus, CustomDomainStatusResponse } from "@/lib/types";
 import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { CustomDomainSetupPanel, DnsRecord } from "@/components/settings/CustomDomainSetupPanel";
@@ -34,6 +34,8 @@ export default function CustomDomainPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  /** When the last manual check completed, for the "checked just now" line. */
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [removing, setRemoving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // A wall-clock deadline, not a tick counter — same drift-safety as
@@ -95,6 +97,15 @@ export default function CustomDomainPage() {
     return () => clearInterval(id);
   }, [cooldownUntil]);
 
+  // "Checked just now" stops being true after a moment. Clear it rather than
+  // leave a line on screen that quietly becomes a lie — the background poll
+  // keeps running regardless, so nothing is lost by dropping the message.
+  useEffect(() => {
+    if (checkedAt === null) return;
+    const id = setTimeout(() => setCheckedAt(null), 30_000);
+    return () => clearTimeout(id);
+  }, [checkedAt]);
+
   // A successful state change can resolve the custom-domain reminder, so keep
   // RemindersProvider's once-per-visit snapshot from going stale — same
   // best-effort refresh useSectionSave already does for the other two.
@@ -108,8 +119,19 @@ export default function CustomDomainPage() {
   async function handleRecheck() {
     setRechecking(true);
     setActionError(null);
+    setCheckedAt(null);
     try {
-      setData(await recheckCustomDomain());
+      const res = await recheckCustomDomain();
+      // MERGE, never replace. The server returns the full payload (see
+      // customDomainPayload on the backend), but a response that is missing a
+      // field for any reason must not be able to downgrade what is on screen —
+      // that is exactly how a missing `allowed` once turned every "Check again"
+      // into the Free-plan upgrade pitch.
+      setData((prev) => ({ ...(prev as CustomDomainStatusResponse), ...res }));
+      // A check that finds nothing new is the COMMON case — DNS takes minutes.
+      // Without this the button would complete and change nothing on screen,
+      // which reads as "the button is broken" rather than "not yet".
+      setCheckedAt(Date.now());
     } catch (err) {
       // Drift-safety: when the server's limiter disagrees with our own idea of
       // how often this may be pressed, resume from ITS retryAfter rather than
@@ -175,6 +197,7 @@ export default function CustomDomainPage() {
               onRecheck={handleRecheck}
               rechecking={rechecking}
               cooldownLeft={cooldownLeft}
+              checkedAt={checkedAt}
               onRemove={() => setConfirmRemove(true)}
             />
           ) : (
@@ -188,6 +211,8 @@ export default function CustomDomainPage() {
                   onRecheck={handleRecheck}
                   rechecking={rechecking}
                   cooldownLeft={cooldownLeft}
+                  checkedAt={checkedAt}
+                  pendingStatus={status}
                   onCancel={() => setConfirmRemove(true)}
                 />
               }
@@ -326,6 +351,7 @@ function FailedState({
   onRecheck,
   rechecking,
   cooldownLeft,
+  checkedAt,
   onRemove,
 }: {
   hostname: string | null;
@@ -334,6 +360,7 @@ function FailedState({
   onRecheck: () => void;
   rechecking: boolean;
   cooldownLeft: number;
+  checkedAt: number | null;
   onRemove: () => void;
 }) {
   return (
@@ -380,6 +407,7 @@ function FailedState({
         onRecheck={onRecheck}
         rechecking={rechecking}
         cooldownLeft={cooldownLeft}
+        checkedAt={checkedAt}
         onCancel={onRemove}
         cancelLabel="Remove domain"
       />
@@ -392,40 +420,72 @@ function RecheckRow({
   onRecheck,
   rechecking,
   cooldownLeft,
+  checkedAt,
+  pendingStatus,
   onCancel,
   cancelLabel = "Cancel setup",
 }: {
   onRecheck: () => void;
   rechecking: boolean;
   cooldownLeft: number;
+  /** When the last manual check finished, or null if none has this session. */
+  checkedAt: number | null;
+  /** The status the check landed on, when this row is rendered in a pending
+   *  state — used only to word the result line. */
+  pendingStatus?: CustomDomainStatus;
   onCancel: () => void;
   cancelLabel?: string;
 }) {
   const waiting = cooldownLeft > 0;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <button
-        type="button"
-        onClick={onRecheck}
-        disabled={rechecking || waiting}
-        className="brand-focus inline-flex h-10 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {rechecking
-          ? "Checking…"
-          : waiting
-            ? `Check again in 0:${String(cooldownLeft).padStart(2, "0")}`
-            : "Check again"}
-      </button>
-      <span className="text-xs text-[var(--color-brand-muted)]">
-        We also check on our own every half hour.
-      </span>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="brand-focus text-xs font-semibold text-[var(--color-brand-danger)] underline-offset-2 hover:underline"
-      >
-        {cancelLabel}
-      </button>
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          onClick={onRecheck}
+          disabled={rechecking || waiting}
+          aria-busy={rechecking}
+          className="brand-focus inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {/* A spinner, not just a label swap. A DNS check can take a second or
+              two, and a button whose only feedback is three extra characters
+              reads as "nothing happened". */}
+          {rechecking && (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+          )}
+          {rechecking
+            ? "Checking…"
+            : waiting
+              ? `Check again in 0:${String(cooldownLeft).padStart(2, "0")}`
+              : "Check again"}
+        </button>
+        <span className="text-xs text-[var(--color-brand-muted)]">
+          We also check on our own every half hour.
+        </span>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="brand-focus text-xs font-semibold text-[var(--color-brand-danger)] underline-offset-2 hover:underline"
+        >
+          {cancelLabel}
+        </button>
+      </div>
+
+      {/* The result of the last check. Without this, a check that finds nothing
+          new — which is most of them, since DNS takes minutes — completes with
+          no visible change at all, and the button reads as broken. A promotion
+          needs no line here: the whole card changes. */}
+      {checkedAt !== null && !rechecking && (
+        <p
+          aria-live="polite"
+          className="flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]"
+        >
+          <CheckIcon className="h-3 w-3 shrink-0 text-[var(--color-brand-success)]" />
+          {pendingStatus === "pending_certificate"
+            ? "Checked just now — your DNS is correct, the certificate is still issuing."
+            : "Checked just now — your DNS record hasn't reached us yet. This usually takes a few minutes."}
+        </p>
+      )}
     </div>
   );
 }
