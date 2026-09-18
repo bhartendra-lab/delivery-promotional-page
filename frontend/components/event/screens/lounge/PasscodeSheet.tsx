@@ -41,7 +41,16 @@ export function PasscodeSheet({ onSuccess, onClose }: { onSuccess: () => void; o
     } catch (err) {
       setBusy(false);
       setShake(true);
-      setError(err instanceof ApiError && err.status === 400 ? "That passcode didn’t work." : "Couldn’t verify — try again.");
+      // A 429 carries the limiter's own sentence, which says what to do (wait);
+      // the generic "try again" would send the Guest straight back into the
+      // wall they just hit.
+      setError(
+        err instanceof ApiError && err.status === 400
+          ? "That passcode didn’t work."
+          : err instanceof ApiError && err.status === 429
+            ? err.message
+            : "Couldn’t verify — try again.",
+      );
       setTimeout(() => {
         setCode("");
         setShake(false);

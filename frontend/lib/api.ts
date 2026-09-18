@@ -1232,13 +1232,26 @@ export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: "h
 }
 
 /**
- * POST /deliverables/revoke-guest-access/:guest_id — demotes a host back to
- * guest scope, revoking the family-passcode-granted full-gallery access.
+ * POST /deliverables/revoke-guest-access/:guest_id — sets a Guest's full-gallery
+ * access in either direction. `fullAccess: true` gives them exactly what the
+ * family passcode gives (every photo, the host-only download tiers, host
+ * hearts); `false` takes it back and returns them to their own photos plus the
+ * public folders.
+ *
+ * One endpoint, one body flag, despite the "revoke" in the URL — the route kept
+ * its original name when the give direction was added to it.
+ *
+ * A 404 means the row was stale: another Member already made this change, and
+ * the message says which way it went.
  */
-export function revokeGuestAccess(guestId: string) {
+export function setGuestFullAccess(guestId: string, fullAccess: boolean) {
   return request<{ message: string; guest: Guest }>(
     `/deliverables/revoke-guest-access/${encodeURIComponent(guestId)}`,
-    { method: "POST" },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full_access: fullAccess }),
+    },
   );
 }
 

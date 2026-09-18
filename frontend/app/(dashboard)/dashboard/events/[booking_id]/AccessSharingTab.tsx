@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { exportGuestsCsv, getAllGuests, revokeGuestAccess } from "@/lib/api";
+import { ApiError, exportGuestsCsv, getAllGuests, setGuestFullAccess } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { Guest } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
@@ -176,12 +176,17 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
     void load();
   }, [load]);
 
-  const handleRevoked = (guestId: string, updated: Guest) => {
+  /**
+   * A row's access changed, in either direction. The host/guest filters are
+   * SERVER-side, so a row that just crossed the line no longer belongs in a
+   * scoped list — drop it rather than leave a "Host" sitting under the Guest
+   * filter. Under "All" it stays put and simply re-labels.
+   */
+  const handleAccessChanged = (guestId: string, updated: Guest) => {
     setGuests((prev) => {
       if (!prev) return prev;
-      // The host filter is server-side, so a just-revoked guest no longer
-      // belongs in a "Host" scoped list — drop it instead of relabeling it.
-      if (filter === "host") return prev.filter((g) => g._id !== guestId);
+      const stillBelongs = filter === "all" || updated.guest_type === filter;
+      if (!stillBelongs) return prev.filter((g) => g._id !== guestId);
       return prev.map((g) => (g._id === guestId ? { ...g, ...updated } : g));
     });
   };
@@ -275,7 +280,17 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         )}
         {!loading &&
           !error &&
-          guests?.map((g) => <GuestRow key={g._id} guest={g} onRevoked={(updated) => handleRevoked(g._id, updated)} />)}
+          guests?.map((g) => (
+            <GuestRow
+              key={g._id}
+              guest={g}
+              onAccessChanged={(updated) => handleAccessChanged(g._id, updated)}
+              // A 404 means another Member already changed this row. The
+              // message is shown inline by the row itself; reloading is what
+              // makes the list agree with it again.
+              onStale={() => void load()}
+            />
+          ))}
       </div>
     </section>
   );
@@ -305,22 +320,59 @@ function FilterPill({
   );
 }
 
-function GuestRow({ guest, onRevoked }: { guest: Guest; onRevoked: (updated: Guest) => void }) {
+/**
+ * How to address a Guest in the confirm and toast copy: their first name, or
+ * "this Guest" when there is nothing usable. "Guest" is the backend's default
+ * name for someone who signed in with a phone number and never told us who they
+ * are, so it reads as a placeholder rather than a name and is treated as one.
+ */
+function addressOf(name: string): { label: string; possessive: string; isNamed: boolean } {
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  const isNamed = first.length > 0 && first.toLowerCase() !== "guest";
+  return {
+    label: isNamed ? first : "this Guest",
+    possessive: isNamed ? `${first}'s` : "this Guest's",
+    isNamed,
+  };
+}
+
+function GuestRow({
+  guest,
+  onAccessChanged,
+  onStale,
+}: {
+  guest: Guest;
+  onAccessChanged: (updated: Guest) => void;
+  onStale: () => void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useEvent();
   const isHost = guest.guest_type === "host";
   const contact = guest.email || guest.phone || "No contact info";
+  // A Host promoted before the source was recorded can only have come in with
+  // the passcode — it was the sole way in — so an absent value reads that way.
+  const givenByStudio = guest.full_access_source === "studio";
+  const who = addressOf(guest.name);
 
-  const revoke = async () => {
+  const setAccess = async (fullAccess: boolean) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await revokeGuestAccess(guest._id);
-      onRevoked(res.guest);
+      const res = await setGuestFullAccess(guest._id, fullAccess);
+      onAccessChanged(res.guest);
       setConfirming(false);
+      toast(fullAccess ? `${who.label} now has full access` : `Full access removed for ${who.label}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't revoke access");
+      // A 404 is not a failure so much as news: someone else got there first.
+      // Show what the server said, then let the panel reload so the row stops
+      // offering an action that no longer applies.
+      setError(e instanceof Error ? e.message : "Couldn't update access");
+      if (e instanceof ApiError && e.status === 404) {
+        setConfirming(false);
+        onStale();
+      }
     } finally {
       setBusy(false);
     }
@@ -336,40 +388,102 @@ function GuestRow({ guest, onRevoked }: { guest: Guest; onRevoked: (updated: Gue
             <RoleBadge isHost={isHost} />
           </div>
           <p className="truncate text-[12px] text-[var(--color-brand-muted)]">{contact}</p>
+          {/* Where a Host's access came from. Quiet on purpose: it only matters
+              when you are about to remove it, and the badge above already says
+              they are a Host. */}
+          {isHost && (
+            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
+              Full access · {givenByStudio ? "given by you" : "passcode"}
+            </p>
+          )}
         </div>
       </div>
 
-      {isHost &&
-        (!confirming ? (
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="brand-focus self-start rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-[11.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
-          >
-            Remove full access
-          </button>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-2.5 py-1.5 text-[11.5px] text-[var(--color-brand-warning)]">
-            Revoke {guest.name.split(" ")[0]}&apos;s full gallery access?
-            <button
-              type="button"
-              disabled={busy}
-              onClick={revoke}
-              className="brand-focus rounded-md bg-[var(--color-brand-navy)] px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
-            >
-              {busy ? "Working…" : "Confirm"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
-              className="brand-focus text-[11px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-60"
-            >
-              Cancel
-            </button>
-          </div>
-        ))}
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="brand-focus self-start rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-[11.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
+        >
+          {isHost ? "Remove full access" : "Give full access"}
+        </button>
+      ) : isHost ? (
+        // Removing takes something away, so it keeps the warning treatment. The
+        // sentence depends on whether the passcode can undo it behind your back.
+        <ConfirmBar
+          tone="warning"
+          busy={busy}
+          confirmLabel="Confirm"
+          onConfirm={() => void setAccess(false)}
+          onCancel={() => setConfirming(false)}
+        >
+          {givenByStudio
+            ? `Remove ${who.possessive} full access? They will go back to their own photos and public folders.`
+            : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Regenerate the passcode if you need to keep them out.`}
+        </ConfirmBar>
+      ) : (
+        // Giving is not a destructive act, so it gets a neutral surface rather
+        // than the warning one — the colour should not read as a warning when
+        // there is nothing to be careful about.
+        <ConfirmBar
+          tone="neutral"
+          busy={busy}
+          confirmLabel="Give access"
+          onConfirm={() => void setAccess(true)}
+          onCancel={() => setConfirming(false)}
+        >
+          {who.isNamed
+            ? `Give ${who.label} the full gallery? They will see every photo, the same as with the passcode.`
+            : "Give this Guest the full gallery? They will see every photo, the same as with the passcode."}
+        </ConfirmBar>
+      )}
       {error && <p className="text-[11.5px] text-[var(--color-brand-danger)]">{error}</p>}
+    </div>
+  );
+}
+
+/** The inline confirm both directions share — same shape, two palettes. */
+function ConfirmBar({
+  tone,
+  busy,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+  children,
+}: {
+  tone: "warning" | "neutral";
+  busy: boolean;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  const warning = tone === "warning";
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11.5px] ${
+        warning
+          ? "border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]"
+          : "border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]"
+      }`}
+    >
+      {children}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onConfirm}
+        className="brand-focus rounded-md bg-[var(--color-brand-navy)] px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
+      >
+        {busy ? "Working…" : confirmLabel}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onCancel}
+        className="brand-focus text-[11px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-60"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
@@ -549,7 +663,8 @@ function PasscodeCard({
           </button>
         ) : (
           <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
-            Regenerate? This invalidates the shared code.
+            Regenerate? The old code stops working and everyone who unlocked with it loses full access. Guests
+            you gave access to keep it.
             <button
               type="button"
               disabled={busy}

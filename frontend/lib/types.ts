@@ -435,6 +435,14 @@ export type Guest = {
   /** Guest's contact number — either `email` or `phone` is populated, not necessarily both. */
   phone?: string;
   guest_type: "guest" | "host";
+  /**
+   * How a Host came by full access: "studio" when a Member gave it from Access
+   * & Sharing, "passcode" when they entered the family passcode. Absent or null
+   * on a plain Guest (there is no access to have a source for) and on legacy
+   * Hosts promoted before this was recorded, which every reader treats as
+   * "passcode" — the passcode was the only way in at the time.
+   */
+  full_access_source?: "passcode" | "studio" | null;
   guest_sub_type?: string | null;
   /** Guest's own selfie photo (set once they face-match), if any. */
   selfie_url?: string | null;

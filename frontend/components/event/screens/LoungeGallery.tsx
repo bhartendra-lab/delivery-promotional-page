@@ -6,7 +6,7 @@ import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
 import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, likePhoto, recordSocialVisit, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
@@ -59,6 +59,13 @@ const LARGE_SELECTION = 300;
  *  this at most twice (the click's attempt, then one retry), and then lets the
  *  Guest in regardless — see submitIntake. */
 const VISIT_RECORD_TIMEOUT_MS = 6000;
+
+/** How often a returning tab may re-check this Guest's access. The check is one
+ *  small authenticated read, but focus and visibilitychange both fire on a
+ *  single alt-tab and a Guest can flick between tabs all afternoon, so it is
+ *  throttled rather than run on every event. Thirty seconds is well inside the
+ *  time it takes a Studio to click the button and tell someone to look. */
+const ACCESS_RECHECK_MIN_INTERVAL_MS = 30_000;
 
 /** What the grid is currently showing, in the shape `getGuestMedia` and the
  *  ZIP paginator both take. Never carries `skip`/`limit` — it describes the
@@ -305,6 +312,17 @@ export function LoungeGallery({
   const onReauthRef = useRef(onReauth);
   useEffect(() => {
     onReauthRef.current = onReauth;
+  });
+
+  // Same reasoning as onReauthRef, for the access re-check further down: it
+  // subscribes window listeners once, and EventFlow hands it a fresh
+  // `onSessionChange` on every render of its own. Read through refs so a
+  // re-render never tears the listeners down and rebuilds them.
+  const onSessionChangeRef = useRef(onSessionChange);
+  const guestTypeRef = useRef(session.guest_type);
+  useEffect(() => {
+    onSessionChangeRef.current = onSessionChange;
+    guestTypeRef.current = session.guest_type;
   });
 
   useEffect(() => {
@@ -596,6 +614,71 @@ export function LoungeGallery({
     setExcluded(new Set());
     setSelectAll(true);
   }, []);
+
+  /**
+   * Full access can change while this tab is open — the Studio can give it from
+   * Access & Sharing, or take it back — and nothing pushes that to the browser.
+   * So the tab asks when it comes back into view: on `visibilitychange` and on
+   * `focus`, throttled to one check per ACCESS_RECHECK_MIN_INTERVAL_MS.
+   *
+   * The clock starts at mount because EventFlow has just read the session to
+   * get here; without that seed, the first alt-tab after a page load would
+   * repeat a call whose answer is seconds old.
+   *
+   * On a change the grid must actually reload: the media loader keys on the
+   * VIEW (tab / folder / liked), not on auth, so the set of photos would not
+   * widen or narrow on its own. This is the same treatment the passcode unlock
+   * gets below, for the same reason — bump reloadKey rather than making
+   * guest_type a dependency of a list that should stay about the view.
+   *
+   * Only a promotion is announced. Losing access is not news the Guest asked
+   * for and not something a toast can soften, so the grid simply narrows.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let lastCheckedAt = Date.now();
+    let inFlight = false;
+
+    const check = async () => {
+      if (cancelled || inFlight) return;
+      if (Date.now() - lastCheckedAt < ACCESS_RECHECK_MIN_INTERVAL_MS) return;
+      lastCheckedAt = Date.now();
+      inFlight = true;
+      try {
+        const { guest } = await getGuestSession(uniqueIdentifier);
+        if (cancelled || guest.guest_type === guestTypeRef.current) return;
+        const promoted = guest.guest_type === "host";
+        onSessionChangeRef.current({ guest_type: guest.guest_type });
+        // A selection made under the old access no longer describes a view the
+        // Guest can act on, so it goes rather than silently changing meaning.
+        exitSelect();
+        setPasscodeOpen(false);
+        setReloadKey((k) => k + 1);
+        if (promoted) setToast("Full gallery unlocked");
+      } catch (err) {
+        if (cancelled) return;
+        // The token expired while the tab sat in the background — the same
+        // re-auth path every other guest call takes.
+        if (err instanceof GuestAuthError) onReauthRef.current();
+        // Anything else (offline, a blip) is ignored: this is a background
+        // refresh the Guest never asked for, and the next focus retries it.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    const onFocus = () => void check();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [uniqueIdentifier, exitSelect]);
 
   /**
    * Mints archive (unwatermarked) download URLs, chunked at the endpoint's
