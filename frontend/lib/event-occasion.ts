@@ -83,3 +83,12 @@ export function messageLabelFor(eventType?: string | null): string {
   if (!eventType) return "Message to Guests";
   return eventType === "Corporate" ? "Event Briefing" : "Message from the Host";
 }
+
+/** Guest-facing overline for the same message, shown above the event name when
+ *  a guest opens the full note from the cover. Separate from
+ *  `messageLabelFor` on purpose: that one names a FIELD the studio is filling
+ *  in ("Message from the Host"), this one introduces the note to the person
+ *  it was written for, so it is addressed to them and reads as a caption. */
+export function guestMessageLabelFor(eventType?: string | null): string {
+  return eventType === "Corporate" ? "Event briefing" : "A note from your hosts";
+}

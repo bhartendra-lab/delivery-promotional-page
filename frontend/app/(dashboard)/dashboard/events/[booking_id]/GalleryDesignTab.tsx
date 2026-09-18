@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
 import { occasionFor, collectionsFor, messageLabelFor, type Occasion } from "@/lib/event-occasion";
+import { toCompactMessage } from "@/lib/guest-message";
+import { useIsTruncated } from "@/components/event/screens/lounge/useIsTruncated";
 import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
 import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { useCompany } from "@/lib/useCompany";
@@ -230,9 +232,15 @@ export function GalleryDesignTab({
             placeholder="Add a short greeting your guests will see on the landing page…"
             className="brand-focus block min-h-[96px] w-full resize-y rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2.5 text-[13.5px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
           />
-          <div className="mt-1.5 flex justify-end">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            {/* What the textarea can't show on its own: that Enter survives the
+                save, and that the cover is a three-line window onto a message
+                that can be much longer. */}
+            <span className="text-[11.5px] text-[var(--color-brand-muted)]">
+              Line breaks are kept. Guests see the first 3 lines, then Read more.
+            </span>
             <span
-              className="text-[11.5px] tabular-nums"
+              className="ml-auto text-[11.5px] tabular-nums"
               style={{ color: message.length > MAX - 40 ? "var(--color-brand-warning)" : "var(--color-brand-muted)" }}
             >
               {message.length} / {MAX}
@@ -459,6 +467,18 @@ function ClientPagePreview({
     ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: coverPosition || "center" }
     : { backgroundImage: `repeating-linear-gradient(40deg, ${theme.cover[0]} 0 22px, ${theme.cover[1]} 22px 44px)` };
 
+  // Same formatter and the same measured clamp as the guest cover, so the
+  // studio can see what guests will see — the preview used to render the raw
+  // string in an unclamped <p>, which hid BOTH the lost line breaks and the
+  // cut-off. It expands in place rather than opening the real `MessageSheet`:
+  // the dashboard has no guest theme provider, and this is a mockup, not the page.
+  const compactMessage = toCompactMessage(message);
+  const [expanded, setExpanded] = useState(false);
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  // `expanded` is in the list so collapsing re-measures in the same commit that
+  // re-applies the clamp, with no frame in between where the control is gone.
+  const truncated = useIsTruncated(messageRef, [compactMessage, expanded, compact]);
+
   if (scope === "gallery") {
     return <GalleryScopePreview theme={theme} compact={compact} allowDownload={allowDownload} />;
   }
@@ -482,15 +502,52 @@ function ClientPagePreview({
       </div>
 
       <div style={{ padding: compact ? "22px 18px" : "40px 40px", textAlign: "center" }}>
-        {message.trim() && (
-          <p style={{ margin: "0 auto", maxWidth: compact ? 260 : 460, fontSize: compact ? 13 : 16, lineHeight: 1.7, color: theme.text }}>
-            {message}
-          </p>
+        {compactMessage && (
+          <>
+            <p
+              ref={messageRef}
+              style={{
+                margin: "0 auto",
+                maxWidth: compact ? 260 : 460,
+                fontSize: compact ? 13 : 16,
+                lineHeight: 1.7,
+                color: theme.text,
+                // The studio's own line breaks, and the same three-line window
+                // the guest cover shows. `anywhere` so a pasted URL wraps
+                // instead of stretching the mockup past the device frame.
+                whiteSpace: "pre-line",
+                overflowWrap: "anywhere",
+                ...(expanded
+                  ? null
+                  : {
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 3,
+                      overflow: "hidden",
+                    }),
+              }}
+            >
+              {compactMessage}
+            </p>
+            {/* `|| expanded` because expanding removes the clamp, so the
+                measurement correctly reads "nothing is cut off" — without this
+                the control would vanish the moment it was used. */}
+            {(truncated || expanded) && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="brand-focus mt-1.5 cursor-pointer text-[12px] font-semibold underline underline-offset-2"
+                style={{ color: theme.brand }}
+              >
+                {expanded ? "Show less" : "Read more"}
+              </button>
+            )}
+          </>
         )}
         <button
           className="inline-flex items-center gap-2"
           style={{
-            marginTop: message.trim() ? (compact ? 20 : 28) : 0,
+            marginTop: compactMessage ? (compact ? 20 : 28) : 0,
             background: theme.brand,
             color: "#FFFFFF",
             border: "none",
