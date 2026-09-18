@@ -869,6 +869,14 @@ export type MediaMetadataItem = {
   height?: number;
   /** Compressed blob size in bytes. Feeds the backend's storage metering. */
   size?: number;
+  /** When the photo was TAKEN, ISO 8601. EXIF where the source had a usable
+   *  date, otherwise the file's own timestamp. This is what the guest gallery
+   *  orders by, so a photo without it sorts before everything else until the
+   *  backfill fills it in. Absent only from an uploader that predates it. */
+  captured_at?: string;
+  /** Which of the two `captured_at` came from. The backend adds a third value
+   *  of its own, "upload_time", for rows that arrive without either. */
+  captured_at_source?: "exif" | "file_time";
   /** Public URL and byte size of the 480px gallery-grid derivative. Both absent
    *  for videos and whenever the client's thumbnail step failed. */
   thumbnail_url?: string;

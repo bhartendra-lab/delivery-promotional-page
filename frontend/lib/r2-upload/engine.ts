@@ -49,6 +49,7 @@ import type { UploadVariant } from "./compressor";
 import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
 import { resolveDedup } from "./dedup.ts";
+import { captureFieldsForRecord, captureFieldsForMetadata } from "./capture-time.ts";
 import {
   archiveMetadataFor,
   shouldDeferEmbedding,
@@ -916,7 +917,7 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const { blob, thumbBlob, archiveBlob, width, height } = await this.compressorPool.run(
+      const { blob, thumbBlob, archiveBlob, width, height, capturedAt } = await this.compressorPool.run(
         input.file,
         this.watermarkRenderer,
         this.variant,
@@ -924,9 +925,15 @@ export class UploadEngineCore {
       if (this.abort.signal.aborted) return;
       console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
       const dims = width != null && height != null ? { width, height } : {};
-      this.queueIdbUpdate(recordId, { status: "compressed", ...dims });
+      // When the photo was TAKEN — EXIF if the compressor found a date, the
+      // file's own timestamp otherwise. Written in the SAME pair of updates as
+      // the dimensions, and persisted for the same reason the archive fields
+      // are: create-media may be flushed on a later mount, by which point the
+      // record is the only thing left of this file.
+      const captured = captureFieldsForRecord(capturedAt, input.file.lastModified);
+      this.queueIdbUpdate(recordId, { status: "compressed", ...dims, ...captured });
       const rec = this.records.get(recordId);
-      if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims });
+      if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims, ...captured });
       this.compressedBlobs.set(recordId, blob);
       this.compressedSizes.set(recordId, blob.size);
       if (thumbBlob) {
@@ -2017,6 +2024,11 @@ export class UploadEngineCore {
         const size = this.compressedSizes.get(r.id);
         return size != null ? { size } : {};
       })(),
+      // When the photo was TAKEN — what the guest gallery orders by. Read off
+      // the RECORD, never off the compressor, for the same reason the archive
+      // fields below are. A record compressed before this shipped carries no
+      // capture time, so its file timestamp is sent instead.
+      ...captureFieldsForMetadata(r),
       // The 480px grid derivative. Omitted wholesale when its PUT failed —
       // uploadOne clears the record's thumbnailUrl and its size in that case,
       // so the backend records no thumbnail and readers fall back to `url`.

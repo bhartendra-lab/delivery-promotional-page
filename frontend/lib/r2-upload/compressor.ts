@@ -19,6 +19,7 @@
 
 import imageCompression from "browser-image-compression";
 import piexif from "piexifjs";
+import { captureTimeFromExif } from "./capture-time";
 import type { WatermarkRenderer } from "./watermark";
 
 const MAX_DIM = 2560;
@@ -115,6 +116,12 @@ export type CompressResult = {
   archiveBlob?: Blob;
   width?: number;
   height?: number;
+  /** When the photo was TAKEN, epoch ms, read from the source JPEG's EXIF.
+   *  Undefined whenever there was nothing to read: a non-JPEG source, a JPEG
+   *  with no EXIF, or a date that wasn't a plausible capture time. Callers
+   *  fall back to the file's own `lastModified` rather than treating a missing
+   *  value as an error — a photo must never fail to upload over its date. */
+  capturedAt?: number;
 };
 
 /**
@@ -143,10 +150,16 @@ export async function compressWithExif(
   // whole-image string round-trip (both were heavy main-thread work per photo).
   const sourceIsJpeg = file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
   let exifSegmentBytes: Uint8Array | null = null;
+  let capturedAt: number | undefined;
 
   if (sourceIsJpeg) {
     try {
       const exifDict = await loadSourceExifDict(file);
+      // When the photo was TAKEN — read here because this is the only moment
+      // the SOURCE's EXIF is in hand, and read BEFORE the orientation reset
+      // below mutates the dict. Assigned outside the dump, so a dump failure
+      // costs the delivery copy its metadata without also costing us the date.
+      capturedAt = captureTimeFromExif(exifDict) ?? undefined;
       // browser-image-compression bakes orientation into pixels; reset to 1 to
       // avoid double-rotation when a viewer applies orientation later.
       if (exifDict["0th"]) {
@@ -160,7 +173,7 @@ export async function compressWithExif(
   }
 
   if (variant === "4096") {
-    return compressHighRes(file, watermark, exifSegmentBytes);
+    return compressHighRes(file, watermark, exifSegmentBytes, capturedAt);
   }
 
   let compressedBlob: Blob = await imageCompression(file, {
@@ -197,7 +210,7 @@ export async function compressWithExif(
 
   if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
-    return { blob: compressedBlob, thumbBlob, width, height };
+    return { blob: compressedBlob, thumbBlob, width, height, capturedAt };
   }
 
   // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
@@ -207,9 +220,9 @@ export async function compressWithExif(
   try {
     const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
     const blob = spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
-    return { blob, thumbBlob, width, height };
+    return { blob, thumbBlob, width, height, capturedAt };
   } catch {
-    return { blob: compressedBlob, thumbBlob, width, height };
+    return { blob: compressedBlob, thumbBlob, width, height, capturedAt };
   }
 }
 
@@ -242,6 +255,9 @@ async function compressHighRes(
   file: File,
   watermark: WatermarkRenderer | null | undefined,
   exifSegmentBytes: Uint8Array | null,
+  /** Already read from the source dict by the caller — the archive and the
+   *  view are both derived from that same source, so they share its date. */
+  capturedAt: number | undefined,
 ): Promise<CompressResult> {
   // 1. The archive copy.
   let archiveBlob: Blob = await imageCompression(file, {
@@ -300,7 +316,7 @@ async function compressHighRes(
     }
   }
 
-  return { blob: viewBlob, thumbBlob, archiveBlob, width, height };
+  return { blob: viewBlob, thumbBlob, archiveBlob, width, height, capturedAt };
 }
 
 /**

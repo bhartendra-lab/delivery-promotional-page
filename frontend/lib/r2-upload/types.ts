@@ -60,6 +60,19 @@ export type UploadRecord = {
    *  changes when a run switches tier. */
   width?: number;
   height?: number;
+  /** When the photo was TAKEN, epoch ms (set alongside `status: "compressed"`,
+   *  same as `width`/`height`). EXIF `DateTimeOriginal`/`DateTimeDigitized`
+   *  where the source JPEG had one, otherwise the file's own `lastModified`.
+   *  Absent only on records written before capture time was recorded.
+   *
+   *  PERSISTED, not held in memory, because create-media can be flushed on a
+   *  LATER MOUNT (resumePendingMetadata) when the record is the only thing
+   *  left of the upload — the File, its EXIF and the compressed blob are all
+   *  long gone by then. */
+  capturedAt?: number;
+  /** Where `capturedAt` came from, so the backend can tell a real capture time
+   *  from a file timestamp without re-deriving it. */
+  capturedAtSource?: "exif" | "file_time";
   /* ── Archive copy (the "4096" and "original" quality tiers) ──────────────
    * All absent on a "2560" run, and cleared again whenever an archive upload
    * fails — the photo still delivers, and create-media simply omits them. */

@@ -407,6 +407,11 @@ export type MediaItem = {
    *  uploaded before dimension capture landed — readers must fall back gracefully. */
   width?: number;
   height?: number;
+  /** When the photo was TAKEN, ISO 8601: its EXIF date where the source had a
+   *  usable one, otherwise the file's own timestamp, and the upload time as a
+   *  last resort. Guest views are ordered by this, oldest first. Null on media
+   *  uploaded before capture time landed and not yet backfilled. */
+  captured_at?: string | null;
   /** Bytes of the 2560px delivery object. Summed by the download pre-flight to
    *  show an EXACT total size before anything is fetched. Absent on media
    *  uploaded before byte counts were recorded — readers treat that as 0. */
@@ -728,6 +733,11 @@ export type GuestMediaItem = {
    *  legacy no-reserved-height masonry behavior for those. */
   width?: number;
   height?: number;
+  /** When the photo was TAKEN, ISO 8601: its EXIF date where the source had a
+   *  usable one, otherwise the file's own timestamp, and the upload time as a
+   *  last resort. Guest views are ordered by this, oldest first. Null on media
+   *  uploaded before capture time landed and not yet backfilled. */
+  captured_at?: string | null;
   /** Bytes of the 2560px delivery object. Summed by the download pre-flight to
    *  show an EXACT total size before anything is fetched. Absent on media
    *  uploaded before byte counts were recorded — readers treat that as 0. */
