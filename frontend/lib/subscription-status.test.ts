@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { autoRenews, planPeriodLine, subscriptionBannerContent } from "./subscription-status.ts";
+import { autoRenews, canTurnOnAutoRenew, planHasLapsed, planPeriodLine, subscriptionBannerContent } from "./subscription-status.ts";
 import type { SubscriptionSnapshot } from "./billing-types.ts";
 
 // Midday UTC, so the formatted calendar day is the same in any timezone a test
@@ -83,8 +83,8 @@ test("banner: past due without a mandate says the plan ended — no retry, no pa
   const content = subscriptionBannerContent(snapshot({ status: "past_due", auto_renews: false, grace_until: GRACE }));
   assert.deepEqual(content, {
     tone: "warning",
-    message: "Your plan ended on 7 Nov 2026 and doesn't renew automatically. Your studio stays open until 14 Nov 2026; after that it becomes read-only and your galleries are archived. Contact support to continue.",
-    ctaLabel: "View plan",
+    message: "Your plan ended on 7 Nov 2026 and doesn't renew automatically. Your studio stays open until 14 Nov 2026; after that it becomes read-only and your galleries are archived. Renew your plan to keep everything running.",
+    ctaLabel: "Renew plan",
     scope: "app",
   });
   assert.doesNotMatch(content!.message, /retry|payment method/);
@@ -92,7 +92,7 @@ test("banner: past due without a mandate says the plan ended — no retry, no pa
 
 test("banner: past due without a mandate or dates still reads sensibly", () => {
   const content = subscriptionBannerContent(snapshot({ status: "past_due", auto_renews: false, current_period_end: null, grace_until: null }));
-  assert.equal(content!.message, "Your plan ended and doesn't renew automatically. Your studio stays open for a few more days; after that it becomes read-only and your galleries are archived. Contact support to continue.");
+  assert.equal(content!.message, "Your plan ended and doesn't renew automatically. Your studio stays open for a few more days; after that it becomes read-only and your galleries are archived. Renew your plan to keep everything running.");
 });
 
 test("banner: an older API response keeps today's past-due message", () => {
@@ -109,4 +109,50 @@ test("banner: other states are unchanged", () => {
   assert.equal(subscriptionBannerContent(snapshot({ status: "cancelled" }))!.message, "Your plan ends on 7 Nov 2026. After that your galleries are archived and deleted 7 days later.");
   assert.equal(subscriptionBannerContent(snapshot({ status: "expired" }))!.ctaLabel, "Choose a plan");
   assert.equal(subscriptionBannerContent(snapshot({ status: "pending_payment" }))!.scope, "settings");
+});
+
+/* ── planHasLapsed / canTurnOnAutoRenew ───────────────────────────────────── */
+
+const ENDED = END + DAY; // "now" values, one day past the plan's end date
+
+test("planHasLapsed: a plan with no auto-renew has lapsed once its end date passes", () => {
+  const comped = snapshot({ auto_renews: false, status: "past_due" });
+  assert.equal(planHasLapsed(comped, NOW), false);
+  assert.equal(planHasLapsed(comped, ENDED), true);
+});
+
+test("planHasLapsed: a suspended studio has lapsed — that studio must be able to buy again", () => {
+  assert.equal(planHasLapsed(snapshot({ status: "suspended", auto_renews: false }), NOW), true);
+  assert.equal(planHasLapsed(snapshot({ status: "expired", auto_renews: false }), NOW), true);
+});
+
+test("planHasLapsed: a renewing plan never has, even past its date (the charge is in flight)", () => {
+  assert.equal(planHasLapsed(snapshot({ status: "past_due", auto_renews: true }), ENDED), false);
+});
+
+test("planHasLapsed: count-based plans and a missing snapshot are never 'lapsed'", () => {
+  const free = snapshot({ service: { _id: "f", name: null, service_type: "Free", billing_interval: null }, auto_renews: false, current_period_end: null });
+  assert.equal(planHasLapsed(free, NOW), false);
+  assert.equal(planHasLapsed(null, NOW), false);
+});
+
+test("planHasLapsed: an older API response keeps today's behaviour", () => {
+  // No auto_renews field and auto-renew not switched off — treated as renewing,
+  // so the picker behaves exactly as it does before the API ships this field.
+  assert.equal(planHasLapsed(withoutAutoRenewsField(snapshot({ status: "past_due" })), ENDED), false);
+});
+
+test("canTurnOnAutoRenew: offered to a mandate-less plan and to one with auto-renew off", () => {
+  assert.equal(canTurnOnAutoRenew(snapshot({ auto_renews: false }), NOW), true);
+  assert.equal(canTurnOnAutoRenew(snapshot({ auto_renews: false, cancel_at_period_end: true, status: "cancelled" }), NOW), true);
+  // Old API, auto-renew switched off: still offered.
+  assert.equal(canTurnOnAutoRenew(withoutAutoRenewsField(snapshot({ cancel_at_period_end: true, status: "cancelled" })), NOW), true);
+});
+
+test("canTurnOnAutoRenew: not offered when it already renews, once the period is over, or on a Free plan", () => {
+  assert.equal(canTurnOnAutoRenew(snapshot(), NOW), false);
+  assert.equal(canTurnOnAutoRenew(snapshot({ auto_renews: false }), ENDED), false);
+  assert.equal(canTurnOnAutoRenew(snapshot({ auto_renews: false, status: "suspended" }), NOW), false);
+  const free = snapshot({ service: { _id: "f", name: null, service_type: "Free", billing_interval: null }, auto_renews: false });
+  assert.equal(canTurnOnAutoRenew(free, NOW), false);
 });

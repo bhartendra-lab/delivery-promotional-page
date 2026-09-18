@@ -15,6 +15,7 @@ import {
 import { isStorageBasedPlan } from "@/lib/types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 import { isStorageSnapshot } from "@/lib/billing-types";
+import { planHasLapsed } from "@/lib/subscription-status";
 import { StorageSlider } from "./StorageSlider";
 import { EventQuantity } from "./EventQuantity";
 import { StorageIcon } from "@/app/(dashboard)/dashboard/settings/SettingsUI";
@@ -201,8 +202,15 @@ export function PlanChooser({
   const maxSavings = tiers.length ? Math.max(0, ...tiers.map((t) => yearlySavingsPercent(t) ?? 0)) : 0;
   const isCurrentStoragePlan =
     activeStoragePlan != null && activeStoragePlan._id === currentSnapshot?.service?._id;
+  // A plan that has ended (or a suspended studio) buys again from scratch — so
+  // the tier it is "already on" is not off-limits, it is the renewal, and a
+  // cheaper tier is an ordinary purchase rather than a change scheduled onto a
+  // renewal that isn't coming. Disabling the current tier here is what left a
+  // lapsed studio with nothing to click.
+  const lapsed = planHasLapsed(currentSnapshot);
+  const lockedAsCurrent = isCurrentStoragePlan && !lapsed;
   const downgrade =
-    activeStoragePlan && currentSnapshot?.service
+    !lapsed && activeStoragePlan && currentSnapshot?.service
       ? looksLikeDowngrade(
           { _id: currentSnapshot.service._id, service_type: currentSnapshot.service.service_type } as Plan,
           activeStoragePlan,
@@ -334,8 +342,10 @@ export function PlanChooser({
                   </span>
                 </span>
               </div>
-              {isCurrentStoragePlan ? (
+              {lockedAsCurrent ? (
                 <span className="text-xs font-semibold text-[var(--color-brand-navy)]">Current plan</span>
+              ) : lapsed && isCurrentStoragePlan ? (
+                <span className="text-xs text-[var(--color-brand-muted)]">Your plan ended — renewing starts a new period.</span>
               ) : downgrade ? (
                 <span className="text-xs text-[var(--color-brand-muted)]">Takes effect at renewal — no charge now.</span>
               ) : currentSnapshot?.service ? (
@@ -348,14 +358,20 @@ export function PlanChooser({
 
           <button
             type="button"
-            disabled={!activeStoragePlan || isCurrentStoragePlan}
+            disabled={!activeStoragePlan || lockedAsCurrent}
             onClick={() =>
               activeStoragePlan &&
               onContinue({ mode: "storage", plan: activeStoragePlan, isDowngrade: downgrade })
             }
             className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isCurrentStoragePlan ? "Current plan" : downgrade ? "Schedule change" : continueLabel}
+            {lockedAsCurrent
+              ? "Current plan"
+              : lapsed && isCurrentStoragePlan
+                ? "Renew plan"
+                : downgrade
+                  ? "Schedule change"
+                  : continueLabel}
           </button>
         </div>
       )}

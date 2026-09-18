@@ -13,7 +13,7 @@ import { ConfirmingPayment } from "@/components/billing/ConfirmingPayment";
 import { listInvoices, cancelSubscription, resumeSubscription, ApiError } from "@/lib/billing";
 import type { Invoice } from "@/lib/billing-types";
 import { isStorageBasedPlan } from "@/lib/types";
-import { autoRenews } from "@/lib/subscription-status";
+import { autoRenews, canTurnOnAutoRenew } from "@/lib/subscription-status";
 import { BillingDetailsCard } from "./BillingDetailsCard";
 
 const formatDate = (ms: number) =>
@@ -58,7 +58,12 @@ export default function BillingSettingsPage() {
   const isRecurring = isStorageBasedPlan(snapshot?.service?.service_type);
   // A plan with no mandate (100% coupon, set by support) has no auto-renew to turn off.
   const canCancel = isRecurring && snapshot?.status === "active" && !snapshot.cancel_at_period_end && autoRenews(snapshot);
-  const canResume = isRecurring && (snapshot?.status === "active" || snapshot?.status === "cancelled") && snapshot?.cancel_at_period_end;
+  // Also offered to a plan that never had auto-renew at all (comped, or set by
+  // support): same button, same deferred mandate, and the only way those
+  // studios can keep the plan they're on — checkout refuses to sell it to them
+  // while the period is still running.
+  const canResume = canTurnOnAutoRenew(snapshot);
+  const resumeLabel = snapshot?.cancel_at_period_end ? "Turn auto-renew back on" : "Turn on auto-renew";
 
   async function handleCancel() {
     setAutoRenewBusy(true);
@@ -161,7 +166,7 @@ export default function BillingSettingsPage() {
               disabled={autoRenewBusy}
               className="brand-focus text-sm font-medium text-[var(--color-brand-navy)] underline-offset-2 hover:underline disabled:opacity-60"
             >
-              {autoRenewBusy ? "Starting…" : "Turn auto-renew back on"}
+              {autoRenewBusy ? "Starting…" : resumeLabel}
             </button>
           )}
         </div>
@@ -174,9 +179,9 @@ export default function BillingSettingsPage() {
 
         {canResume && (
           <p className="mt-2 text-xs text-[var(--color-brand-muted)]">
-            You&apos;ve already paid through{" "}
-            {snapshot?.current_period_end ? formatDate(snapshot.current_period_end) : "your current period"} — we&apos;ll
-            just re-arm the auto-renew for after that. Nothing is charged today.
+            Your plan runs to{" "}
+            {snapshot?.current_period_end ? formatDate(snapshot.current_period_end) : "the end of your current period"} —
+            we&apos;ll set the renewal up for after that. Nothing is charged today.
           </p>
         )}
       </Card>

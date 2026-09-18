@@ -5,6 +5,7 @@ import { getSubscription } from "@/lib/billing";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 import { isStorageSnapshot } from "@/lib/billing-types";
 import { formatStorage } from "@/lib/plans";
+import { autoRenews } from "@/lib/subscription-status";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
 import { useChrome } from "@/components/dashboard/ChromeContext";
 
@@ -20,9 +21,12 @@ function isConfirmed(purpose: Purpose, before: SubscriptionSnapshot | null, fres
     if (freshLimit == null) return false;
     return beforeLimit == null || freshLimit > beforeLimit;
   }
-  // Resume re-arms auto-renew on the SAME plan/mandate — service._id and
-  // status ("active") never actually change, only cancel_at_period_end flips.
-  if (purpose === "resume") return !fresh.cancel_at_period_end;
+  // Resume re-arms auto-renew on the SAME plan — service._id and status
+  // ("active") never actually change. For a cancelled plan the flag that flips
+  // is cancel_at_period_end; for a plan that never had a mandate nothing flips
+  // but auto_renews, and testing cancel_at_period_end alone would report
+  // success the instant the screen opened.
+  if (purpose === "resume") return !fresh.cancel_at_period_end && autoRenews(fresh);
   return fresh.status === "active";
 }
 
