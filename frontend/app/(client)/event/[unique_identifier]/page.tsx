@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getDeliveryLandingPageByUniqueIdentifier } from "@/lib/api";
+import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { EventExperience } from "./EventExperience";
 
 /** Fallback origin when the request host can't be read. */
@@ -31,9 +32,21 @@ async function requestOrigin(): Promise<string> {
   }
 }
 
-/** Shared link-preview blurb — explains the face-scan gallery flow. */
+/**
+ * Shared link-preview blurb — explains the face-scan gallery flow.
+ *
+ * Also the fallback when the event can't be fetched at all: face search is on
+ * for the overwhelming majority of galleries, and this is the more inviting of
+ * the two lines to guess with.
+ */
 const LINK_PREVIEW_DESCRIPTION =
   "Upload your selfie and our AI will find all your photos from this event.";
+
+/** …and for an event whose Studio has switched face search off. Promising a
+ *  selfie search that gallery doesn't do would be wrong in the one place a
+ *  Guest reads before deciding to tap: WhatsApp's preview card. */
+const LINK_PREVIEW_DESCRIPTION_NO_FACE_SEARCH =
+  "Sign in to see the photos from this event.";
 
 /**
  * Server-rendered link-preview metadata for shared gallery URLs.
@@ -60,7 +73,13 @@ export async function generateMetadata({
     const eventName = event.event_name?.trim() || "Your Gallery";
 
     const title = studio ? `${eventName} · ${studio}` : eventName;
-    const description = LINK_PREVIEW_DESCRIPTION;
+    // The registry module is plain TypeScript with no client-only imports, so
+    // normalising here on the server is safe — and necessary, since the
+    // endpoint projects `delivery_preferences` raw and an event created before
+    // this preference has no value for it.
+    const description = normalizeDeliveryPreferences(event.delivery_preferences).face_search_enabled
+      ? LINK_PREVIEW_DESCRIPTION
+      : LINK_PREVIEW_DESCRIPTION_NO_FACE_SEARCH;
 
     const imageUrl = event.background_image || (branded ? event.company_logo : undefined) || undefined;
     const ogImages = imageUrl ? [{ url: imageUrl, alt: title }] : undefined;

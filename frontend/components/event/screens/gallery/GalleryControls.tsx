@@ -16,12 +16,16 @@ export const ALL = "__all__";
  * Highlights (folders marked public), so there's always something to show
  * instead of a dead end behind a lock. Shared by the mobile compact header and
  * the desktop sticky control row.
+ *
+ * With face search off for the event there is no "My Photos" to switch to, and
+ * the control collapses to a single static "All Photos" label — see `showMine`.
  */
 export function UnlockAwareSwitcher({
   t,
   tab,
   setTab,
   dimmed = false,
+  showMine = true,
 }: {
   t: ClientTheme;
   tab: "mine" | "all";
@@ -29,18 +33,39 @@ export function UnlockAwareSwitcher({
   /** Renders the switcher de-emphasized but fully visible — used on desktop
    *  while the Liked pill owns the active filter (Liked ignores My/All). */
   dimmed?: boolean;
+  /**
+   * False when the Studio has switched face search off for this event: there is
+   * no face-matched set, so "My Photos" would be a tab with nothing behind it.
+   * The control keeps its shape rather than disappearing — the row's layout is
+   * built around something sitting in this slot, and an empty left-hand side
+   * would leave the action cluster floating alone.
+   */
+  showMine?: boolean;
 }) {
   return (
     <div
       className="inline-flex shrink-0 rounded-full p-0.5 transition-opacity"
       style={{ background: t.sunken, opacity: dimmed ? 0.75 : 1 }}
     >
-      <SwitchSeg t={t} on={tab === "mine"} dimmed={dimmed} onClick={() => setTab("mine")}>
-        My Photos
-      </SwitchSeg>
-      <SwitchSeg t={t} on={tab === "all"} dimmed={dimmed} onClick={() => setTab("all")}>
-        All Photos
-      </SwitchSeg>
+      {showMine ? (
+        <>
+          <SwitchSeg t={t} on={tab === "mine"} dimmed={dimmed} onClick={() => setTab("mine")}>
+            My Photos
+          </SwitchSeg>
+          <SwitchSeg t={t} on={tab === "all"} dimmed={dimmed} onClick={() => setTab("all")}>
+            All Photos
+          </SwitchSeg>
+        </>
+      ) : (
+        // A label, not a tab: with one destination there is nothing to switch
+        // to, and a lone clickable segment invites a tap that does nothing.
+        <span
+          className="flex items-center gap-1 whitespace-nowrap rounded-full px-4 py-1.5 text-[14px] font-bold"
+          style={{ background: t.card, color: t.brand, boxShadow: t.shadowSm }}
+        >
+          All Photos
+        </span>
+      )}
     </div>
   );
 }

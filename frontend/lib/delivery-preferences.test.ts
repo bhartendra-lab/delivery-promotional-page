@@ -6,6 +6,7 @@ import {
   normalizeDeliveryPreferences,
   resolveDeliveryPreferenceFields,
   type ArchiveTier,
+  type DeliveryPreferenceContext,
   type DeliveryPreferences,
 } from "./delivery-preferences.ts";
 
@@ -16,6 +17,11 @@ const prefs = (over: Partial<DeliveryPreferences> = {}): DeliveryPreferences => 
 
 const keys = (value: DeliveryPreferences, ...archiveTiers: ArchiveTier[]) =>
   resolveDeliveryPreferenceFields(value, { archiveTiers }).map((f) => f.key);
+
+const accessRows = (
+  value: DeliveryPreferences = prefs(),
+  context: Partial<DeliveryPreferenceContext> = {},
+) => resolveDeliveryPreferenceFields(value, { archiveTiers: [], ...context }, "access");
 
 const archiveRow = (value: DeliveryPreferences, ...archiveTiers: ArchiveTier[]) =>
   resolveDeliveryPreferenceFields(value, { archiveTiers }).find(
@@ -174,21 +180,52 @@ test("the gallery surface never shows the required visit row", () => {
   assert.ok(!keys(prefs(), "original").includes("require_social_visit"));
 });
 
-test("the access surface shows only the required visit row", () => {
+test("the access surface carries EVERY row — it is the one place a Studio sets these", () => {
+  // The Gallery preferences modal replaced a gear on the Media tab plus two
+  // standalone cards here. One question, one answer, one screen.
   assert.deepEqual(
-    resolveDeliveryPreferenceFields(prefs(), { archiveTiers: ["original"] }, "access").map((f) => f.key),
-    ["require_social_visit"],
+    resolveDeliveryPreferenceFields(
+      prefs(),
+      { archiveTiers: ["original"], requiredVisitLabel: "WedMeGood" },
+      "access",
+    ).map((f) => f.key),
+    [
+      "allow_download",
+      "archive_download_access",
+      "show_google_review",
+      "require_social_visit",
+      "face_search_enabled",
+    ],
   );
 });
 
+test("the upload dialog's surface stays the smaller set", () => {
+  // A studio mid-upload is answering questions about the run it is uploading,
+  // not redesigning the gallery's access model.
+  const gallery = keys(prefs(), "original");
+  assert.deepEqual(gallery, ["allow_download", "archive_download_access", "show_google_review"]);
+  assert.ok(!gallery.includes("face_search_enabled"));
+  assert.ok(!gallery.includes("require_social_visit"));
+});
+
 test("the required visit row names the Studio's platform", () => {
-  const row = resolveDeliveryPreferenceFields(
-    prefs(),
-    { archiveTiers: [], requiredVisitLabel: "WedMeGood" },
-    "access",
-  )[0];
+  const row = accessRows(prefs(), { requiredVisitLabel: "WedMeGood" }).find(
+    (f) => f.key === "require_social_visit",
+  )!;
   assert.equal(row.label, "Ask Guests to open WedMeGood");
   assert.match(row.description, /WedMeGood page/);
+});
+
+test("no required link means no required visit row — not an off switch for nothing", () => {
+  // The visibility rule used to live in the card wrapper that rendered this
+  // row; the row owns it now that the card is gone. No platform, a cleared
+  // URL, or an event hiding Studio branding all arrive here as "no label".
+  assert.ok(!accessRows().map((f) => f.key).includes("require_social_visit"));
+  assert.ok(
+    accessRows(prefs(), { requiredVisitLabel: "Instagram" })
+      .map((f) => f.key)
+      .includes("require_social_visit"),
+  );
 });
 
 /* ── The review row and the company-wide switch ──────────────────────────── */
@@ -209,6 +246,86 @@ test("the company switch off locks the row OFF and says why — it is not hidden
     const row = reviewRow(prefs({ show_google_review: eventValue }), false);
     assert.ok(row, "the row must still render");
     assert.deepEqual(row.locked, { value: false, note: "Turned off for every gallery in Settings." });
+  }
+});
+
+/* ── Face search ─────────────────────────────────────────────────────────── */
+
+const faceSearchRow = (
+  value: DeliveryPreferences = prefs(),
+  context: Partial<DeliveryPreferenceContext> = {},
+) => accessRows(value, context).find((f) => f.key === "face_search_enabled")!;
+
+test("the face search row is a toggle, and stays visible in both states", () => {
+  for (const on of [true, false]) {
+    const row = faceSearchRow(prefs({ face_search_enabled: on }));
+    assert.equal(row.type, "toggle");
+    assert.equal(row.key, "face_search_enabled");
+  }
+});
+
+test("the face search row names what a Guest is left with once it is off", () => {
+  // The consequence line has to say where a Guest without the passcode lands,
+  // because that answer depends on a folder's visibility — set on another tab.
+  const row = faceSearchRow(prefs({ face_search_enabled: false }));
+  assert.match(row.consequence!, /My Photos/);
+  assert.match(row.consequence!, /public folders/);
+  assert.match(row.consequence!, /passcode/);
+});
+
+/* ── The warning: two settings that are only wrong together ──────────────── */
+
+test("face search off with no public folder warns, and says where to fix it", () => {
+  const row = faceSearchRow(prefs({ face_search_enabled: false }), {
+    hasPublicFolderWithMedia: false,
+  });
+  assert.match(row.warning!, /No folder is public/);
+  assert.match(row.warning!, /Media tab/);
+});
+
+test("no warning while face search is on, whatever the folders look like", () => {
+  // Face search on IS the preview: Guests find their own photos without a
+  // public folder, so nothing is wrong and nothing needs saying.
+  for (const hasPublicFolderWithMedia of [true, false, undefined]) {
+    assert.equal(faceSearchRow(prefs(), { hasPublicFolderWithMedia }).warning, undefined);
+  }
+});
+
+test("no warning when a public folder holds photos", () => {
+  assert.equal(
+    faceSearchRow(prefs({ face_search_enabled: false }), { hasPublicFolderWithMedia: true }).warning,
+    undefined,
+  );
+});
+
+test("an unknown folder state stays quiet rather than guessing", () => {
+  // The caller has not said, so the panel says nothing — a warning that fires
+  // on missing data trains a studio to ignore warnings.
+  assert.equal(faceSearchRow(prefs({ face_search_enabled: false })).warning, undefined);
+});
+
+test("normalizeDeliveryPreferences: face search defaults to ON", () => {
+  assert.equal(DELIVERY_PREFERENCE_DEFAULTS.face_search_enabled, true);
+  assert.equal(normalizeDeliveryPreferences({}).face_search_enabled, true);
+  assert.equal(normalizeDeliveryPreferences(undefined).face_search_enabled, true);
+});
+
+test("normalizeDeliveryPreferences: a stored face_search_enabled false survives", () => {
+  assert.equal(
+    normalizeDeliveryPreferences({ face_search_enabled: false }).face_search_enabled,
+    false,
+  );
+});
+
+test("normalizeDeliveryPreferences: a non-boolean face_search_enabled reads as ON", () => {
+  // The guest endpoint projects this object raw, so a half-written document
+  // must not switch the feature off for a whole event. The safe direction here
+  // is "keep working", not "lock down".
+  for (const bogus of ["false", 0, 1, null, {}]) {
+    assert.equal(
+      normalizeDeliveryPreferences({ face_search_enabled: bogus as never }).face_search_enabled,
+      true,
+    );
   }
 });
 

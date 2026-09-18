@@ -805,5 +805,12 @@ export type GuestSession = {
    */
   mandatory_link_visited_at?: number | null;
   mandatory_link_platform?: string | null;
+  /**
+   * Epoch ms this Guest chose "Skip for now" on the selfie screen, or null.
+   * Server-side, so it survives a reload and a second device — a Guest who
+   * skipped is never sent back to that screen on their own. The SELFIE still
+   * wins when deciding where they land: this only matters while there is none.
+   */
+  face_scan_skipped_at?: number | null;
 };
 

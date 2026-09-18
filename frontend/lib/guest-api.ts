@@ -69,16 +69,26 @@ export function getGuestSession(uid: string) {
   return guestFetch<{ guest: GuestSession }>(uid, "/deliverables/get-guest-session");
 }
 
-/** Persist the guest's chosen team / sub-type. */
-/** Both fields are optional and independently settable — the endpoint only
- *  `$set`s whichever of `name` / `guest_sub_type` is actually provided. */
-export function updateGuestSubType(uid: string, patch: { guestSubType?: string; name?: string }) {
+/**
+ * Update the guest's own profile: their name, their team, and whether they
+ * skipped the selfie step. The endpoint is still called update-guest-sub-type —
+ * the route is kept for clients already in a Guest's browser.
+ *
+ * Every field is optional and independently settable: the backend only `$set`s
+ * what is actually sent. `faceScanSkipped` is sent ONLY when true — the backend
+ * has no un-skip, because a Guest who later scans is decided by their selfie.
+ */
+export function updateGuestSubType(
+  uid: string,
+  patch: { guestSubType?: string; name?: string; faceScanSkipped?: boolean },
+) {
   return guestFetch<{ message: string }>(uid, "/deliverables/update-guest-sub-type", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...(patch.guestSubType !== undefined ? { guest_sub_type: patch.guestSubType } : {}),
       ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.faceScanSkipped === true ? { face_scan_skipped: true } : {}),
     }),
   });
 }

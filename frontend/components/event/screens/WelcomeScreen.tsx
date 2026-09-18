@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 import { HeroSubtitle } from "./lounge/HeroSubtitle";
@@ -9,10 +11,13 @@ import { IconImages } from "@/components/ui/icons";
 /**
  * Pre-auth welcome — the first thing an unauthenticated guest sees: the
  * event's cover, name, studio, date, a teaser strip from the (public-folder-
- * scoped) sample photos, and a single "Find my photos" CTA into sign-in.
- * Skipped entirely for a guest with a valid stored token (see
- * `EventFlow`) — this is only ever the guest's first screen, never shown
- * again once they've signed in once.
+ * scoped) sample photos, and a single CTA into sign-in. Skipped entirely for a
+ * guest with a valid stored token (see `EventFlow`) — this is only ever the
+ * guest's first screen, never shown again once they've signed in once.
+ *
+ * Both the CTA and the line above it follow the event's face search switch: a
+ * gallery with it off never asks for a selfie, so promising one here would be
+ * the first thing it got wrong.
  */
 export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
   const { theme: t, event } = useEventTheme();
@@ -21,6 +26,10 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
   const date = formatDate(event.event_date);
   const photoCount = event.photo_count ?? 0;
   const sampleUrls = event.sample_media_urls ?? [];
+  const faceSearchOn = useMemo(
+    () => normalizeDeliveryPreferences(event.delivery_preferences).face_search_enabled,
+    [event.delivery_preferences],
+  );
 
   const cover = event.background_image
     ? { backgroundImage: `url(${event.background_image})`, backgroundSize: "cover", backgroundPosition: event.background_position || "center" }
@@ -68,7 +77,11 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
         <div className="flex-1" />
 
         <p className="mb-4 text-center text-[12.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
-          You’ll sign in with WhatsApp and take a quick selfie — allow camera access when your browser asks.
+          {faceSearchOn
+            ? // "can take" rather than "and take": the selfie is optional now,
+              // and this sentence is the first place that has to say so.
+              "You’ll sign in with WhatsApp, then you can take a quick selfie to find your photos."
+            : "You’ll sign in with WhatsApp to open the gallery."}
         </p>
 
         <button
@@ -77,7 +90,7 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
           className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
           style={{ background: t.brand, color: t.onBrand, boxShadow: t.shadowSm }}
         >
-          <IconImages size={18} /> Find my photos
+          <IconImages size={18} /> {faceSearchOn ? "Find my photos" : "View photos"}
         </button>
       </div>
     </div>

@@ -35,6 +35,10 @@ export type DeliveryPreferences = {
   /** Every Google review affordance in this gallery. The company-wide
    *  `google_review_enabled` is the master switch. */
   show_google_review: boolean;
+  /** The whole face-search feature for this event: the selfie step, the My
+   *  Photos tab, and every face-search call. Off leaves a Guest browsing the
+   *  public folders, or entering the passcode where none is public. */
+  face_search_enabled: boolean;
 };
 
 export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
@@ -42,6 +46,10 @@ export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
   archive_download_access: "host_only",
   require_social_visit: true,
   show_google_review: true,
+  // On for every event that predates this preference: those galleries were
+  // built around face search, and an absent key reading as "off" would take My
+  // Photos away from all of them at once.
+  face_search_enabled: true,
 };
 
 /** Allowed values for each non-boolean preference. `normalizeDeliveryPreferences`
@@ -63,8 +71,18 @@ export type DeliveryPreferenceOption = {
 };
 
 /**
- * Where a preference row renders. "gallery" = the Media tab's gear modal and
- * the upload dialog's Preferences step. "access" = the Access & Sharing tab.
+ * Where a preference row renders.
+ *
+ * "access" is the Gallery preferences modal on the Access & Sharing tab — the
+ * one place a Studio sets everything a Guest experiences, so it carries EVERY
+ * row. It used to be three separate controls (a gear modal on the Media tab,
+ * plus a card each for face search and the required visit), which meant three
+ * places to look for one answer.
+ *
+ * "gallery" is the upload dialog's Preferences step, and it deliberately stays
+ * the smaller set: the questions worth asking about the run being uploaded
+ * (downloads, and who gets the unwatermarked copy), not the gallery's whole
+ * access model. A studio mid-upload should not be deciding about face search.
  */
 export type DeliveryPreferenceSurface = "gallery" | "access";
 
@@ -85,11 +103,25 @@ export type DeliveryPreferenceSurface = "gallery" | "access";
  */
 export type DeliveryPreferenceContext = {
   archiveTiers: ArchiveTier[];
-  /** Label of the Studio's required visit platform, for the row's copy. */
+  /**
+   * Label of the Studio's required visit platform, for the row's copy — and the
+   * signal that there IS a live gate to switch off. Absent means the Studio has
+   * set no required link, or cleared its URL, or this event hides Studio
+   * branding, and the row hides rather than offering an off switch for
+   * something already off. The caller resolves all of that; see the row's
+   * `isRelevant`.
+   */
   requiredVisitLabel?: string;
   /** The company-wide review switch. False means the per-event row is
    *  overridden and must say so rather than claiming a state it does not have. */
   googleReviewEnabledGlobally?: boolean;
+  /**
+   * At least one PUBLIC folder holds media. Drives the face search row's
+   * warning: with face search off and nothing public, a Guest without the
+   * passcode can see nothing at all, and the two settings that cause that live
+   * on different tabs. Absent = unknown, and no warning is shown.
+   */
+  hasPublicFolderWithMedia?: boolean;
 };
 
 /** A preference row, resolved for one booking — concrete strings, ready to
@@ -103,6 +135,13 @@ export type DeliveryPreferenceField = {
   /** Extra line shown only while the preference is in its non-default state,
    *  so the studio sees the consequence at the moment it opts in to it. */
   consequence?: string;
+  /**
+   * A problem with the CURRENT combination of settings, rendered in the warning
+   * palette rather than the neutral one. Distinct from `consequence`, which
+   * explains a choice that is working as intended: this one says something
+   * needs fixing, and where.
+   */
+  warning?: string;
   /** Present for `type: "select"`. */
   options?: DeliveryPreferenceOption[];
   /**
@@ -125,6 +164,9 @@ type DeliveryPreferenceSpec = {
   label: (ctx: DeliveryPreferenceContext) => string;
   description: (ctx: DeliveryPreferenceContext) => string;
   consequence?: (ctx: DeliveryPreferenceContext) => string;
+  /** Return null when there is nothing wrong. Reads the draft as well as the
+   *  context, so a warning can be about the combination rather than either. */
+  warning?: (ctx: DeliveryPreferenceContext, value: DeliveryPreferences) => string | null;
   options?: (ctx: DeliveryPreferenceContext) => DeliveryPreferenceOption[];
   /**
    * Hide the row entirely when this returns false. It reads the CURRENT draft
@@ -150,6 +192,7 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "allow_download",
     type: "toggle",
+    surfaces: ["gallery", "access"],
     label: () => "Allow guests to download photos",
     description: () => "",
     consequence: () =>
@@ -158,6 +201,7 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "archive_download_access",
     type: "select",
+    surfaces: ["gallery", "access"],
     // Named after the tier this event actually has, never a generic
     // "Full-resolution": a studio that uploaded 4K did not upload
     // originals, and calling those files "full-resolution originals" would be
@@ -203,7 +247,7 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "show_google_review",
     type: "toggle",
-    surfaces: ["gallery"],
+    surfaces: ["gallery", "access"],
     label: () => "Ask Guests for reviews",
     description: () => "Show the Google review button and prompt in this gallery.",
     consequence: () =>
@@ -223,10 +267,39 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
     // itself is chosen Studio-wide in Settings → Social Links; an event can
     // only opt out of it, never point somewhere else.
     surfaces: ["access"],
+    // Hidden unless there is a live gate to switch off: no required platform,
+    // a platform whose link is gone, or an event that hides Studio branding
+    // (the gallery gates none of those — see resolveSocialVisitGate). An off
+    // switch for something already off is noise, and there is nothing the
+    // Studio can do about it from here. This used to live in the card wrapper;
+    // the row owns it now that the card is gone.
+    isRelevant: (ctx) => !!ctx.requiredVisitLabel,
     label: (ctx) => `Ask Guests to open ${ctx.requiredVisitLabel ?? "your required link"}`,
     description: (ctx) =>
       `Every Guest opens your ${ctx.requiredVisitLabel ?? "required"} page once before they see their photos. The link is set in Settings → Social Links.`,
     consequence: () => "Guests of this event go straight to their photos. Your other events still ask.",
+  },
+  {
+    key: "face_search_enabled",
+    type: "toggle",
+    surfaces: ["access"],
+    label: () => "Let Guests find their photos with a selfie",
+    description: () =>
+      "Guests can take a selfie to see the photos they appear in, or skip it and browse.",
+    // Spells out what a Guest is left with, because the answer depends on
+    // something the Studio controls on a different tab: without face search,
+    // a public folder is the only thing standing between a Guest and a
+    // passcode prompt.
+    consequence: () =>
+      "No selfie step and no My Photos tab. Guests without the passcode see only your public folders, and must enter the passcode if no folder is public.",
+    // The combination that leaves a Guest with nothing: face search off AND no
+    // public folder holding anything. Both halves are deliberate settings, they
+    // live on different tabs, and neither is wrong on its own — which is
+    // exactly why this has to be said where the second one is chosen.
+    warning: (ctx, value) =>
+      !value.face_search_enabled && ctx.hasPublicFolderWithMedia === false
+        ? "No folder is public yet, so Guests will need the passcode to see any photos. Make a folder public from the Media tab to give everyone a preview."
+        : null,
   },
 ];
 
@@ -247,12 +320,14 @@ export function resolveDeliveryPreferenceFields(
     (spec) => (spec.surfaces ?? ["gallery"]).includes(surface) && (spec.isRelevant?.(context, value) ?? true),
   ).map((spec) => {
     const locked = spec.lock?.(context) ?? null;
+    const warning = spec.warning?.(context, value) ?? null;
     return {
       key: spec.key,
       type: spec.type,
       label: spec.label(context),
       description: spec.description(context),
       ...(spec.consequence ? { consequence: spec.consequence(context) } : {}),
+      ...(warning ? { warning } : {}),
       ...(spec.options ? { options: spec.options(context) } : {}),
       ...(locked ? { locked } : {}),
     };

@@ -958,6 +958,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // prompt the real gallery won't.
   const showGoogleReview =
     meta?.deliveryPreferences?.show_google_review ?? DELIVERY_PREFERENCE_DEFAULTS.show_google_review;
+  // Same again for face search: the gallery preview must not show a My Photos
+  // tab an event with it switched off doesn't have.
+  const faceSearchEnabled =
+    meta?.deliveryPreferences?.face_search_enabled ?? DELIVERY_PREFERENCE_DEFAULTS.face_search_enabled;
 
   return (
     <EventProvider value={ctx}>
@@ -1012,6 +1016,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 initialGuestTypes={ctx.meta.guestTypes}
                 allowDownload={allowDownload}
                 showGoogleReview={showGoogleReview}
+                faceSearchEnabled={faceSearchEnabled}
                 onSave={async (vals) => {
                   // Pass through current event_type/date (never event_name) so the
                   // landing-page save can't churn the shared URL or clobber the event.

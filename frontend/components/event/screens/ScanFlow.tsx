@@ -30,9 +30,21 @@ type Phase = "consent" | "processing" | "error";
  */
 export function ScanFlow({
   guestName,
+  secondary,
   onComplete,
 }: {
   guestName?: string;
+  /**
+   * The way off this screen that is not a selfie. Always present: a Guest whose
+   * browser cannot reach the camera, or who simply does not want to be
+   * face-matched, must never be trapped here — and the Guest policy already
+   * says face search is optional.
+   *
+   * The parent decides what it means. From the entry flow it is "Skip for now"
+   * (remembered server-side, so the Guest is not asked again); from inside the
+   * gallery it is "Back to gallery", which touches nothing.
+   */
+  secondary: { label: string; onSelect: () => void; note?: string };
   /** Called once the selfie is uploaded and validated (search + match happen
    *  after handoff, in the Lounge). `selfieId` seeds `session.selfie_id` so
    *  the Lounge can run its own search. */
@@ -48,6 +60,9 @@ export function ScanFlow({
   const [target, setTarget] = useState(0);
   const [status, setStatus] = useState("Uploading your selfie…");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  /** The Studio switched face search off while this Guest was on this screen.
+   *  Retaking would fail identically, so the error view offers the gallery. */
+  const [faceSearchOff, setFaceSearchOff] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   // Camera permission gate: a blocking pop-up shown over the camera screen when
   // the live camera can't start. Camera access is strictly required to proceed.
@@ -157,7 +172,9 @@ export function ScanFlow({
         onComplete(up.public_url, selfieId);
       }, 750);
     } catch (err) {
-      setErrorMsg(toFriendlyError(err));
+      const { message, faceSearchDisabled } = toFriendlyError(err);
+      setErrorMsg(message);
+      setFaceSearchOff(faceSearchDisabled);
       setPhase("error");
     }
   }
@@ -288,12 +305,32 @@ export function ScanFlow({
           >
             <IconScanFace size={18} /> Capture selfie
           </button>
-          <div className="text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
-            Verifying your face is required to view your photos.
+          {/* Where "Verifying your face is required to view your photos." used
+              to be. It was never true — the Guest policy says face search is
+              optional — and it left a Guest whose browser cannot reach the
+              camera with nowhere to go. Shown before and after the consent
+              tick: deciding not to scan is not a thing you should have to
+              consent to first. */}
+          <div className="flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={secondary.onSelect}
+              className="cursor-pointer px-4 py-2.5 text-center text-[13px] font-bold"
+              style={{ color: t.muted }}
+            >
+              {secondary.label}
+            </button>
+            {secondary.note && (
+              <span className="text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
+                {secondary.note}
+              </span>
+            )}
           </div>
         </div>
         <PoweredBy />
-        {camGate && <PermissionGate gate={camGate} onRetry={() => setCamAttempt((n) => n + 1)} />}
+        {camGate && (
+          <PermissionGate gate={camGate} onRetry={() => setCamAttempt((n) => n + 1)} secondary={secondary} />
+        )}
       </Shell>
     );
   }
@@ -353,18 +390,44 @@ export function ScanFlow({
         </p>
       </div>
       <div className="flex flex-col gap-2.5 px-7 pb-2">
-        <button
-          type="button"
-          onClick={() => {
-            setErrorMsg(null);
-            resetProgress();
-            setPhase("consent");
-          }}
-          className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
-          style={{ background: t.brand, color: t.onBrand }}
-        >
-          <IconScanFace size={18} /> Retake
-        </button>
+        {/* Face search switched off under the Guest's feet: a retake would fail
+            in exactly the same way, so the only button offered is the one that
+            gets them into the gallery. For a Guest who arrived at this screen
+            on entry, `secondary` also records the skip, which is what they have
+            effectively just done. */}
+        {faceSearchOff ? (
+          <button
+            type="button"
+            onClick={secondary.onSelect}
+            className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+            style={{ background: t.brand, color: t.onBrand }}
+          >
+            Continue to the gallery
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMsg(null);
+                resetProgress();
+                setPhase("consent");
+              }}
+              className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+              style={{ background: t.brand, color: t.onBrand }}
+            >
+              <IconScanFace size={18} /> Retake
+            </button>
+            <button
+              type="button"
+              onClick={secondary.onSelect}
+              className="w-full cursor-pointer py-2.5 text-center text-[13px] font-bold"
+              style={{ color: t.muted }}
+            >
+              {secondary.label}
+            </button>
+          </>
+        )}
       </div>
       <PoweredBy />
     </Shell>
@@ -441,7 +504,7 @@ function gateContent(gate: Exclude<CamGate, null>): { title: string; body: strin
   if (gate.name === "NotFoundError" || gate.name === "OverconstrainedError") {
     return {
       title: "No camera found",
-      body: "We couldn’t find a usable camera on this device. A working front camera is required to verify your face.",
+      body: "We couldn’t find a usable camera on this device. A front camera is needed to find your photos.",
     };
   }
   // denied / NotAllowedError / SecurityError / timeout (prompt likely suppressed)
@@ -450,7 +513,7 @@ function gateContent(gate: Exclude<CamGate, null>): { title: string; body: strin
     body:
       gate.reason === "timeout"
         ? "Your camera didn’t respond — the permission prompt may be blocked for this site."
-        : "Verifying your face needs camera access, and it’s currently blocked.",
+        : "Finding your photos needs camera access, and it’s blocked right now.",
     steps: enableSteps,
   };
 }
@@ -494,28 +557,50 @@ function extractReason(body: unknown): string {
   return "";
 }
 
-/** Turn a validation failure into clear, non-technical guidance for the guest. */
-function toFriendlyError(err: unknown): string {
+/**
+ * Turn a validation failure into clear, non-technical guidance for the guest,
+ * and say whether retaking could possibly help.
+ *
+ * `faceSearchDisabled` is the one case where it cannot: the Studio has switched
+ * face search off for this event, so every retake would be refused identically.
+ * The caller shows the gallery instead of a Retake button.
+ */
+function toFriendlyError(err: unknown): { message: string; faceSearchDisabled: boolean } {
   if (!(err instanceof ApiError)) {
-    return "Something went wrong. Please check your connection and retake.";
+    return {
+      message: "Something went wrong. Please check your connection and retake.",
+      faceSearchDisabled: false,
+    };
   }
+  // The backend's own sentinel, not a guess at the message — see
+  // FACE_SEARCH_DISABLED in deliverables.controller.js.
+  if (
+    err.status === 403 &&
+    (err.body as { code?: string } | null)?.code === "FACE_SEARCH_DISABLED"
+  ) {
+    return {
+      message: "Face search has been turned off for this gallery.",
+      faceSearchDisabled: true,
+    };
+  }
+  const friendly = (message: string) => ({ message, faceSearchDisabled: false });
   const reason = extractReason(err.body) || "";
   const r = reason.toLowerCase();
   if (/no face|face not (found|detected)|couldn'?t (find|detect)|0 face|without a face/.test(r))
-    return "We couldn’t find a face in your photo. Make sure your face is clearly visible and centered, then retake.";
+    return friendly("We couldn’t find a face in your photo. Make sure your face is clearly visible and centered, then retake.");
   if (/multiple|more than one|two face|2 face|several face|many face/.test(r))
-    return "We found more than one face. Make sure only your face is in the frame, then retake.";
-  if (/blur|sharp|focus/.test(r)) return "Your photo looks blurry. Hold steady in good light and retake.";
-  if (/dark|dim|low.?light|bright|exposure|lighting/.test(r)) return "The lighting was off. Move somewhere brighter and retake.";
-  if (/small|too far|distance|zoom/.test(r)) return "Your face was too small in the frame. Come a little closer and retake.";
-  if (/angle|frontal|straight|profile|side|looking away|pose/.test(r)) return "Please look straight at the camera and retake.";
-  if (/sunglass|glasses|mask|cover|occlu|obstruct/.test(r)) return "Please remove anything covering your face (sunglasses, mask) and retake.";
+    return friendly("We found more than one face. Make sure only your face is in the frame, then retake.");
+  if (/blur|sharp|focus/.test(r)) return friendly("Your photo looks blurry. Hold steady in good light and retake.");
+  if (/dark|dim|low.?light|bright|exposure|lighting/.test(r)) return friendly("The lighting was off. Move somewhere brighter and retake.");
+  if (/small|too far|distance|zoom/.test(r)) return friendly("Your face was too small in the frame. Come a little closer and retake.");
+  if (/angle|frontal|straight|profile|side|looking away|pose/.test(r)) return friendly("Please look straight at the camera and retake.");
+  if (/sunglass|glasses|mask|cover|occlu|obstruct/.test(r)) return friendly("Please remove anything covering your face (sunglasses, mask) and retake.");
   // Show the worker's reason if it's short and clean; otherwise a general hint.
   if (reason && reason.length < 110 && !/\b\d{3}\b|status|http|exception|traceback|null|undefined/i.test(reason)) {
     const clean = reason.charAt(0).toUpperCase() + reason.slice(1);
-    return /[.!?]$/.test(clean) ? clean : `${clean}. Please retake.`;
+    return friendly(/[.!?]$/.test(clean) ? clean : `${clean}. Please retake.`);
   }
-  return "We couldn’t verify your face clearly. Make sure it’s well-lit, centered, and unobstructed, then retake.";
+  return friendly("We couldn’t verify your face clearly. Make sure it’s well-lit, centered, and unobstructed, then retake.");
 }
 
 /* ── chrome + bits ──────────────────────────────────────────────────────── */
@@ -553,12 +638,26 @@ export function PoweredBy() {
 }
 
 /**
- * Blocking permission pop-up shown over the camera screen. Camera access is
- * strictly required: the only way forward is to grant it and tap "try again"
- * (or, for an unsupported browser, switch browsers). There is intentionally no
- * dismiss / bypass.
+ * Permission pop-up shown over the camera screen when the live camera can't
+ * start. It used to have no dismiss and no bypass, on the reasoning that camera
+ * access was strictly required — which stranded exactly the Guests least able
+ * to do anything about it: a WhatsApp in-app browser that cannot reach
+ * getUserMedia at all, or an Android that suppresses the permission prompt.
+ *
+ * Fixing the camera is still the first thing offered (it is the only way to get
+ * their own photos), but `secondary` is always there underneath it, so the
+ * gallery is never more than one tap away.
  */
-function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRetry: () => void }) {
+function PermissionGate({
+  gate,
+  onRetry,
+  secondary,
+}: {
+  gate: Exclude<CamGate, null>;
+  onRetry: () => void;
+  /** The parent's way out, unchanged — see `ScanFlow`'s prop. */
+  secondary: { label: string; onSelect: () => void; note?: string };
+}) {
   const { theme: t } = useEventTheme();
   const [copied, setCopied] = useState(false);
   const unsupported = gate.kind === "unsupported";
@@ -576,13 +675,19 @@ function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRet
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-end justify-center sm:items-center"
+      // `fixed`, not `absolute`: this is pinned to the shell, which is
+      // `min-h-[100dvh]` and grows past the viewport on a short phone once the
+      // steps list is showing — the pop-up would then sit below the fold, out
+      // of sight of the Guest it is blocking.
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
       style={{ background: "rgba(20,14,9,0.55)", backdropFilter: "blur(2px)" }}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="fx-rise m-3 w-full max-w-[400px] rounded-3xl p-6"
+        // Three buttons under three numbered steps overflows a small phone;
+        // the card scrolls inside itself rather than pushing them off-screen.
+        className="fx-rise m-3 max-h-[calc(100dvh-1.5rem)] w-full max-w-[400px] overflow-y-auto rounded-3xl p-6"
         style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
       >
         <div
@@ -639,6 +744,17 @@ function PermissionGate({ gate, onRetry }: { gate: Exclude<CamGate, null>; onRet
             style={{ color: t.muted }}
           >
             {unsupported ? "I’ve switched browsers — try again" : "Try again"}
+          </button>
+          {/* The bypass this pop-up deliberately lacked. A Guest who cannot
+              grant camera access here (in-app browser, suppressed prompt,
+              borrowed phone) still gets into the gallery. */}
+          <button
+            type="button"
+            onClick={secondary.onSelect}
+            className="w-full cursor-pointer py-2.5 text-center text-[12.5px] font-bold"
+            style={{ color: t.faint }}
+          >
+            {secondary.label}
           </button>
         </div>
       </div>

@@ -27,9 +27,9 @@ import {
  * row for a QHD-only event (nothing unwatermarked exists to govern) or when
  * downloads are switched off outright.
  *
- * `surface` picks which rows this host shows: the gallery hosts (gear modal,
- * upload dialog) and Access & Sharing each render their own slice of the same
- * registry, so no row is rendered by two different components.
+ * `surface` picks which rows this host shows: the upload dialog asks only about
+ * the run it is uploading, while the Access & Sharing modal carries every row.
+ * Both read the same registry, so a row's copy is written once.
  */
 export function DeliveryPreferencesPanel({
   value,
@@ -160,6 +160,15 @@ function PreferenceRow({
         {control}
       </div>
       {stacked}
+      {/* Something is wrong with the current combination — amber, and distinct
+          from the neutral consequence note, which describes a setting working
+          as intended. Shown regardless of the default, because the problem is
+          real whichever way the studio arrived at it. */}
+      {field.warning && (
+        <div className="rounded-md border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--color-brand-warning)]">
+          {field.warning}
+        </div>
+      )}
       {/* Only while the preference is away from its default — the studio sees
           what it just opted in to, at the moment it opts in. A locked row says
           why it is locked instead. */}

@@ -7,13 +7,18 @@ import {
   changedPreferenceKeys,
   type DeliveryPreferenceContext,
   type DeliveryPreferences,
+  type DeliveryPreferenceSurface,
 } from "@/lib/delivery-preferences";
 
 /**
- * The gear-icon entry point: the same preference rows as the upload dialog's
- * step 2, reachable at any time — before the first upload, during one, or long
- * after delivery. Preferences are event-scoped, so this and the upload dialog
- * read and write the same value.
+ * The gear-icon entry point, on the Access & Sharing tab: every per-event
+ * setting that decides what a Guest can do, reachable at any time — before the
+ * first upload, during one, or long after delivery.
+ *
+ * It renders the "access" surface, which is a SUPERSET of the upload dialog's
+ * step 2: that step asks only about the run being uploaded, while this is the
+ * whole picture (face search and the required visit included). Preferences are
+ * event-scoped, so both read and write the same value.
  */
 export function DeliveryPreferencesModal({
   open,
@@ -23,6 +28,7 @@ export function DeliveryPreferencesModal({
   onSave,
   toast,
   context,
+  surface = "access",
 }: {
   open: boolean;
   onClose: () => void;
@@ -32,9 +38,13 @@ export function DeliveryPreferencesModal({
   saved: DeliveryPreferences;
   onSave: (next: DeliveryPreferences) => Promise<void>;
   toast: (msg: string, type?: "success" | "error") => void;
-  /** The booking's archive quality tier — decides whether the archive download
-   *  row is shown at all, and what it is called. */
+  /** The booking's archive quality tier, the required-visit label, and whether
+   *  any public folder holds media — the registry decides which rows to show,
+   *  what to call them, and what to warn about from these. */
   context?: DeliveryPreferenceContext;
+  /** Which slice of the registry to render. Defaults to the full Access &
+   *  Sharing set; the upload dialog renders "gallery" through the panel. */
+  surface?: DeliveryPreferenceSurface;
 }) {
   const [draft, setDraft] = useState<DeliveryPreferences>(saved);
   const [saving, setSaving] = useState(false);
@@ -101,6 +111,7 @@ export function DeliveryPreferencesModal({
         onChange={setDraft}
         disabled={saving}
         context={context}
+        surface={surface}
       />
     </Modal>
   );

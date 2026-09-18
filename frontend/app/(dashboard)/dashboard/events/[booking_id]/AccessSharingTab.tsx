@@ -5,19 +5,23 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ApiError, exportGuestsCsv, getAllGuests, setGuestFullAccess } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
-import type { Guest } from "@/lib/types";
+import type { CustomFolder, Guest } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
-import { normalizeDeliveryPreferences, type DeliveryPreferences } from "@/lib/delivery-preferences";
+import {
+  DELIVERY_PREFERENCE_DEFAULTS,
+  normalizeDeliveryPreferences,
+  type DeliveryPreferences,
+} from "@/lib/delivery-preferences";
 import { SOCIAL_PLATFORM_BY_KEY, isSocialPlatformKey } from "@/lib/social-platforms";
-import { SocialChip } from "@/components/event/screens/lounge/SocialIcons";
 import { BrandingReminderDialog } from "./BrandingReminderDialog";
-import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
 import { useEvent } from "./EventContext";
 import {
   IconCheck,
   IconCopy,
   IconDownload,
+  IconGear,
   IconInfo,
   IconLink,
   IconLock,
@@ -66,9 +70,41 @@ export function AccessSharingTab({
   const company = useCompany();
   const shareUrl = galleryUrlFor(company, uniqueIdentifier) ?? "";
 
+  // This card describes what a Guest will actually meet at the other end of the
+  // link, so all three of its sentences follow the event's face search switch.
+  const { meta, folders, folderCounts, archiveTiers, saveDeliveryPreferences, toast } = useEvent();
+  const prefs = normalizeDeliveryPreferences(meta.deliveryPreferences);
+  const faceSearchOn = prefs.face_search_enabled;
+  const hasPublicPhotos = hasPublicFolderWithPhotos(folders, folderCounts);
+
+  /** The Gallery preferences modal — every per-event Guest setting in one
+   *  place. It used to be a gear on the Media tab, which is where a studio
+   *  managed FILES, not what Guests could do with them. */
+  const [prefsOpen, setPrefsOpen] = useState(false);
+
+  /**
+   * The Studio's required visit link, if this event actually has a live one.
+   * Resolved here and handed to the registry as `requiredVisitLabel`, which is
+   * also the row's own visibility signal — undefined and the row hides.
+   * Mirrors `resolveSocialVisitGate`: no platform, a platform whose URL was
+   * cleared, or an event that hides Studio branding all mean "no gate".
+   */
+  const visitPlatform = company?.mandatory_visit_platform;
+  const visitSpec = isSocialPlatformKey(visitPlatform) ? SOCIAL_PLATFORM_BY_KEY[visitPlatform] : null;
+  const requiredVisitLabel =
+    visitSpec && company?.social_links?.[visitSpec.key]?.trim() && meta.includeBranding === true
+      ? visitSpec.label
+      : undefined;
+
+  // Guests sign in with WhatsApp, not Google — the old message said Google, and
+  // rewriting it for the switch is the moment to fix that too.
   const message = `Namaste! The photos from ${eventName} are ready. 🎉
 
-Open the gallery, sign in with Google and take one quick selfie — you'll instantly see every photo you appear in:
+${
+    faceSearchOn
+      ? "Open the gallery and sign in. Take a quick selfie to see every photo you're in:"
+      : "Open the gallery and sign in to see them:"
+  }
 ${shareUrl}`;
 
   return (
@@ -83,7 +119,8 @@ ${shareUrl}`;
     <div className="@container h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
       <BrandingReminderDialog />
       <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 @2xl:gap-6 @2xl:px-6 @2xl:py-6 @4xl:h-full @4xl:min-h-0 @4xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] @4xl:items-stretch @4xl:px-8">
-        {/* Left — sharing link, passcode, required visit. Every card here is
+        {/* Left — the link, then the passcode, then the preferences behind
+            them both. Every card here is
             shrink-0: in the wide layout this column has a fixed height and
             scrolls, and a shrinkable card is squashed to fit instead, clipping
             its own contents behind overflow-hidden. */}
@@ -99,7 +136,13 @@ ${shareUrl}`;
               <div className="min-w-0 flex-1">
                 <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
                   Guest gallery link
-                  <Tip text="One link for everyone. Guests sign in and take a selfie to find their own photos. The family passcode unlocks the full gallery from inside the lounge." />
+                  <Tip
+                    text={
+                      faceSearchOn
+                        ? "One link for everyone. Guests sign in and can take a selfie to find their own photos. The family passcode unlocks the full gallery."
+                        : "One link for everyone. Guests sign in and see your public folders. The family passcode unlocks the full gallery."
+                    }
+                  />
                 </h3>
                 <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
                   Share this with the whole guest list — one link covers all photo access.
@@ -114,7 +157,16 @@ ${shareUrl}`;
                   <UrlField url={shareUrl} />
                   <div className="mt-2.5 flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
                     <IconShieldCheck size={15} className="shrink-0 text-[var(--color-brand-success)]" />
-                    <span>Each guest sees only the photos they appear in — until the passcode unlocks the rest.</span>
+                    {/* Three states, because what a Guest can see without the
+                        passcode genuinely differs: their own face matches, the
+                        public folders, or (neither available) nothing at all. */}
+                    <span>
+                      {faceSearchOn
+                        ? "Each Guest sees the photos they appear in and your public folders, until the passcode unlocks the rest."
+                        : hasPublicPhotos
+                          ? "Guests see your public folders until the passcode unlocks the rest."
+                          : "Guests need the passcode to see any photos."}
+                    </span>
                   </div>
 
                   {/* Compact message actions (3/4) beside a QR visibility panel
@@ -136,12 +188,36 @@ ${shareUrl}`;
           </section>
 
           <PasscodeCard passcode={familyPasscode ?? ""} onRegenerate={onRegenerate} />
-          <RequiredVisitCard />
+          <PreferencesCard
+            onOpen={() => setPrefsOpen(true)}
+            prefs={prefs}
+            requiredVisitLabel={requiredVisitLabel}
+            reviewsEnabledGlobally={company?.google_review_enabled !== false}
+          />
         </div>
 
         {/* Right — guest list, host/guest filter, export, revoke access. */}
         <GuestsPanel bookingId={bookingId} />
       </div>
+
+      {/* Every per-event Guest setting, in the tab that is about Guests.
+          Event-scoped, so saving here changes what every Guest sees at once —
+          already-delivered galleries included. */}
+      <DeliveryPreferencesModal
+        open={prefsOpen}
+        onClose={() => setPrefsOpen(false)}
+        eventName={eventName}
+        saved={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
+        onSave={saveDeliveryPreferences}
+        toast={toast}
+        surface="access"
+        context={{
+          archiveTiers,
+          requiredVisitLabel,
+          googleReviewEnabledGlobally: company?.google_review_enabled !== false,
+          hasPublicFolderWithMedia: hasPublicPhotos,
+        }}
+      />
     </div>
   );
 }
@@ -518,74 +594,110 @@ function Avatar({ name, selfieUrl }: { name: string; selfieUrl?: string | null }
 }
 
 /**
- * This event's off switch for the Studio's required visit link. The link itself
- * is chosen Studio-wide in Settings → Social Links; an event can only opt out of
- * it, never point somewhere else.
+ * Does any public folder actually hold something?
  *
- * Renders nothing unless there is a live gate to switch off: no required
- * platform, a platform whose link is gone, or an event that hides Studio
- * branding (the gallery never gates those — see resolveSocialVisitGate). An
- * off switch for something already off is noise, and there is nothing for the
- * Studio to do about it on this tab.
- *
- * Saves the moment it is toggled, with a toast. It is a single switch — the
- * control for an immediately-applied setting — and a Save button beside it
- * would leave a changed-but-unsaved state that is easy to navigate away from.
+ * "Public folder exists" is not the question — an empty one shows a Guest
+ * nothing, so it leaves them just as stuck as having none. Deliberately
+ * approximate in one direction: `folderCounts` counts media, videos included,
+ * while the Guest-side signal (`sample_media_urls`) is images only. So a public
+ * folder holding nothing but videos reads as "fine" here and as "nothing
+ * public" to a Guest. It errs toward not nagging a Studio that has done the
+ * work, which is the right way round for a warning.
  */
-function RequiredVisitCard() {
-  const { meta, saveDeliveryPreferences, toast } = useEvent();
-  const company = useCompany();
-  // The value being saved, shown optimistically; null once the save settles and
-  // `meta` (refreshed by the save) is the truth again.
-  const [pending, setPending] = useState<DeliveryPreferences | null>(null);
+function hasPublicFolderWithPhotos(
+  folders: CustomFolder[],
+  folderCounts: Record<string, number>,
+): boolean {
+  return folders.some((f) => f.visibility === "public" && (folderCounts[f._id] ?? 0) > 0);
+}
 
-  const platform = company?.mandatory_visit_platform;
-  const spec = isSocialPlatformKey(platform) ? SOCIAL_PLATFORM_BY_KEY[platform] : null;
-  const hasLink = !!(spec && company?.social_links?.[spec.key]?.trim());
-  // `=== true`, as the guest gallery reads it.
-  if (!spec || !hasLink || meta.includeBranding !== true) return null;
-
-  const value = pending ?? normalizeDeliveryPreferences(meta.deliveryPreferences);
-
-  async function change(next: DeliveryPreferences) {
-    if (!spec) return;
-    setPending(next);
-    try {
-      await saveDeliveryPreferences(next);
-      toast(
-        next.require_social_visit
-          ? `Guests of this event will be asked to open ${spec.label}`
-          : "Guests of this event go straight to their photos",
-      );
-    } catch (err) {
-      // Reverts on its own: clearing `pending` shows the saved value again.
-      toast(err instanceof Error ? err.message : "Couldn’t save — try again", "error");
-    } finally {
-      setPending(null);
-    }
-  }
+/**
+ * The Gallery preferences card: a summary of what Guests can do, and the way
+ * into the modal that changes it.
+ *
+ * The modal itself used to be a bare gear icon on the Media tab, next to the
+ * uploader — a tab about FILES, holding the controls for what Guests may do
+ * with them. Face search and the required visit each had a card of their own
+ * here besides, so one question ("what does a Guest get?") had three answers in
+ * two places. All of it is one modal now, opened from here.
+ *
+ * The summary earns the card its space: the common case is a studio checking
+ * the settings rather than changing them, and that no longer costs a click.
+ */
+function PreferencesCard({
+  onOpen,
+  prefs,
+  requiredVisitLabel,
+  reviewsEnabledGlobally,
+}: {
+  onOpen: () => void;
+  prefs: DeliveryPreferences;
+  /** Present only when this event has a live required-visit gate. */
+  requiredVisitLabel?: string;
+  /** The company-wide review switch — off overrides this event's own value, so
+   *  the chip must show the EFFECTIVE state, not the stored one. */
+  reviewsEnabledGlobally: boolean;
+}) {
+  const chips: { label: string; on: boolean }[] = [
+    { label: "Face search", on: prefs.face_search_enabled },
+    { label: "Downloads", on: prefs.allow_download },
+    { label: "Reviews", on: prefs.show_google_review && reviewsEnabledGlobally },
+    ...(requiredVisitLabel
+      ? [{ label: requiredVisitLabel, on: prefs.require_social_visit }]
+      : []),
+  ];
 
   return (
     <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
-      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
-        <SocialChip platform={spec.key} size={36} />
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">Required visit</h3>
+      {/* Wraps to two lines on a narrow phone rather than squeezing the button
+          to an unreadable sliver — the button keeps its full label. */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-4">
+        <span
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
+          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
+        >
+          <IconGear size={18} />
+        </span>
+        <div className="min-w-[160px] flex-1">
+          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+            Gallery preferences
+          </h3>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            {spec.label} · set for all your galleries in Settings → Social Links.
+            What Guests can do in this gallery.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="brand-focus inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+        >
+          <IconGear size={14} />
+          Manage
+        </button>
       </div>
-      <div className="p-4">
-        <DeliveryPreferencesPanel
-          value={value}
-          onChange={(next) => void change(next)}
-          disabled={pending !== null}
-          context={{ archiveTiers: [], requiredVisitLabel: spec.label }}
-          surface="access"
-        />
+      <div className="flex flex-wrap gap-1.5 border-t border-[#ECE5D8] px-4 py-3">
+        {chips.map((c) => (
+          <StateChip key={c.label} label={c.label} on={c.on} />
+        ))}
       </div>
     </section>
+  );
+}
+
+/** One setting's state, at a glance. Never colour alone: the word "On"/"Off"
+ *  carries the meaning for anyone who can't tell the two greens apart. */
+function StateChip({ label, on }: { label: string; on: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${
+        on
+          ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+          : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
+      }`}
+    >
+      {label}
+      <span className="opacity-70">{on ? "On" : "Off"}</span>
+    </span>
   );
 }
 

@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuestSession } from "@/lib/types";
+import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
-import { GuestAuthError, getGuestSession } from "@/lib/guest-api";
+import { GuestAuthError, getGuestSession, updateGuestSubType } from "@/lib/guest-api";
+import { reportBug } from "@/lib/report-bug";
 import { BrandLoader } from "./BrandLoader";
 import { useEventTheme } from "./EventThemeContext";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
@@ -13,15 +15,28 @@ import { LoungeGallery } from "./screens/LoungeGallery";
 
 type Step = "welcome" | "login" | "scan" | "lounge";
 
+/** Where the scan screen was opened from, which is what its secondary action
+ *  means: skipping (and being remembered as having skipped) on the way in,
+ *  versus simply going back to a gallery the Guest is already inside. */
+type ScanOrigin = "entry" | "gallery";
+
 /**
  * Decide where a signed-in guest lands. There's no separate "team" step —
  * the name + team question is raised by `LoungeGallery` itself as a
  * non-dismissible sheet when it's still missing, so every authed guest just
  * goes to "scan" (no selfie yet) or "lounge".
+ *
+ * Three ways to earn the lounge without a selfie, and they are not the same:
+ * the Studio has switched face search off for this event (there is no selfie
+ * step to send anyone to), or the Guest has one already, or the Guest chose
+ * "Skip for now" on a previous visit — a decision kept server-side precisely so
+ * it survives this reload and the Guest's second device.
  */
-function decideStep(session: GuestSession): Step {
-  if (!session.has_selfie) return "scan";
-  return "lounge";
+function decideStep(session: GuestSession, faceSearchOn: boolean): Step {
+  if (!faceSearchOn) return "lounge";
+  if (session.has_selfie) return "lounge";
+  if (session.face_scan_skipped_at) return "lounge";
+  return "scan";
 }
 
 /**
@@ -30,11 +45,20 @@ function decideStep(session: GuestSession): Step {
  * pre-auth welcome screen first, then the Vyavasth-skinned login.
  */
 export function EventFlow() {
-  const { uniqueIdentifier } = useEventTheme();
+  const { uniqueIdentifier, event } = useEventTheme();
   const [booting, setBooting] = useState(true);
   const [step, setStep] = useState<Step>("welcome");
   const [session, setSession] = useState<GuestSession | null>(null);
   const [authError, setAuthError] = useState(false);
+  const [scanOrigin, setScanOrigin] = useState<ScanOrigin>("entry");
+
+  // The Studio's per-event switch. Off means this flow has no selfie step at
+  // all — see the render guard below, which is what stops a stale `step` from
+  // showing one after the Studio switches it off mid-visit.
+  const faceSearchOn = useMemo(
+    () => normalizeDeliveryPreferences(event.delivery_preferences).face_search_enabled,
+    [event.delivery_preferences],
+  );
 
   // Guards state updates from a restore that's still in flight after unmount.
   // Must be set true in the effect body itself, not just returned from
@@ -65,7 +89,10 @@ export function EventFlow() {
       const { guest } = await getGuestSession(uniqueIdentifier);
       if (!mountedRef.current) return;
       setSession(guest);
-      setStep(decideStep(guest));
+      // Arriving at the selfie screen this way is the entry flow, whose way out
+      // is "Skip for now" — as opposed to a rescan opened from the gallery.
+      setScanOrigin("entry");
+      setStep(decideStep(guest, faceSearchOn));
     } catch (err) {
       if (!mountedRef.current) return;
       if (err instanceof GuestAuthError) {
@@ -82,7 +109,7 @@ export function EventFlow() {
     } finally {
       if (mountedRef.current) setBooting(false);
     }
-  }, [uniqueIdentifier]);
+  }, [uniqueIdentifier, faceSearchOn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,16 +138,54 @@ export function EventFlow() {
     void restoreSession();
   }, [restoreSession]);
 
+  /**
+   * "Skip for now" from the entry flow: the Guest goes straight into the
+   * gallery, and is remembered as having skipped so they are not dropped back
+   * here on their next visit or their next device.
+   *
+   * The session is patched optimistically and the request is deliberately NOT
+   * awaited. Nothing the Guest can see depends on it landing, and holding the
+   * gallery behind a write whose only job is to spare them one future question
+   * would be exactly backwards — the worst case of a failure is being asked
+   * again next time, which is where they already are.
+   */
+  const skipScan = useCallback(() => {
+    setSession((s) => (s ? { ...s, face_scan_skipped_at: Date.now() } : s));
+    void updateGuestSubType(uniqueIdentifier, { faceScanSkipped: true }).catch((err) => {
+      console.warn("[updateGuestSubType] face scan skip not saved", err);
+      void reportBug("Face scan — skip not saved", {
+        Event: uniqueIdentifier,
+        "Error message": err instanceof Error ? err.message : String(err),
+      });
+    });
+    setStep("lounge");
+  }, [uniqueIdentifier]);
+
   if (booting) return <BrandLoader />;
 
   if (step === "welcome") return <WelcomeScreen onContinue={() => setStep("login")} />;
 
   if (step === "login") return <LoginScreen authError={authError} onAuthed={onAuthed} />;
 
-  if (step === "scan") {
+  // `faceSearchOn` is checked here as well as in `decideStep`: the Studio can
+  // switch it off while this tab sits on the selfie screen, and the event data
+  // refreshes underneath. Falling through to the lounge is the right answer —
+  // there is nothing left for this screen to do.
+  if (step === "scan" && faceSearchOn) {
     return (
       <ScanFlow
         guestName={session?.name}
+        secondary={
+          scanOrigin === "gallery"
+            ? // Opened from inside the gallery. Backing out records nothing and
+              // leaves any existing selfie exactly as it was.
+              { label: "Back to gallery", onSelect: () => setStep("lounge") }
+            : {
+                label: "Skip for now",
+                note: "You can still browse the gallery and scan your face later.",
+                onSelect: skipScan,
+              }
+        }
         onComplete={(selfieUrl, selfieId) => {
           // The face search itself (and the matched-photos reveal) now happens
           // in the Lounge, driven by session.selfie_id — mirror it here so that
@@ -143,7 +208,13 @@ export function EventFlow() {
         setSession(null);
         setStep("login");
       }}
-      onRescan={() => setStep("scan")}
+      onRescan={() => {
+        // Guarded as well as hidden: the gallery renders no scan affordance
+        // while face search is off, and this makes a stale one a no-op.
+        if (!faceSearchOn) return;
+        setScanOrigin("gallery");
+        setStep("scan");
+      }}
       onSignOut={() => {
         clearGuestToken(uniqueIdentifier);
         setSession(null);

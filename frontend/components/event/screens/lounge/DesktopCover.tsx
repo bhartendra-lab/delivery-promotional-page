@@ -2,6 +2,7 @@
 
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
+import type { WelcomeBand } from "@/lib/welcome-band";
 import { HeroSubtitle } from "./HeroSubtitle";
 import { IconArrowRight, IconCaretDown } from "@/components/ui/icons";
 
@@ -16,26 +17,28 @@ import { IconArrowRight, IconCaretDown } from "@/components/ui/icons";
  *
  * The only overlaid content is the editorial title block, the frosted welcome
  * band, and the scroll cue. Browse-all lives in the All-Photos switcher and
- * Download-all in the sticky control row, so neither is duplicated here. The
- * welcome band is identical for locked and unlocked guests — unlocking is
- * reachable only via the All-Photos switcher once you scroll to the grid.
+ * Download-all in the sticky control row, so neither is duplicated here.
+ *
+ * The band's sentence and what tapping it does are both resolved upstream by
+ * `resolveWelcomeBand` — this cover and the mobile `CoverMasthead` show the
+ * same line, and each used to carry its own copy of the ternary that built it.
  */
 export function DesktopCover({
   t,
   event,
   branding,
-  matchCount,
-  guestName,
-  onSeeMine,
+  band,
+  onBandAction,
   onScrollToGrid,
   date,
 }: {
   t: ClientTheme;
   event: DeliveryLandingPageData;
   branding: boolean;
-  matchCount: number;
-  guestName?: string;
-  onSeeMine: () => void;
+  /** The welcome line, already resolved — see `lib/welcome-band.ts`. */
+  band: WelcomeBand;
+  /** Runs `band.action`. The cover doesn't know what that means. */
+  onBandAction: () => void;
   onScrollToGrid: () => void;
   date: string | null;
 }) {
@@ -87,7 +90,7 @@ export function DesktopCover({
             on every theme, including the deep/saturated ones. */}
         <button
           type="button"
-          onClick={onSeeMine}
+          onClick={onBandAction}
           className="lounge-rise group mt-7 flex cursor-pointer items-center gap-4 rounded-2xl py-4 pl-5 pr-4 text-left transition-transform active:scale-[0.995]"
           style={{
             background: "rgba(255,255,255,0.82)",
@@ -99,16 +102,9 @@ export function DesktopCover({
           }}
         >
           <span className="text-[15px] font-semibold" style={{ color: t.text }}>
-            {matchCount > 0 ? (
-              <>
-                Welcome back{guestName ? `, ${guestName}` : ""} — you&rsquo;re in{" "}
-                <span style={{ color: t.brand }}>
-                  {matchCount.toLocaleString("en-IN")} photo{matchCount === 1 ? "" : "s"}
-                </span>
-              </>
-            ) : (
-              <>Welcome{guestName ? `, ${guestName}` : ""} — no matches yet</>
-            )}
+            {band.lead}
+            {band.highlight && <span style={{ color: t.brand }}>{band.highlight}</span>}
+            {band.trail}
           </span>
           <span
             className="transition-transform duration-300 group-hover:translate-x-1"

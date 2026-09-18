@@ -8,16 +8,29 @@ import { IconX, IconScanFace, IconLogout } from "@/components/ui/icons";
  * Guest profile sheet — the "DP" viewer opened by tapping the guest avatar.
  * Shows the selfie used for face-matching enlarged, plus the guest's account
  * actions: rescan their face (re-runs the scan flow) or sign out.
+ *
+ * Three states, because a selfie is no longer a given: a Guest may have one, or
+ * have skipped the scan, or be in a gallery whose Studio has switched face
+ * search off entirely. In that last case the sheet says nothing about selfies
+ * at all — offering a scan the event does not do would be a dead end — but it
+ * still shows an OLD selfie as the avatar if one exists, since that is simply
+ * this Guest's picture and switching face search off deletes nothing.
  */
 export function ProfileSheet({
   name,
   selfieUrl,
+  faceSearchOn,
+  hasSelfie,
   onRescan,
   onSignOut,
   onClose,
 }: {
   name?: string;
   selfieUrl: string | null;
+  /** The event's `face_search_enabled` preference. */
+  faceSearchOn: boolean;
+  /** This Guest has a validated selfie (not merely an image on file). */
+  hasSelfie: boolean;
   onRescan: () => void;
   onSignOut: () => void;
   onClose: () => void;
@@ -71,19 +84,25 @@ export function ProfileSheet({
             {name}
           </div>
         )}
-        <div className="mt-1 text-[12.5px] font-semibold" style={{ color: t.muted }}>
-          The selfie we use to find your photos
-        </div>
+        {faceSearchOn && (
+          <div className="mt-1 text-[12.5px] font-semibold" style={{ color: t.muted }}>
+            {hasSelfie
+              ? "The selfie we use to find your photos"
+              : "Add a selfie to find the photos you’re in"}
+          </div>
+        )}
 
         <div className="mt-6 flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={onRescan}
-            className="flex cursor-pointer items-center justify-center gap-2 rounded-full py-3 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
-            style={{ background: t.brand, color: t.onBrand }}
-          >
-            <IconScanFace size={17} /> Rescan face
-          </button>
+          {faceSearchOn && (
+            <button
+              type="button"
+              onClick={onRescan}
+              className="flex cursor-pointer items-center justify-center gap-2 rounded-full py-3 text-[14px] font-extrabold transition-transform active:scale-[0.99]"
+              style={{ background: t.brand, color: t.onBrand }}
+            >
+              <IconScanFace size={17} /> {hasSelfie ? "Rescan face" : "Scan my face"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onSignOut}

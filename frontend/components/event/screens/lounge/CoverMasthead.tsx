@@ -2,6 +2,7 @@
 
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
+import type { WelcomeBand } from "@/lib/welcome-band";
 import { HeroSubtitle } from "./HeroSubtitle";
 import { IconArrowRight } from "@/components/ui/icons";
 
@@ -24,18 +25,19 @@ export function CoverMasthead({
   t,
   event,
   branding,
-  matchCount,
-  guestName,
-  onSeeMine,
+  band,
+  onBandAction,
   date,
 }: {
   t: ClientTheme;
   event: DeliveryLandingPageData;
   branding: boolean;
-  matchCount: number;
-  guestName?: string;
-  /** Routes to the Gallery tab. */
-  onSeeMine: () => void;
+  /** The welcome line, already resolved — shared with `DesktopCover` so the two
+   *  covers cannot drift. See `lib/welcome-band.ts`. */
+  band: WelcomeBand;
+  /** Runs `band.action` — usually into the Gallery tab, sometimes the scan
+   *  screen or the passcode sheet. The cover doesn't know which. */
+  onBandAction: () => void;
   date: string | null;
 }) {
   const heroBg = event.background_image
@@ -84,7 +86,7 @@ export function CoverMasthead({
         {/* frosted welcome band — same Apple-style glass as desktop */}
         <button
           type="button"
-          onClick={onSeeMine}
+          onClick={onBandAction}
           className="lounge-rise mt-6 flex w-full cursor-pointer items-center gap-3 rounded-2xl py-3.5 pl-4 pr-3 text-left transition-transform active:scale-[0.99]"
           style={{
             background: "rgba(255,255,255,0.82)",
@@ -96,16 +98,9 @@ export function CoverMasthead({
           }}
         >
           <span className="min-w-0 flex-1 text-[14px] font-semibold" style={{ color: t.text }}>
-            {matchCount > 0 ? (
-              <>
-                Welcome back{guestName ? `, ${guestName}` : ""} — you&rsquo;re in{" "}
-                <span style={{ color: t.brand }}>
-                  {matchCount.toLocaleString("en-IN")} photo{matchCount === 1 ? "" : "s"}
-                </span>
-              </>
-            ) : (
-              <>Welcome{guestName ? `, ${guestName}` : ""} — no matches yet</>
-            )}
+            {band.lead}
+            {band.highlight && <span style={{ color: t.brand }}>{band.highlight}</span>}
+            {band.trail}
           </span>
           <span className="shrink-0" style={{ color: t.brand }}>
             <IconArrowRight size={18} weight="bold" />

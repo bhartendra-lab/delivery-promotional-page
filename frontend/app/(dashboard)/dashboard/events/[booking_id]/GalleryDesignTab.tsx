@@ -51,6 +51,7 @@ export function GalleryDesignTab({
   initialGuestTypes,
   allowDownload,
   showGoogleReview,
+  faceSearchEnabled,
   onSave,
 }: {
   eventName: string;
@@ -76,6 +77,13 @@ export function GalleryDesignTab({
    * the real gallery won't make.
    */
   showGoogleReview: boolean;
+  /**
+   * The event's `face_search_enabled` preference — edited on Access & Sharing,
+   * read-only here. The gallery preview must honour it for the same reason it
+   * honours `allowDownload`: a mockup showing a My Photos tab this gallery does
+   * not have is a lie the studio would design around.
+   */
+  faceSearchEnabled: boolean;
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
@@ -286,7 +294,7 @@ export function GalleryDesignTab({
           </button>
           {guestTypes.length === 0 && (
             <p className="mt-2 text-[12px] text-[var(--color-brand-muted)]">
-              No teams — guests skip the team-selection step and go straight to the face scan.
+              No teams. Guests skip the team question and go straight to their photos.
             </p>
           )}
         </SectionCard>
@@ -395,6 +403,7 @@ export function GalleryDesignTab({
                     branding={branding}
                     scope={scope}
                     allowDownload={allowDownload}
+                    faceSearchEnabled={faceSearchEnabled}
                     showReviewPrompt={showReviewPrompt}
                   />
                 </div>
@@ -417,6 +426,7 @@ export function GalleryDesignTab({
                       branding={branding}
                       scope={scope}
                       allowDownload={allowDownload}
+                      faceSearchEnabled={faceSearchEnabled}
                       showReviewPrompt={showReviewPrompt}
                       compact
                     />
@@ -444,6 +454,7 @@ function ClientPagePreview({
   branding,
   scope,
   allowDownload,
+  faceSearchEnabled,
   showReviewPrompt,
   compact = false,
 }: {
@@ -459,6 +470,9 @@ function ClientPagePreview({
   /** The event's `allow_download` preference — gates every download affordance
    *  in the gallery-scope preview, exactly as it does in the real gallery. */
   allowDownload: boolean;
+  /** The event's `face_search_enabled` preference — removes the My Photos
+   *  segment from the gallery preview, as it does in the real gallery. */
+  faceSearchEnabled: boolean;
   /** Whether the real gallery would show any review ask (see the tab's prop). */
   showReviewPrompt: boolean;
   compact?: boolean;
@@ -480,7 +494,14 @@ function ClientPagePreview({
   const truncated = useIsTruncated(messageRef, [compactMessage, expanded, compact]);
 
   if (scope === "gallery") {
-    return <GalleryScopePreview theme={theme} compact={compact} allowDownload={allowDownload} />;
+    return (
+      <GalleryScopePreview
+        theme={theme}
+        compact={compact}
+        allowDownload={allowDownload}
+        faceSearchEnabled={faceSearchEnabled}
+      />
+    );
   }
 
   return (
@@ -611,10 +632,12 @@ function GalleryScopePreview({
   theme,
   compact,
   allowDownload,
+  faceSearchEnabled,
 }: {
   theme: ClientTheme;
   compact: boolean;
   allowDownload: boolean;
+  faceSearchEnabled: boolean;
 }) {
   const [tab, setTab] = useState<"mine" | "all">("all");
   const [folder, setFolder] = useState(ALL);
@@ -642,7 +665,7 @@ function GalleryScopePreview({
         style={{ padding: compact ? "14px 18px 0" : "16px 40px 0" }}
       >
         <div className="flex items-center justify-between gap-2">
-          <UnlockAwareSwitcher t={theme} tab={tab} setTab={setTab} dimmed={likedView} />
+          <UnlockAwareSwitcher t={theme} tab={tab} setTab={setTab} dimmed={likedView} showMine={faceSearchEnabled} />
           <ActionsCluster
             t={theme}
             likedView={likedView}

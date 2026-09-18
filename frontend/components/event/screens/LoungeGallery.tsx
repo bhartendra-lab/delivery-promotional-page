@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
+import { resolveWelcomeBand } from "@/lib/welcome-band";
 import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
 import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
@@ -29,7 +30,7 @@ import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
 import { GalleryGrid } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary } from "./gallery/GalleryControls";
-import { IconHeart, IconGrid, IconHome, IconLock } from "@/components/ui/icons";
+import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
 
 const PAGE = 60;
 /**
@@ -125,6 +126,33 @@ export function LoungeGallery({
     [event.delivery_preferences],
   );
   const canDownload = prefs.allow_download;
+
+  /* ── face search, and what a Guest is left with without it ──────────────
+     Four flags, derived once here and threaded everywhere, because every one
+     of them is read by both shells and by half a dozen child components. */
+
+  /** The Studio's per-event switch. Off means no selfie step, no My Photos
+   *  anywhere, and no face-search call from this screen. */
+  const faceSearchOn = prefs.face_search_enabled;
+  /** A validated selfie — the thing My Photos is actually built on. A Guest who
+   *  skipped the scan has none, and neither has one who never got that far. */
+  const hasSelfie = !!session.selfie_id;
+  /**
+   * The event has something for a Guest without the passcode to look at.
+   * `sample_media_urls` is filled by the landing endpoint from images in PUBLIC
+   * folders only, so it is exactly the right signal and costs nothing — it is
+   * already on the page. Known edge: a public folder holding only videos reads
+   * as "nothing public" here.
+   */
+  const hasPublicPhotos = (event.sample_media_urls?.length ?? 0) > 0;
+  /**
+   * The passcode stops being optional. With face search off there is no matched
+   * set, and with no public folder there are no Highlights either — so this
+   * Guest can currently see nothing at all, and a dismissible "Unlock" hidden
+   * in the toolbar would leave them staring at an empty gallery wondering what
+   * they did wrong. Raised as a sheet they cannot dismiss instead.
+   */
+  const passcodeRequired = !faceSearchOn && !unlocked && !hasPublicPhotos;
 
   // The Studio's required visit. Catches EVERY Guest once per gallery — not
   // just Guests missing a name — so a Guest who signed in with Google (name
@@ -234,7 +262,21 @@ export function LoungeGallery({
   const contactUrl = waNumber ? `https://wa.me/${waNumber}` : null;
 
   const [view, setView] = useState<"home" | "gallery">("home");
-  const [tab, setTab] = useState<"mine" | "all">("mine");
+  /**
+   * Which tab the grid opens on. "My Photos" is only ever the right landing
+   * place for a Guest who has something in it — or who is being invited to
+   * scan, with nowhere better to go:
+   *   - face search off  → All, the only tab there is;
+   *   - has a selfie     → My Photos, as before;
+   *   - skipped the scan → All when there IS an All worth showing (unlocked, or
+   *     public folders), otherwise My Photos, whose scan prompt is that Guest's
+   *     best way into the gallery.
+   */
+  const [tab, setTab] = useState<"mine" | "all">(() => {
+    if (!faceSearchOn) return "all";
+    if (hasSelfie) return "mine";
+    return unlocked || hasPublicPhotos ? "all" : "mine";
+  });
   const [folder, setFolder] = useState<string>(ALL);
   const [likedView, setLikedView] = useState(false);
 
@@ -287,7 +329,10 @@ export function LoungeGallery({
   // longer forced back to "mine" — the backend scopes that request to public
   // (Highlights) folders on its own via the guest's real session, so the tab
   // the guest sees always matches the tab that's actually requested.
-  const effTab: "mine" | "all" = tab;
+  // With face search off, "mine" is not a view this gallery has — pin every
+  // request and every empty state to All, whatever `tab` happens to hold (a
+  // Guest can be sitting on My Photos when the Studio flips the switch).
+  const effTab: "mine" | "all" = faceSearchOn ? tab : "all";
   const loadingMoreRef = useRef(false);
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
@@ -295,7 +340,13 @@ export function LoungeGallery({
   // visit in this tab) only seeds the initial render so the grid can paint
   // immediately — search-selfie still re-runs on every mount below, because the
   // studio keeps uploading and yesterday's match set misses today's photos.
-  const [mediaIds, setMediaIds] = useState<string[] | null>(() => getCachedMediaIds(uniqueIdentifier));
+  // With face search off there is no matched set and never will be: start at
+  // EMPTY rather than null (null means "still resolving" and would hold the
+  // media loader forever), and ignore the per-tab cache, which may still hold
+  // a set from before the Studio switched it off.
+  const [mediaIds, setMediaIds] = useState<string[] | null>(() =>
+    faceSearchOn ? getCachedMediaIds(uniqueIdentifier) : [],
+  );
   // Captured once at mount: whether the match count still needs to resolve
   // during THIS visit (a fresh scan, or a returning guest whose cache was
   // empty). Drives the dismissible "Found N photos" banner below — a guest
@@ -326,6 +377,9 @@ export function LoungeGallery({
   });
 
   useEffect(() => {
+    // Nothing to search for, and the backend would refuse anyway (it checks the
+    // same switch on the way in, to catch exactly this tab).
+    if (!faceSearchOn) return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -361,7 +415,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, session.selfie_id]);
+  }, [uniqueIdentifier, bookingId, session.selfie_id, faceSearchOn]);
 
   // Seed the liked set from the server's per-photo liked_by_me flag so hearts
   // persist across reloads (additive — optimistic toggles still win in-session).
@@ -384,6 +438,11 @@ export function LoungeGallery({
   // those ids, so firing before they're known would return an empty gallery.
   useEffect(() => {
     if (mediaIds === null) return;
+    // Nothing this Guest can see yet, so nothing worth asking for: the request
+    // would come back empty and the required passcode sheet is over the grid
+    // anyway. The unlock path bumps `reloadKey`, and unlocking also clears
+    // `passcodeRequired`, so the first real load happens the moment they are in.
+    if (passcodeRequired) return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -425,7 +484,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds]);
+  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || items.length >= totalForView) return;
@@ -518,7 +577,15 @@ export function LoungeGallery({
   // looking at photos yet, and two asks at once is one too many. The delay
   // simply starts once the sheet closes.
   const galleryReady =
-    !loading && !loadError && items.length > 0 && (isDesktop || view === "gallery") && !showIntakeSheet;
+    !loading &&
+    !loadError &&
+    items.length > 0 &&
+    (isDesktop || view === "gallery") &&
+    !showIntakeSheet &&
+    // Nor behind the required passcode sheet: a Guest who has not been let in
+    // yet has seen no photos to be delighted by, and cannot dismiss the nudge
+    // without first dealing with the sheet under it.
+    !passcodeRequired;
   useEffect(() => {
     if (!reviewUrl || !galleryReady || loadNudgeShown.current) return;
     const id = setTimeout(() => {
@@ -967,7 +1034,11 @@ export function LoungeGallery({
      listener would silently never fire. The overlay guard below is what keeps
      these from acting behind the PhotoViewer, PasscodeSheet, ProfileSheet or
      IntakeSheet, and the target check keeps them out of text fields. */
-  const overlayOpen = viewerIndex != null || passcodeOpen || profileOpen || showIntakeSheet;
+  /** The passcode sheet is up — opened deliberately, or held open because this
+   *  Guest cannot see anything without it. The intake sheet always comes first,
+   *  so a Guest is never asked for a name and a passcode at once. */
+  const passcodeSheetOpen = passcodeOpen || (passcodeRequired && !showIntakeSheet);
+  const overlayOpen = viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet;
   useEffect(() => {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1095,6 +1166,43 @@ export function LoungeGallery({
     mobileScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  /**
+   * The cover's one sentence, and what tapping it does. Both covers render this
+   * same object — see `lib/welcome-band.ts` for the copy table.
+   *
+   * `matchCount` is deliberately `mediaIds?.length ?? null`, NOT `?? 0`: null
+   * means the face search has not answered yet, and the band says "Finding your
+   * photos…" instead of flashing "No matches yet" at a Guest who is in forty of
+   * them. `accessibleCount` falls back to the booking's own photo_count for an
+   * unlocked Guest, so the number is there on first paint rather than after the
+   * All view loads.
+   */
+  const welcomeBand = resolveWelcomeBand({
+    faceSearchOn,
+    hasSelfie,
+    matchCount: mediaIds?.length ?? null,
+    unlocked,
+    hasPublicPhotos,
+    accessibleCount: allCount ?? (unlocked ? event.photo_count ?? null : null),
+    guestName: session.name,
+  });
+
+  /** Run whatever the band offers. The covers stay ignorant of tabs, sheets and
+   *  the scan flow; this is the only place the mapping lives. */
+  const onBandAction = () => {
+    switch (welcomeBand.action) {
+      case "scan":
+        onRescan();
+        return;
+      case "passcode":
+        setPasscodeOpen(true);
+        return;
+      case "mine":
+      case "all":
+        gotoGallery(welcomeBand.action);
+    }
+  };
+
   const date = formatDate(event.event_date);
 
   /* ── render ───────────────────────────────────────────────────────────── */
@@ -1124,9 +1232,8 @@ export function LoungeGallery({
             t={t}
             event={event}
             branding={branding}
-            matchCount={mediaIds?.length ?? 0}
-            guestName={session.name}
-            onSeeMine={() => gotoGallery("mine")}
+            band={welcomeBand}
+            onBandAction={onBandAction}
             onScrollToGrid={() => gridSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
             date={date}
           />
@@ -1138,6 +1245,7 @@ export function LoungeGallery({
             unlocked={unlocked}
             tab={tab}
             setTab={desktopSetTab}
+            showMine={faceSearchOn}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
@@ -1172,10 +1280,24 @@ export function LoungeGallery({
             ) : loadError && items.length === 0 ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
-              !likedView && tab === "mine" ? (
-                <NoMatchState t={t} onRescan={onRescan} onBrowseAll={() => gotoGallery("all")} contactUrl={contactUrl} onContactClick={onContactClick} />
+              !likedView && effTab === "mine" ? (
+                // A Guest with no selfie has nothing to have failed at — they
+                // have not searched yet. Invite the scan instead of reporting
+                // a match that was never attempted.
+                faceSearchOn && !hasSelfie ? (
+                  <ScanPromptState t={t} onRescan={onRescan} onBrowseAll={() => gotoGallery("all")} />
+                ) : (
+                  <NoMatchState t={t} onRescan={onRescan} onBrowseAll={() => gotoGallery("all")} contactUrl={contactUrl} onContactClick={onContactClick} />
+                )
               ) : (
-                <EmptyState t={t} likedView={likedView} unlocked={unlocked} tab={tab} onOpenPrivate={() => setPasscodeOpen(true)} />
+                <EmptyState
+                  t={t}
+                  likedView={likedView}
+                  unlocked={unlocked}
+                  tab={effTab}
+                  onOpenPrivate={() => setPasscodeOpen(true)}
+                  onRescan={faceSearchOn && !hasSelfie ? onRescan : undefined}
+                />
               )
             ) : (
               <>
@@ -1243,9 +1365,8 @@ export function LoungeGallery({
               t={t}
               event={event}
               branding={branding}
-              matchCount={mediaIds?.length ?? 0}
-              guestName={session.name}
-              onSeeMine={() => gotoGallery("mine")}
+              band={welcomeBand}
+              onBandAction={onBandAction}
               date={date}
             />
             <div className="mx-auto w-full max-w-[460px] px-5 pb-[120px] pt-6">
@@ -1314,6 +1435,8 @@ export function LoungeGallery({
             onContactClick={onContactClick}
             onRescan={onRescan}
             onBrowseAll={() => gotoGallery("all")}
+            faceSearchOn={faceSearchOn}
+            hasSelfie={hasSelfie}
             showMatchBanner={showMatchBanner}
             matchCount={mediaIds?.length ?? 0}
             onDismissMatchBanner={() => setMatchBannerDismissed(true)}
@@ -1393,9 +1516,19 @@ export function LoungeGallery({
         />
       )}
 
-      {/* passcode */}
-      {passcodeOpen && (
+      {/* passcode — the optional "Unlock" action, or (face search off, nothing
+          public) the non-dismissible sheet that is this Guest's only way in.
+          Never over the intake sheet: the name/team question always comes
+          first. The in-gallery access re-check above closes this on its own if
+          the Studio grants access while the Guest sits here, because that
+          patches `guest_type` and `passcodeRequired` goes false with it. */}
+      {passcodeSheetOpen && (
         <PasscodeSheet
+          required={passcodeRequired}
+          studioName={hasStudio ? event.company_name : undefined}
+          contactUrl={contactUrl}
+          onContactClick={onContactClick}
+          onSignOut={onSignOut}
           onClose={() => setPasscodeOpen(false)}
           onSuccess={() => {
             onSessionChange({ guest_type: "host" });
@@ -1419,6 +1552,8 @@ export function LoungeGallery({
         <ProfileSheet
           name={session.name}
           selfieUrl={session.selfie_url}
+          faceSearchOn={faceSearchOn}
+          hasSelfie={hasSelfie}
           onClose={() => setProfileOpen(false)}
           onRescan={() => {
             setProfileOpen(false);
@@ -1571,6 +1706,11 @@ function MobileGalleryView(props: {
   onContactClick: () => void;
   onRescan: () => void;
   onBrowseAll: () => void;
+  /** The event's face search switch — hides the My Photos segment and swaps
+   *  the empty states, exactly as on desktop. */
+  faceSearchOn: boolean;
+  /** This Guest has a validated selfie. */
+  hasSelfie: boolean;
   showMatchBanner: boolean;
   matchCount: number;
   onDismissMatchBanner: () => void;
@@ -1578,7 +1718,11 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
+
+  // Mirrors the parent's `effTab`: with face search off there is no My Photos,
+  // whatever `tab` still holds.
+  const effTab: "mine" | "all" = faceSearchOn ? tab : "all";
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1610,7 +1754,7 @@ function MobileGalleryView(props: {
               Liked
             </span>
           ) : (
-            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} />
+            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} showMine={faceSearchOn} />
           )}
           <ActionsCluster
             t={t}
@@ -1651,10 +1795,21 @@ function MobileGalleryView(props: {
           ) : props.loadError && items.length === 0 ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            !likedView && tab === "mine" ? (
-              <NoMatchState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} contactUrl={contactUrl} onContactClick={onContactClick} />
+            !likedView && effTab === "mine" ? (
+              faceSearchOn && !hasSelfie ? (
+                <ScanPromptState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} />
+              ) : (
+                <NoMatchState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} contactUrl={contactUrl} onContactClick={onContactClick} />
+              )
             ) : (
-              <EmptyState t={t} likedView={likedView} unlocked={unlocked} tab={tab} onOpenPrivate={onOpenPrivate} />
+              <EmptyState
+                t={t}
+                likedView={likedView}
+                unlocked={unlocked}
+                tab={effTab}
+                onOpenPrivate={onOpenPrivate}
+                onRescan={faceSearchOn && !hasSelfie ? onRescan : undefined}
+              />
             )
           ) : (
             <>
@@ -1725,6 +1880,7 @@ function EmptyState({
   unlocked,
   tab,
   onOpenPrivate,
+  onRescan,
 }: {
   t: Theme;
   likedView: boolean;
@@ -1735,6 +1891,10 @@ function EmptyState({
   tab: "mine" | "all";
   /** Opens the passcode sheet — the same one the toolbar's Unlock action uses. */
   onOpenPrivate: () => void;
+  /** Present only when face search is on and this Guest has no selfie: then the
+   *  passcode is not their only way in, and scanning may well be the easier
+   *  one. Absent otherwise, and the button isn't rendered. */
+  onRescan?: () => void;
 }) {
   const canUnlock = !likedView && tab === "all" && !unlocked;
   if (canUnlock) {
@@ -1759,6 +1919,16 @@ function EmptyState({
           >
             Enter passcode
           </button>
+          {onRescan && (
+            <button
+              type="button"
+              onClick={onRescan}
+              className="cursor-pointer rounded-full py-3 text-[13px] font-bold"
+              style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+            >
+              Scan my face
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1797,6 +1967,57 @@ function MatchBanner({ t, count, onDismiss, className = "" }: { t: Theme; count:
       >
         ×
       </button>
+    </div>
+  );
+}
+
+/**
+ * My Photos, for a Guest who has not scanned — because they skipped it, or
+ * because they have not been asked yet.
+ *
+ * Deliberately NOT `NoMatchState`: that screen apologises for a search that
+ * found nothing, which is a confusing thing to read when you never ran one.
+ * This one is an invitation, and it offers the gallery as the other way out, so
+ * a Guest who does not want to be face-matched is not cornered.
+ */
+function ScanPromptState({
+  t,
+  onRescan,
+  onBrowseAll,
+}: {
+  t: Theme;
+  onRescan: () => void;
+  onBrowseAll: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 px-8 py-16 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.accentWash, color: t.brand }}>
+        <IconScanFace size={24} />
+      </span>
+      <div className="flex flex-col gap-1.5">
+        <h2 className="text-[16px] font-extrabold" style={{ color: t.text }}>Find the photos you&rsquo;re in</h2>
+        <p className="max-w-[300px] text-[13px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
+          Take a quick selfie and we&rsquo;ll gather every photo you appear in.
+        </p>
+      </div>
+      <div className="mt-1 flex w-full max-w-[280px] flex-col gap-2">
+        <button
+          type="button"
+          onClick={onRescan}
+          className="cursor-pointer rounded-full py-3 text-[13px] font-extrabold"
+          style={{ background: t.brand, color: t.onBrand }}
+        >
+          Scan my face
+        </button>
+        <button
+          type="button"
+          onClick={onBrowseAll}
+          className="cursor-pointer rounded-full py-3 text-[13px] font-bold"
+          style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+        >
+          Browse all photos
+        </button>
+      </div>
     </div>
   );
 }

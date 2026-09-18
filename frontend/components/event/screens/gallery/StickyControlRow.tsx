@@ -44,11 +44,14 @@ export function StickyControlRow({
   downloadCount,
   rowRef,
   allCount,
+  showMine = true,
 }: {
   t: ClientTheme;
   unlocked: boolean;
   tab: "mine" | "all";
   setTab: (k: "mine" | "all") => void;
+  /** False with face search off — see `UnlockAwareSwitcher`. */
+  showMine?: boolean;
   /** Opens the gallery-passcode sheet (the "Unlock" action). */
   onOpenPrivate: () => void;
   folders: CustomFolder[];
@@ -102,7 +105,7 @@ export function StickyControlRow({
             hint={selectionHint}
           />
         ) : (
-          <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} dimmed={likedView} />
+          <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} dimmed={likedView} showMine={showMine} />
         )}
 
         <ActionsCluster

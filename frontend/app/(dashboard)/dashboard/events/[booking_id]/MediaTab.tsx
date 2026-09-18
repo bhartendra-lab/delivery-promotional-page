@@ -12,12 +12,10 @@ import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
 import { WatermarkReminderDialog } from "./WatermarkReminderDialog";
-import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { DELIVERY_PREFERENCE_DEFAULTS } from "@/lib/delivery-preferences";
-import { useCompany } from "@/lib/useCompany";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
-import { IconCheck, IconX, IconUpload, IconEdit, IconWarning, IconGear } from "./icons";
+import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
 
 /** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
 type UploadIntent = { step: UploadModalStep; target: UploadFolderOption | null; folderOnly: boolean };
@@ -31,8 +29,6 @@ type PendingCover = { kind: "file"; file: File; previewUrl: string } | { kind: "
  * (modals, active folder) stays here.
  */
 export function MediaTab({ loading }: { loading: boolean }) {
-  // The company-wide review switch locks this event's review preference row.
-  const company = useCompany();
   const {
     bookingId: ctxBookingId,
     meta,
@@ -84,9 +80,10 @@ export function MediaTab({ loading }: { loading: boolean }) {
     () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
   );
   const [editOpen, setEditOpen] = useState(false);
-  /** The standalone gear-icon Preferences dialog (the upload dialog owns its
-   *  own copy of the same panel as step 2). */
-  const [prefsOpen, setPrefsOpen] = useState(false);
+  /* The gear-icon Preferences dialog now lives on the Access & Sharing tab:
+     this tab is about FILES, and what a Guest may do with them belongs beside
+     the link that lets them in. The upload dialog still carries its own copy of
+     the same panel as step 2, for the run being uploaded. */
   /** Set once a cancelled run has fully settled — drives the summary card. */
   const [cancelSummary, setCancelSummary] = useState<{ saved: number } | null>(null);
   // A cover pick (upload or "Set as cover photo") parked here until the studio
@@ -403,7 +400,6 @@ export function MediaTab({ loading }: { loading: boolean }) {
           activeIsSystem={activeIsSystem}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
-          onOpenPreferences={() => setPrefsOpen(true)}
         />
 
         {/* Mobile folder switcher (desktop uses the FoldersSidebar). */}
@@ -505,20 +501,6 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
       <WatermarkReminderDialog open={!!pendingUploadIntent} onSkip={handleWatermarkReminderSkip} />
 
-      {/* Same panel as the upload dialog's step 2, against the same event-scoped
-          value — flipping it here changes what every guest sees immediately. */}
-      <DeliveryPreferencesModal
-        open={prefsOpen}
-        onClose={() => setPrefsOpen(false)}
-        eventName={meta.name}
-        saved={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
-        onSave={saveDeliveryPreferences}
-        toast={toast}
-        // A QHD-only event has no unwatermarked copy, so the archive download
-        // row is not shown here at all.
-        context={{ archiveTiers, googleReviewEnabledGlobally: company?.google_review_enabled !== false }}
-      />
-
       {cancelSummary && (
         <CancelSummaryCard saved={cancelSummary.saved} onClose={() => setCancelSummary(null)} />
       )}
@@ -562,7 +544,6 @@ function EventHeader({
   activeIsSystem,
   onUploadMore,
   onEdit,
-  onOpenPreferences,
 }: {
   meta: { name: string; type: string; eventDate: number | null };
   totalPhotos: number;
@@ -574,7 +555,6 @@ function EventHeader({
   activeIsSystem: boolean;
   onUploadMore: () => void;
   /** Opens the standalone gallery-preferences dialog. */
-  onOpenPreferences: () => void;
   onEdit: () => void;
 }) {
   const dateLabel = meta.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -629,34 +609,18 @@ function EventHeader({
         <p className="mt-1.5 text-[13px] text-[var(--color-brand-muted)]">{subtitle}</p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
-        {/* Preferences is reachable in every non-loading state — the studio must
-            be able to set download rights BEFORE the first upload and DURING
-            one — and on mobile, unlike "Upload more" (uploading is desktop-only in
-            production, changing a preference isn't). Not gated by `activeLocked` either:
-            that guard protects folder structure from racing an in-flight
-            upload, and a delivery-landing-page write touches neither. */}
-        {state !== "loading" && (
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onOpenPreferences}
-              aria-label="Gallery preferences"
-              title="Gallery preferences"
-              className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
-            >
-              <IconGear size={16} />
-            </button>
-            {state === "populated" && (
-              <button
-                type="button"
-                onClick={onUploadMore}
-                className={`brand-focus items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
-              >
-                <IconUpload size={14} />
-                Upload more
-              </button>
-            )}
-          </div>
+        {/* Gallery preferences used to sit here as a gear icon. It is on the
+            Access & Sharing tab now — still reachable before the first upload
+            and during one, just beside the link it actually governs. */}
+        {state === "populated" && (
+          <button
+            type="button"
+            onClick={onUploadMore}
+            className={`brand-focus items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
+          >
+            <IconUpload size={14} />
+            Upload more
+          </button>
         )}
         {state === "populated" && (
           <>
