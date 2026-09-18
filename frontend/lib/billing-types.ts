@@ -23,6 +23,10 @@ type SubscriptionBase = {
   current_period_start: number | null;
   current_period_end: number | null;
   cancel_at_period_end: boolean;
+  /** Whether the plan renews on its own (it has a Razorpay mandate that isn't
+   *  cancelled). Optional: older API responses don't carry it — read it
+   *  through autoRenews() in lib/subscription-status.ts. */
+  auto_renews?: boolean;
   grace_until: number | null;
   suspend_at: number | null;
   delete_at: number | null;

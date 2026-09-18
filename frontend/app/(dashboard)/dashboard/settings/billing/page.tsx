@@ -13,6 +13,7 @@ import { ConfirmingPayment } from "@/components/billing/ConfirmingPayment";
 import { listInvoices, cancelSubscription, resumeSubscription, ApiError } from "@/lib/billing";
 import type { Invoice } from "@/lib/billing-types";
 import { isStorageBasedPlan } from "@/lib/types";
+import { autoRenews } from "@/lib/subscription-status";
 import { BillingDetailsCard } from "./BillingDetailsCard";
 
 const formatDate = (ms: number) =>
@@ -55,7 +56,8 @@ export default function BillingSettingsPage() {
   }
 
   const isRecurring = isStorageBasedPlan(snapshot?.service?.service_type);
-  const canCancel = isRecurring && snapshot?.status === "active" && !snapshot.cancel_at_period_end;
+  // A plan with no mandate (100% coupon, set by support) has no auto-renew to turn off.
+  const canCancel = isRecurring && snapshot?.status === "active" && !snapshot.cancel_at_period_end && autoRenews(snapshot);
   const canResume = isRecurring && (snapshot?.status === "active" || snapshot?.status === "cancelled") && snapshot?.cancel_at_period_end;
 
   async function handleCancel() {

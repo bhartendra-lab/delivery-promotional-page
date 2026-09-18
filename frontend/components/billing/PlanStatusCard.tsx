@@ -1,11 +1,8 @@
 "use client";
 
-import { isStorageBasedPlan } from "@/lib/types";
 import { isStorageSnapshot } from "@/lib/billing-types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
-
-const formatDate = (ms: number) =>
-  new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(ms));
+import { planPeriodLine } from "@/lib/subscription-status";
 
 export function PlanStatusCard({ snapshot, loading }: { snapshot: SubscriptionSnapshot | null; loading?: boolean }) {
   if (loading) return <div className="skeleton h-[96px] rounded-xl" />;
@@ -22,20 +19,7 @@ export function PlanStatusCard({ snapshot, loading }: { snapshot: SubscriptionSn
 
   const { service } = snapshot;
   const planName = service.name || service.service_type;
-  const isRecurring = isStorageBasedPlan(service.service_type);
-
-  let periodLine: string;
-  if (isRecurring) {
-    if (snapshot.cancel_at_period_end && snapshot.current_period_end) {
-      periodLine = `Access until ${formatDate(snapshot.current_period_end)}`;
-    } else if (snapshot.current_period_end) {
-      periodLine = `Renews on ${formatDate(snapshot.current_period_end)}`;
-    } else {
-      periodLine = "Renewal date pending";
-    }
-  } else {
-    periodLine = "No renewal — credits don't expire.";
-  }
+  const periodLine = planPeriodLine(snapshot);
 
   return (
     <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5">
