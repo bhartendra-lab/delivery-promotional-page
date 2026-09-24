@@ -150,3 +150,15 @@ test("isRequestAllowed: an unknown host with no Host header still cannot reach t
   assert.equal(isRequestAllowed(null, "/dashboard"), false);
   assert.equal(isRequestAllowed("", "/dashboard"), false);
 });
+
+/* ── the friend-request approval link ───────────────────────────────────────
+ *
+ * Email requests carry the STUDIO's domain (the backend builds them with
+ * `galleryBaseUrlFor`), so this path has to be served there or every emailed
+ * request from a studio with a custom domain 404s. It needs no new entry: the
+ * gate allows `/event/` as a prefix. This test is what stops that prefix from
+ * being narrowed to an exact path later without anyone noticing. */
+test("isRequestAllowed: the friends approval link is served on a studio host", () => {
+  assert.equal(isRequestAllowed("gallery.studioxyz.com", "/event/priya-rahul/friends"), true);
+  assert.equal(isRequestAllowed("deliver.vyavasth.in", "/event/priya-rahul/friends"), true);
+});

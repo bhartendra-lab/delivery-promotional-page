@@ -10,6 +10,7 @@
 import { ApiError, type PresignRequest, type PresignedUpload } from "./api";
 import { ensureGuestToken, refreshGuest } from "./guest-auth";
 import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./types";
+import type { FriendFinderBlock } from "./friend-finder/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -29,8 +30,10 @@ function safeParse(text: string): unknown {
   }
 }
 
-/** Core guest fetch: attach token, refresh-and-retry once on 401, parse JSON. */
-async function guestFetch<T>(uid: string, path: string, init: RequestInit = {}): Promise<T> {
+/** Core guest fetch: attach token, refresh-and-retry once on 401, parse JSON.
+ *  Exported for `lib/friend-finder/api.ts`, which needs the same token and
+ *  refresh-and-retry behaviour but lives in its own lazily-loaded chunk. */
+export async function guestFetch<T>(uid: string, path: string, init: RequestInit = {}): Promise<T> {
   const token = await ensureGuestToken(uid);
   if (!token) throw new GuestAuthError();
 
@@ -64,9 +67,21 @@ async function guestFetch<T>(uid: string, path: string, init: RequestInit = {}):
 
 /* ── session ────────────────────────────────────────────────────────────── */
 
-/** Restore the guest's session (drives returning-guest skip of login/team/scan). */
+/**
+ * Restore the guest's session (drives returning-guest skip of login/team/scan).
+ *
+ * The REQUEST is deliberately unchanged: no query string, same path, same
+ * method. Only the declared response type widened, because the backend now also
+ * returns a `friend_finder` block on this endpoint — and returns it only while
+ * its global switch is on, so the key is simply absent on every gallery until
+ * then. Callers that do not know about the feature keep reading `guest` and are
+ * unaffected.
+ */
 export function getGuestSession(uid: string) {
-  return guestFetch<{ guest: GuestSession }>(uid, "/deliverables/get-guest-session");
+  return guestFetch<{ guest: GuestSession; friend_finder?: FriendFinderBlock }>(
+    uid,
+    "/deliverables/get-guest-session",
+  );
 }
 
 /**

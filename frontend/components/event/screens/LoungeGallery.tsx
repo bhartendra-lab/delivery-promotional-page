@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
+import type { FriendFinderBlock } from "@/lib/friend-finder/types";
+import type { GroupCursor, GroupFeed } from "@/lib/friend-finder/feed";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { resolveWelcomeBand } from "@/lib/welcome-band";
 import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
@@ -29,8 +32,26 @@ import { MobileTopBar } from "./lounge/MobileTopBar";
 import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
 import { GalleryGrid } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
-import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary } from "./gallery/GalleryControls";
+import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./gallery/GalleryControls";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
+
+/**
+ * "Find your friends group", behind a dynamic import.
+ *
+ * The whole feature — card, sheets, copy, API and storage modules — lives in
+ * this one chunk, which is fetched only on a gallery where `friend_finder` came
+ * back `enabled`. What the lounge itself carries is this declaration and the
+ * conditional render at the bottom of the tree, so the initial JavaScript for
+ * every gallery without the feature is what it always was.
+ *
+ * `ssr: false` because it reads localStorage and the guest token on mount, and
+ * there is no server-rendered markup worth producing for a surface that only
+ * exists for a signed-in guest.
+ */
+const FriendsSurface = dynamic(
+  () => import("./friends/FriendsSurface").then((m) => m.FriendsSurface),
+  { ssr: false },
+);
 
 const PAGE = 60;
 /**
@@ -88,12 +109,23 @@ const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((
 export function LoungeGallery({
   session,
   onSessionChange,
+  friendFinder,
+  onFriendFinderChange,
+  scanJustCompleted,
+  onScanTriggerConsumed,
   onReauth,
   onRescan,
   onSignOut,
 }: {
   session: GuestSession;
   onSessionChange: (patch: Partial<GuestSession>) => void;
+  /** "Find your friends group" as the session reports it, or null when the
+   *  backend's global switch is off. Nothing renders unless `enabled` is true. */
+  friendFinder: FriendFinderBlock | null;
+  onFriendFinderChange: (patch: Partial<FriendFinderBlock>) => void;
+  /** A scan finished during this visit — arms the friends sheet. */
+  scanJustCompleted: boolean;
+  onScanTriggerConsumed: () => void;
   onReauth: () => void;
   onRescan: () => void;
   onSignOut: () => void;
@@ -272,7 +304,7 @@ export function LoungeGallery({
    *     public folders), otherwise My Photos, whose scan prompt is that Guest's
    *     best way into the gallery.
    */
-  const [tab, setTab] = useState<"mine" | "all">(() => {
+  const [tab, setTab] = useState<GalleryTab>(() => {
     if (!faceSearchOn) return "all";
     if (hasSelfie) return "mine";
     return unlocked || hasPublicPhotos ? "all" : "mine";
@@ -307,6 +339,55 @@ export function LoungeGallery({
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   /**
+   * A "Find your friends group" sheet is on screen. Reported UP from the lazily
+   * loaded surface rather than owned here, so this screen stays ignorant of the
+   * feature's own state while still being able to treat it as an overlay: no
+   * Cmd+A behind it, and no review nudge popping over it.
+   */
+  const [friendsSheetOpen, setFriendsSheetOpen] = useState(false);
+  /**
+   * Where the friends card renders, held as STATE rather than a ref so the
+   * surface re-renders into it the moment the slot mounts. Null whenever the
+   * shell that owns the slot is unmounted — the mobile Gallery tab, say — and
+   * then no card renders at all, which is the intended behaviour rather than a
+   * gap to work around.
+   */
+  const [friendsSlot, setFriendsSlot] = useState<HTMLDivElement | null>(null);
+  /** The My Group header (faces, count, waiting pill, Manage) and its empty
+   *  state both come from the friends chunk, through slots of their own. */
+  const [groupHeaderSlot, setGroupHeaderSlot] = useState<HTMLDivElement | null>(null);
+  const [groupEmptySlot, setGroupEmptySlot] = useState<HTMLDivElement | null>(null);
+  /**
+   * My Group's pager, handed over by the friends surface.
+   *
+   * This is the whole seam. The gallery knows how to page a feed and nothing
+   * about how one is built: the bucketing, the labels and the intersection
+   * maths all live on the other side of this type. Null until the friends
+   * payload has resolved, which is why the group tab waits rather than asking
+   * for photos it cannot scope yet.
+   */
+  const [groupFeed, setGroupFeed] = useState<GroupFeed | null>(null);
+  const [groupCursor, setGroupCursor] = useState<GroupCursor | null>(null);
+  /**
+   * Which bucket each loaded item belongs to, parallel to `items`.
+   *
+   * Kept beside the list rather than folded into it, so `items` stays exactly
+   * the shape every other tab produces — one flat array, which is what the
+   * lightbox, the selection and the download planner all read.
+   */
+  const [itemBuckets, setItemBuckets] = useState<number[]>([]);
+  /**
+   * Whether the gallery offers My Group at all.
+   *
+   * `has_group` is set on the guest's FIRST add ever and the backend never
+   * clears it, not even on Stop sharing — so `stopped` has to be checked here
+   * or a guest who withdrew would keep a tab onto a group they have left.
+   * `faceSearchOn` too: a group feed is an intersection of face-matched sets,
+   * and without face search there is nothing to intersect.
+   */
+  const showGroupTab =
+    faceSearchOn && friendFinder?.enabled === true && friendFinder.has_group && !friendFinder.stopped;
+  /**
    * The bulk-download pre-flight + progress surface. Every bulk download in this
    * gallery goes through it — the modal is where the plan is shown, the tier is
    * chosen and progress lives, so there is no separate progress toast any more.
@@ -332,7 +413,21 @@ export function LoungeGallery({
   // With face search off, "mine" is not a view this gallery has — pin every
   // request and every empty state to All, whatever `tab` happens to hold (a
   // Guest can be sitting on My Photos when the Studio flips the switch).
-  const effTab: "mine" | "all" = faceSearchOn ? tab : "all";
+  /**
+   * With face search off there is no My Photos — and no My Group either, since
+   * a group feed is an intersection of face-matched sets. Either tab can be the
+   * one a Guest is sitting on when the Studio flips the switch, so both fall
+   * back to All here rather than being merely hidden.
+   */
+  const effTab: GalleryTab = !faceSearchOn
+    ? "all"
+    : // A Guest can be sitting on My Group when the tab stops being offered —
+      // they hit Stop sharing in another tab, or removed their last friend.
+      // Pinning it back to My Photos here means the grid never holds a feed
+      // whose switch segment has gone.
+      tab === "group" && !showGroupTab
+      ? "mine"
+      : tab;
   const loadingMoreRef = useRef(false);
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
@@ -371,9 +466,11 @@ export function LoungeGallery({
   // re-render never tears the listeners down and rebuilds them.
   const onSessionChangeRef = useRef(onSessionChange);
   const guestTypeRef = useRef(session.guest_type);
+  const onFriendFinderChangeRef = useRef(onFriendFinderChange);
   useEffect(() => {
     onSessionChangeRef.current = onSessionChange;
     guestTypeRef.current = session.guest_type;
+    onFriendFinderChangeRef.current = onFriendFinderChange;
   });
 
   useEffect(() => {
@@ -443,6 +540,11 @@ export function LoungeGallery({
     // anyway. The unlock path bumps `reloadKey`, and unlocking also clears
     // `passcodeRequired`, so the first real load happens the moment they are in.
     if (passcodeRequired) return;
+    // My Group is paged by its own effect below, against a bucketed feed
+    // rather than a scope. Bailing out HERE rather than branching inside keeps
+    // this effect's dependency list exactly what it was: adding the feed to it
+    // would refetch My Photos every time the friends payload changed.
+    if (effTab === "group") return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -486,7 +588,93 @@ export function LoungeGallery({
     };
   }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
 
+  /**
+   * My Group's first page.
+   *
+   * Keyed on `groupFeed?.key` — a signature of the feed's contents — rather
+   * than on the feed object: the people screen patches its payload optimistically
+   * on every tap, and rebuilding an identical feed must not reload the grid
+   * under the guest. The feed itself is read through a ref for the same reason.
+   */
+  const groupFeedRef = useRef<GroupFeed | null>(null);
+  useEffect(() => {
+    groupFeedRef.current = groupFeed;
+  });
+  const groupFeedKey = groupFeed?.key ?? null;
+
+  useEffect(() => {
+    if (effTab !== "group") return;
+    const feed = groupFeedRef.current;
+    // The friends payload has not arrived yet. The grid holds its loading
+    // state rather than showing an empty group that is merely unresolved.
+    if (!feed) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve(); // defer — no synchronous setState in the effect body
+      if (cancelled) return;
+      setLoading(true);
+      setLoadError(false);
+      // Same reasoning as the gallery loader: a fresh result set must not leave
+      // a selection banner describing photos that are no longer on screen.
+      setSelectAll(false);
+      setExcluded(new Set());
+      setSelected(new Set());
+      try {
+        const page = await feed.loadPage(null);
+        if (cancelled) return;
+        setItems(page.items);
+        setItemBuckets(page.items.map(() => page.bucket));
+        setGroupCursor(page.nextCursor);
+        // Exact, and known before a single request: the feed is an
+        // intersection the client already holds.
+        setTotalForView(feed.total);
+        seedLikes(page.items);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof GuestAuthError) onReauth();
+        else setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effTab, groupFeedKey, reloadKey, seedLikes, onReauth]);
+
   const loadMore = useCallback(async () => {
+    // My Group knows it is finished from its CURSOR, not from a count: a photo
+    // deleted since the last face scan would leave `items.length` short of
+    // `total` for ever, and the grid would keep asking for a page that is not
+    // there.
+    if (effTab === "group") {
+      const feed = groupFeedRef.current;
+      if (loadingMoreRef.current || !feed || !groupCursor) return;
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+      try {
+        const page = await feed.loadPage(groupCursor);
+        if (page.items.length) {
+          seedLikes(page.items);
+          setItems((prev) => {
+            const seen = new Set(prev.map((m) => m._id));
+            const fresh = page.items.filter((m) => !seen.has(m._id));
+            // The bucket array is extended in the SAME step, against the same
+            // filtered list, so the two can never drift apart.
+            setItemBuckets((buckets) => [...buckets, ...fresh.map(() => page.bucket)]);
+            return [...prev, ...fresh];
+          });
+        }
+        setGroupCursor(page.nextCursor);
+      } catch {
+        /* leave as-is; scrolling again retries */
+      } finally {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+      return;
+    }
+
     if (loadingMoreRef.current || items.length >= totalForView) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
@@ -512,7 +700,7 @@ export function LoungeGallery({
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, items.length, totalForView, seedLikes, mediaIds]);
+  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, items.length, totalForView, seedLikes, mediaIds, groupCursor]);
 
   useEffect(() => {
     if (!toast) return;
@@ -540,7 +728,15 @@ export function LoungeGallery({
     ? `All ${selectedCount.toLocaleString("en-IN")} selected`
     : `${selectedCount.toLocaleString("en-IN")} selected`;
   const selectionHint = selectedCount > LARGE_SELECTION ? "This can take a few minutes." : undefined;
-  const hasMore = items.length < totalForView;
+  const hasMore = effTab === "group" ? groupCursor !== null : items.length < totalForView;
+  /**
+   * My Group is also "loading" while its pager has not arrived.
+   *
+   * Without this, tapping the tab before the friends payload resolves would
+   * leave the PREVIOUS tab's photos on screen under a My Group header — the
+   * grid's own `loading` only goes true once there is a feed to ask.
+   */
+  const showLoading = loading || (effTab === "group" && !groupFeed);
   const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
 
   /**
@@ -585,7 +781,12 @@ export function LoungeGallery({
     // Nor behind the required passcode sheet: a Guest who has not been let in
     // yet has seen no photos to be delighted by, and cannot dismiss the nudge
     // without first dealing with the sheet under it.
-    !passcodeRequired;
+    !passcodeRequired &&
+    // Nor over a friends sheet. The two never stack, and of the pair the sheet
+    // is the one the Guest's own action just raised. Flipping this false also
+    // CLEARS a pending nudge timer (the effect below cleans up on change), so
+    // the countdown simply restarts once the sheet is done with.
+    !friendsSheetOpen;
   useEffect(() => {
     if (!reviewUrl || !galleryReady || loadNudgeShown.current) return;
     const id = setTimeout(() => {
@@ -712,8 +913,14 @@ export function LoungeGallery({
       lastCheckedAt = Date.now();
       inFlight = true;
       try {
-        const { guest } = await getGuestSession(uniqueIdentifier);
-        if (cancelled || guest.guest_type === guestTypeRef.current) return;
+        const { guest, friend_finder } = await getGuestSession(uniqueIdentifier);
+        if (cancelled) return;
+        // Free ride on a request that was already being made: this is what
+        // keeps the friends card's "N want to add you" badge current after the
+        // Guest has been away in another tab. Applied BEFORE the guest_type
+        // guard below, which returns early on the common no-change path.
+        if (friend_finder) onFriendFinderChangeRef.current(friend_finder);
+        if (guest.guest_type === guestTypeRef.current) return;
         const promoted = guest.guest_type === "host";
         onSessionChangeRef.current({ guest_type: guest.guest_type });
         // A selection made under the old access no longer describes a view the
@@ -894,8 +1101,9 @@ export function LoungeGallery({
       const excludedIds = excluded;
       const scope = currentScope();
       exitSelect();
+      const groupIds = effTab === "group" ? groupFeedRef.current?.allIds : undefined;
       startDownload(name, async (signal) => {
-        const all = await fetchPlanSources(scope, signal);
+        const all = await fetchPlanSources(scope, signal, groupIds);
         return excludedIds.size ? all.filter((e) => !excludedIds.has(e._id)) : all;
       });
       return;
@@ -931,7 +1139,17 @@ export function LoungeGallery({
    * activation (see useDownloadFlow).
    */
   const fetchPlanSources = useCallback(
-    async (scope: MediaScope, signal?: AbortSignal): Promise<(PlanSource & { _id: string })[]> => {
+    async (
+      scope: MediaScope,
+      signal?: AbortSignal,
+      /**
+       * Restrict the walk to these media ids instead of the Guest's whole
+       * matched set. Only My Group passes it, so it can download its own feed
+       * through the identical mechanism rather than a second one. Omitted
+       * everywhere else, which is byte-for-byte the previous behaviour.
+       */
+      idsOverride?: string[],
+    ): Promise<(PlanSource & { _id: string })[]> => {
       const entries: (PlanSource & { _id: string })[] = [];
       const seen = new Set<string>();
       const PAGE_SIZE = 500;
@@ -949,7 +1167,7 @@ export function LoungeGallery({
             skip,
             limit: PAGE_SIZE,
           },
-          mediaIds ?? [],
+          idsOverride ?? mediaIds ?? [],
         );
         const media = res.media ?? [];
         for (const m of media) {
@@ -973,6 +1191,11 @@ export function LoungeGallery({
    *  `getGuestMedia` drops a falsy `mine` rather than sending mine=false. */
   const currentScope = useCallback((): MediaScope => {
     if (likedView) return { onlyLiked: true };
+    // My Group is a subset of My Photos — the same `mine=true` request, with
+    // the feed's own id list passed alongside it (see `downloadGalleryZip`).
+    // No folder ever narrows it: the feed is grouped by who is in each photo,
+    // and the folder pills are hidden while it is showing.
+    if (effTab === "group") return { mine: true };
     const mine = effTab === "mine";
     return folder === ALL ? { mine } : { mine, customFolderId: folder };
   }, [likedView, effTab, folder]);
@@ -984,13 +1207,14 @@ export function LoungeGallery({
       const base = (event.event_name || "gallery").trim() || "gallery";
       const n = `(${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"})`;
       if (likedView) return `${base} - liked ${n}`;
+      if (effTab === "group") return `${base} - my group ${n}`;
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
         return `${base} - ${folderName} ${n}`;
       }
       return `${base} ${n}`;
     },
-    [event.event_name, likedView, folder, folders],
+    [event.event_name, likedView, folder, folders, effTab],
   );
 
   // Gallery header "Download": the whole active view. This used to fall through
@@ -999,8 +1223,12 @@ export function LoungeGallery({
   // single source of truth for both this and the select-all download.
   const downloadGalleryZip = useCallback(() => {
     const scope = currentScope();
-    startDownload(nameForScope(totalForView), (signal) => fetchPlanSources(scope, signal));
-  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView]);
+    // My Group passes its OWN id list into the same planner every other view
+    // uses. `allIds` is the feed in order, so the ZIP holds exactly the photos
+    // the tab is showing and nothing else.
+    const groupIds = effTab === "group" ? groupFeedRef.current?.allIds : undefined;
+    startDownload(nameForScope(totalForView), (signal) => fetchPlanSources(scope, signal, groupIds));
+  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, effTab]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -1038,7 +1266,22 @@ export function LoungeGallery({
    *  Guest cannot see anything without it. The intake sheet always comes first,
    *  so a Guest is never asked for a name and a passcode at once. */
   const passcodeSheetOpen = passcodeOpen || (passcodeRequired && !showIntakeSheet);
-  const overlayOpen = viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet;
+  /** The lounge's OWN modals and gates — what this screen showed before the
+   *  friends feature existed. Kept separate from `overlayOpen` below so the
+   *  friends surface can be gated on it without depending on itself. */
+  const loungeModalOpen = viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet;
+  const overlayOpen = loungeModalOpen || friendsSheetOpen;
+  /**
+   * Everything that must finish before a friends sheet may open itself.
+   *
+   * The lounge's modals and gates, plus the two surfaces that are not in
+   * `loungeModalOpen` because nothing else needed them there: the review
+   * pop-up, and either download surface. An automatic trigger QUEUES on this
+   * rather than being dropped — when the last of them closes this goes false
+   * and the sheet the Guest was owed finally appears.
+   */
+  const friendsBlocked =
+    loungeModalOpen || nudge !== null || zipping || singleDownload.sheet.open;
   useEffect(() => {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1105,10 +1348,18 @@ export function LoungeGallery({
     if (hasMore && !loadingMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
   };
 
-  function gotoGallery(nextTab: "mine" | "all") {
+  /** The single teardown for My Group's pager. Any view change invalidates the
+   *  cursor and the per-item bucket map, so they go together, always. */
+  const resetGroupPaging = useCallback(() => {
+    setGroupCursor(null);
+    setItemBuckets([]);
+  }, []);
+
+  function gotoGallery(nextTab: GalleryTab) {
     setTab(nextTab);
     setFolder(ALL);
     setLikedView(false);
+    resetGroupPaging();
     exitSelect();
     setView("gallery");
     gridSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1126,6 +1377,9 @@ export function LoungeGallery({
   };
   const goLiked = () => {
     setLikedView(true);
+    // Liked is its own result set, so whatever My Group had paged no longer
+    // describes what is on screen.
+    resetGroupPaging();
     exitSelect();
     setView("gallery");
   };
@@ -1141,6 +1395,7 @@ export function LoungeGallery({
   const desktopSelectLiked = () => {
     setLikedView(true);
     setFolder(ALL);
+    resetGroupPaging();
     exitSelect();
     scrollToGridTop();
   };
@@ -1150,10 +1405,11 @@ export function LoungeGallery({
     exitSelect();
     scrollToGridTop();
   };
-  const desktopSetTab = (k: "mine" | "all") => {
+  const desktopSetTab = (k: GalleryTab) => {
     setTab(k);
     setFolder(ALL);
     setLikedView(false);
+    resetGroupPaging();
     exitSelect();
     scrollToGridTop();
   };
@@ -1239,6 +1495,16 @@ export function LoungeGallery({
           />
           <div ref={mastheadSentinelRef} />
 
+          {/* Find your friends group — below the cover, above the grid's
+              controls. `empty:hidden` keeps this from reserving any space
+              before the lazily-loaded card arrives (or on a gallery where the
+              card has nothing to say). */}
+          {friendFinder?.enabled && (
+            <div className="mx-auto w-full max-w-[1440px] px-8">
+              <div ref={setFriendsSlot} className="max-w-[560px] pt-6 empty:hidden" />
+            </div>
+          )}
+
           <StickyControlRow
             rowRef={controlRowRef}
             t={t}
@@ -1246,6 +1512,8 @@ export function LoungeGallery({
             tab={tab}
             setTab={desktopSetTab}
             showMine={faceSearchOn}
+            showGroup={showGroupTab}
+            showFolders={effTab !== "group"}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
@@ -1275,12 +1543,20 @@ export function LoungeGallery({
             {showMatchBanner && (
               <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
             )}
-            {loading ? (
+            {/* My Group's header — faces, count, waiting pill and Manage. Comes
+                from the friends chunk through a slot, so none of its copy or
+                logic is in the lounge's own bundle. */}
+            {effTab === "group" && <div ref={setGroupHeaderSlot} className="mb-5 empty:hidden" />}
+            {showLoading ? (
               <LoadingSkeleton />
             ) : loadError && items.length === 0 ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
-              !likedView && effTab === "mine" ? (
+              // My Group's empty state names the people who have not answered
+              // yet, so it too comes from the friends chunk through a slot.
+              effTab === "group" ? (
+                <div ref={setGroupEmptySlot} />
+              ) : !likedView && effTab === "mine" ? (
                 // A Guest with no selfie has nothing to have failed at — they
                 // have not searched yet. Invite the scan instead of reporting
                 // a match that was never attempted.
@@ -1303,7 +1579,26 @@ export function LoungeGallery({
               <>
                 {/* ONE continuous justified grid over the full flat list — every
                     loaded photo appears exactly once, in API order (folder
-                    pills filter server-side, so no client-side partitioning). */}
+                    pills filter server-side, so no client-side partitioning).
+                    My Group is the one view that sections it, by how many of
+                    the Guest's friends are in each photo. */}
+                {effTab === "group" ? (
+                  <BucketedGrid
+                    t={t}
+                    items={displayed}
+                    buckets={itemBuckets}
+                    labels={groupFeed?.labels ?? []}
+                    stickyTop={controlRowH}
+                    selectMode={selectMode}
+                    isSelected={isSelected}
+                    liked={liked}
+                    onOpen={(i) => setViewerIndex(i)}
+                    onToggleSelect={toggleSel}
+                    onToggleLike={toggleLike}
+                    onEnterSelectWith={canSelect ? enterSelectWith : undefined}
+                    onDownload={canDownload ? downloadOne : undefined}
+                  />
+                ) : (
                 <GalleryGrid
                   t={t}
                   items={displayed}
@@ -1316,6 +1611,7 @@ export function LoungeGallery({
                   onEnterSelectWith={canSelect ? enterSelectWith : undefined}
                   onDownload={canDownload ? downloadOne : undefined}
                 />
+                )}
                 {loadingMore && (
                   <div className="flex justify-center py-6">
                     <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
@@ -1370,6 +1666,7 @@ export function LoungeGallery({
               date={date}
             />
             <div className="mx-auto w-full max-w-[460px] px-5 pb-[120px] pt-6">
+              {friendFinder?.enabled && <div ref={setFriendsSlot} className="mb-6 empty:hidden" />}
               <PolicyFooter t={t} />
             </div>
           </div>
@@ -1382,6 +1679,7 @@ export function LoungeGallery({
               setTab(k);
               setFolder(ALL);
               setLikedView(false);
+              resetGroupPaging();
               exitSelect();
             }}
             onOpenPrivate={() => setPasscodeOpen(true)}
@@ -1393,7 +1691,7 @@ export function LoungeGallery({
               exitSelect();
             }}
             items={displayed}
-            loading={loading}
+            loading={showLoading}
             loadError={loadError}
             onRetry={() => setReloadKey((k) => k + 1)}
             loadingMore={loadingMore}
@@ -1440,6 +1738,11 @@ export function LoungeGallery({
             showMatchBanner={showMatchBanner}
             matchCount={mediaIds?.length ?? 0}
             onDismissMatchBanner={() => setMatchBannerDismissed(true)}
+            showGroup={showGroupTab}
+            itemBuckets={itemBuckets}
+            groupLabels={groupFeed?.labels ?? []}
+            groupHeaderRef={setGroupHeaderSlot}
+            groupEmptyRef={setGroupEmptySlot}
           />
         )}
 
@@ -1590,6 +1893,35 @@ export function LoungeGallery({
         </div>
       )}
 
+      {/* Find your friends group. Mounted ONCE here rather than inside a shell:
+          the mobile Home and Gallery tabs swap their whole subtree, and a sheet
+          living in one of them would vanish mid-question. It portals its card
+          into whichever slot is currently mounted, and nothing at all is
+          rendered — or even fetched — unless the event has the feature on. */}
+      {friendFinder?.enabled && (
+        <FriendsSurface
+          t={t}
+          uid={uniqueIdentifier}
+          bookingId={bookingId}
+          block={friendFinder}
+          hasSelfie={hasSelfie}
+          guestName={session.name}
+          slot={friendsSlot}
+          groupHeaderSlot={groupHeaderSlot}
+          groupEmptySlot={groupEmptySlot}
+          onGroupFeedChange={setGroupFeed}
+          onShowGroup={() => (isDesktop ? desktopSetTab("group") : gotoGallery("group"))}
+          blocked={friendsBlocked}
+          scanJustCompleted={scanJustCompleted}
+          onScanTriggerConsumed={onScanTriggerConsumed}
+          desktop={isDesktop}
+          onOpenChange={setFriendsSheetOpen}
+          onBlockChange={onFriendFinderChange}
+          onRescan={onRescan}
+          onReauth={onReauth}
+        />
+      )}
+
       {/* triggered review nudge — mobile bottom sheet, desktop corner card */}
       {nudge && reviewUrl && (
         <ReviewNudge
@@ -1653,8 +1985,18 @@ function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
 function MobileGalleryView(props: {
   t: Theme;
   unlocked: boolean;
-  tab: "mine" | "all";
-  setTab: (k: "mine" | "all") => void;
+  tab: GalleryTab;
+  setTab: (k: GalleryTab) => void;
+  /** True once this Guest has a friends group — adds the third segment, the
+   *  header slot and the bucketed feed. */
+  showGroup: boolean;
+  /** Bucket index per item and divider text per bucket, for My Group. */
+  itemBuckets: number[];
+  groupLabels: string[];
+  /** Portal targets for the group header and its empty state, both of which
+   *  are rendered by the lazily-loaded friends surface. */
+  groupHeaderRef: (el: HTMLDivElement | null) => void;
+  groupEmptyRef: (el: HTMLDivElement | null) => void;
   onOpenPrivate: () => void;
   folders: CustomFolder[];
   folderCounts: Record<string, number>;
@@ -1718,11 +2060,11 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupHeaderRef, groupEmptyRef } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
-  const effTab: "mine" | "all" = faceSearchOn ? tab : "all";
+  const effTab: GalleryTab = !faceSearchOn ? "all" : tab === "group" && !showGroup ? "mine" : tab;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1754,7 +2096,7 @@ function MobileGalleryView(props: {
               Liked
             </span>
           ) : (
-            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} showMine={faceSearchOn} />
+            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} showMine={faceSearchOn} showGroup={showGroup} />
           )}
           <ActionsCluster
             t={t}
@@ -1773,7 +2115,9 @@ function MobileGalleryView(props: {
           />
         </div>
 
-        {!likedView && (
+        {/* Folder pills do not apply to My Group: its feed is grouped by who is
+            in each photo, not by folder. */}
+        {!likedView && effTab !== "group" && (
           <FolderPillsRow
             t={t}
             folders={folders}
@@ -1790,12 +2134,15 @@ function MobileGalleryView(props: {
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-[130px] pt-6" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
+          {effTab === "group" && <div ref={groupHeaderRef} className="mb-5 empty:hidden" />}
           {loading ? (
             <LoadingSkeleton />
           ) : props.loadError && items.length === 0 ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            !likedView && effTab === "mine" ? (
+            effTab === "group" ? (
+              <div ref={groupEmptyRef} />
+            ) : !likedView && effTab === "mine" ? (
               faceSearchOn && !hasSelfie ? (
                 <ScanPromptState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} />
               ) : (
@@ -1813,6 +2160,25 @@ function MobileGalleryView(props: {
             )
           ) : (
             <>
+              {effTab === "group" ? (
+                <BucketedGrid
+                  t={t}
+                  items={items}
+                  buckets={itemBuckets}
+                  labels={groupLabels}
+                  // The mobile control row sits outside the scroll container,
+                  // so a divider pins at the top of the scroller itself.
+                  stickyTop={0}
+                  selectMode={selectMode}
+                  isSelected={isSelected}
+                  liked={liked}
+                  onOpen={props.onOpen}
+                  onToggleSelect={props.onToggleSelect}
+                  onToggleLike={props.onToggleLike}
+                  onEnterSelectWith={props.onEnterSelectWith}
+                  onDownload={props.onDownload}
+                />
+              ) : (
               <GalleryGrid
                 t={t}
                 items={items}
@@ -1825,6 +2191,7 @@ function MobileGalleryView(props: {
                 onEnterSelectWith={props.onEnterSelectWith}
                 onDownload={props.onDownload}
               />
+              )}
               {loadingMore && (
                 <div className="flex justify-center py-6">
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
@@ -1845,6 +2212,87 @@ function MobileGalleryView(props: {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * My Group's grid: the same `GalleryGrid`, once per bucket, with a divider
+ * between the runs.
+ *
+ * One flat `items` array still backs the whole thing — the lightbox, the
+ * selection and the downloads all read it unchanged — and each run simply
+ * renders a window into it. `onOpen` is the only thing that needs care: the
+ * grid reports an index within the slice it was given, so the run's own start
+ * is added back before it reaches the viewer.
+ *
+ * Not a change to GalleryGrid. It stays a component that renders whatever list
+ * it is handed, which is exactly why this could be built on top of it.
+ */
+function BucketedGrid({
+  t,
+  items,
+  buckets,
+  labels,
+  stickyTop,
+  onOpen,
+  ...grid
+}: {
+  t: Theme;
+  items: GuestMediaItem[];
+  /** Bucket index per item, parallel to `items`. */
+  buckets: number[];
+  /** Divider text per bucket index. An empty string means no divider — which
+   *  is what a one-member group gets, since there is only ever one bucket. */
+  labels: string[];
+  /** Where a divider pins: under the desktop control row, or the top of the
+   *  mobile scroll container. */
+  stickyTop: number;
+  onOpen: (index: number) => void;
+  selectMode: boolean;
+  isSelected: (id: string) => boolean;
+  liked: Set<string>;
+  onToggleSelect: (i: GuestMediaItem) => void;
+  onToggleLike: (i: GuestMediaItem) => void;
+  onEnterSelectWith?: (i: GuestMediaItem) => void;
+  onDownload?: (i: GuestMediaItem) => void;
+}) {
+  // Runs of consecutive items from the same bucket. Pages arrive in bucket
+  // order, so in practice there is one run per bucket; building it this way
+  // rather than assuming that keeps the render honest if a page ever straddles.
+  const runs: { bucket: number; start: number; end: number }[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const bucket = buckets[i] ?? 0;
+    const last = runs[runs.length - 1];
+    if (last && last.bucket === bucket) last.end = i + 1;
+    else runs.push({ bucket, start: i, end: i + 1 });
+  }
+
+  return (
+    <div className="flex flex-col">
+      {runs.map((run) => {
+        const label = labels[run.bucket] ?? "";
+        return (
+          <div key={`${run.bucket}-${run.start}`}>
+            {label && (
+              <h3
+                className="sticky z-20 -mx-1 mb-2 px-1 py-2 text-[12px] font-extrabold uppercase tracking-[0.06em]"
+                style={{ top: stickyTop, background: t.bg, color: t.muted }}
+              >
+                {label}
+              </h3>
+            )}
+            <div className={run.start > 0 ? "mt-1" : ""}>
+              <GalleryGrid
+                t={t}
+                items={items.slice(run.start, run.end)}
+                onOpen={(i) => onOpen(run.start + i)}
+                {...grid}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

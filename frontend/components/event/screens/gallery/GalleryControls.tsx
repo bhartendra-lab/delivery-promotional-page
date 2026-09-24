@@ -9,6 +9,17 @@ import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChe
 export const ALL = "__all__";
 
 /**
+ * The tabs the gallery switcher can show.
+ *
+ * "group" is "Find your friends group"'s My Group, and it is only ever offered
+ * when that guest HAS a group (see `showGroup`). The union is widened rather
+ * than a second control being added, because these three are mutually
+ * exclusive views of the same grid and a separate control would let a guest
+ * pick two.
+ */
+export type GalleryTab = "mine" | "all" | "group";
+
+/**
  * My Photos / All Photos switcher. Both segments are always plain, tappable
  * tabs — unlocking the gallery passcode is no longer gated here (see the
  * "Unlock" action in `ActionsCluster`). A non-host guest tapping "All Photos"
@@ -26,10 +37,11 @@ export function UnlockAwareSwitcher({
   setTab,
   dimmed = false,
   showMine = true,
+  showGroup = false,
 }: {
   t: ClientTheme;
-  tab: "mine" | "all";
-  setTab: (k: "mine" | "all") => void;
+  tab: GalleryTab;
+  setTab: (k: GalleryTab) => void;
   /** Renders the switcher de-emphasized but fully visible — used on desktop
    *  while the Liked pill owns the active filter (Liked ignores My/All). */
   dimmed?: boolean;
@@ -41,6 +53,12 @@ export function UnlockAwareSwitcher({
    * would leave the action cluster floating alone.
    */
   showMine?: boolean;
+  /**
+   * Offer the third segment, My Group. False by default, so every existing
+   * call site renders the same two segments it always has — and a guest who
+   * has not added anyone never sees a tab with nothing behind it.
+   */
+  showGroup?: boolean;
 }) {
   return (
     <div
@@ -53,8 +71,24 @@ export function UnlockAwareSwitcher({
             My Photos
           </SwitchSeg>
           <SwitchSeg t={t} on={tab === "all"} dimmed={dimmed} onClick={() => setTab("all")}>
-            All Photos
+            {/* Three segments do not fit a 320px phone at the full label, and
+                the one that survives shortening is this one: "My Photos" and
+                "My Group" are the two the guest is choosing between. Shortened
+                ONLY at that width, and only when there are three. */}
+            {showGroup ? (
+              <>
+                <span className="min-[360px]:hidden">All</span>
+                <span className="hidden min-[360px]:inline">All Photos</span>
+              </>
+            ) : (
+              "All Photos"
+            )}
           </SwitchSeg>
+          {showGroup && (
+            <SwitchSeg t={t} on={tab === "group"} dimmed={dimmed} onClick={() => setTab("group")}>
+              My Group
+            </SwitchSeg>
+          )}
         </>
       ) : (
         // A label, not a tab: with one destination there is nothing to switch

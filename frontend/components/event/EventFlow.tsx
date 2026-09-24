@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuestSession } from "@/lib/types";
+import type { FriendFinderBlock } from "@/lib/friend-finder/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
 import { GuestAuthError, getGuestSession, updateGuestSubType } from "@/lib/guest-api";
@@ -51,6 +52,18 @@ export function EventFlow() {
   const [session, setSession] = useState<GuestSession | null>(null);
   const [authError, setAuthError] = useState(false);
   const [scanOrigin, setScanOrigin] = useState<ScanOrigin>("entry");
+  /**
+   * "Find your friends group", as the session reports it.
+   *
+   * Null covers two different things and deliberately treats them the same:
+   * the backend's global switch is off (the key is absent from the response
+   * entirely), or the session has not been restored yet. Nothing anywhere
+   * renders for this feature unless the block is here AND `enabled` is true.
+   */
+  const [friendFinder, setFriendFinder] = useState<FriendFinderBlock | null>(null);
+  /** A scan finished during this visit, so the lounge should raise the friends
+   *  sheet once it has settled. Cleared by the lounge when it acts on it. */
+  const [scanJustCompleted, setScanJustCompleted] = useState(false);
 
   // The Studio's per-event switch. Off means this flow has no selfie step at
   // all — see the render guard below, which is what stops a stale `step` from
@@ -86,9 +99,10 @@ export function EventFlow() {
       return;
     }
     try {
-      const { guest } = await getGuestSession(uniqueIdentifier);
+      const { guest, friend_finder } = await getGuestSession(uniqueIdentifier);
       if (!mountedRef.current) return;
       setSession(guest);
+      setFriendFinder(friend_finder ?? null);
       // Arriving at the selfie screen this way is the entry flow, whose way out
       // is "Skip for now" — as opposed to a rescan opened from the gallery.
       setScanOrigin("entry");
@@ -175,6 +189,7 @@ export function EventFlow() {
     return (
       <ScanFlow
         guestName={session?.name}
+        friendsNotice={friendFinder?.enabled === true}
         secondary={
           scanOrigin === "gallery"
             ? // Opened from inside the gallery. Backing out records nothing and
@@ -191,6 +206,10 @@ export function EventFlow() {
           // in the Lounge, driven by session.selfie_id — mirror it here so that
           // effect can run without waiting for a getGuestSession refetch.
           setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl, selfie_id: selfieId } : s));
+          // Arms the friends sheet's `sheet_after_scan` trigger. Set for every
+          // successful scan, entry or rescan; the lounge decides whether this
+          // guest is one who should be asked, and clears it either way.
+          setScanJustCompleted(true);
           setStep("lounge");
         }}
       />
@@ -203,6 +222,10 @@ export function EventFlow() {
     <LoungeGallery
       session={session}
       onSessionChange={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
+      friendFinder={friendFinder}
+      onFriendFinderChange={(patch) => setFriendFinder((f) => (f ? { ...f, ...patch } : f))}
+      scanJustCompleted={scanJustCompleted}
+      onScanTriggerConsumed={() => setScanJustCompleted(false)}
       onReauth={() => {
         clearGuestToken(uniqueIdentifier);
         setSession(null);
@@ -218,6 +241,7 @@ export function EventFlow() {
       onSignOut={() => {
         clearGuestToken(uniqueIdentifier);
         setSession(null);
+        setFriendFinder(null);
         setStep("login");
       }}
     />

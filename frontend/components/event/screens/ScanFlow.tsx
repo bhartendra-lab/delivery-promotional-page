@@ -6,7 +6,7 @@ import { presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
-import { POLICY_VERSION, usePolicy } from "../policy/PolicyContext";
+import { POLICY_VERSION, POLICY_VERSION_FRIENDS, usePolicy } from "../policy/PolicyContext";
 import {
   IconScanFace,
   IconCameraOff,
@@ -30,10 +30,22 @@ type Phase = "consent" | "processing" | "error";
  */
 export function ScanFlow({
   guestName,
+  friendsNotice = false,
   secondary,
   onComplete,
 }: {
   guestName?: string;
+  /**
+   * This event has "Find your friends group" switched ON (the session block's
+   * `enabled`, not merely the block's presence — a studio can have the feature
+   * off for their gallery, and the sentence below would then be false).
+   *
+   * It adds ONE sentence to the consent, and records the consent against
+   * `v1.1` instead of `v1.0`. Default false, so with the feature off this
+   * screen's text and the version it sends are exactly what they have always
+   * been.
+   */
+  friendsNotice?: boolean;
   /**
    * The way off this screen that is not a selfie. Always present: a Guest whose
    * browser cannot reach the camera, or who simply does not want to be
@@ -216,7 +228,9 @@ export function ScanFlow({
     setAgreed((a) => {
       const next = !a;
       if (next) {
-        void recordConsent(uniqueIdentifier, { policy_version: POLICY_VERSION }).catch((err) => {
+        void recordConsent(uniqueIdentifier, {
+          policy_version: friendsNotice ? POLICY_VERSION_FRIENDS : POLICY_VERSION,
+        }).catch((err) => {
           void reportBug("Face scan — consent log failed", {
             Event: uniqueIdentifier,
             Booking: bookingId,
@@ -272,6 +286,12 @@ export function ScanFlow({
             <Checkbox checked={agreed} />
             <span className="text-[12.5px] font-semibold leading-[1.45]" style={{ color: t.text }}>
               I agree to let Vyavasth use my selfie to match my face to these photos and keep it on my gallery profile.
+              {friendsNotice && (
+                <span className="mt-1.5 block" style={{ color: t.muted }}>
+                  Your face picture from this event&rsquo;s photos will be visible to other guests at this
+                  wedding.
+                </span>
+              )}
             </span>
           </button>
 

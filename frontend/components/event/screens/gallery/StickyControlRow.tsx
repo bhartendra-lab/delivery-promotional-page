@@ -2,7 +2,7 @@
 
 import type { CustomFolder } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
-import { UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary } from "./GalleryControls";
+import { UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./GalleryControls";
 
 /**
  * Desktop sticky control row. Pins at `top-0` — the top bar is a flex sibling
@@ -45,13 +45,23 @@ export function StickyControlRow({
   rowRef,
   allCount,
   showMine = true,
+  showGroup = false,
+  showFolders = true,
 }: {
   t: ClientTheme;
   unlocked: boolean;
-  tab: "mine" | "all";
-  setTab: (k: "mine" | "all") => void;
+  tab: GalleryTab;
+  setTab: (k: GalleryTab) => void;
   /** False with face search off — see `UnlockAwareSwitcher`. */
   showMine?: boolean;
+  /** True once this guest has a friends group — adds the third segment. */
+  showGroup?: boolean;
+  /**
+   * False on My Group, whose feed is grouped by how many friends are in each
+   * photo rather than by folder. The pills would filter a view they do not
+   * describe. Default true, so every other tab is untouched.
+   */
+  showFolders?: boolean;
   /** Opens the gallery-passcode sheet (the "Unlock" action). */
   onOpenPrivate: () => void;
   folders: CustomFolder[];
@@ -105,7 +115,7 @@ export function StickyControlRow({
             hint={selectionHint}
           />
         ) : (
-          <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} dimmed={likedView} showMine={showMine} />
+          <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} dimmed={likedView} showMine={showMine} showGroup={showGroup} />
         )}
 
         <ActionsCluster
@@ -124,6 +134,7 @@ export function StickyControlRow({
         />
       </div>
 
+      {showFolders && (
       <FolderPillsRow
         t={t}
         folders={folders}
@@ -133,6 +144,7 @@ export function StickyControlRow({
         likedView={likedView}
         allCount={allCount}
       />
+      )}
     </div>
   );
 }

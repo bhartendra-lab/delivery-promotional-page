@@ -8,7 +8,7 @@ import { useIsTruncated } from "@/components/event/screens/lounge/useIsTruncated
 import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
 import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { useCompany } from "@/lib/useCompany";
-import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster } from "@/components/event/screens/gallery/GalleryControls";
+import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, type GalleryTab } from "@/components/event/screens/gallery/GalleryControls";
 import {
   IconArrowRight,
   IconCheck,
@@ -639,7 +639,10 @@ function GalleryScopePreview({
   allowDownload: boolean;
   faceSearchEnabled: boolean;
 }) {
-  const [tab, setTab] = useState<"mine" | "all">("all");
+  // Typed as the switcher's full union, though this preview never shows the
+  // third segment (`showGroup` is left false below): My Group belongs to a
+  // real guest with a real friends group, not to a design preview.
+  const [tab, setTab] = useState<GalleryTab>("all");
   const [folder, setFolder] = useState(ALL);
   const [likedView, setLikedView] = useState(false);
   const [selectMode, setSelectMode] = useState(false);

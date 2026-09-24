@@ -9,6 +9,17 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
  */
 export const POLICY_VERSION = "v1.0";
 
+/**
+ * The same consent, shown with one extra sentence — that a guest's face picture
+ * from this event will be visible to other guests — which is only true on a
+ * gallery where "Find your friends group" is switched on. Recorded instead of
+ * `POLICY_VERSION` on exactly those galleries, so a consent row always names
+ * the wording that was actually on screen.
+ *
+ * Bump both of these whenever the selfie-consent copy changes.
+ */
+export const POLICY_VERSION_FRIENDS = "v1.1";
+
 /** Which guest-facing policy document the overlay is showing. */
 export type PolicyView = "terms" | "privacy" | "cookies";
 
