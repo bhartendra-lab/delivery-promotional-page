@@ -40,6 +40,12 @@ export function SignInStep({
   /** Guest verified their OTP — re-run `EventFlow`'s session restore in place. */
   onAuthed: () => void;
 }) {
+  // The Guest's own name, and the ONLY place it is ever collected on this path.
+  // Until now this screen sent no name at all, so every WhatsApp-OTP guest kept
+  // the "Guest" placeholder — invisible to the friends directory, and unhelpful
+  // on the Studio's guest list. The backend now requires one for a Guest who
+  // does not already have it (see verifyGuestOtp).
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   // The number the OTP was actually sent to. Not cleared on edit — editing
   // BACK to this exact number restores the OTP view without a re-send, since
@@ -53,10 +59,14 @@ export function SignInStep({
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
-  const [focused, setFocused] = useState<"phone" | null>(null);
+  const [focused, setFocused] = useState<"name" | "phone" | null>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const formValid = phone.length === 10;
+  // Collapsed whitespace, so a name of spaces is not a name — the same rule the
+  // server applies, applied here so the button is honest about it.
+  const cleanName = name.replace(/\s+/g, " ").trim();
+  const formValid = phone.length === 10 && cleanName.length > 0;
   const otpVisible = sentPhone !== null && phone === sentPhone;
 
   useEffect(() => {
@@ -109,11 +119,26 @@ export function SignInStep({
     setVerifying(true);
     setError(null);
     try {
-      const { token } = await verifyGuestOtp({ uniqueIdentifier, phone: sentPhone, code: value });
+      const { token } = await verifyGuestOtp({
+        uniqueIdentifier,
+        phone: sentPhone,
+        code: value,
+        name: cleanName,
+      });
       setGuestToken(uniqueIdentifier, token);
       onAuthed();
     } catch (err) {
       setVerifying(false);
+      // The server refused for want of a name rather than a bad code. The code
+      // is still live — it is checked before this point and is not consumed on
+      // this path — so keep it and send them back to the name field instead of
+      // clearing the boxes and implying they mistyped.
+      const body = err instanceof ApiError ? (err.body as { code?: string } | null) : null;
+      if (body?.code === "GUEST_NAME_REQUIRED") {
+        setError(err instanceof ApiError ? err.message : "Please add your name to continue.");
+        nameInputRef.current?.focus();
+        return;
+      }
       setShake(true);
       setError(err instanceof ApiError ? err.message : "Couldn’t verify — try again.");
       setTimeout(() => {
@@ -188,6 +213,44 @@ export function SignInStep({
       )}
 
       <div className="flex flex-col gap-3.5">
+        {/* Name first: it is what other guests at this event will see next to
+            the photos, so asking for it before the number sets that up rather
+            than making it feel like an afterthought on a sign-in form. */}
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
+            Your name
+          </span>
+          <div
+            className="flex w-full min-h-[52px] items-center"
+            style={{
+              background: t.sunken,
+              border: `1.5px solid ${focused === "name" ? t.brand : t.border}`,
+              borderRadius: t.rField,
+              padding: "0 16px",
+            }}
+          >
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError(null);
+              }}
+              onFocus={() => setFocused("name")}
+              onBlur={() => setFocused(null)}
+              placeholder="Priya Sharma"
+              // Matches GUEST_NAME_MAX on the server, so the field cannot accept
+              // something the server will then refuse.
+              maxLength={40}
+              autoComplete="name"
+              aria-label="Your name"
+              className="w-full min-w-0 flex-1 bg-transparent"
+              style={{ fontSize: 15.5, fontWeight: 700, color: t.text, fontFamily: t.font }}
+            />
+          </div>
+        </label>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
             WhatsApp number

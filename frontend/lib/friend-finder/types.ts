@@ -56,7 +56,6 @@ export type FriendFinderBlock = {
   enabled: boolean;
   choice: FriendChoice | null;
   stopped: boolean;
-  display_name: string | null;
   /** The 256px crop, and only while this guest's own notice covered showing
    *  it. Never the selfie. */
   avatar_url: string | null;
@@ -123,11 +122,13 @@ export function isUnchanged(res: FriendFinderPeopleResponse): res is FriendFinde
 
 /** Every write this feature makes, all through one endpoint. */
 export type FriendFinderAction =
-  | { action: "choose"; choice: FriendChoice; display_name?: string; consent_method: FriendConsentMethod }
+  | { action: "choose"; choice: FriendChoice; consent_method: FriendConsentMethod }
   | { action: "add"; guest_id: string }
   | { action: "remove"; guest_id: string }
   | { action: "decline"; guest_id: string }
-  | { action: "profile"; display_name?: string; avatar?: "auto" | { media_id: string; face_index: number } }
+  /** The picture only. A Guest's name is the one they gave at sign-in and is
+   *  not settable here — there is no second, feature-local name. */
+  | { action: "profile"; avatar: "auto" | { media_id: string; face_index: number } }
   | { action: "mute"; muted: boolean }
   | { action: "stop" };
 
@@ -137,11 +138,10 @@ export type ChooseResult = {
   choice: FriendChoice;
   participant: boolean;
   face_visible: boolean;
-  display_name: string | null;
 };
 export type AddResult = { guest_id: string; rel: FriendRel; connected: boolean };
 export type RemoveResult = { guest_id: string; rel: FriendRel };
 export type DeclineResult = { guest_id: string; rel: FriendRel };
-export type ProfileResult = { display_name: string | null; avatar_pending: boolean };
+export type ProfileResult = { avatar_pending: boolean };
 export type MuteResult = { requests_muted: boolean };
 export type StopResult = { stopped: true };

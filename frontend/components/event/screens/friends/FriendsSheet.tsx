@@ -19,10 +19,8 @@
 import { useState } from "react";
 import type { ClientTheme } from "@/lib/client-theme";
 import {
-  DISPLAY_NAME_MAX,
   FRIENDS_CHOICES,
   FRIENDS_SHEET_COPY,
-  PLACEHOLDER_NAME,
 } from "@/lib/friend-finder/copy";
 import type { FriendChoice } from "@/lib/friend-finder/types";
 import { IconCheck } from "@/components/ui/icons";
@@ -31,33 +29,24 @@ import { SheetShell } from "./SheetShell";
 export function FriendsSheet({
   t,
   open,
-  /** The guest's current name, used to prefill. "Guest" is the placeholder the
-   *  backend hides from the directory, so it is never offered as a suggestion. */
-  suggestedName,
   busy,
   onClose,
-  /** Continue: the picked choice plus the name to show other guests. */
+  /** Continue: the picked choice. The name other guests see is the one this
+   *  Guest gave at sign-in — there is no second name to collect here. */
   onChoose,
   /** "No thanks": records `choice: "none"` and closes. */
   onDecline,
 }: {
   t: ClientTheme;
   open: boolean;
-  suggestedName?: string | null;
   /** A choose request is in flight — the buttons lock rather than double-fire. */
   busy: boolean;
   onClose: () => void;
-  onChoose: (choice: Exclude<FriendChoice, "none">, displayName: string) => void;
+  onChoose: (choice: Exclude<FriendChoice, "none">) => void;
   onDecline: () => void;
 }) {
   const [choice, setChoice] = useState<Exclude<FriendChoice, "none"> | null>(null);
-  const [name, setName] = useState(() => {
-    const trimmed = (suggestedName ?? "").trim();
-    return trimmed && trimmed !== PLACEHOLDER_NAME ? trimmed.slice(0, DISPLAY_NAME_MAX) : "";
-  });
-
-  const nameValid = name.trim().length > 0;
-  const canContinue = choice !== null && nameValid && !busy;
+  const canContinue = choice !== null && !busy;
 
   return (
     <SheetShell
@@ -70,7 +59,7 @@ export function FriendsSheet({
           <button
             type="button"
             disabled={!canContinue}
-            onClick={() => choice && onChoose(choice, name.trim())}
+            onClick={() => choice && onChoose(choice)}
             className="w-full cursor-pointer rounded-full py-3.5 text-[15px] font-extrabold transition-transform active:scale-[0.99] disabled:cursor-not-allowed"
             style={{
               background: canContinue ? t.brand : t.sunken,
@@ -137,34 +126,6 @@ export function FriendsSheet({
           );
         })}
       </div>
-
-      {/* The name is asked for only once a choice is made: before that there is
-          nothing it would be used for, and an empty required field under two
-          unanswered options reads as a form rather than a question. */}
-      {choice !== null && (
-        <label className="mt-4 block">
-          <span className="block text-[12px] font-extrabold" style={{ color: t.text }}>
-            {FRIENDS_SHEET_COPY.nameLabel}
-          </span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value.slice(0, DISPLAY_NAME_MAX))}
-            autoComplete="name"
-            enterKeyHint="done"
-            maxLength={DISPLAY_NAME_MAX}
-            required
-            aria-required
-            className="mt-1.5 w-full rounded-2xl px-4 py-3 text-[15px] font-semibold outline-none"
-            style={{
-              background: t.sunken,
-              border: `1px solid ${nameValid ? t.border : t.brand}`,
-              color: t.text,
-              borderRadius: t.rField,
-            }}
-          />
-        </label>
-      )}
 
       <p className="mt-4 text-[11.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
         {FRIENDS_SHEET_COPY.smallPrint}

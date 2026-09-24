@@ -15,14 +15,16 @@
 /** Bump together with the backend's FRIEND_FINDER_POLICY_VERSION. */
 export const FRIEND_FINDER_POLICY_VERSION = "ff-v1.0";
 
-/** Longest display name the backend will keep (`DISPLAY_NAME_MAX`). */
-export const DISPLAY_NAME_MAX = 40;
+/**
+ * Longest name the backend will keep (`GUEST_NAME_MAX`). The sign-in field caps
+ * at this, so a Guest cannot type a name the server will then refuse.
+ */
+export const GUEST_NAME_MAX = 40;
 
 /**
- * The placeholder name a guest carries when they never gave one. The directory
- * aggregation drops these rows, so a guest called "Guest" is invisible to
- * everyone else until they pick a real name — which is why the sheet's field is
- * NOT prefilled with it.
+ * The placeholder a Guest carries when they never gave a name. The directory
+ * aggregation drops these rows, so a Guest called "Guest" is invisible to
+ * everyone else at the event — which is why sign-in now insists on a real one.
  */
 export const PLACEHOLDER_NAME = "Guest";
 
@@ -30,7 +32,6 @@ export const FRIENDS_SHEET_COPY = {
   title: "Find your friends group",
   body: "See the photos you are in with your friends, all in one place. You and a friend see your photos together once you have both said yes.",
   smallPrint: "Your name and face picture are visible to guests at this wedding. You can change this anytime.",
-  nameLabel: "Your name, as friends will see it",
   continueLabel: "Continue",
   declineLabel: "No thanks",
 } as const;

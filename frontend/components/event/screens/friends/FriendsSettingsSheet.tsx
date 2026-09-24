@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import type { ClientTheme } from "@/lib/client-theme";
-import { DISPLAY_NAME_MAX, FRIENDS_CHOICES } from "@/lib/friend-finder/copy";
+import { FRIENDS_CHOICES } from "@/lib/friend-finder/copy";
 import type { FriendChoice, FriendFinderBlock } from "@/lib/friend-finder/types";
 import { IconCheck } from "@/components/ui/icons";
 import { SheetShell } from "./SheetShell";
@@ -36,7 +36,6 @@ export function FriendsSettingsSheet({
   onClose,
   onChoose,
   onMute,
-  onRename,
   onChangePhoto,
   onStop,
 }: {
@@ -48,14 +47,11 @@ export function FriendsSettingsSheet({
   onClose: () => void;
   onChoose: (choice: FriendChoice) => void;
   onMute: (muted: boolean) => void;
-  onRename: (name: string) => void;
   onChangePhoto: () => void;
   onStop: () => void;
 }) {
-  const [name, setName] = useState(block.display_name ?? "");
   const [confirmStop, setConfirmStop] = useState(false);
 
-  const nameDirty = name.trim().length > 0 && name.trim() !== (block.display_name ?? "");
   // A guest who has stopped has `choice: "none"` written by the backend, but
   // that is a consequence of stopping rather than an answer they gave — so no
   // option is shown as chosen until they pick one again.
@@ -133,35 +129,16 @@ export function FriendsSettingsSheet({
           </button>
         </Section>
 
-        <Section t={t} title="Edit my name and photo">
-          <label className="block">
-            <span className="sr-only">Your name, as friends will see it</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value.slice(0, DISPLAY_NAME_MAX))}
-              autoComplete="name"
-              maxLength={DISPLAY_NAME_MAX}
-              placeholder="Your name, as friends will see it"
-              className="min-h-[44px] w-full rounded-2xl px-4 text-[14px] font-semibold outline-none"
-              style={{ background: t.sunken, border: `1px solid ${t.border}`, color: t.text }}
-            />
-          </label>
-          {nameDirty && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onRename(name.trim())}
-              className="mt-2 min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-extrabold disabled:opacity-60"
-              style={{ background: t.brand, color: t.onBrand }}
-            >
-              Save name
-            </button>
-          )}
+        <Section t={t} title="My photo">
+          {/* The NAME is not editable here. A Guest has one name — the one they
+              gave when they signed in — and it is what the Studio's guest list,
+              the gallery and this directory all show. A second name settable
+              only here would mean the Studio knows them as one person while the
+              wedding sees another. Correcting it is done at sign-in. */}
           <button
             type="button"
             onClick={onChangePhoto}
-            className="mt-2 min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-bold"
+            className="min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-bold"
             style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
           >
             Change photo

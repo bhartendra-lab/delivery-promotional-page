@@ -332,18 +332,16 @@ export function FriendsSurface({
 
   /** Post a `choose` and fold the answer back into the session block. */
   const sendChoice = useCallback(
-    async (choice: FriendChoice, displayName?: string) => {
+    async (choice: FriendChoice) => {
       setBusy(true);
       try {
         const result = await friendFinderAction(uid, {
           action: "choose",
           choice,
-          ...(displayName ? { display_name: displayName } : {}),
           consent_method: method,
         });
         onBlockChange({
           choice: result.choice,
-          display_name: result.display_name,
           face_visible: result.face_visible,
           // Answering resets a previous withdrawal: the backend clears
           // `stopped_at` for "everyone"/"selected", and "none" is a fresh
@@ -430,21 +428,6 @@ export function FriendsSurface({
       }).finally(() => setMutedPending(null));
     },
     [uid, runSetting, onBlockChange],
-  );
-
-  const renameSelf = useCallback(
-    (displayName: string) => {
-      void runSetting(async () => {
-        const result = await friendFinderAction(uid, { action: "profile", display_name: displayName });
-        onBlockChange({ display_name: result.display_name });
-        // Other guests see this name, so the directory they are holding is now
-        // wrong — including this guest's own copy of it.
-        if (guestId) invalidatePeopleCache(bookingId, guestId);
-        say("Name saved");
-        return result;
-      });
-    },
-    [uid, bookingId, guestId, runSetting, onBlockChange, say],
   );
 
   const setAvatar = useCallback(
@@ -573,13 +556,12 @@ export function FriendsSurface({
       <FriendsSheet
         t={t}
         open={sheetOpen}
-        suggestedName={block.display_name ?? guestName}
         busy={busy}
         // Dismissing records NOTHING — no choice, no consent row, and the sheet
         // is free to come back on the guest's next visit.
         onClose={closeSheet}
-        onChoose={(choice, displayName) => {
-          void sendChoice(choice, displayName).then((ok) => {
+        onChoose={(choice) => {
+          void sendChoice(choice).then((ok) => {
             if (ok) openPeople();
           });
         }}
@@ -604,7 +586,6 @@ export function FriendsSurface({
             void sendChoice(choice);
           }}
           onMute={setMutedSetting}
-          onRename={renameSelf}
           onChangePhoto={() => setPhotoOpen(true)}
           onStop={stopSharing}
         />
@@ -617,7 +598,7 @@ export function FriendsSurface({
           uid={uid}
           bookingId={bookingId}
           guestId={guestId}
-          name={block.display_name ?? guestName ?? ""}
+          name={guestName ?? ""}
           currentUrl={block.avatar_url}
           currentSource={directory.payload?.me.avatar_source ?? null}
           candidates={candidates}

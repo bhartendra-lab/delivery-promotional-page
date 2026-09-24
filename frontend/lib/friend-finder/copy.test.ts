@@ -48,7 +48,6 @@ test("no em dash or en dash anywhere in the consent copy", () => {
     FRIENDS_SHEET_COPY.title,
     FRIENDS_SHEET_COPY.body,
     FRIENDS_SHEET_COPY.smallPrint,
-    FRIENDS_SHEET_COPY.nameLabel,
     FRIENDS_SHEET_COPY.continueLabel,
     FRIENDS_SHEET_COPY.declineLabel,
     ...FRIENDS_CHOICES.flatMap((c) => [c.label, c.subtitle]),
