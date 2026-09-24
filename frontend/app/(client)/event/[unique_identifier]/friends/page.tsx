@@ -12,9 +12,13 @@ export const metadata: Metadata = {
 };
 
 /**
- * `/event/<unique_identifier>/friends` — where a friend request's "Review
- * request" button lands (see the backend's `notifyFriendRequest`, which builds
- * this exact path for both the WhatsApp template and the email).
+ * `/event/<unique_identifier>/friends` — a deep link into the requests section
+ * of the people screen.
+ *
+ * Built for the "Review request" button in a friend-request message. Those
+ * messages no longer exist — a request reaches a guest as a badge in their own
+ * gallery — so nothing generates this URL today. See FriendsIntentClient for
+ * why it is kept rather than deleted.
  *
  * A static segment under the existing dynamic one. It cannot collide with any
  * gallery slug — `/event/friends` is still a gallery called "friends" — and no

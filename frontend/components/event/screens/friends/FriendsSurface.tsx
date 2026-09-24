@@ -132,8 +132,6 @@ export function FriendsSurface({
    * tapped instead of waiting for a round trip, and is dropped again the moment
    * the block carries the answer.
    */
-  const [mutedPending, setMutedPending] = useState<boolean | null>(null);
-  const muted = mutedPending ?? block.requests_muted;
   const [toast, setToast] = useState<FriendsToastState>(null);
   const [busy, setBusy] = useState(false);
   /** Which trigger opened the sheet — it travels with the consent row, because
@@ -415,21 +413,6 @@ export function FriendsSurface({
     [onReauth, say],
   );
 
-  const setMutedSetting = useCallback(
-    (next: boolean) => {
-      // Optimistic: a switch that waits for a round trip before moving reads as
-      // broken. The pending value is cleared either way below — on success the
-      // block already carries the answer, and on failure it carries the old one.
-      setMutedPending(next);
-      void runSetting(async () => {
-        const result = await friendFinderAction(uid, { action: "mute", muted: next });
-        onBlockChange({ requests_muted: result.requests_muted });
-        return result;
-      }).finally(() => setMutedPending(null));
-    },
-    [uid, runSetting, onBlockChange],
-  );
-
   const setAvatar = useCallback(
     (avatar: "auto" | { media_id: string; face_index: number }) => {
       void runSetting(async () => {
@@ -575,7 +558,6 @@ export function FriendsSurface({
           t={t}
           open
           block={block}
-          muted={muted}
           busy={busy}
           onClose={closeSettings}
           // From Settings the consent method is "settings", which is what the
@@ -585,7 +567,6 @@ export function FriendsSurface({
             setMethod("settings");
             void sendChoice(choice);
           }}
-          onMute={setMutedSetting}
           onChangePhoto={() => setPhotoOpen(true)}
           onStop={stopSharing}
         />

@@ -31,22 +31,18 @@ export function FriendsSettingsSheet({
   t,
   open,
   block,
-  muted,
   busy,
   onClose,
   onChoose,
-  onMute,
   onChangePhoto,
   onStop,
 }: {
   t: ClientTheme;
   open: boolean;
   block: FriendFinderBlock;
-  muted: boolean;
   busy: boolean;
   onClose: () => void;
   onChoose: (choice: FriendChoice) => void;
-  onMute: (muted: boolean) => void;
   onChangePhoto: () => void;
   onStop: () => void;
 }) {
@@ -101,32 +97,6 @@ export function FriendsSettingsSheet({
               );
             })}
           </div>
-        </Section>
-
-        <Section t={t} title="Request messages">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!muted}
-            disabled={busy}
-            onClick={() => onMute(!muted)}
-            className="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-3 rounded-2xl p-3 text-left disabled:opacity-60"
-            style={{ background: t.sunken, border: `1px solid ${t.border}` }}
-          >
-            <span className="min-w-0 text-[13px] font-semibold" style={{ color: t.text }}>
-              Tell me on WhatsApp or email when someone asks
-            </span>
-            <span
-              className="relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors"
-              style={{ background: muted ? t.border : t.brand }}
-              aria-hidden
-            >
-              <span
-                className="absolute top-[3px] h-5 w-5 rounded-full bg-white transition-all"
-                style={{ left: muted ? 3 : 21 }}
-              />
-            </span>
-          </button>
         </Section>
 
         <Section t={t} title="My photo">

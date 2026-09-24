@@ -7,12 +7,19 @@ import { BrandLoader } from "@/components/event/BrandLoader";
 /**
  * Remembers WHY the guest is here, then hands over to the gallery.
  *
- * The "Review request" button in a WhatsApp message or an email lands on this
- * route. All it does is leave a note in `sessionStorage` and send the guest to
- * the ordinary gallery entry, which is the point: the approval screen is not a
- * separate destination with its own auth, its own gates and its own copy of the
- * lounge. It is the people screen, opened at the right section, after every
- * existing gate has been satisfied exactly as it would be on any other visit.
+ * A deep link straight to the requests section. All it does is leave a note in
+ * `sessionStorage` and send the guest to the ordinary gallery entry, which is
+ * the point: the approval screen is not a separate destination with its own
+ * auth, its own gates and its own copy of the lounge. It is the people screen,
+ * opened at the right section, after every existing gate has been satisfied
+ * exactly as it would be on any other visit.
+ *
+ * NOTHING GENERATES THIS LINK any more. It was built for the "Review request"
+ * button in a WhatsApp message; requests now reach a guest only as a badge in
+ * their own gallery, so this route survives purely as a shareable way in. It is
+ * kept because it costs nothing, is covered by the host gate's tests, and is
+ * the obvious destination if a link is ever wanted again — not because anything
+ * depends on it.
  *
  * `sessionStorage` rather than a query parameter, so the note survives the
  * Google sign-in round trip without ever riding in a URL — and it survives it

@@ -3,11 +3,15 @@
 /**
  * Surface 4 — the people screen, which is also the approval screen.
  *
- * One screen, not two: the link in a WhatsApp or email request opens exactly
- * this, scrolled to "Wants to add you". Building an "approval screen" beside it
- * would have meant two places to keep the relationship ladder correct, and a
- * guest who came to answer one person almost always wants to add three more
- * while they are here.
+ * One screen, not two: answering a request and finding someone new are the
+ * same screen, scrolled to a different section. Building an "approval screen"
+ * beside it would have meant two places to keep the relationship ladder
+ * correct, and a guest who came to answer one person almost always wants to add
+ * three more while they are here.
+ *
+ * Requests reach a guest as a badge on the friends card in their own gallery —
+ * `pending_count` on the session block — and nowhere else. Nothing is sent to
+ * them by WhatsApp or email.
  *
  * Everything below is filtered from ONE loaded payload. There is no search
  * endpoint, no pagination and no second request — see `lib/friend-finder/search.ts`.
@@ -174,7 +178,7 @@ export function PeopleScreen({
 
   /** Ask before anything that takes something away. Adding is cheap and
    *  reversible; leaving someone's group, or withdrawing a request they may
-   *  already have been messaged about, is not. */
+   *  already have seen waiting for them, is not. */
   const confirmPromptFor = (person: FriendPerson): string | null => {
     if (person.rel === "in_group") return `Remove ${person.name} from your group?`;
     if (person.rel === "requested") return `Cancel your request to ${person.name}?`;
@@ -353,7 +357,7 @@ export function PeopleScreen({
             className="mb-3 rounded-2xl px-3.5 py-2.5 text-[12px] font-semibold leading-[1.45]"
             style={{ background: t.accentWash, color: t.brand }}
           >
-            Getting your photos ready. This can take a few minutes.
+            Just a moment while we find your photos.
           </p>
         )}
 

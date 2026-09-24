@@ -52,6 +52,10 @@ function optimisticRel(current: FriendRel, action: "add" | "remove" | "decline")
   return "open";
 }
 
+/** How long to wait before the single `preparing` retry. Long enough for the
+ *  store that follows a guest's own search, short enough not to be a wait. */
+const PREPARING_RETRY_MS = 2500;
+
 export function useFriendsDirectory({
   uid,
   bookingId,
@@ -163,6 +167,28 @@ export function useFriendsDirectory({
       cancelled = true;
     };
   }, [active, load]);
+
+  /**
+   * ONE retry when the server says it is still working.
+   *
+   * `preparing` now means only one thing: this guest's own `search-selfie` has
+   * answered them but the write that stores their matched set has not landed
+   * yet — a sub-second gap in the same visit. It used to mean "a background
+   * sweep will get to you", which could be ten minutes and which no amount of
+   * retrying would have helped; there is no sweep any more.
+   *
+   * So a single delayed refetch closes the only gap that is left, and the guest
+   * sees their photos instead of a message telling them to come back. Not a
+   * poll: if the one retry still says `preparing`, something actually failed
+   * and their next visit is what fixes it.
+   */
+  useEffect(() => {
+    if (!active || payload?.state !== "preparing") return;
+    const id = setTimeout(() => {
+      void load();
+    }, PREPARING_RETRY_MS);
+    return () => clearTimeout(id);
+  }, [active, payload?.state, load]);
 
   /** Patch one row in place, leaving the list's order alone — a row must not
    *  jump out from under the finger that just tapped it. */

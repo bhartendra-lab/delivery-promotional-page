@@ -35,7 +35,7 @@ export function GroupEmpty({
     memberCount === 0
       ? waitingSentence(waitingNames)
       : preparing
-        ? "Getting your photos ready. This can take a few minutes."
+        ? "Just a moment while we find your photos."
         : "No photos of you together yet. They will appear here as the studio adds more.";
 
   return (

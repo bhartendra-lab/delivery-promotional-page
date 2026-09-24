@@ -16,7 +16,6 @@ import type {
   FriendFinderAction,
   FriendFinderBlock,
   FriendFinderPeopleResponse,
-  MuteResult,
   ProfileResult,
   RemoveResult,
   StopResult,
@@ -58,7 +57,6 @@ export type FriendFinderActionResult<A extends FriendFinderAction["action"]> =
   : A extends "remove" ? RemoveResult
   : A extends "decline" ? DeclineResult
   : A extends "profile" ? ProfileResult
-  : A extends "mute" ? MuteResult
   : A extends "stop" ? StopResult
   : never;
 

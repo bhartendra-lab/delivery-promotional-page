@@ -64,8 +64,6 @@ export type FriendFinderBlock = {
    *  which is exactly the lifetime of the My Group tab. */
   has_group: boolean;
   pending_count: number;
-  /** This guest has muted request messages (WhatsApp / email). */
-  requests_muted: boolean;
   group_updated_at: number | null;
   /** Bumps whenever anything about OTHER guests at this event changes. Paired
    *  with `group_updated_at` to make the directory request conditional. */
@@ -129,7 +127,6 @@ export type FriendFinderAction =
   /** The picture only. A Guest's name is the one they gave at sign-in and is
    *  not settable here — there is no second, feature-local name. */
   | { action: "profile"; avatar: "auto" | { media_id: string; face_index: number } }
-  | { action: "mute"; muted: boolean }
   | { action: "stop" };
 
 /* ── what each action answers with ──────────────────────────────────────── */
@@ -143,5 +140,4 @@ export type AddResult = { guest_id: string; rel: FriendRel; connected: boolean }
 export type RemoveResult = { guest_id: string; rel: FriendRel };
 export type DeclineResult = { guest_id: string; rel: FriendRel };
 export type ProfileResult = { avatar_pending: boolean };
-export type MuteResult = { requests_muted: boolean };
 export type StopResult = { stopped: true };
