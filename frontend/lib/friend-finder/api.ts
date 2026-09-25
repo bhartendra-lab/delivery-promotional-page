@@ -1,5 +1,5 @@
 /**
- * "Find your friends group" — the two calls the feature makes.
+ * "Find my people" — the two calls the feature makes.
  *
  * Kept out of `lib/guest-api.ts` on purpose. That module is imported eagerly by
  * `EventFlow` and `LoungeGallery`, and everything in it lands in the lounge's
@@ -18,7 +18,6 @@ import type {
   FriendFinderPeopleResponse,
   ProfileResult,
   RemoveResult,
-  StopResult,
 } from "./types";
 
 /**
@@ -57,7 +56,6 @@ export type FriendFinderActionResult<A extends FriendFinderAction["action"]> =
   : A extends "remove" ? RemoveResult
   : A extends "decline" ? DeclineResult
   : A extends "profile" ? ProfileResult
-  : A extends "stop" ? StopResult
   : never;
 
 /**

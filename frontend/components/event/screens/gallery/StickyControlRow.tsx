@@ -47,6 +47,7 @@ export function StickyControlRow({
   showMine = true,
   showGroup = false,
   showFolders = true,
+  pendingCount = 0,
 }: {
   t: ClientTheme;
   unlocked: boolean;
@@ -54,10 +55,13 @@ export function StickyControlRow({
   setTab: (k: GalleryTab) => void;
   /** False with face search off — see `UnlockAwareSwitcher`. */
   showMine?: boolean;
-  /** True once this guest has a friends group — adds the third segment. */
+  /** True once this guest has answered the consent question — adds the third
+   *  segment, My People. */
   showGroup?: boolean;
+  /** People waiting on this guest — the red dot on that segment. */
+  pendingCount?: number;
   /**
-   * False on My Group, whose feed is grouped by how many friends are in each
+   * False on My People, whose feed is grouped by how many friends are in each
    * photo rather than by folder. The pills would filter a view they do not
    * describe. Default true, so every other tab is untouched.
    */
@@ -115,7 +119,15 @@ export function StickyControlRow({
             hint={selectionHint}
           />
         ) : (
-          <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} dimmed={likedView} showMine={showMine} showGroup={showGroup} />
+          <UnlockAwareSwitcher
+            t={t}
+            tab={tab}
+            setTab={setTab}
+            dimmed={likedView}
+            showMine={showMine}
+            showGroup={showGroup}
+            pendingCount={pendingCount}
+          />
         )}
 
         <ActionsCluster

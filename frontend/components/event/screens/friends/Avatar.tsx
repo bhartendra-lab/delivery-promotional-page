@@ -3,7 +3,7 @@
 /**
  * A guest's face picture, or their initials when there is none.
  *
- * Shared by the card, the people rows and the My Group header, so the fallback
+ * Shared by the card, the people rows and the My People header, so the fallback
  * is decided in exactly one place. The colour is derived from `guest_id` rather
  * than random, so the same person is the same colour on every surface and
  * across reloads — that consistency is most of what makes initials readable as

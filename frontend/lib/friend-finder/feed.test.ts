@@ -71,15 +71,15 @@ test("bucketLabel stays silent below two members", () => {
 });
 
 test("bucketLabel names the whole group, then counts down, then singular", () => {
-  assert.equal(bucketLabel(3, 3), "Your whole group");
-  assert.equal(bucketLabel(2, 3), "With 2 of your group");
-  assert.equal(bucketLabel(1, 3), "With one of your group");
-  assert.equal(bucketLabel(1, 2), "With one of your group");
-  assert.equal(bucketLabel(2, 2), "Your whole group");
+  assert.equal(bucketLabel(3, 3), "With everyone");
+  assert.equal(bucketLabel(2, 3), "With 2 of your people");
+  assert.equal(bucketLabel(1, 3), "With one of your people");
+  assert.equal(bucketLabel(1, 2), "With one of your people");
+  assert.equal(bucketLabel(2, 2), "With everyone");
 });
 
 test("waitingSentence reads as a sentence at every length", () => {
-  assert.equal(waitingSentence([]), "Waiting for your friends to say yes.");
+  assert.equal(waitingSentence([]), "Waiting for your people to say yes.");
   assert.equal(waitingSentence(["Priya"]), "Waiting for Priya to say yes.");
   assert.equal(waitingSentence(["Priya", "Rahul"]), "Waiting for Priya and Rahul to say yes.");
   assert.equal(
@@ -137,7 +137,7 @@ test("the pager walks buckets in order, biggest group first", async () => {
 
   assert.equal(feed.total, 3);
   assert.deepEqual(feed.allIds, ["b", "a", "c"]);
-  assert.deepEqual(feed.labels, ["Your whole group", "With one of your group"]);
+  assert.deepEqual(feed.labels, ["With everyone", "With one of your people"]);
 
   const first = await feed.loadPage(null);
   assert.deepEqual(first.items.map((m) => m.media_id), ["b"]);

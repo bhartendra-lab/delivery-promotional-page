@@ -53,7 +53,7 @@ export function EventFlow() {
   const [authError, setAuthError] = useState(false);
   const [scanOrigin, setScanOrigin] = useState<ScanOrigin>("entry");
   /**
-   * "Find your friends group", as the session reports it.
+   * "Find my people", as the session reports it.
    *
    * Null covers two different things and deliberately treats them the same:
    * the backend's global switch is off (the key is absent from the response

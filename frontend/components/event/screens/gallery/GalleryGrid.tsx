@@ -96,19 +96,30 @@ export function GalleryGrid({
   );
 }
 
-/** Measures its own width (initial synchronous read + ResizeObserver for
- *  later changes — sidebar toggles, window resize) so the packing algorithm
- *  always runs against the real available width. */
+/**
+ * Measures its own width (initial synchronous read + ResizeObserver for later
+ * changes — sidebar toggles, window resize) so the packing algorithm always
+ * runs against the real available width.
+ *
+ * FLOORED, and read from the same box on both paths. It used to seed from
+ * `clientWidth`, which is an INTEGER the browser rounds — while the observer
+ * that replaced it reports `contentRect.width`, which is fractional. On a
+ * container whose true width is, say, 342.67px, `clientWidth` says 343, the
+ * row is solved to fill 343, and the extra third of a pixel pushes the last
+ * tile under the scroll container's clip. Flooring a fractional read makes the
+ * packed row a hair narrower than the space it has, which can never clip, and
+ * makes the two measurements agree so the first paint matches the second.
+ */
 function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    setWidth(el.clientWidth);
+    setWidth(Math.floor(el.getBoundingClientRect().width));
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
-      if (w != null) setWidth(w);
+      if (w != null) setWidth(Math.floor(w));
     });
     ro.observe(el);
     return () => ro.disconnect();

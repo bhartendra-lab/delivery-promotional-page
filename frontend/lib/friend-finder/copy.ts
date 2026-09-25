@@ -1,8 +1,8 @@
 /**
- * Every guest-facing string in "Find your friends group", in one place.
+ * Every guest-facing string in "Find my people", in one place.
  *
  * The consent notice is load-bearing, not decoration: the words below are the
- * same words the backend records as `ff-v1.0` in `consent_logs`
+ * same words the backend records as `ff-v1.1` in `consent_logs`
  * (`FRIEND_FINDER_NOTICE_TEXT` in `src/utils/friend-finder.utils.js`). That row
  * exists so an old consent can be tied back to exactly what was on screen, so
  * the two copies must never drift — if this text changes it is a NEW version in
@@ -13,7 +13,7 @@
  */
 
 /** Bump together with the backend's FRIEND_FINDER_POLICY_VERSION. */
-export const FRIEND_FINDER_POLICY_VERSION = "ff-v1.0";
+export const FRIEND_FINDER_POLICY_VERSION = "ff-v1.1";
 
 /**
  * Longest name the backend will keep (`GUEST_NAME_MAX`). The sign-in field caps
@@ -29,15 +29,22 @@ export const GUEST_NAME_MAX = 40;
 export const PLACEHOLDER_NAME = "Guest";
 
 export const FRIENDS_SHEET_COPY = {
-  title: "Find your friends group",
-  body: "See the photos you are in with your friends, all in one place. You and a friend see your photos together once you have both said yes.",
-  smallPrint: "Your name and face picture are visible to guests at this wedding. You can change this anytime.",
+  title: "Find my people",
+  body: "See the photos you are in with your people, all in one place. You and another guest see your photos together once you have both said yes.",
+  smallPrint:
+    "Your name and face picture are visible to guests at this wedding. You can change your answer at any time, and to stop sharing altogether, choose Only people I choose and remove everyone from your list.",
   continueLabel: "Continue",
-  declineLabel: "No thanks",
 } as const;
 
-/** The two sharing choices, in the order they are shown. "No thanks" is the
- *  text button beside Continue, not a third card, so it is not listed here. */
+/**
+ * The two sharing choices, in the order they are shown.
+ *
+ * There is no third one and no decline button. A guest who does not want this
+ * closes the sheet, which records NOTHING — no choice and no consent row — and
+ * that is a truer statement of "they did not answer" than storing a refusal
+ * would be. Withdrawing after answering is choosing "Only people I choose" and
+ * removing everyone, which is what the small print above points at.
+ */
 export const FRIENDS_CHOICES = [
   {
     value: "everyone",
@@ -55,22 +62,18 @@ export const FRIENDS_CHOICES = [
  *  because it interpolates a live count. */
 export const FRIENDS_CARD_COPY = {
   noSelfie: {
-    title: "Add your selfie to find your friends group",
+    title: "Add your selfie to find my people",
     subtitle: "See every photo you are in with your people",
   },
   undecided: {
-    title: "Find your friends group",
+    title: "Find my people",
     subtitle: "See every photo you are in with your people",
   },
   chosenNoGroup: {
-    title: "Find your friends",
+    title: "Find my people",
     subtitle: "See every photo you are in with your people",
   },
 } as const;
-
-/** Shown above the people list to a guest who answered "No thanks". */
-export const DECLINED_BANNER =
-  "You chose No thanks. You can still ask people, or change this in settings.";
 
 /** The backend's daily cap on requests refused the add (HTTP 429). */
 export const REQUEST_LIMIT_TOAST =

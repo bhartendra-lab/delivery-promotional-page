@@ -1,5 +1,5 @@
 /**
- * My Group's feed: which photos it shows, and in what order.
+ * My People's feed: which photos it shows, and in what order.
  *
  * The rule, in one sentence: every photo in the guest's OWN set that contains
  * at least one connected group member, biggest group photos first.
@@ -14,7 +14,7 @@ import type { GuestMediaItem } from "../types";
 import type { FriendPerson } from "./types";
 
 /** Photos per request while paging a bucket. Matches the gallery's own page
- *  size, so a My Group page costs what a My Photos page costs. */
+ *  size, so a My People page costs what a My Photos page costs. */
 export const FEED_PAGE = 60;
 
 /** One run of photos that `n` of the guest's group members appear in. */
@@ -77,9 +77,9 @@ export function buildFeedBuckets({
  */
 export function bucketLabel(count: number, memberCount: number): string {
   if (memberCount < 2) return "";
-  if (count >= memberCount) return "Your whole group";
-  if (count === 1) return "With one of your group";
-  return `With ${count} of your group`;
+  if (count >= memberCount) return "With everyone";
+  if (count === 1) return "With one of your people";
+  return `With ${count} of your people`;
 }
 
 /**
@@ -90,7 +90,7 @@ export function bucketLabel(count: number, memberCount: number): string {
  * useful part.
  */
 export function waitingSentence(names: string[]): string {
-  if (names.length === 0) return "Waiting for your friends to say yes.";
+  if (names.length === 0) return "Waiting for your people to say yes.";
   if (names.length === 1) return `Waiting for ${names[0]} to say yes.`;
   if (names.length === 2) return `Waiting for ${names[0]} and ${names[1]} to say yes.`;
   return `Waiting for ${names[0]}, ${names[1]} and ${names.length - 2} more to say yes.`;
@@ -111,7 +111,7 @@ export type GroupPage = {
 };
 
 /**
- * Everything the gallery needs to render My Group, and nothing about how any
+ * Everything the gallery needs to render My People, and nothing about how any
  * of it was worked out.
  *
  * This is the seam. `LoungeGallery` imports only the TYPE (erased at compile

@@ -12,8 +12,11 @@
  * The words come from `lib/friend-finder/copy.ts`, which is the same text the
  * backend stores as that version. Do not edit them here.
  *
- * Swiping the sheet away (backdrop, Escape, the close button) records NOTHING.
- * Only Continue and "No thanks" write, and they write different choices.
+ * Swiping the sheet away (backdrop, Escape, the close button) records NOTHING
+ * — no choice, no consent row — and it is the ONLY way to say no. There is no
+ * "No thanks" button, because a stored refusal and an unanswered question are
+ * the same fact and storing one of them made the guest harder to ask again.
+ * Only Continue writes.
  */
 
 import { useState } from "react";
@@ -34,18 +37,15 @@ export function FriendsSheet({
   /** Continue: the picked choice. The name other guests see is the one this
    *  Guest gave at sign-in — there is no second name to collect here. */
   onChoose,
-  /** "No thanks": records `choice: "none"` and closes. */
-  onDecline,
 }: {
   t: ClientTheme;
   open: boolean;
   /** A choose request is in flight — the buttons lock rather than double-fire. */
   busy: boolean;
   onClose: () => void;
-  onChoose: (choice: Exclude<FriendChoice, "none">) => void;
-  onDecline: () => void;
+  onChoose: (choice: FriendChoice) => void;
 }) {
-  const [choice, setChoice] = useState<Exclude<FriendChoice, "none"> | null>(null);
+  const [choice, setChoice] = useState<FriendChoice | null>(null);
   const canContinue = choice !== null && !busy;
 
   return (
@@ -55,29 +55,18 @@ export function FriendsSheet({
       onClose={onClose}
       title={FRIENDS_SHEET_COPY.title}
       footer={
-        <div className="flex flex-col gap-1">
-          <button
-            type="button"
-            disabled={!canContinue}
-            onClick={() => choice && onChoose(choice)}
-            className="w-full cursor-pointer rounded-full py-3.5 text-[15px] font-extrabold transition-transform active:scale-[0.99] disabled:cursor-not-allowed"
-            style={{
-              background: canContinue ? t.brand : t.sunken,
-              color: canContinue ? t.onBrand : t.faint,
-            }}
-          >
-            {busy ? "Saving…" : FRIENDS_SHEET_COPY.continueLabel}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onDecline}
-            className="w-full cursor-pointer py-2.5 text-[13px] font-bold disabled:opacity-50"
-            style={{ color: t.muted }}
-          >
-            {FRIENDS_SHEET_COPY.declineLabel}
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={!canContinue}
+          onClick={() => choice && onChoose(choice)}
+          className="w-full cursor-pointer rounded-full py-3.5 text-[15px] font-extrabold transition-transform active:scale-[0.99] disabled:cursor-not-allowed"
+          style={{
+            background: canContinue ? t.brand : t.sunken,
+            color: canContinue ? t.onBrand : t.faint,
+          }}
+        >
+          {busy ? "Saving…" : FRIENDS_SHEET_COPY.continueLabel}
+        </button>
       }
     >
       <p className="text-[13.5px] font-semibold leading-[1.55]" style={{ color: t.muted }}>

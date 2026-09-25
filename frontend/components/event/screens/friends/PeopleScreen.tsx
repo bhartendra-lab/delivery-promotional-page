@@ -1,16 +1,26 @@
 "use client";
 
 /**
- * Surface 4 — the people screen, which is also the approval screen.
+ * Manage my people — the directory, the approval screen and the settings door.
  *
- * One screen, not two: answering a request and finding someone new are the
- * same screen, scrolled to a different section. Building an "approval screen"
- * beside it would have meant two places to keep the relationship ladder
+ * One screen, not three: answering a request, finding someone new and taking
+ * someone's access away are the same list, read in three sections. Separate
+ * screens would have meant several places to keep the relationship ladder
  * correct, and a guest who came to answer one person almost always wants to add
  * three more while they are here.
  *
- * Requests reach a guest as a badge on the friends card in their own gallery —
- * `pending_count` on the session block — and nowhere else. Nothing is sent to
+ * THE SECTIONS, TOP TO BOTTOM, AND WHY THAT ORDER:
+ *   1. Wants to add you — somebody is waiting on an answer. Nothing else on
+ *      this screen is time-sensitive, so it goes first.
+ *   2. People with access to your photos — everyone this guest has allowed,
+ *      whether or not it was reciprocated. This is the section that makes
+ *      withdrawal possible: removing everyone here, on "Only people I choose",
+ *      is how a guest stops sharing, and it cannot be buried under three
+ *      hundred other names for that to work.
+ *   3. Everyone else at this wedding.
+ *
+ * Requests reach a guest as a badge on the My People tab in their own gallery
+ * — `pending_count` on the session block — and nowhere else. Nothing is sent to
  * them by WhatsApp or email.
  *
  * Everything below is filtered from ONE loaded payload. There is no search
@@ -20,10 +30,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "@/lib/api";
 import type { ClientTheme } from "@/lib/client-theme";
-import { ACTION_FAILED_TOAST, DECLINED_BANNER, REQUEST_LIMIT_TOAST } from "@/lib/friend-finder/copy";
+import { ACTION_FAILED_TOAST, REQUEST_LIMIT_TOAST } from "@/lib/friend-finder/copy";
 import { foldName, matchesQuery } from "@/lib/friend-finder/search";
 import type { FriendFinderBlock, FriendPerson } from "@/lib/friend-finder/types";
-import { IconSearch, IconShare, IconUsers } from "@/components/ui/icons";
+import { IconGear, IconSearch, IconShare, IconUsers } from "@/components/ui/icons";
 import { PersonRow } from "./PersonRow";
 import { SheetShell } from "./SheetShell";
 import type { UseFriendsDirectory } from "./useFriendsDirectory";
@@ -64,11 +74,14 @@ export function PeopleScreen({
   onClose,
   onBlockChange,
   onToast,
-  /** Toast with a "View My Group" action, shown on the guest's first add ever. */
+  /** Toast with a "View My People" action, shown on the guest's first add ever. */
   onFirstGroup,
   /** The guest added someone but has no selfie, so there is nothing to show
    *  them together yet. Hands off to the existing face-scan flow. */
   onNeedSelfie,
+  /** The gear in this screen's own header. Settings live here rather than out
+   *  in the gallery, beside the list they act on. */
+  onOpenSettings,
 }: {
   t: ClientTheme;
   open: boolean;
@@ -85,6 +98,7 @@ export function PeopleScreen({
   onToast: (message: string) => void;
   onFirstGroup: (message: string) => void;
   onNeedSelfie: () => void;
+  onOpenSettings: () => void;
 }) {
   const [query, setQuery] = useState("");
   /**
@@ -161,11 +175,19 @@ export function PeopleScreen({
     rows[next]?.scrollIntoView({ block: "nearest" });
   }, []);
 
-  const { requests, others } = useMemo(() => {
+  const { requests, access, others } = useMemo(() => {
     const visible = (payload?.people ?? []).filter((p) => matchesQuery(p.name, folded));
     return {
       requests: visible.filter((p) => p.rel === "added_you"),
-      others: visible.filter((p) => p.rel !== "added_you"),
+      /* Everyone this guest has ALLOWED — which is `in_group` (they allowed
+       * back) and `requested` (they have not answered yet) together. Both are
+       * people who can see the photos they share the moment the other side
+       * agrees, so both belong under "has access" rather than only the
+       * mutual half. */
+      access: visible.filter((p) => p.rel === "in_group" || p.rel === "requested"),
+      others: visible.filter(
+        (p) => p.rel !== "added_you" && p.rel !== "in_group" && p.rel !== "requested",
+      ),
     };
   }, [payload, folded]);
 
@@ -198,8 +220,8 @@ export function PeopleScreen({
           // "Wants to add you" on its own, because the server's recomputed
           // `rel` is no longer `added_you` — usually `open`, since they do
           // still allow this guest, which is exactly the Add button the design
-          // asks for. Not forced to `open` here: if they stopped sharing in
-          // the meantime, `not_sharing` is the truth and the server knows it.
+          // asks for. Not forced to `open` here: the server recomputes it from
+          // the state as it now stands, and that is the value to render.
           onBlockChange({ pending_count: Math.max(0, block.pending_count - 1) });
           return;
         }
@@ -228,7 +250,7 @@ export function PeopleScreen({
         setAnnouncement(message);
 
         if (result.connected && wasFirstGroup) {
-          // The My Group tab exists from this moment on. Tell the session block
+          // The My People tab exists from this moment on. Tell the session block
           // so the tab and the card both know, and offer the way straight there.
           onBlockChange({ has_group: true });
           onFirstGroup(message);
@@ -289,10 +311,21 @@ export function PeopleScreen({
         t={t}
         open={open}
         onClose={onClose}
-        title="Your friends group"
+        title="Manage my people"
         fullScreenOnPhone
         desktopWidth={720}
         autoFocus={false}
+        headerExtra={
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="Find my people settings"
+            className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
+            style={{ color: t.muted }}
+          >
+            <IconGear size={17} />
+          </button>
+        }
         footer={
           <button
             type="button"
@@ -343,15 +376,6 @@ export function PeopleScreen({
           </div>
         </div>
 
-        {block.choice === "none" && (
-          <p
-            className="mb-3 rounded-2xl px-3.5 py-2.5 text-[12px] font-semibold leading-[1.45]"
-            style={{ background: t.sunken, color: t.muted }}
-          >
-            {DECLINED_BANNER}
-          </p>
-        )}
-
         {payload?.state === "preparing" && (
           <p
             className="mb-3 rounded-2xl px-3.5 py-2.5 text-[12px] font-semibold leading-[1.45]"
@@ -392,9 +416,30 @@ export function PeopleScreen({
               </div>
             )}
 
+            {access.length > 0 && (
+              <>
+                <SectionHeading t={t}>People with access to your photos</SectionHeading>
+                <ul className={desktop ? "grid grid-cols-2 gap-x-6" : ""}>
+                  {access.map((person) => (
+                    <PersonRow
+                      key={person.guest_id}
+                      t={t}
+                      person={person}
+                      sharedCount={person.shared.length}
+                      busy={pending.has(person.guest_id)}
+                      desktop={desktop}
+                      onPrimary={() => onPrimary(person)}
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
+
             {others.length > 0 && (
               <>
-                {requests.length > 0 && <SectionHeading t={t}>Everyone else</SectionHeading>}
+                {(requests.length > 0 || access.length > 0) && (
+                  <SectionHeading t={t}>Everyone else</SectionHeading>
+                )}
                 <ul className={desktop ? "grid grid-cols-2 gap-x-6" : ""}>
                   {shownOthers.map((person) => (
                     <PersonRow
@@ -411,7 +456,7 @@ export function PeopleScreen({
               </>
             )}
 
-            {status === "ready" && requests.length === 0 && others.length === 0 && (
+            {status === "ready" && requests.length === 0 && access.length === 0 && others.length === 0 && (
               <EmptyNote
                 t={t}
                 text={

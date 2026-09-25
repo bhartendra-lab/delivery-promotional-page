@@ -1,31 +1,25 @@
 "use client";
 
 /**
- * Surface 7 — everything a guest can change about their own participation.
+ * Everything a guest can change about their own participation.
  *
- * Four things, in the order they matter: who may add them, whether they hear
- * about requests, what other guests see of them, and the way out.
+ * Two things now: who may add them, and what other guests see of them. It
+ * opens from the gear inside Manage my people rather than from the gallery, so
+ * the settings sit beside the list they act on.
  *
- * "Stop sharing" is last and is the only destructive one, so it is the only one
- * that asks — and its confirm spells out all three consequences rather than
- * saying "are you sure?", because none of them is guessable from the label.
+ * WHERE "STOP SHARING" WENT. There is no withdrawal button any more. A guest
+ * who wants out chooses "Only people I choose" and removes everyone from their
+ * list — which is on the screen this sheet opens over, and which the consent
+ * notice names as the way to stop. The old Stop sharing wrote a `stopped_at`
+ * stamp that every read then had to special-case, and the one thing it bought
+ * over the two-step path was a confirm dialog.
  */
 
-import { useState } from "react";
 import type { ClientTheme } from "@/lib/client-theme";
 import { FRIENDS_CHOICES } from "@/lib/friend-finder/copy";
 import type { FriendChoice, FriendFinderBlock } from "@/lib/friend-finder/types";
 import { IconCheck } from "@/components/ui/icons";
 import { SheetShell } from "./SheetShell";
-
-/** The third option, which the consent sheet renders as a text button rather
- *  than a card. Here it is a peer of the other two: this is the screen where
- *  changing your mind in either direction belongs. */
-const NONE_OPTION = {
-  value: "none" as const,
-  label: "No thanks",
-  subtitle: "People must ask you",
-};
 
 export function FriendsSettingsSheet({
   t,
@@ -35,7 +29,6 @@ export function FriendsSettingsSheet({
   onClose,
   onChoose,
   onChangePhoto,
-  onStop,
 }: {
   t: ClientTheme;
   open: boolean;
@@ -44,127 +37,74 @@ export function FriendsSettingsSheet({
   onClose: () => void;
   onChoose: (choice: FriendChoice) => void;
   onChangePhoto: () => void;
-  onStop: () => void;
 }) {
-  const [confirmStop, setConfirmStop] = useState(false);
-
-  // A guest who has stopped has `choice: "none"` written by the backend, but
-  // that is a consequence of stopping rather than an answer they gave — so no
-  // option is shown as chosen until they pick one again.
-  const activeChoice: FriendChoice | null = block.stopped ? null : block.choice;
-
   return (
-    <>
-      <SheetShell t={t} open={open} onClose={onClose} title="Friends group settings">
-        <Section t={t} title="Who can add you">
-          <div className="flex flex-col gap-2" role="radiogroup" aria-label="Who can add you">
-            {[...FRIENDS_CHOICES, NONE_OPTION].map((option) => {
-              const on = activeChoice === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  disabled={busy}
-                  onClick={() => onChoose(option.value)}
-                  className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-2xl p-3 text-left disabled:opacity-60"
+    <SheetShell t={t} open={open} onClose={onClose} title="Find my people settings">
+      <Section t={t} title="Who can add you">
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label="Who can add you">
+          {FRIENDS_CHOICES.map((option) => {
+            const on = block.choice === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={busy}
+                onClick={() => onChoose(option.value)}
+                className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-2xl p-3 text-left disabled:opacity-60"
+                style={{
+                  background: on ? t.accentWash : t.sunken,
+                  border: `1px solid ${on ? t.brand : t.border}`,
+                }}
+              >
+                <span
+                  className="mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
                   style={{
-                    background: on ? t.accentWash : t.sunken,
-                    border: `1px solid ${on ? t.brand : t.border}`,
+                    background: on ? t.brand : "transparent",
+                    border: on ? "none" : `2px solid ${t.border}`,
+                    color: t.onBrand,
                   }}
+                  aria-hidden
                 >
-                  <span
-                    className="mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
-                    style={{
-                      background: on ? t.brand : "transparent",
-                      border: on ? "none" : `2px solid ${t.border}`,
-                      color: t.onBrand,
-                    }}
-                    aria-hidden
-                  >
-                    {on && <IconCheck size={11} weight="bold" />}
+                  {on && <IconCheck size={11} weight="bold" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-extrabold" style={{ color: t.text }}>
+                    {option.label}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13.5px] font-extrabold" style={{ color: t.text }}>
-                      {option.label}
-                    </span>
-                    <span className="mt-0.5 block text-[12px] font-semibold" style={{ color: t.muted }}>
-                      {option.subtitle}
-                    </span>
+                  <span className="mt-0.5 block text-[12px] font-semibold" style={{ color: t.muted }}>
+                    {option.subtitle}
                   </span>
-                </button>
-              );
-            })}
-          </div>
-        </Section>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {/* The withdrawal path, said plainly where the choice is made. It is
+            the only one there is, so it cannot be left to be inferred. */}
+        <p className="mt-2.5 text-[11.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
+          To stop sharing altogether, choose &ldquo;Only people I choose&rdquo; and remove everyone from
+          your list.
+        </p>
+      </Section>
 
-        <Section t={t} title="My photo">
-          {/* The NAME is not editable here. A Guest has one name — the one they
-              gave when they signed in — and it is what the Studio's guest list,
-              the gallery and this directory all show. A second name settable
-              only here would mean the Studio knows them as one person while the
-              wedding sees another. Correcting it is done at sign-in. */}
-          <button
-            type="button"
-            onClick={onChangePhoto}
-            className="min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-bold"
-            style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
-          >
-            Change photo
-          </button>
-        </Section>
-
-        <Section t={t} title="Stop sharing">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setConfirmStop(true)}
-            className="min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-extrabold disabled:opacity-60"
-            style={{ background: t.errorSoft, color: t.error }}
-          >
-            Stop sharing
-          </button>
-        </Section>
-      </SheetShell>
-
-      {confirmStop && (
-        <SheetShell
-          t={t}
-          open
-          onClose={() => setConfirmStop(false)}
-          title="Stop sharing?"
-          desktopWidth={420}
+      <Section t={t} title="My photo">
+        {/* The NAME is not editable here. A Guest has one name — the one they
+            gave when they signed in — and it is what the Studio's guest list,
+            the gallery and this directory all show. A second name settable
+            only here would mean the Studio knows them as one person while the
+            wedding sees another. Correcting it is done at sign-in. */}
+        <button
+          type="button"
+          onClick={onChangePhoto}
+          className="min-h-[44px] w-full cursor-pointer rounded-full text-[13px] font-bold"
+          style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
         >
-          <p className="text-[13px] font-semibold leading-[1.55]" style={{ color: t.muted }}>
-            You will leave everyone&rsquo;s groups, your face picture will be hidden, and nobody can ask
-            to add you. You can join again anytime.
-          </p>
-          <div className="mt-4 flex flex-col gap-2 pb-1">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setConfirmStop(false);
-                onStop();
-              }}
-              className="min-h-[44px] w-full cursor-pointer rounded-full text-[14px] font-extrabold disabled:opacity-60"
-              style={{ background: t.error, color: "#fff" }}
-            >
-              Stop sharing
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmStop(false)}
-              className="min-h-[44px] w-full cursor-pointer rounded-full text-[13.5px] font-bold"
-              style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
-            >
-              Keep sharing
-            </button>
-          </div>
-        </SheetShell>
-      )}
-    </>
+          Change photo
+        </button>
+      </Section>
+    </SheetShell>
   );
 }
 

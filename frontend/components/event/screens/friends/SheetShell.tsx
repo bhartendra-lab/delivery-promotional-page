@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The shell every "Find your friends group" surface sits in.
+ * The shell every "Find my people" surface sits in.
  *
  * Bottom sheet below `sm`, centred dialog from there up — the pattern
  * `QualityChoiceSheet` already established in this gallery, factored out here

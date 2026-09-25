@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The one entry point for "Find your friends group" inside the lounge.
+ * The one entry point for "Find my people" inside the lounge.
  *
  * LoungeGallery pulls this in through `next/dynamic`, so every byte of the
  * feature — the sheets, the card, the copy, the API and storage modules — lands
@@ -26,7 +26,6 @@ import { buildGroupFeed, type GroupFeed } from "@/lib/friend-finder/feed";
 import { ACTION_FAILED_TOAST } from "@/lib/friend-finder/copy";
 import {
   clearIntent,
-  clearPeopleCache,
   invalidatePeopleCache,
   readIntent,
   setIntent,
@@ -38,6 +37,7 @@ import type {
   FriendFinderBlock,
   FriendPerson,
 } from "@/lib/friend-finder/types";
+import { IconUsers } from "@/components/ui/icons";
 import { FriendsCard, type FriendsCardState } from "./FriendsCard";
 import { FriendsSheet } from "./FriendsSheet";
 import { FriendsToast, type FriendsToastState } from "./FriendsToast";
@@ -45,7 +45,6 @@ import { PeopleScreen } from "./PeopleScreen";
 import { ChangePhotoSheet } from "./ChangePhotoSheet";
 import { FriendsSettingsSheet } from "./FriendsSettingsSheet";
 import { GroupEmpty } from "./GroupEmpty";
-import { GroupHeader } from "./GroupHeader";
 import { useFriendsDirectory } from "./useFriendsDirectory";
 
 export function FriendsSurface({
@@ -57,9 +56,12 @@ export function FriendsSurface({
   guestName,
   desktop,
   slot,
-  groupHeaderSlot,
+  manageSlot,
+  requestsBannerSlot,
   groupEmptySlot,
+  groupTabActive,
   onGroupFeedChange,
+  onGroupStateChange,
   onShowGroup,
   blocked,
   scanJustCompleted,
@@ -82,15 +84,40 @@ export function FriendsSurface({
   /** Where the card renders. Null while the shell showing it is unmounted —
    *  the mobile Gallery tab, for instance — and then no card renders at all. */
   slot: HTMLElement | null;
-  /** Where My Group's header and empty state render. Null unless that tab is
-   *  the one showing, which is exactly when neither should exist. */
-  groupHeaderSlot: HTMLElement | null;
+  /**
+   * Where the "Manage my people" control renders — the phone's overflow menu,
+   * or the top of the My People tab on a laptop. The shells decide where; this
+   * decides what it says and does, so none of its copy leaves this chunk.
+   */
+  manageSlot: HTMLElement | null;
+  /** Where the pending-requests banner renders: under the tabs, above the
+   *  photos. Null unless the My People tab is showing with requests waiting. */
+  requestsBannerSlot: HTMLElement | null;
+  /** Where My People's empty state renders. Null unless that tab is showing. */
   groupEmptySlot: HTMLElement | null;
-  /** Hands the gallery the pager for My Group. The gallery pages it with the
+  /**
+   * The guest is LOOKING at My People.
+   *
+   * Load-bearing, not a hint. The directory used to be fetched only while the
+   * people screen was open, so a guest who went straight to this tab depended
+   * entirely on a cached payload — and the cache is invalidated by the event's
+   * `rev`, which moves every time ANY guest at the wedding scans or adds
+   * somebody. Miss it and `groupFeed` stayed null, which the gallery renders as
+   * a skeleton with nothing behind it, for ever. That was the indefinite
+   * shimmer; this is the fix.
+   */
+  groupTabActive: boolean;
+  /** Hands the gallery the pager for My People. The gallery pages it with the
    *  same machinery it uses for every other tab and knows nothing about how a
    *  bucket is worked out. */
   onGroupFeedChange: (feed: GroupFeed | null) => void;
-  /** Switch the gallery to My Group. */
+  /**
+   * How the directory is getting on, so the gallery can tell "still loading"
+   * apart from "loaded and failed". Without it a failed load is
+   * indistinguishable from a slow one and the tab waits for ever.
+   */
+  onGroupStateChange: (state: "loading" | "ready" | "error") => void;
+  /** Switch the gallery to My People. */
   onShowGroup: () => void;
   /**
    * Another lounge modal or gate is open (or its pop-up is pending). No friends
@@ -155,7 +182,9 @@ export function FriendsSurface({
     guestId,
     rev: block.rev,
     groupUpdatedAt: block.group_updated_at ?? 0,
-    active: peopleOpen,
+    // Either surface that renders from this payload keeps it live. See
+    // `groupTabActive` above for why the tab has to be one of them.
+    active: peopleOpen || groupTabActive,
     onReauth,
   });
 
@@ -202,7 +231,7 @@ export function FriendsSurface({
     },
     [onOpenChange],
   );
-  /** Switch the gallery to My Group, closing whatever friends surface is up —
+  /** Switch the gallery to My People, closing whatever friends surface is up —
    *  the guest asked to look at photos, not to keep reading a list. */
   const openGroup = useCallback(() => {
     setSheetOpen(false);
@@ -212,7 +241,7 @@ export function FriendsSurface({
   }, [onOpenChange, onShowGroup]);
 
   /**
-   * My Group's pager.
+   * My People's pager.
    *
    * Rebuilt whenever the payload changes, which includes every optimistic row
    * patch the people screen makes. That is deliberately fine: the feed carries
@@ -226,7 +255,7 @@ export function FriendsSurface({
     return buildGroupFeed({
       mediaIds: payload.media_ids,
       members: directory.members,
-      // The gallery's own endpoint, scoped to one bucket's ids. My Group is a
+      // The gallery's own endpoint, scoped to one bucket's ids. My People is a
       // subset of My Photos, so `mine` is true and the backend applies exactly
       // the rules it always has.
       fetchPage: async (ids, skip, limit) => {
@@ -239,6 +268,16 @@ export function FriendsSurface({
   useEffect(() => {
     onGroupFeedChange(groupFeed);
   }, [groupFeed, onGroupFeedChange]);
+
+  /* "loading" until there is something to render, then ready — or error, which
+   * is the state the gallery needs in order to stop waiting. A failed
+   * REVALIDATION with a payload still in hand is `ready`: the list on screen is
+   * seconds stale, not wrong. */
+  useEffect(() => {
+    onGroupStateChange(
+      groupFeed ? "ready" : directory.status === "error" ? "error" : "loading",
+    );
+  }, [groupFeed, directory.status, onGroupStateChange]);
   // Take the feed away when this surface goes, so the gallery cannot page a
   // feature that is no longer mounted.
   const onGroupFeedChangeRef = useRef(onGroupFeedChange);
@@ -290,7 +329,7 @@ export function FriendsSurface({
      Both are for a guest who has not answered the question yet. A guest who
      chose (or who chose and then stopped) has answered it, and re-asking by
      pop-up would be nagging — the card is how they change their mind. */
-  const undecided = block.choice === null && !block.stopped;
+  const undecided = block.choice === null;
 
   useEffect(() => {
     if (!undecided) return;
@@ -338,14 +377,7 @@ export function FriendsSurface({
           choice,
           consent_method: method,
         });
-        onBlockChange({
-          choice: result.choice,
-          face_visible: result.face_visible,
-          // Answering resets a previous withdrawal: the backend clears
-          // `stopped_at` for "everyone"/"selected", and "none" is a fresh
-          // decision rather than the old stop.
-          stopped: false,
-        });
+        onBlockChange({ choice: result.choice, face_visible: result.face_visible });
         // `rev` has moved for everyone at this event, so whatever is cached no
         // longer describes it. The payload is kept; only its token is poisoned,
         // so the next open revalidates instead of short-circuiting.
@@ -359,7 +391,7 @@ export function FriendsSurface({
         }
         say(
           err instanceof ApiError && err.status === 403
-            ? "Finding your friends group isn't available for this gallery."
+            ? "Find my people isn't available for this gallery."
             : ACTION_FAILED_TOAST,
         );
         return false;
@@ -377,15 +409,15 @@ export function FriendsSurface({
     [directory.payload],
   );
 
-  const openSettings = useCallback(() => {
-    setSettingsOpen(true);
-    onOpenChange(true);
-  }, [onOpenChange]);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  /* Closing settings does NOT tell the lounge the overlay is gone: the people
+   * screen this opened from is still up underneath, and reporting `false` here
+   * would let the lounge's auto-triggers fire over it. `closePeople` is what
+   * ends the overlay. */
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setPhotoOpen(false);
-    onOpenChange(false);
-  }, [onOpenChange]);
+  }, []);
 
   /**
    * One wrapper for the settings actions that are not `choose`.
@@ -429,28 +461,6 @@ export function FriendsSurface({
     [uid, bookingId, guestId, runSetting, say],
   );
 
-  const stopSharing = useCallback(() => {
-    void runSetting(async () => {
-      const result = await friendFinderAction(uid, { action: "stop" });
-      // Everything this feature keeps for the guest on this device goes, by
-      // name — never `clear()`, which would take their sign-in with it.
-      if (guestId) clearPeopleCache(bookingId, guestId);
-      // `has_group` is deliberately left as the backend reports it (it never
-      // clears `group_created_at`); `stopped` is what removes the tab, the
-      // card's group state and the feed. See `showGroupTab` in the gallery.
-      onBlockChange({
-        stopped: true,
-        choice: "none",
-        face_visible: false,
-        avatar_url: null,
-        pending_count: 0,
-      });
-      closeSettings();
-      say("You have stopped sharing");
-      return result;
-    });
-  }, [uid, bookingId, guestId, runSetting, onBlockChange, closeSettings, say]);
-
   const candidates: FriendAvatarCandidate[] = directory.payload?.me.avatar_candidates ?? [];
 
   const cardState = resolveCardState({ block, hasSelfie, members: directory.members });
@@ -479,20 +489,23 @@ export function FriendsSurface({
           slot,
         )}
 
-      {/* My Group's own furniture, portalled into the gallery's slots. Both
-          exist only while that tab is showing, so neither needs a guard of its
-          own beyond the slot being there. */}
-      {groupHeaderSlot &&
+      {/* My People's own furniture, portalled into the gallery's slots. Each
+          exists only while its slot does, so none needs a guard of its own.
+
+          The old "Your group" header — the face strip with Manage and a gear
+          beside it — is gone. It sat above the photos repeating what the tab
+          already said, and on a phone it pushed the first row of the grid off
+          screen. What it actually offered is here instead: Manage in the
+          overflow menu (or on the tab, on a laptop), and the gear inside the
+          screen it opens. */}
+      {manageSlot &&
+        createPortal(<ManageControl t={t} desktop={desktop} onOpen={() => openPeople()} />, manageSlot)}
+
+      {requestsBannerSlot &&
+        block.pending_count > 0 &&
         createPortal(
-          <GroupHeader
-            t={t}
-            members={directory.members}
-            waitingCount={waitingPeople.length}
-            desktop={desktop}
-            onManage={() => openPeople()}
-            onSettings={openSettings}
-          />,
-          groupHeaderSlot,
+          <RequestsBanner t={t} count={block.pending_count} onOpen={() => openPeople(true)} />,
+          requestsBannerSlot,
         )}
 
       {groupEmptySlot &&
@@ -521,8 +534,9 @@ export function FriendsSurface({
         onBlockChange={onBlockChange}
         onToast={say}
         onFirstGroup={(message) =>
-          say(message, { label: "View My Group", onSelect: () => { closePeople(); openGroup(); } })
+          say(message, { label: "View My People", onSelect: () => { closePeople(); openGroup(); } })
         }
+        onOpenSettings={openSettings}
         onNeedSelfie={() => {
           // Leave the note that brings them back to this screen, then hand off
           // to the existing face-scan flow. The scan unmounts the whole lounge,
@@ -548,9 +562,6 @@ export function FriendsSurface({
             if (ok) openPeople();
           });
         }}
-        onDecline={() => {
-          void sendChoice("none");
-        }}
       />
 
       {settingsOpen && (
@@ -568,7 +579,6 @@ export function FriendsSurface({
             void sendChoice(choice);
           }}
           onChangePhoto={() => setPhotoOpen(true)}
-          onStop={stopSharing}
         />
       )}
 
@@ -599,14 +609,81 @@ export function FriendsSurface({
 }
 
 /**
- * Which of the four card states applies.
+ * "Manage my people" — one control, two shapes.
  *
- * Order matters and is not the order of the table it came from: `stopped` is
- * checked before `has_group` because the backend does NOT clear
- * `group_created_at` when a guest stops sharing, so `has_group` stays true for
- * someone who has left every group. Reading it first would offer a withdrawn
- * guest their old group.
+ * On a phone it is a row in the gallery's overflow menu, so it reads as a menu
+ * item: full width, left-aligned, with an icon. On a laptop it sits at the top
+ * of the My People tab and has to earn its space, so it is a compact pill
+ * rather than the full-width card the old header was.
  */
+function ManageControl({
+  t,
+  desktop,
+  onOpen,
+}: {
+  t: ClientTheme;
+  desktop: boolean;
+  onOpen: () => void;
+}) {
+  if (desktop) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-[38px] cursor-pointer items-center gap-2 rounded-full px-4 text-[13px] font-extrabold"
+        style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+      >
+        <IconUsers size={15} />
+        Manage my people
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 px-4 text-left text-[13.5px] font-bold"
+      style={{ color: t.text }}
+    >
+      <IconUsers size={16} />
+      Manage my people
+    </button>
+  );
+}
+
+/**
+ * The slim banner under the tabs: N people are waiting on an answer.
+ *
+ * Deliberately driven by `pending_count` off the session block rather than by
+ * the directory payload, so it appears the instant the tab is opened — before
+ * the people list has been fetched, and whether or not that fetch succeeds.
+ */
+function RequestsBanner({ t, count, onOpen }: { t: ClientTheme; count: number; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-2xl px-3.5 py-2 text-left"
+      style={{ background: t.accentWash, border: `1px solid ${t.brand}` }}
+    >
+      <span
+        className="flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-extrabold tabular-nums"
+        style={{ background: t.brand, color: t.onBrand }}
+        aria-hidden
+      >
+        {count > 9 ? "9+" : count}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-extrabold" style={{ color: t.brand }}>
+        {count === 1 ? "1 person wants to add you" : `${count} people want to add you`}
+      </span>
+      <span className="shrink-0 text-[12.5px] font-extrabold" style={{ color: t.brand }}>
+        View
+      </span>
+    </button>
+  );
+}
+
+/** Which of the four card states applies. */
 function resolveCardState({
   block,
   hasSelfie,
@@ -617,7 +694,7 @@ function resolveCardState({
   members: FriendPerson[] | null;
 }): FriendsCardState {
   if (!hasSelfie) return { kind: "no_selfie" };
-  if (block.choice === null || block.stopped) return { kind: "undecided" };
+  if (block.choice === null) return { kind: "undecided" };
   if (block.has_group) {
     return { kind: "has_group", members: members ?? [], count: members?.length ?? null };
   }

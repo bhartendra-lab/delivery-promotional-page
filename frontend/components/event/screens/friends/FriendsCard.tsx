@@ -100,7 +100,7 @@ function titleFor(state: FriendsCardState): string {
     case "has_group":
       // The count comes from the cached directory. Without one the card still
       // says something true rather than guessing a number.
-      return state.count != null ? `Your group · ${state.count}` : "Your group";
+      return state.count != null ? `My people · ${state.count}` : "My people";
   }
 }
 

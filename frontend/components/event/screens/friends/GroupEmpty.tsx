@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * My Group with nothing in it yet, which happens for two quite different
+ * My People with nothing in it yet, which happens for two quite different
  * reasons and must not say the same thing for both.
  *
  * Nobody has said yes: the guest has asked people and is waiting. Name them,

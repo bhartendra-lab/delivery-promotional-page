@@ -63,7 +63,15 @@ export function useFriendsDirectory({
   /** From the session block — the tokens the cache is checked against. */
   rev,
   groupUpdatedAt,
-  /** Load (and revalidate) only while the screen using this is open. */
+  /**
+   * Load (and revalidate) while ANY surface that renders from this payload is
+   * showing — the people screen, or the My People tab.
+   *
+   * It used to be the people screen alone, which is what produced an
+   * indefinite skeleton on that tab: the payload came only from a cache that
+   * the event's `rev` invalidates on every guest's scan or add, and nothing
+   * ever fetched a replacement for a guest who had not opened the list.
+   */
   active,
   onReauth,
 }: {
@@ -248,11 +256,10 @@ export function useFriendsDirectory({
 
   // NOTE: there is deliberately no "settle the declined row" helper here.
   // A decline's new relationship comes back from the server (`declineRequest`
-  // recomputes it), and forcing the row to `open` locally would be wrong for
-  // the one case that matters: someone who stopped sharing between asking and
-  // being declined, whose true state is `not_sharing`. The row leaves the
-  // "Wants to add you" section on its own, because its `rel` is no longer
-  // `added_you`.
+  // recomputes it from the state as it now stands), and forcing the row to
+  // `open` locally would be guessing at an answer the server is already
+  // sending. The row leaves the "Wants to add you" section on its own, because
+  // its `rel` is no longer `added_you`.
 
   return { payload, members, status, pending, act, reload: load };
 }

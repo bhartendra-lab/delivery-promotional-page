@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test \"lib/**/*.test.ts\"",
+    "test": "node --test \"lib/**/*.test.ts\" \"components/**/*.test.ts\"",
     "deploy:prod": "bash scripts/cf-deploy.sh prod",
     "deploy:dev": "bash scripts/cf-deploy.sh dev",
     "dev:deploy": "npm run deploy:dev",

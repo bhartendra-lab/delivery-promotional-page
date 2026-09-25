@@ -26,7 +26,6 @@ const BUTTON: Record<FriendRel, { label: string; tone: "primary" | "quiet" | "di
   added_you: { label: "Add back", tone: "primary" },
   open: { label: "Add", tone: "primary" },
   ask: { label: "Ask", tone: "primary" },
-  not_sharing: { label: "Not sharing", tone: "disabled" },
 };
 
 /** The verb each button performs, for its accessible name. "In group" and
@@ -38,7 +37,6 @@ const ACTION_LABEL: Record<FriendRel, (name: string) => string> = {
   added_you: (n) => `Add ${n} back`,
   open: (n) => `Add ${n}`,
   ask: (n) => `Ask ${n}`,
-  not_sharing: (n) => `${n} is not sharing`,
 };
 
 export function PersonRow({

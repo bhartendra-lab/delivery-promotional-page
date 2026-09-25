@@ -36,7 +36,7 @@ export function ScanFlow({
 }: {
   guestName?: string;
   /**
-   * This event has "Find your friends group" switched ON (the session block's
+   * This event has "Find my people" switched ON (the session block's
    * `enabled`, not merely the block's presence — a studio can have the feature
    * off for their gallery, and the sentence below would then be false).
    *

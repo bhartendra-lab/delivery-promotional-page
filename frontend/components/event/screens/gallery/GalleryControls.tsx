@@ -1,8 +1,9 @@
 "use client";
 
 import type { CustomFolder } from "@/lib/types";
-import type { ClientTheme } from "@/lib/client-theme";
-import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks } from "@/components/ui/icons";
+import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
+import { useEffect, useRef, useState } from "react";
+import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks, IconDotsVertical } from "@/components/ui/icons";
 
 /** Sentinel folder id meaning "no specific folder" — shared by every screen
  *  that reads/sets the active folder pill. */
@@ -11,11 +12,16 @@ export const ALL = "__all__";
 /**
  * The tabs the gallery switcher can show.
  *
- * "group" is "Find your friends group"'s My Group, and it is only ever offered
- * when that guest HAS a group (see `showGroup`). The union is widened rather
+ * "group" is "Find my people"'s My People tab, offered once that guest has
+ * answered the consent question (see `showGroup`). The union is widened rather
  * than a second control being added, because these three are mutually
  * exclusive views of the same grid and a separate control would let a guest
  * pick two.
+ *
+ * The key is still "group" rather than "people": it is persisted in the guest's
+ * per-tab storage, and renaming it would silently drop every guest who was
+ * sitting on that tab back to My Photos on their next visit. It is a label
+ * change, not a data change.
  */
 export type GalleryTab = "mine" | "all" | "group";
 
@@ -38,6 +44,7 @@ export function UnlockAwareSwitcher({
   dimmed = false,
   showMine = true,
   showGroup = false,
+  pendingCount = 0,
 }: {
   t: ClientTheme;
   tab: GalleryTab;
@@ -54,39 +61,68 @@ export function UnlockAwareSwitcher({
    */
   showMine?: boolean;
   /**
-   * Offer the third segment, My Group. False by default, so every existing
+   * Offer the third segment, My People. False by default, so every existing
    * call site renders the same two segments it always has — and a guest who
-   * has not added anyone never sees a tab with nothing behind it.
+   * has not answered the question never sees a tab with nothing behind it.
    */
   showGroup?: boolean;
+  /** People waiting on an answer from this guest. Shown as a red dot with the
+   *  count on My People, and as nothing at all at zero. */
+  pendingCount?: number;
 }) {
   return (
     <div
-      className="inline-flex shrink-0 rounded-full p-0.5 transition-opacity"
+      /* `min-w-0 shrink`, NOT `shrink-0`. With three segments and an action
+         button beside it this control is wider than a 375px phone, and a
+         `shrink-0` flex child does not give way — it pushes the button off the
+         edge and the whole row into a horizontal scroll. Allowed to shrink, the
+         segments truncate instead, which is the right thing to lose. */
+      className="inline-flex min-w-0 shrink rounded-full p-0.5 transition-opacity"
       style={{ background: t.sunken, opacity: dimmed ? 0.75 : 1 }}
     >
       {showMine ? (
         <>
-          <SwitchSeg t={t} on={tab === "mine"} dimmed={dimmed} onClick={() => setTab("mine")}>
+          <SwitchSeg t={t} on={tab === "mine"} dimmed={dimmed} tight={showGroup} onClick={() => setTab("mine")}>
             My Photos
           </SwitchSeg>
-          <SwitchSeg t={t} on={tab === "all"} dimmed={dimmed} onClick={() => setTab("all")}>
-            {/* Three segments do not fit a 320px phone at the full label, and
-                the one that survives shortening is this one: "My Photos" and
-                "My Group" are the two the guest is choosing between. Shortened
-                ONLY at that width, and only when there are three. */}
+          <SwitchSeg t={t} on={tab === "all"} dimmed={dimmed} tight={showGroup} onClick={() => setTab("all")}>
+            {/* Three segments do not fit ANY phone at the full label — not just
+                a 320px one, which is what this used to assume. The one that
+                survives shortening is this one: "My Photos" and "My People" are
+                the two the guest is choosing between, and "All" alone is
+                unambiguous next to them. Full label returns from `sm` up, where
+                there is room for it. */}
             {showGroup ? (
               <>
-                <span className="min-[360px]:hidden">All</span>
-                <span className="hidden min-[360px]:inline">All Photos</span>
+                <span className="sm:hidden">All</span>
+                <span className="hidden sm:inline">All Photos</span>
               </>
             ) : (
               "All Photos"
             )}
           </SwitchSeg>
           {showGroup && (
-            <SwitchSeg t={t} on={tab === "group"} dimmed={dimmed} onClick={() => setTab("group")}>
-              My Group
+            <SwitchSeg
+              t={t}
+              on={tab === "group"}
+              dimmed={dimmed}
+              tight
+              onClick={() => setTab("group")}
+              badge={
+                pendingCount > 0 ? (
+                  <span
+                    // Anchored to the label rather than to the segment, so it
+                    // does not shift when the segment fills on selection.
+                    className="absolute -right-2.5 -top-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-[3px] text-[9.5px] font-extrabold leading-none tabular-nums"
+                    style={{ background: SIGNAL.liked, color: "#fff" }}
+                    aria-label={`${pendingCount} waiting for your answer`}
+                  >
+                    {pendingCount > 9 ? "9+" : pendingCount}
+                  </span>
+                ) : null
+              }
+            >
+              My People
             </SwitchSeg>
           )}
         </>
@@ -108,12 +144,20 @@ function SwitchSeg({
   t,
   on,
   dimmed = false,
+  /** Three segments on a phone: trim the horizontal padding so all three fit
+   *  beside the action button. Full padding returns from `sm` up. */
+  tight = false,
+  /** Rendered over the label's top-right corner. A node rather than a count,
+   *  so this stays a segmented control that knows nothing about requests. */
+  badge = null,
   onClick,
   children,
 }: {
   t: ClientTheme;
   on: boolean;
   dimmed?: boolean;
+  tight?: boolean;
+  badge?: React.ReactNode;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -127,7 +171,13 @@ function SwitchSeg({
     <button
       type="button"
       onClick={onClick}
-      className="flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-4 py-1.5 text-[14px] transition-colors"
+      /* The button itself must NOT clip: the badge is positioned outside the
+         label's box, and an `overflow-hidden` here would slice it in half. The
+         truncation lives on the label span instead, which is the only thing
+         that should ever be cut. */
+      className={`flex min-w-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full py-1.5 text-[14px] transition-colors ${
+        tight ? "px-2.5 sm:px-4" : "px-4"
+      }`}
       style={{
         background: filled ? t.card : "transparent",
         color,
@@ -136,7 +186,10 @@ function SwitchSeg({
         boxShadow: filled ? t.shadowSm : "none",
       }}
     >
-      {children}
+      <span className="relative min-w-0">
+        <span className="block truncate">{children}</span>
+        {badge}
+      </span>
     </button>
   );
 }
@@ -260,8 +313,14 @@ export function SelectionSummary({
  * pill backgrounds. Liked and Select show their active state as an underline
  * (they're the two real view toggles); Download is a one-shot action; Unlock
  * opens the gallery-passcode sheet and disappears once the guest has unlocked
- * the full gallery (nothing left to unlock). On mobile (`iconOnly`) the titles
- * drop and only the icons show.
+ * the full gallery (nothing left to unlock).
+ *
+ * ON A PHONE (`overflow`) none of that is a row of icons any more. Four bare
+ * glyphs beside a three-segment switcher did not fit: at 360px they crowded
+ * the tabs and at 320px they wrapped, and an icon with no label is a guess
+ * even when it does fit. They collapse into one menu instead, and Liked is
+ * dropped from it entirely — the bottom nav already has a Liked tab, so it
+ * was the one item on the row with a second way to reach it.
  *
  * Select hides entirely when `canSelect` is false: select mode's action bar is
  * Cancel + Download and nothing else, so with the studio's download preference
@@ -285,6 +344,8 @@ export function ActionsCluster({
   unlocked,
   onOpenPrivate,
   iconOnly = false,
+  overflow = false,
+  extraSlotRef,
 }: {
   t: ClientTheme;
   likedView: boolean;
@@ -305,7 +366,34 @@ export function ActionsCluster({
   onOpenPrivate: () => void;
   /** Mobile: icons only, no titles. */
   iconOnly?: boolean;
+  /** Phone: one overflow menu instead of a row, and no Liked (the bottom nav
+   *  has it). */
+  overflow?: boolean;
+  /**
+   * A portal target rendered as the FIRST item of the overflow menu, for
+   * "Manage my people" — which belongs to the lazily-loaded friends chunk and
+   * must not pull any of its copy into the lounge's own bundle. Absent on a
+   * gallery without the feature, and `empty:hidden` keeps the divider honest.
+   */
+  extraSlotRef?: (el: HTMLDivElement | null) => void;
 }) {
+  if (overflow) {
+    return (
+      <OverflowMenu
+        t={t}
+        selectMode={selectMode}
+        canSelect={canSelect}
+        onToggleSelectMode={onToggleSelectMode}
+        canDownloadAll={canDownloadAll}
+        zipping={zipping}
+        onDownloadAll={onDownloadAll}
+        downloadCount={downloadCount}
+        unlocked={unlocked}
+        onOpenPrivate={onOpenPrivate}
+        extraSlotRef={extraSlotRef}
+      />
+    );
+  }
   return (
     <div className="flex shrink-0 items-center gap-1">
       <ActionItem
@@ -399,3 +487,165 @@ function ActionItem({
   );
 }
 
+
+/**
+ * The phone's one action control: a 3-dot button and a popover.
+ *
+ * Closes on an outside pointer-down, on Escape, and on any click INSIDE —
+ * including the portalled "Manage my people" row, which this component cannot
+ * attach a handler to because it does not render it. Listening on the
+ * container in the bubble phase covers all of them with one rule.
+ *
+ * Anchored to the button with `absolute right-0`, not portalled: the control
+ * row is not inside the scrolling container, so there is nothing for the menu
+ * to drift away from.
+ */
+function OverflowMenu({
+  t,
+  selectMode,
+  canSelect,
+  onToggleSelectMode,
+  canDownloadAll,
+  zipping,
+  onDownloadAll,
+  downloadCount,
+  unlocked,
+  onOpenPrivate,
+  extraSlotRef,
+}: {
+  t: ClientTheme;
+  selectMode: boolean;
+  canSelect: boolean;
+  onToggleSelectMode: () => void;
+  canDownloadAll: boolean;
+  zipping: boolean;
+  onDownloadAll: () => void;
+  downloadCount?: number;
+  unlocked: boolean;
+  onOpenPrivate: () => void;
+  extraSlotRef?: (el: HTMLDivElement | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Stopped so the PhotoViewer or a sheet underneath does not close on the
+      // same keypress — the menu is what the guest meant to dismiss.
+      e.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  // In select mode the only actions are Cancel and Download, and both live in
+  // the select action bar at the bottom. A menu here would be a second place
+  // to do the same two things.
+  if (selectMode) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleSelectMode}
+        className="flex min-h-[44px] shrink-0 cursor-pointer items-center px-2 text-[13.5px] font-extrabold"
+        style={{ color: t.brand }}
+      >
+        Cancel
+      </button>
+    );
+  }
+
+  return (
+    <div ref={wrap} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
+        style={{ color: t.brand, background: open ? t.sunken : "transparent" }}
+      >
+        <IconDotsVertical size={18} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          onClick={() => setOpen(false)}
+          className="absolute right-0 top-[48px] z-50 flex w-[232px] flex-col overflow-hidden rounded-2xl py-1"
+          style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
+        >
+          {/* Manage my people, from the friends chunk. First, because it is the
+              only item that is about people rather than about this grid. */}
+          {extraSlotRef && <div ref={extraSlotRef} className="empty:hidden" />}
+          {!unlocked && (
+            <MenuItem t={t} icon={<IconLock size={15} />} label="Unlock photos" onClick={onOpenPrivate} />
+          )}
+          {canDownloadAll && (
+            <MenuItem
+              t={t}
+              icon={<IconDownload size={16} />}
+              label={
+                zipping
+                  ? "Preparing…"
+                  : downloadCount != null && downloadCount > 0
+                    ? `Download all (${downloadCount.toLocaleString("en-IN")})`
+                    : "Download all"
+              }
+              disabled={zipping}
+              onClick={onDownloadAll}
+            />
+          )}
+          {canSelect && (
+            <MenuItem
+              t={t}
+              icon={<IconSquare size={15} />}
+              label="Select photos"
+              onClick={onToggleSelectMode}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  t,
+  icon,
+  label,
+  disabled = false,
+  onClick,
+}: {
+  t: ClientTheme;
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 px-4 text-left text-[13.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+      style={{ color: t.text }}
+    >
+      <span className="shrink-0" style={{ color: t.muted }}>
+        {icon}
+      </span>
+      {label}
+    </button>
+  );
+}

@@ -1,12 +1,12 @@
 /**
- * Client storage for "Find your friends group".
+ * Client storage for "Find my people".
  *
  * Exactly two things are ever written, and nothing else in this app owns either
  * key space:
  *
  *   localStorage    `ff:v1:{booking_id}:{guest_id}`  the people payload + its
  *                   two conditional tokens, so a returning tab can paint the
- *                   card preview and My Group with no request.
+ *                   card preview and My People with no request.
  *   sessionStorage  `ff_intent`                      "the guest arrived on the
  *                   approval link", remembered across the sign-in round trip.
  *
@@ -74,21 +74,6 @@ export function writePeopleCache(bookingId: string, guestId: string, payload: Fr
     localStorage.setItem(cacheKey(bookingId, guestId), JSON.stringify(entry));
   } catch {
     /* quota, private mode, blocked site data — the feature works without it */
-  }
-}
-
-/**
- * Drop what this feature keeps for one guest on this device.
- *
- * Called on Stop sharing. Removes the `ff:v1:` key BY NAME — never `clear()`,
- * which would take the guest token and the matched-media cache with it and
- * sign them out of the gallery.
- */
-export function clearPeopleCache(bookingId: string, guestId: string): void {
-  try {
-    localStorage.removeItem(cacheKey(bookingId, guestId));
-  } catch {
-    /* nothing to do: the cache is only ever an optimisation */
   }
 }
 

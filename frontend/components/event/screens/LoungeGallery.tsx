@@ -36,7 +36,7 @@ import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSumm
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
 
 /**
- * "Find your friends group", behind a dynamic import.
+ * "Find my people", behind a dynamic import.
  *
  * The whole feature — card, sheets, copy, API and storage modules — lives in
  * this one chunk, which is fetched only on a gallery where `friend_finder` came
@@ -119,7 +119,7 @@ export function LoungeGallery({
 }: {
   session: GuestSession;
   onSessionChange: (patch: Partial<GuestSession>) => void;
-  /** "Find your friends group" as the session reports it, or null when the
+  /** "Find my people" as the session reports it, or null when the
    *  backend's global switch is off. Nothing renders unless `enabled` is true. */
   friendFinder: FriendFinderBlock | null;
   onFriendFinderChange: (patch: Partial<FriendFinderBlock>) => void;
@@ -339,7 +339,7 @@ export function LoungeGallery({
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   /**
-   * A "Find your friends group" sheet is on screen. Reported UP from the lazily
+   * A "Find my people" sheet is on screen. Reported UP from the lazily
    * loaded surface rather than owned here, so this screen stays ignorant of the
    * feature's own state while still being able to treat it as an overlay: no
    * Cmd+A behind it, and no review nudge popping over it.
@@ -353,12 +353,13 @@ export function LoungeGallery({
    * gap to work around.
    */
   const [friendsSlot, setFriendsSlot] = useState<HTMLDivElement | null>(null);
-  /** The My Group header (faces, count, waiting pill, Manage) and its empty
-   *  state both come from the friends chunk, through slots of their own. */
-  const [groupHeaderSlot, setGroupHeaderSlot] = useState<HTMLDivElement | null>(null);
+  /** "Manage my people", My People's empty state and the pending-requests
+   *  banner all come from the friends chunk, through slots of their own. */
+  const [manageSlot, setManageSlot] = useState<HTMLDivElement | null>(null);
+  const [requestsBannerSlot, setRequestsBannerSlot] = useState<HTMLDivElement | null>(null);
   const [groupEmptySlot, setGroupEmptySlot] = useState<HTMLDivElement | null>(null);
   /**
-   * My Group's pager, handed over by the friends surface.
+   * My People's pager, handed over by the friends surface.
    *
    * This is the whole seam. The gallery knows how to page a feed and nothing
    * about how one is built: the bucketing, the labels and the intersection
@@ -367,6 +368,14 @@ export function LoungeGallery({
    * for photos it cannot scope yet.
    */
   const [groupFeed, setGroupFeed] = useState<GroupFeed | null>(null);
+  /**
+   * Whether the friends directory behind the feed is still coming.
+   *
+   * Without this the tab cannot tell a slow load from a failed one: both leave
+   * `groupFeed` null, and the grid renders null as a skeleton. A guest whose
+   * directory request failed sat on that skeleton for ever.
+   */
+  const [groupState, setGroupState] = useState<"loading" | "ready" | "error">("loading");
   const [groupCursor, setGroupCursor] = useState<GroupCursor | null>(null);
   /**
    * Which bucket each loaded item belongs to, parallel to `items`.
@@ -377,16 +386,19 @@ export function LoungeGallery({
    */
   const [itemBuckets, setItemBuckets] = useState<number[]>([]);
   /**
-   * Whether the gallery offers My Group at all.
+   * Whether the gallery offers My People at all.
    *
-   * `has_group` is set on the guest's FIRST add ever and the backend never
-   * clears it, not even on Stop sharing — so `stopped` has to be checked here
-   * or a guest who withdrew would keep a tab onto a group they have left.
-   * `faceSearchOn` too: a group feed is an intersection of face-matched sets,
-   * and without face search there is nothing to intersect.
+   * As soon as the guest has ANSWERED — not, as before, only once they have
+   * added somebody. Two reasons it moved: a guest who has chosen but added
+   * nobody had no way into the feature at all on a laptop once the card above
+   * the tabs went, and a request badge has to have somewhere to live, which a
+   * tab that only appears after you have added someone does not provide.
+   *
+   * `faceSearchOn` still gates it: the feed is an intersection of face-matched
+   * sets, and without face search there is nothing to intersect.
    */
-  const showGroupTab =
-    faceSearchOn && friendFinder?.enabled === true && friendFinder.has_group && !friendFinder.stopped;
+  const showPeopleTab =
+    faceSearchOn && friendFinder?.enabled === true && friendFinder.choice !== null;
   /**
    * The bulk-download pre-flight + progress surface. Every bulk download in this
    * gallery goes through it — the modal is where the plan is shown, the tier is
@@ -414,18 +426,17 @@ export function LoungeGallery({
   // request and every empty state to All, whatever `tab` happens to hold (a
   // Guest can be sitting on My Photos when the Studio flips the switch).
   /**
-   * With face search off there is no My Photos — and no My Group either, since
+   * With face search off there is no My Photos — and no My People either, since
    * a group feed is an intersection of face-matched sets. Either tab can be the
    * one a Guest is sitting on when the Studio flips the switch, so both fall
    * back to All here rather than being merely hidden.
    */
   const effTab: GalleryTab = !faceSearchOn
     ? "all"
-    : // A Guest can be sitting on My Group when the tab stops being offered —
-      // they hit Stop sharing in another tab, or removed their last friend.
-      // Pinning it back to My Photos here means the grid never holds a feed
-      // whose switch segment has gone.
-      tab === "group" && !showGroupTab
+    : // A Guest can be sitting on My People when the tab stops being offered —
+      // the studio switches the feature off mid-visit. Pinning it back to My
+      // Photos here means the grid never holds a feed whose segment has gone.
+      tab === "group" && !showPeopleTab
       ? "mine"
       : tab;
   const loadingMoreRef = useRef(false);
@@ -540,7 +551,7 @@ export function LoungeGallery({
     // anyway. The unlock path bumps `reloadKey`, and unlocking also clears
     // `passcodeRequired`, so the first real load happens the moment they are in.
     if (passcodeRequired) return;
-    // My Group is paged by its own effect below, against a bucketed feed
+    // My People is paged by its own effect below, against a bucketed feed
     // rather than a scope. Bailing out HERE rather than branching inside keeps
     // this effect's dependency list exactly what it was: adding the feed to it
     // would refetch My Photos every time the friends payload changed.
@@ -589,7 +600,7 @@ export function LoungeGallery({
   }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
 
   /**
-   * My Group's first page.
+   * My People's first page.
    *
    * Keyed on `groupFeed?.key` — a signature of the feed's contents — rather
    * than on the feed object: the people screen patches its payload optimistically
@@ -643,7 +654,7 @@ export function LoungeGallery({
   }, [effTab, groupFeedKey, reloadKey, seedLikes, onReauth]);
 
   const loadMore = useCallback(async () => {
-    // My Group knows it is finished from its CURSOR, not from a count: a photo
+    // My People knows it is finished from its CURSOR, not from a count: a photo
     // deleted since the last face scan would leave `items.length` short of
     // `total` for ever, and the grid would keep asking for a page that is not
     // there.
@@ -730,13 +741,17 @@ export function LoungeGallery({
   const selectionHint = selectedCount > LARGE_SELECTION ? "This can take a few minutes." : undefined;
   const hasMore = effTab === "group" ? groupCursor !== null : items.length < totalForView;
   /**
-   * My Group is also "loading" while its pager has not arrived.
+   * My People is also "loading" while its pager has not arrived.
    *
    * Without this, tapping the tab before the friends payload resolves would
-   * leave the PREVIOUS tab's photos on screen under a My Group header — the
+   * leave the PREVIOUS tab's photos on screen under a My People header — the
    * grid's own `loading` only goes true once there is a feed to ask.
    */
-  const showLoading = loading || (effTab === "group" && !groupFeed);
+  const showLoading =
+    loading || (effTab === "group" && !groupFeed && groupState === "loading");
+  /** My People asked for its directory and did not get one. Distinct from an
+   *  empty group, which is a real answer with its own empty state. */
+  const groupFailed = effTab === "group" && !groupFeed && groupState === "error";
   const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
 
   /**
@@ -1144,7 +1159,7 @@ export function LoungeGallery({
       signal?: AbortSignal,
       /**
        * Restrict the walk to these media ids instead of the Guest's whole
-       * matched set. Only My Group passes it, so it can download its own feed
+       * matched set. Only My People passes it, so it can download its own feed
        * through the identical mechanism rather than a second one. Omitted
        * everywhere else, which is byte-for-byte the previous behaviour.
        */
@@ -1191,7 +1206,7 @@ export function LoungeGallery({
    *  `getGuestMedia` drops a falsy `mine` rather than sending mine=false. */
   const currentScope = useCallback((): MediaScope => {
     if (likedView) return { onlyLiked: true };
-    // My Group is a subset of My Photos — the same `mine=true` request, with
+    // My People is a subset of My Photos — the same `mine=true` request, with
     // the feed's own id list passed alongside it (see `downloadGalleryZip`).
     // No folder ever narrows it: the feed is grouped by who is in each photo,
     // and the folder pills are hidden while it is showing.
@@ -1223,7 +1238,7 @@ export function LoungeGallery({
   // single source of truth for both this and the select-all download.
   const downloadGalleryZip = useCallback(() => {
     const scope = currentScope();
-    // My Group passes its OWN id list into the same planner every other view
+    // My People passes its OWN id list into the same planner every other view
     // uses. `allIds` is the feed in order, so the ZIP holds exactly the photos
     // the tab is showing and nothing else.
     const groupIds = effTab === "group" ? groupFeedRef.current?.allIds : undefined;
@@ -1348,7 +1363,7 @@ export function LoungeGallery({
     if (hasMore && !loadingMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
   };
 
-  /** The single teardown for My Group's pager. Any view change invalidates the
+  /** The single teardown for My People's pager. Any view change invalidates the
    *  cursor and the per-item bucket map, so they go together, always. */
   const resetGroupPaging = useCallback(() => {
     setGroupCursor(null);
@@ -1377,7 +1392,7 @@ export function LoungeGallery({
   };
   const goLiked = () => {
     setLikedView(true);
-    // Liked is its own result set, so whatever My Group had paged no longer
+    // Liked is its own result set, so whatever My People had paged no longer
     // describes what is on screen.
     resetGroupPaging();
     exitSelect();
@@ -1461,6 +1476,48 @@ export function LoungeGallery({
 
   const date = formatDate(event.event_date);
 
+  /**
+   * Stop the DOCUMENT itself from scrolling while the lounge is on screen.
+   *
+   * This is the top bar drifting on a phone, and it is not a positioning bug.
+   * The shell is `100dvh` and its inner column is what scrolls, so in principle
+   * nothing moves — but on iOS Safari a scroll gesture that reaches the
+   * document retracts the URL bar, `dvh` is defined to follow it, and the whole
+   * shell reflows mid-gesture. The top bar slides up, the fixed bottom nav
+   * lags, and it happens on some flicks and not others, which is exactly how it
+   * was reported.
+   *
+   * Pinning `html`/`body` means the document has nothing to scroll, so the URL
+   * bar never retracts, so `dvh` never changes. `overscroll-behavior: none`
+   * kills the rubber-band that would otherwise still reach the document at the
+   * ends of the inner scroller.
+   *
+   * Restored on unmount — the marketing pages and the dashboard share this
+   * document and must go on scrolling normally. Saved and put back rather than
+   * cleared, so a modal that had already locked the body is not unlocked by the
+   * gallery closing underneath it.
+   */
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+    };
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    return () => {
+      html.style.overflow = prev.htmlOverflow;
+      html.style.overscrollBehavior = prev.htmlOverscroll;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.overscrollBehavior = prev.bodyOverscroll;
+    };
+  }, []);
+
   /* ── render ───────────────────────────────────────────────────────────── */
 
   return (
@@ -1495,15 +1552,13 @@ export function LoungeGallery({
           />
           <div ref={mastheadSentinelRef} />
 
-          {/* Find your friends group — below the cover, above the grid's
-              controls. `empty:hidden` keeps this from reserving any space
-              before the lazily-loaded card arrives (or on a gallery where the
-              card has nothing to say). */}
-          {friendFinder?.enabled && (
-            <div className="mx-auto w-full max-w-[1440px] px-8">
-              <div ref={setFriendsSlot} className="max-w-[560px] pt-6 empty:hidden" />
-            </div>
-          )}
+          {/* The friends card used to sit here, between the cover and the
+              grid's controls. It is gone: it repeated what the My People tab
+              says, and on the tab itself it appeared a second time above the
+              photos. Everything it offered now lives on that tab — which is
+              always there once the guest has chosen, so nothing is lost. The
+              undecided guest is still asked by the consent sheet, which opens
+              on its own once per visit. */}
 
           <StickyControlRow
             rowRef={controlRowRef}
@@ -1512,7 +1567,7 @@ export function LoungeGallery({
             tab={tab}
             setTab={desktopSetTab}
             showMine={faceSearchOn}
-            showGroup={showGroupTab}
+            showGroup={showPeopleTab}
             showFolders={effTab !== "group"}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
@@ -1535,6 +1590,7 @@ export function LoungeGallery({
             onDownloadAll={downloadGalleryZip}
             downloadCount={totalForView}
             allCount={allCount ?? undefined}
+            pendingCount={friendFinder?.pending_count ?? 0}
           />
 
           {/* scrollMarginTop = the measured pinned control-row height, so
@@ -1543,16 +1599,22 @@ export function LoungeGallery({
             {showMatchBanner && (
               <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
             )}
-            {/* My Group's header — faces, count, waiting pill and Manage. Comes
-                from the friends chunk through a slot, so none of its copy or
-                logic is in the lounge's own bundle. */}
-            {effTab === "group" && <div ref={setGroupHeaderSlot} className="mb-5 empty:hidden" />}
+            {/* My People's own two controls, both from the friends chunk so
+                none of their copy is in the lounge's own bundle: the requests
+                banner directly under the tabs, and "Manage my people" beside
+                it. On a laptop there is room for them on one line. */}
+            {effTab === "group" && (
+              <div className="mb-5 flex flex-wrap items-center gap-3 empty:hidden">
+                <div ref={setRequestsBannerSlot} className="min-w-[260px] flex-1 empty:hidden" />
+                <div ref={setManageSlot} className="empty:hidden" />
+              </div>
+            )}
             {showLoading ? (
               <LoadingSkeleton />
-            ) : loadError && items.length === 0 ? (
+            ) : (loadError && items.length === 0) || groupFailed ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
-              // My Group's empty state names the people who have not answered
+              // My People's empty state names the people who have not answered
               // yet, so it too comes from the friends chunk through a slot.
               effTab === "group" ? (
                 <div ref={setGroupEmptySlot} />
@@ -1580,7 +1642,7 @@ export function LoungeGallery({
                 {/* ONE continuous justified grid over the full flat list — every
                     loaded photo appears exactly once, in API order (folder
                     pills filter server-side, so no client-side partitioning).
-                    My Group is the one view that sections it, by how many of
+                    My People is the one view that sections it, by how many of
                     the Guest's friends are in each photo. */}
                 {effTab === "group" ? (
                   <BucketedGrid
@@ -1656,7 +1718,11 @@ export function LoungeGallery({
           selfieUrl={session.selfie_url}
         />
         {view === "home" ? (
-          <div ref={mobileScrollRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
+          <div
+            ref={mobileScrollRef}
+            className="flex-1 overflow-y-auto"
+            style={{ scrollbarWidth: "none", overscrollBehavior: "contain" }}
+          >
             <CoverMasthead
               t={t}
               event={event}
@@ -1665,7 +1731,10 @@ export function LoungeGallery({
               onBandAction={onBandAction}
               date={date}
             />
-            <div className="mx-auto w-full max-w-[460px] px-5 pb-[120px] pt-6">
+            <div
+              className="mx-auto w-full max-w-[460px] px-5 pt-6"
+              style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
+            >
               {friendFinder?.enabled && <div ref={setFriendsSlot} className="mb-6 empty:hidden" />}
               <PolicyFooter t={t} />
             </div>
@@ -1738,11 +1807,14 @@ export function LoungeGallery({
             showMatchBanner={showMatchBanner}
             matchCount={mediaIds?.length ?? 0}
             onDismissMatchBanner={() => setMatchBannerDismissed(true)}
-            showGroup={showGroupTab}
+            showGroup={showPeopleTab}
             itemBuckets={itemBuckets}
             groupLabels={groupFeed?.labels ?? []}
-            groupHeaderRef={setGroupHeaderSlot}
+            manageRef={setManageSlot}
+            requestsBannerRef={setRequestsBannerSlot}
             groupEmptyRef={setGroupEmptySlot}
+            groupFailed={groupFailed}
+            pendingCount={friendFinder?.pending_count ?? 0}
           />
         )}
 
@@ -1757,7 +1829,13 @@ export function LoungeGallery({
           when the studio has downloads off (see `canSelect`); the guard below
           is belt-and-braces for a mode that can no longer be entered. */}
       {selectMode && (
-        <div className="fixed inset-x-0 bottom-[84px] z-40 flex justify-center px-5 lg:bottom-6">
+        <div
+          // Sits above the bottom nav, which now carries the home-indicator
+          // inset — so this has to clear the same inset or the two overlap on a
+          // notched phone. The desktop offset is untouched (no nav there).
+          className="fixed inset-x-0 z-40 flex justify-center px-5 lg:bottom-6"
+          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
+        >
           <div className="flex w-full max-w-[460px] items-center justify-between gap-3 rounded-full px-4 py-2" style={{ background: t.card, boxShadow: t.shadow }}>
             <span className="truncate text-[12.5px] font-extrabold" style={{ color: t.text }}>
               {selectionLabel}
@@ -1893,7 +1971,7 @@ export function LoungeGallery({
         </div>
       )}
 
-      {/* Find your friends group. Mounted ONCE here rather than inside a shell:
+      {/* Find my people. Mounted ONCE here rather than inside a shell:
           the mobile Home and Gallery tabs swap their whole subtree, and a sheet
           living in one of them would vanish mid-question. It portals its card
           into whichever slot is currently mounted, and nothing at all is
@@ -1907,9 +1985,12 @@ export function LoungeGallery({
           hasSelfie={hasSelfie}
           guestName={session.name}
           slot={friendsSlot}
-          groupHeaderSlot={groupHeaderSlot}
+          manageSlot={manageSlot}
+          requestsBannerSlot={requestsBannerSlot}
           groupEmptySlot={groupEmptySlot}
+          groupTabActive={effTab === "group"}
           onGroupFeedChange={setGroupFeed}
+          onGroupStateChange={setGroupState}
           onShowGroup={() => (isDesktop ? desktopSetTab("group") : gotoGallery("group"))}
           blocked={friendsBlocked}
           scanJustCompleted={scanJustCompleted}
@@ -1990,13 +2071,20 @@ function MobileGalleryView(props: {
   /** True once this Guest has a friends group — adds the third segment, the
    *  header slot and the bucketed feed. */
   showGroup: boolean;
-  /** Bucket index per item and divider text per bucket, for My Group. */
+  /** Bucket index per item and divider text per bucket, for My People. */
   itemBuckets: number[];
   groupLabels: string[];
-  /** Portal targets for the group header and its empty state, both of which
-   *  are rendered by the lazily-loaded friends surface. */
-  groupHeaderRef: (el: HTMLDivElement | null) => void;
+  /** Portal targets for the three My People surfaces the lazily-loaded friends
+   *  chunk renders: the manage entry (inside the overflow menu on a phone),
+   *  the pending-requests banner, and the empty state. */
+  manageRef: (el: HTMLDivElement | null) => void;
+  requestsBannerRef: (el: HTMLDivElement | null) => void;
   groupEmptyRef: (el: HTMLDivElement | null) => void;
+  /** The friends directory failed to load, so My People has no feed and never
+   *  will without a retry — distinct from a group that is simply empty. */
+  groupFailed: boolean;
+  /** People waiting on this guest — the red dot on the My People tab. */
+  pendingCount: number;
   onOpenPrivate: () => void;
   folders: CustomFolder[];
   folderCounts: Record<string, number>;
@@ -2060,7 +2148,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupHeaderRef, groupEmptyRef } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, manageRef, requestsBannerRef, groupEmptyRef, groupFailed } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
@@ -2096,7 +2184,14 @@ function MobileGalleryView(props: {
               Liked
             </span>
           ) : (
-            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} showMine={faceSearchOn} showGroup={showGroup} />
+            <UnlockAwareSwitcher
+              t={t}
+              tab={tab}
+              setTab={setTab}
+              showMine={faceSearchOn}
+              showGroup={showGroup}
+              pendingCount={props.pendingCount}
+            />
           )}
           <ActionsCluster
             t={t}
@@ -2111,12 +2206,13 @@ function MobileGalleryView(props: {
             downloadCount={props.downloadCount}
             unlocked={unlocked}
             onOpenPrivate={onOpenPrivate}
-            iconOnly
+            overflow
+            extraSlotRef={showGroup ? manageRef : undefined}
           />
         </div>
 
-        {/* Folder pills do not apply to My Group: its feed is grouped by who is
-            in each photo, not by folder. */}
+        {/* Folder pills do not apply to My People: its feed is grouped by who
+            is in each photo, not by folder. */}
         {!likedView && effTab !== "group" && (
           <FolderPillsRow
             t={t}
@@ -2131,13 +2227,24 @@ function MobileGalleryView(props: {
       </div>
 
       {/* grid */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-[130px] pt-6" onScroll={onScroll} style={{ scrollbarWidth: "none" }}>
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto pt-6"
+        onScroll={onScroll}
+        style={{
+          scrollbarWidth: "none",
+          overscrollBehavior: "contain",
+          // Clears the bottom nav AND the home indicator, so the last row of
+          // photos can always be scrolled out from under both.
+          paddingBottom: "calc(130px + env(safe-area-inset-bottom))",
+        }}
+      >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
-          {effTab === "group" && <div ref={groupHeaderRef} className="mb-5 empty:hidden" />}
+          {effTab === "group" && <div ref={requestsBannerRef} className="mb-4 empty:hidden" />}
           {loading ? (
             <LoadingSkeleton />
-          ) : props.loadError && items.length === 0 ? (
+          ) : (props.loadError && items.length === 0) || groupFailed ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
             effTab === "group" ? (
@@ -2217,7 +2324,7 @@ function MobileGalleryView(props: {
 }
 
 /**
- * My Group's grid: the same `GalleryGrid`, once per bucket, with a divider
+ * My People's grid: the same `GalleryGrid`, once per bucket, with a divider
  * between the runs.
  *
  * One flat `items` array still backs the whole thing — the lightbox, the
@@ -2561,7 +2668,13 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
     { key: "liked", label: "Liked", icon: <IconHeart size={18} filled={active === "liked"} />, on: onLiked },
   ] as const;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-5 pb-3 lg:hidden">
+    <div
+      // `pb-3` alone puts the pill under the home indicator on a notched
+      // phone. The inset is added to it rather than replacing it, so a device
+      // without one is unchanged.
+      className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-5 pb-3 lg:hidden"
+      style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+    >
       <div className="flex w-full max-w-[460px] gap-1 rounded-full p-1" style={{ background: t.card, boxShadow: t.shadow }}>
         {items.map((n) => {
           const on = active === n.key;

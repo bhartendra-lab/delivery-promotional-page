@@ -1,5 +1,5 @@
 /**
- * "Find your friends group" — the wire shapes.
+ * "Find my people" — the wire shapes.
  *
  * Mirrors the backend exactly; see `src/services/friendFinder.service.js`
  * (`buildFriendFinderSession` / `buildFriendFinderDirectory`) and
@@ -10,8 +10,14 @@
  * of the feature into the lounge's eager bundle.
  */
 
-/** The three answers to the friends consent question. */
-export type FriendChoice = "everyone" | "selected" | "none";
+/**
+ * The two answers to the consent question.
+ *
+ * There is no third "none". Dismissing the sheet records nothing at all, which
+ * the block reports as `choice: null` — so "has not answered" and "answered no"
+ * are the same state, because they are the same fact.
+ */
+export type FriendChoice = "everyone" | "selected";
 
 /**
  * Where this guest stands with one other guest. The backend evaluates the same
@@ -28,9 +34,7 @@ export type FriendRel =
   /** They already allow me, so adding them connects us instantly. */
   | "open"
   /** They do not allow me yet, so adding them sends a request. */
-  | "ask"
-  /** They withdrew from the feature. Nothing can be done with this row. */
-  | "not_sharing";
+  | "ask";
 
 /** Whether the guest's own photo set is ready to intersect against. */
 export type FriendFinderState = "needs_selfie" | "preparing" | "ready";
@@ -54,14 +58,16 @@ export type FriendConsentMethod =
  */
 export type FriendFinderBlock = {
   enabled: boolean;
+  /** Null while they have not answered — which includes having dismissed the
+   *  sheet, since that writes nothing. */
   choice: FriendChoice | null;
-  stopped: boolean;
   /** The 256px crop, and only while this guest's own notice covered showing
    *  it. Never the selfie. */
   avatar_url: string | null;
   face_visible: boolean;
-  /** Set on the first add ever and never cleared until they stop sharing —
-   *  which is exactly the lifetime of the My Group tab. */
+  /** Set on the first add ever and never cleared. Note the My People tab does
+   *  NOT hang off this any more — it appears as soon as the guest has chosen,
+   *  so a request badge always has somewhere to land. */
   has_group: boolean;
   pending_count: number;
   group_updated_at: number | null;
@@ -126,8 +132,7 @@ export type FriendFinderAction =
   | { action: "decline"; guest_id: string }
   /** The picture only. A Guest's name is the one they gave at sign-in and is
    *  not settable here — there is no second, feature-local name. */
-  | { action: "profile"; avatar: "auto" | { media_id: string; face_index: number } }
-  | { action: "stop" };
+  | { action: "profile"; avatar: "auto" | { media_id: string; face_index: number } };
 
 /* ── what each action answers with ──────────────────────────────────────── */
 
@@ -140,4 +145,3 @@ export type AddResult = { guest_id: string; rel: FriendRel; connected: boolean }
 export type RemoveResult = { guest_id: string; rel: FriendRel };
 export type DeclineResult = { guest_id: string; rel: FriendRel };
 export type ProfileResult = { avatar_pending: boolean };
-export type StopResult = { stopped: true };
