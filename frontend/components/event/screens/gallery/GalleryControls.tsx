@@ -3,7 +3,7 @@
 import type { CustomFolder } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { useEffect, useRef, useState } from "react";
-import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks, IconDotsVertical } from "@/components/ui/icons";
+import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks, IconMenuBars } from "@/components/ui/icons";
 
 /** Sentinel folder id meaning "no specific folder" — shared by every screen
  *  that reads/sets the active folder pill. */
@@ -575,7 +575,7 @@ function OverflowMenu({
         className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
         style={{ color: t.brand, background: open ? t.sunken : "transparent" }}
       >
-        <IconDotsVertical size={18} />
+        <IconMenuBars size={18} />
       </button>
 
       {open && (

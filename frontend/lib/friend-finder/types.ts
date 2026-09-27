@@ -27,8 +27,10 @@ export type FriendChoice = "everyone" | "selected";
 export type FriendRel =
   /** Both of us allow each other: we see our photos together. */
   | "in_group"
-  /** I added them; they have not added me back yet. */
+  /** I added them and nobody has answered yet. */
   | "requested"
+  /** I added them and they said no. They can be asked once more. */
+  | "declined"
   /** They named me personally and I have not answered. */
   | "added_you"
   /** They already allow me, so adding them connects us instantly. */

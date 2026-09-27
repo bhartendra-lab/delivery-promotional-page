@@ -179,14 +179,23 @@ export function PeopleScreen({
     const visible = (payload?.people ?? []).filter((p) => matchesQuery(p.name, folded));
     return {
       requests: visible.filter((p) => p.rel === "added_you"),
-      /* Everyone this guest has ALLOWED — which is `in_group` (they allowed
-       * back) and `requested` (they have not answered yet) together. Both are
-       * people who can see the photos they share the moment the other side
-       * agrees, so both belong under "has access" rather than only the
-       * mutual half. */
-      access: visible.filter((p) => p.rel === "in_group" || p.rel === "requested"),
+      /* Everyone this guest has ALLOWED: `in_group` (they allowed back),
+       * `requested` (nobody has answered yet) and `declined` (they said no).
+       *
+       * All three belong here, and `declined` most of all — being turned down
+       * does NOT take back the access you granted when you added them. They
+       * can still see the photos you share until you remove them, which is
+       * precisely the thing a guest would not think to check. Filing them
+       * anywhere else would hide it. */
+      access: visible.filter(
+        (p) => p.rel === "in_group" || p.rel === "requested" || p.rel === "declined",
+      ),
       others: visible.filter(
-        (p) => p.rel !== "added_you" && p.rel !== "in_group" && p.rel !== "requested",
+        (p) =>
+          p.rel !== "added_you" &&
+          p.rel !== "in_group" &&
+          p.rel !== "requested" &&
+          p.rel !== "declined",
       ),
     };
   }, [payload, folded]);
@@ -315,17 +324,6 @@ export function PeopleScreen({
         fullScreenOnPhone
         desktopWidth={720}
         autoFocus={false}
-        headerExtra={
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Find my people settings"
-            className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
-            style={{ color: t.muted }}
-          >
-            <IconGear size={17} />
-          </button>
-        }
         footer={
           <button
             type="button"
@@ -341,9 +339,24 @@ export function PeopleScreen({
         {/* The keydown sits here rather than on the list, so ArrowDown from the
             search box walks into the results too. */}
         <div ref={listRef} onKeyDown={onListKeyDown}>
-        <p className="text-[12.5px] font-semibold" style={{ color: t.muted }}>
-          Guests at this wedding
-        </p>
+        {/* Settings, as a named button on its own line rather than an icon in
+            the header. A 44px gear next to a 44px close button read as a pair
+            of unrelated glyphs and sat a couple of pixels off it; a label says
+            what it opens, and this line is dead space otherwise. */}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12.5px] font-semibold" style={{ color: t.muted }}>
+            Guests at this wedding
+          </p>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex min-h-[36px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[12.5px] font-extrabold"
+            style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+          >
+            <IconGear size={14} />
+            Sharing preferences
+          </button>
+        </div>
 
         {/* Sticky so it survives a long list — the guest can start typing at any
             scroll position rather than flicking back to the top. */}
@@ -409,7 +422,11 @@ export function PeopleScreen({
                       busy={pending.has(person.guest_id)}
                       desktop={desktop}
                       onPrimary={() => void runAction(person, "add")}
-                      onDecline={() => void runAction(person, "decline")}
+                      secondary={{
+                        label: "Not now",
+                        describe: (name) => `Not now for ${name}`,
+                        onSelect: () => void runAction(person, "decline"),
+                      }}
                     />
                   ))}
                 </ul>
@@ -429,6 +446,18 @@ export function PeopleScreen({
                       busy={pending.has(person.guest_id)}
                       desktop={desktop}
                       onPrimary={() => onPrimary(person)}
+                      secondary={
+                        // Only on a turned-down row, where the primary button
+                        // is "Ask again" and taking the access back would
+                        // otherwise have nowhere to live.
+                        person.rel === "declined"
+                          ? {
+                              label: "Remove",
+                              describe: (name) => `Remove ${name}'s access to your photos`,
+                              onSelect: () => void runAction(person, "remove"),
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 </ul>

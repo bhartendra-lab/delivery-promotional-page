@@ -439,6 +439,20 @@ export function LoungeGallery({
       tab === "group" && !showPeopleTab
       ? "mine"
       : tab;
+  /**
+   * Is the grid being driven by the bucketed friends feed?
+   *
+   * `effTab === "group"` was standing in for this and it is not the same
+   * question, because Liked is a FILTER rather than a tab: tapping Liked in the
+   * bottom nav sets `likedView` and leaves `tab` where it was. From My People
+   * that left `effTab === "group"` true, so the gallery loader bailed out, the
+   * group pager kept ownership of `items`, and Liked showed My People's photos.
+   * From My Photos or All the same tap worked, which is why it looked like a
+   * Liked bug rather than a My People one.
+   *
+   * Every place that asks "is this the group view?" has to mean THIS.
+   */
+  const groupView = effTab === "group" && !likedView;
   const loadingMoreRef = useRef(false);
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
@@ -555,7 +569,7 @@ export function LoungeGallery({
     // rather than a scope. Bailing out HERE rather than branching inside keeps
     // this effect's dependency list exactly what it was: adding the feed to it
     // would refetch My Photos every time the friends payload changed.
-    if (effTab === "group") return;
+    if (groupView) return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -597,7 +611,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
+  }, [uniqueIdentifier, bookingId, effTab, groupView, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
 
   /**
    * My People's first page.
@@ -614,7 +628,7 @@ export function LoungeGallery({
   const groupFeedKey = groupFeed?.key ?? null;
 
   useEffect(() => {
-    if (effTab !== "group") return;
+    if (!groupView) return;
     const feed = groupFeedRef.current;
     // The friends payload has not arrived yet. The grid holds its loading
     // state rather than showing an empty group that is merely unresolved.
@@ -651,14 +665,14 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [effTab, groupFeedKey, reloadKey, seedLikes, onReauth]);
+  }, [groupView, groupFeedKey, reloadKey, seedLikes, onReauth]);
 
   const loadMore = useCallback(async () => {
     // My People knows it is finished from its CURSOR, not from a count: a photo
     // deleted since the last face scan would leave `items.length` short of
     // `total` for ever, and the grid would keep asking for a page that is not
     // there.
-    if (effTab === "group") {
+    if (groupView) {
       const feed = groupFeedRef.current;
       if (loadingMoreRef.current || !feed || !groupCursor) return;
       loadingMoreRef.current = true;
@@ -711,7 +725,7 @@ export function LoungeGallery({
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [uniqueIdentifier, bookingId, effTab, folder, likedView, items.length, totalForView, seedLikes, mediaIds, groupCursor]);
+  }, [uniqueIdentifier, bookingId, effTab, groupView, folder, likedView, items.length, totalForView, seedLikes, mediaIds, groupCursor]);
 
   useEffect(() => {
     if (!toast) return;
@@ -739,7 +753,7 @@ export function LoungeGallery({
     ? `All ${selectedCount.toLocaleString("en-IN")} selected`
     : `${selectedCount.toLocaleString("en-IN")} selected`;
   const selectionHint = selectedCount > LARGE_SELECTION ? "This can take a few minutes." : undefined;
-  const hasMore = effTab === "group" ? groupCursor !== null : items.length < totalForView;
+  const hasMore = groupView ? groupCursor !== null : items.length < totalForView;
   /**
    * My People is also "loading" while its pager has not arrived.
    *
@@ -748,10 +762,10 @@ export function LoungeGallery({
    * grid's own `loading` only goes true once there is a feed to ask.
    */
   const showLoading =
-    loading || (effTab === "group" && !groupFeed && groupState === "loading");
+    loading || (groupView && !groupFeed && groupState === "loading");
   /** My People asked for its directory and did not get one. Distinct from an
    *  empty group, which is a real answer with its own empty state. */
-  const groupFailed = effTab === "group" && !groupFeed && groupState === "error";
+  const groupFailed = groupView && !groupFeed && groupState === "error";
   const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
 
   /**
@@ -1116,7 +1130,7 @@ export function LoungeGallery({
       const excludedIds = excluded;
       const scope = currentScope();
       exitSelect();
-      const groupIds = effTab === "group" ? groupFeedRef.current?.allIds : undefined;
+      const groupIds = groupView ? groupFeedRef.current?.allIds : undefined;
       startDownload(name, async (signal) => {
         const all = await fetchPlanSources(scope, signal, groupIds);
         return excludedIds.size ? all.filter((e) => !excludedIds.has(e._id)) : all;
@@ -1222,7 +1236,7 @@ export function LoungeGallery({
       const base = (event.event_name || "gallery").trim() || "gallery";
       const n = `(${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"})`;
       if (likedView) return `${base} - liked ${n}`;
-      if (effTab === "group") return `${base} - my group ${n}`;
+      if (effTab === "group") return `${base} - my people ${n}`;
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
         return `${base} - ${folderName} ${n}`;
@@ -1241,9 +1255,12 @@ export function LoungeGallery({
     // My People passes its OWN id list into the same planner every other view
     // uses. `allIds` is the feed in order, so the ZIP holds exactly the photos
     // the tab is showing and nothing else.
-    const groupIds = effTab === "group" ? groupFeedRef.current?.allIds : undefined;
+    const groupIds = groupView ? groupFeedRef.current?.allIds : undefined;
     startDownload(nameForScope(totalForView), (signal) => fetchPlanSources(scope, signal, groupIds));
-  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, effTab]);
+    // `groupView` replaces `effTab` here: it is what decides whether the group
+    // id list is passed, and `currentScope`/`nameForScope` already carry the
+    // tab itself.
+  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, groupView]);
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -1387,6 +1404,9 @@ export function LoungeGallery({
   };
   const goGallery = () => {
     setLikedView(false);
+    // Symmetric with goLiked: the result set changes in BOTH directions, so a
+    // cursor and bucket map from before Liked describe nothing on screen.
+    resetGroupPaging();
     exitSelect(); // peer of goLiked/goHome — leaving Liked changes the result set
     setView("gallery");
   };
@@ -1568,7 +1588,7 @@ export function LoungeGallery({
             setTab={desktopSetTab}
             showMine={faceSearchOn}
             showGroup={showPeopleTab}
-            showFolders={effTab !== "group"}
+            showFolders={!groupView}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
@@ -1603,7 +1623,7 @@ export function LoungeGallery({
                 none of their copy is in the lounge's own bundle: the requests
                 banner directly under the tabs, and "Manage my people" beside
                 it. On a laptop there is room for them on one line. */}
-            {effTab === "group" && (
+            {groupView && (
               <div className="mb-5 flex flex-wrap items-center gap-3 empty:hidden">
                 <div ref={setRequestsBannerSlot} className="min-w-[260px] flex-1 empty:hidden" />
                 <div ref={setManageSlot} className="empty:hidden" />
@@ -1616,7 +1636,7 @@ export function LoungeGallery({
             ) : items.length === 0 ? (
               // My People's empty state names the people who have not answered
               // yet, so it too comes from the friends chunk through a slot.
-              effTab === "group" ? (
+              groupView ? (
                 <div ref={setGroupEmptySlot} />
               ) : !likedView && effTab === "mine" ? (
                 // A Guest with no selfie has nothing to have failed at — they
@@ -1632,7 +1652,10 @@ export function LoungeGallery({
                   t={t}
                   likedView={likedView}
                   unlocked={unlocked}
-                  tab={effTab}
+                  // Reaching here with the group tab selected means Liked is
+                  // filtering it, and Liked's own copy is what shows — the tab
+                  // is not what this state is about.
+                  tab={effTab === "group" ? "all" : effTab}
                   onOpenPrivate={() => setPasscodeOpen(true)}
                   onRescan={faceSearchOn && !hasSelfie ? onRescan : undefined}
                 />
@@ -1644,7 +1667,7 @@ export function LoungeGallery({
                     pills filter server-side, so no client-side partitioning).
                     My People is the one view that sections it, by how many of
                     the Guest's friends are in each photo. */}
-                {effTab === "group" ? (
+                {groupView ? (
                   <BucketedGrid
                     t={t}
                     items={displayed}
@@ -1988,7 +2011,7 @@ export function LoungeGallery({
           manageSlot={manageSlot}
           requestsBannerSlot={requestsBannerSlot}
           groupEmptySlot={groupEmptySlot}
-          groupTabActive={effTab === "group"}
+          groupTabActive={groupView}
           onGroupFeedChange={setGroupFeed}
           onGroupStateChange={setGroupState}
           onShowGroup={() => (isDesktop ? desktopSetTab("group") : gotoGallery("group"))}
@@ -2153,6 +2176,9 @@ function MobileGalleryView(props: {
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
   const effTab: GalleryTab = !faceSearchOn ? "all" : tab === "group" && !showGroup ? "mine" : tab;
+  /** Mirrors the parent's: Liked is a filter over whatever tab is selected, so
+   *  it is NOT the group view even while My People is the selected tab. */
+  const groupView = effTab === "group" && !likedView;
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -2167,7 +2193,12 @@ function MobileGalleryView(props: {
           only next to the folder names they describe. In Liked (a bottom-nav
           tab on mobile, not a pill) the filters don't apply, so only the
           select/download cluster shows. */}
-      <div className="fx-rise px-4 pt-3" style={{ background: t.bg }}>
+      {/* `relative z-30`: the overflow menu hangs out of this row, and the
+          scroll container below is a LATER sibling — so without a stacking
+          level here the photos paint over the menu, whatever z-index the menu
+          itself carries. The tiles' entrance animation is a transform, which
+          gives each one its own stacking context and made it certain. */}
+      <div className="fx-rise relative z-30 px-4 pt-3" style={{ background: t.bg }}>
         <div className="flex items-center justify-between gap-2">
           {selectMode ? (
             <SelectionSummary
@@ -2213,7 +2244,7 @@ function MobileGalleryView(props: {
 
         {/* Folder pills do not apply to My People: its feed is grouped by who
             is in each photo, not by folder. */}
-        {!likedView && effTab !== "group" && (
+        {!groupView && !likedView && (
           <FolderPillsRow
             t={t}
             folders={folders}
@@ -2241,13 +2272,13 @@ function MobileGalleryView(props: {
       >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
-          {effTab === "group" && <div ref={requestsBannerRef} className="mb-4 empty:hidden" />}
+          {groupView && <div ref={requestsBannerRef} className="mb-4 empty:hidden" />}
           {loading ? (
             <LoadingSkeleton />
           ) : (props.loadError && items.length === 0) || groupFailed ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            effTab === "group" ? (
+            groupView ? (
               <div ref={groupEmptyRef} />
             ) : !likedView && effTab === "mine" ? (
               faceSearchOn && !hasSelfie ? (
@@ -2260,14 +2291,16 @@ function MobileGalleryView(props: {
                 t={t}
                 likedView={likedView}
                 unlocked={unlocked}
-                tab={effTab}
+                // See the desktop shell: the group tab reaches this only under
+                // the Liked filter, whose copy ignores the tab.
+                tab={effTab === "group" ? "all" : effTab}
                 onOpenPrivate={onOpenPrivate}
                 onRescan={faceSearchOn && !hasSelfie ? onRescan : undefined}
               />
             )
           ) : (
             <>
-              {effTab === "group" ? (
+              {groupView ? (
                 <BucketedGrid
                   t={t}
                   items={items}
@@ -2684,10 +2717,14 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
               type="button"
               onClick={n.on}
               className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full py-2 text-[12px] transition-colors"
-              style={{ background: on ? t.accentWash : "transparent", color: on ? t.brand : t.muted, fontWeight: on ? 600 : 500 }}
+              style={{ background: on ? t.accentWash : "transparent", color: on ? t.brand : t.muted, fontWeight: on ? 700 : 500 }}
             >
               {n.icon}
-              {on && n.label}
+              {/* Always named. The label used to appear only on the active tab,
+                  which left two unlabelled glyphs and made the row jump as the
+                  selected one grew and shrank. Weight and colour carry the
+                  selection instead. */}
+              {n.label}
             </button>
           );
         })}

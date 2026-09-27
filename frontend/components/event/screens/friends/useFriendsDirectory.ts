@@ -40,14 +40,17 @@ export type DirectoryStatus = "idle" | "loading" | "ready" | "error";
  *   open      → they already allow me, so adding connects us: in_group.
  *   ask       → they do not, so adding sends a request: requested.
  *   added_you → they named me; adding back connects us: in_group.
+ *   declined  → they said no; asking again reopens it: requested.
  *   in_group  → removing drops my side; theirs stands, so they are open to me.
  *   requested → cancelling drops my side; they never allowed me: ask.
+ *   declined  → removing drops my side; they refused me: ask.
  * The server's own `rel` is applied on top when it answers, so a wrong guess
  * corrects itself rather than sticking.
  */
 function optimisticRel(current: FriendRel, action: "add" | "remove" | "decline"): FriendRel {
-  if (action === "add") return current === "ask" ? "requested" : "in_group";
-  if (action === "remove") return current === "requested" ? "ask" : "open";
+  const pendingOnThem = current === "ask" || current === "declined";
+  if (action === "add") return pendingOnThem ? "requested" : "in_group";
+  if (action === "remove") return current === "requested" || current === "declined" ? "ask" : "open";
   // decline: they still allow me, I simply have not answered with a yes.
   return "open";
 }

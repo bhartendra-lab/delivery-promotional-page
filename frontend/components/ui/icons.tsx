@@ -237,3 +237,39 @@ export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");
 export const IconBrowser = wrapPhosphor(Browser, 30, "IconBrowser");
 export const IconSmiley = wrapPhosphor(Smiley, 44, "IconSmiley");
 export const IconSparkle = wrapPhosphor(Sparkle, 24, "IconSparkle");
+
+/**
+ * The gallery's overflow-menu glyph: two stacked bars, left-aligned, the lower
+ * one shorter.
+ *
+ * Hand-drawn rather than wrapped from Phosphor because no Phosphor glyph has
+ * this shape — `List` is three equal bars and `TextAlignLeft` is four. The
+ * proportions come from the reference art (bars 27px and 19px wide, 3px thick,
+ * 11px between centres, so 0.70 : 1 in length and 0.11 in thickness) scaled
+ * into a 24-unit box.
+ *
+ * `currentColor` and no explicit width, so it inherits from the button exactly
+ * as every wrapped Phosphor icon does and the call sites stay interchangeable.
+ */
+function IconMenuBarsBase({ size = 18, className, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      className={className}
+      style={style}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <line x1="4" y1="9" x2="20" y2="9" />
+      <line x1="4" y1="15" x2="15" y2="15" />
+    </svg>
+  );
+}
+IconMenuBarsBase.displayName = "IconMenuBars";
+export const IconMenuBars = IconMenuBarsBase;
