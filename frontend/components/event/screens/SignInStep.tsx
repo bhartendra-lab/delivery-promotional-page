@@ -25,8 +25,9 @@ function maskPhone(phone: string): string {
  *
  * Two zones, both rendered here because both read this step's state: the form,
  * centred vertically, and a bottom block pinned to the foot of the screen with
- * "Didn't get the code?" (only while a code is in flight), the Google button,
- * then whatever the container passes as `footer` (the Terms line). Nothing
+ * an "or" divider, "Didn't get the code?" (only while a code is in flight), the
+ * Google button, then whatever the container passes as `footer` (the Terms
+ * line). Nothing
  * Google-related floats in the middle of the screen: WhatsApp is the primary
  * way in, and Google is the secondary pill underneath it, visible from the
  * start.
@@ -394,6 +395,13 @@ export function SignInStep({
 
       {/* ── the bottom block, pinned to the foot of the screen ─────────── */}
       <div className="mx-auto flex w-full max-w-[380px] flex-col gap-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        {/* "or" between the two ways in. The rules are drawn, not typed: no
+            dash characters in guest-facing copy. */}
+        <div className="flex items-center gap-3" style={{ color: t.faint }}>
+          <span className="h-px flex-1" style={{ background: t.border }} aria-hidden />
+          <span className="text-[11.5px] font-semibold">or</span>
+          <span className="h-px flex-1" style={{ background: t.border }} aria-hidden />
+        </div>
         {otpVisible && (
           <span className="fx-rise text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
             Didn’t get the code?
