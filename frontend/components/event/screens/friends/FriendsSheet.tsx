@@ -1,15 +1,22 @@
 "use client";
 
 /**
- * Surface 2 — the friends consent sheet.
+ * Surface 2 — the friends preference sheet ("Who can search common photos
+ * with you").
+ *
+ * Asked in exactly one place: the My People tab, on the Guest's first visit to
+ * it (or from that tab's empty state while still unanswered). It used to open
+ * by itself after the selfie and on a lounge visit; both of those are gone.
  *
  * Its own explicit step, never pre-selected and never folded into the
  * face-search consent: agreeing to have your own face matched is not agreeing
  * that other guests may see which photos you are in together, and the DPDP Act
  * wants each purpose consented to separately. The backend records this as its
- * own `consent_logs` row under `ff-v1.0`.
+ * own `consent_logs` row under `ff-v1.2`.
  *
- * The words come from `lib/friend-finder/copy.ts`, which is the same text the
+ * Minimal on purpose: a title, two bare options, one line. That line is the
+ * disclosure (what others see) and the withdrawal notice, so it stays. The
+ * words come from `lib/friend-finder/copy.ts`, which is the same text the
  * backend stores as that version. Do not edit them here.
  *
  * Swiping the sheet away (backdrop, Escape, the close button) records NOTHING
@@ -69,14 +76,10 @@ export function FriendsSheet({
         </button>
       }
     >
-      <p className="text-[13.5px] font-semibold leading-[1.55]" style={{ color: t.muted }}>
-        {FRIENDS_SHEET_COPY.body}
-      </p>
-
       {/* Radio semantics by hand: a real fieldset of styled inputs would have
           meant fighting the browser's own control for the check mark, and this
           stays keyboard- and screen-reader-correct via role + aria-checked. */}
-      <div className="mt-4 flex flex-col gap-2" role="radiogroup" aria-label={FRIENDS_SHEET_COPY.title}>
+      <div className="mt-2 flex flex-col gap-2" role="radiogroup" aria-label={FRIENDS_SHEET_COPY.title}>
         {FRIENDS_CHOICES.map((option) => {
           const on = choice === option.value;
           return (
@@ -86,14 +89,14 @@ export function FriendsSheet({
               role="radio"
               aria-checked={on}
               onClick={() => setChoice(option.value)}
-              className="flex cursor-pointer items-start gap-3 rounded-2xl p-3.5 text-left transition-colors"
+              className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-2xl p-3.5 text-left transition-colors"
               style={{
                 background: on ? t.accentWash : t.sunken,
                 border: `1px solid ${on ? t.brand : t.border}`,
               }}
             >
               <span
-                className="mt-0.5 flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full"
+                className="flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full"
                 style={{
                   background: on ? t.brand : "transparent",
                   border: on ? "none" : `2px solid ${t.border}`,
@@ -103,20 +106,15 @@ export function FriendsSheet({
               >
                 {on && <IconCheck size={12} weight="bold" />}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-extrabold leading-[1.3]" style={{ color: t.text }}>
-                  {option.label}
-                </span>
-                <span className="mt-0.5 block text-[12px] font-semibold leading-[1.4]" style={{ color: t.muted }}>
-                  {option.subtitle}
-                </span>
+              <span className="min-w-0 flex-1 text-[14px] font-extrabold leading-[1.3]" style={{ color: t.text }}>
+                {option.label}
               </span>
             </button>
           );
         })}
       </div>
 
-      <p className="mt-4 text-[11.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
+      <p className="mt-3 text-[11.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
         {FRIENDS_SHEET_COPY.smallPrint}
       </p>
     </SheetShell>

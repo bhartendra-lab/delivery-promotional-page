@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ClientTheme } from "@/lib/client-theme";
 import { ApiError, requestGuestOtp, resendGuestOtp, verifyGuestOtp } from "@/lib/api";
 import { setGuestToken } from "@/lib/guest-auth";
@@ -21,31 +21,37 @@ function maskPhone(phone: string): string {
  * WhatsApp number field stays visible and editable throughout: the 6-digit
  * code boxes reveal inline beneath it once an OTP is sent, and editing the
  * number away from the one the OTP was sent to collapses them back (no
- * separate "change number" nav needed). Google SSO is a de-emphasized text
- * link, shown only once a code is in flight.
+ * separate "change number" nav needed).
+ *
+ * Two zones, both rendered here because both read this step's state: the form,
+ * centred vertically, and a bottom block pinned to the foot of the screen with
+ * "Didn't get the code?" (only while a code is in flight), the Google button,
+ * then whatever the container passes as `footer` (the Terms line). Nothing
+ * Google-related floats in the middle of the screen: WhatsApp is the primary
+ * way in, and Google is the secondary pill underneath it, visible from the
+ * start.
+ *
+ * No name field. The lounge's intake sheet asks for it, non-dismissibly, for
+ * any Guest whose name is missing or the "Guest" placeholder — and a Google
+ * Guest arrives with their display name, so is never asked at all.
  */
 export function SignInStep({
   theme: t,
-  eventName,
   studio,
   authError,
   uniqueIdentifier,
   onAuthed,
+  footer,
 }: {
   theme: ClientTheme;
-  eventName: string;
   studio?: string;
   authError: boolean;
   uniqueIdentifier: string;
   /** Guest verified their OTP — re-run `EventFlow`'s session restore in place. */
   onAuthed: () => void;
+  /** Last thing in the bottom block, under the Google button. */
+  footer?: ReactNode;
 }) {
-  // The Guest's own name, and the ONLY place it is ever collected on this path.
-  // Until now this screen sent no name at all, so every WhatsApp-OTP guest kept
-  // the "Guest" placeholder — invisible to the friends directory, and unhelpful
-  // on the Studio's guest list. The backend now requires one for a Guest who
-  // does not already have it (see verifyGuestOtp).
-  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   // The number the OTP was actually sent to. Not cleared on edit — editing
   // BACK to this exact number restores the OTP view without a re-send, since
@@ -59,14 +65,10 @@ export function SignInStep({
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
-  const [focused, setFocused] = useState<"name" | "phone" | null>(null);
+  const [focused, setFocused] = useState(false);
   const codeInputRef = useRef<HTMLInputElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Collapsed whitespace, so a name of spaces is not a name — the same rule the
-  // server applies, applied here so the button is honest about it.
-  const cleanName = name.replace(/\s+/g, " ").trim();
-  const formValid = phone.length === 10 && cleanName.length > 0;
+  const formValid = phone.length === 10;
   const otpVisible = sentPhone !== null && phone === sentPhone;
 
   useEffect(() => {
@@ -123,22 +125,11 @@ export function SignInStep({
         uniqueIdentifier,
         phone: sentPhone,
         code: value,
-        name: cleanName,
       });
       setGuestToken(uniqueIdentifier, token);
       onAuthed();
     } catch (err) {
       setVerifying(false);
-      // The server refused for want of a name rather than a bad code. The code
-      // is still live — it is checked before this point and is not consumed on
-      // this path — so keep it and send them back to the name field instead of
-      // clearing the boxes and implying they mistyped.
-      const body = err instanceof ApiError ? (err.body as { code?: string } | null) : null;
-      if (body?.code === "GUEST_NAME_REQUIRED") {
-        setError(err instanceof ApiError ? err.message : "Please add your name to continue.");
-        nameInputRef.current?.focus();
-        return;
-      }
       setShake(true);
       setError(err instanceof ApiError ? err.message : "Couldn’t verify — try again.");
       setTimeout(() => {
@@ -181,19 +172,38 @@ export function SignInStep({
     }
   }
 
-  const googleFallbackHref = `${API_BASE}/auth/google/guest-login?unique_identifier=${encodeURIComponent(uniqueIdentifier)}&phone=${encodeURIComponent(phone)}`;
+  /*
+   * No phone rides along, even with a code in flight. It used to, so the
+   * Google sign-in could land on the record guest-otp-login made for that
+   * number, but nothing proved the Guest owned the number: anyone who knew it
+   * could be that Guest with any Google account. A Guest whose code never came
+   * signs in by their Google account alone.
+   */
+  const googleParams = new URLSearchParams({ unique_identifier: uniqueIdentifier });
+  const googleFallbackHref = `${API_BASE}/auth/google/guest-login?${googleParams.toString()}`;
   const activeIndex = code.length;
+  /* The pill's theme colours, as custom properties: the `.guest-sso-btn` rules
+   * in globals.css own the hover, press, focus and reduced-motion states, which
+   * an inline style cannot express. */
+  const ssoVars = {
+    background: t.card,
+    color: t.text,
+    "--sso-border": t.border,
+    "--sso-border-hover": t.brand,
+    "--sso-shadow-hover": t.shadowSm,
+    "--sso-sheen": t.accentWash,
+    "--sso-ring": t.brand,
+  } as CSSProperties;
 
   return (
     <>
+      {/* ── the form, centred in whatever height the bottom block leaves ── */}
+      <div className="fx-stagger mx-auto flex w-full max-w-[380px] flex-1 flex-col justify-center py-8">
       {/* headline */}
-      <div className="mt-10 flex flex-col gap-2.5 text-center">
+      <div className="flex flex-col gap-2.5 text-center">
         <h1 className="text-[27px] font-extrabold leading-[1.15] tracking-[-0.02em]" style={{ color: t.text }}>
           Find your photos
         </h1>
-        <p className="px-1 text-[14.5px] font-semibold leading-[1.5]" style={{ color: t.muted }}>
-          Sign in with WhatsApp and we’ll pull out every picture you’re in from {eventName}.
-        </p>
       </div>
 
       {authError && (
@@ -212,45 +222,9 @@ export function SignInStep({
         </div>
       )}
 
-      <div className="flex flex-col gap-3.5">
-        {/* Name first: it is what other guests at this event will see next to
-            the photos, so asking for it before the number sets that up rather
-            than making it feel like an afterthought on a sign-in form. */}
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
-            Your name
-          </span>
-          <div
-            className="flex w-full min-h-[52px] items-center"
-            style={{
-              background: t.sunken,
-              border: `1.5px solid ${focused === "name" ? t.brand : t.border}`,
-              borderRadius: t.rField,
-              padding: "0 16px",
-            }}
-          >
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (error) setError(null);
-              }}
-              onFocus={() => setFocused("name")}
-              onBlur={() => setFocused(null)}
-              placeholder="Priya Sharma"
-              // Matches GUEST_NAME_MAX on the server, so the field cannot accept
-              // something the server will then refuse.
-              maxLength={40}
-              autoComplete="name"
-              aria-label="Your name"
-              className="w-full min-w-0 flex-1 bg-transparent"
-              style={{ fontSize: 15.5, fontWeight: 700, color: t.text, fontFamily: t.font }}
-            />
-          </div>
-        </label>
-
+      {/* The studio line spaces the heading from the form when it is there;
+          without it the form keeps the same distance on its own. */}
+      <div className={`flex flex-col gap-3.5 ${studio ? "" : "mt-7"}`}>
         <label className="flex flex-col gap-1.5">
           <span className="text-[12px] font-bold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
             WhatsApp number
@@ -259,7 +233,7 @@ export function SignInStep({
             className="flex w-full min-h-[52px] items-center gap-2.5"
             style={{
               background: t.sunken,
-              border: `1.5px solid ${focused === "phone" ? t.brand : t.border}`,
+              border: `1.5px solid ${focused ? t.brand : t.border}`,
               borderRadius: t.rField,
               padding: "0 16px",
             }}
@@ -274,8 +248,8 @@ export function SignInStep({
               maxLength={10}
               value={phone}
               onChange={(e) => onPhoneChange(e.target.value)}
-              onFocus={() => setFocused("phone")}
-              onBlur={() => setFocused(null)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
               placeholder="98765 43210"
               autoComplete="tel-national"
               aria-label="WhatsApp number, 10 digits"
@@ -334,11 +308,15 @@ export function SignInStep({
         )}
 
         {otpVisible ? (
+          // Verify and Resend as one group, 8px apart: Resend is the answer to
+          // "Verify is not going to work", so it belongs right under it rather
+          // than in a block of its own further down.
+          <div className="mt-1 flex flex-col gap-2">
           <button
             type="button"
             onClick={() => code.length === CODE_LEN && submitOtp(code)}
             disabled={code.length !== CODE_LEN || verifying}
-            className="mt-1 flex w-full items-center justify-center gap-2 transition-transform hover:-translate-y-0.5 active:scale-[0.99] disabled:pointer-events-none disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 transition-transform hover:-translate-y-0.5 active:scale-[0.99] disabled:pointer-events-none disabled:cursor-not-allowed"
             style={
               code.length === CODE_LEN
                 ? {
@@ -365,6 +343,19 @@ export function SignInStep({
             {verifying && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />}
             {verifying ? "Verifying…" : "Verify"}
           </button>
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={resend}
+                disabled={secondsLeft > 0 || resending}
+                aria-live="polite"
+                className="flex min-h-8 cursor-pointer items-center px-1 text-[12.5px] font-bold disabled:cursor-not-allowed"
+                style={{ color: secondsLeft > 0 ? t.faint : t.brand }}
+              >
+                {resending ? "Sending…" : secondsLeft > 0 ? `Resend in 0:${String(secondsLeft).padStart(2, "0")}` : "Resend OTP"}
+              </button>
+            </div>
+          </div>
         ) : (
           <button
             type="button"
@@ -398,38 +389,29 @@ export function SignInStep({
             {sending ? "Sending…" : "Send OTP"}
           </button>
         )}
-
-        {otpVisible && (
-          <div className="flex items-center justify-center">
-            <button
-              type="button"
-              onClick={resend}
-              disabled={secondsLeft > 0 || resending}
-              aria-live="polite"
-              className="flex min-h-11 cursor-pointer items-center px-1 text-[12.5px] font-bold disabled:cursor-not-allowed"
-              style={{ color: secondsLeft > 0 ? t.faint : t.brand }}
-            >
-              {resending ? "Sending…" : secondsLeft > 0 ? `Resend in 0:${String(secondsLeft).padStart(2, "0")}` : "Resend OTP"}
-            </button>
-          </div>
-        )}
+      </div>
       </div>
 
-      {/* de-emphasized Google fallback — a text link, only once a code is in flight */}
-      {otpVisible && (
-        <div className="mt-6 flex flex-col items-center gap-1.5 text-center">
-          <span className="text-[11.5px] font-semibold" style={{ color: t.faint }}>
+      {/* ── the bottom block, pinned to the foot of the screen ─────────── */}
+      <div className="mx-auto flex w-full max-w-[380px] flex-col gap-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        {otpVisible && (
+          <span className="fx-rise text-center text-[11.5px] font-semibold" style={{ color: t.faint }}>
             Didn’t get the code?
           </span>
-          <a
-            href={googleFallbackHref}
-            className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 text-[12.5px] font-bold underline underline-offset-2"
-            style={{ color: t.brand }}
-          >
-            <GoogleG size={13} /> Continue with Google instead
-          </a>
-        </div>
-      )}
+        )}
+        {/* A real anchor, not a button: OAuth needs a full navigation. */}
+        <a
+          href={googleFallbackHref}
+          className="guest-sso-btn flex min-h-12 w-full cursor-pointer items-center justify-center gap-2.5 rounded-full px-5 text-[14.5px] font-bold"
+          style={ssoVars}
+        >
+          <span className="guest-sso-g" aria-hidden>
+            <GoogleG size={18} />
+          </span>
+          Continue with Google
+        </a>
+        {footer}
+      </div>
     </>
   );
 }

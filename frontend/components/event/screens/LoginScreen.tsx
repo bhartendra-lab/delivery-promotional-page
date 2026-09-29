@@ -7,7 +7,6 @@ import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { IconBrowser, IconCopy } from "@/components/ui/icons";
 import { SignInStep } from "./SignInStep";
-import { PoweredBy } from "./ScanFlow";
 
 /** Mirrors the studio-name length policy `MobileTopBar.tsx` already uses (SHORT_STUDIO_NAME). */
 const SHORT_STUDIO_NAME = 18;
@@ -18,11 +17,12 @@ function truncateStudio(name: string): string {
 
 /**
  * Screen container — WhatsApp OTP is the primary sign-in (`SignInStep`, phone
- * entry and code verification merged into one screen); Google SSO is
- * demoted to a de-emphasized text-link fallback shown only once a code is in
- * flight. No cover/hero treatment here — `WelcomeScreen` (which always
- * precedes this, see `EventFlow`) already showed the event's identity, so
- * this stays a plain, focused sign-in utility.
+ * entry and code verification merged into one screen); Google is the
+ * secondary pill in the bottom block, visible from the start. Two zones, both
+ * laid out by `SignInStep`: the form, centred, and the bottom block with the
+ * Terms line this container passes in as its footer. No cover/hero treatment
+ * here — `WelcomeScreen` (which always precedes this, see `EventFlow`) already
+ * showed the event's identity, so this stays a plain, focused sign-in utility.
  */
 export function LoginScreen({
   authError = false,
@@ -55,37 +55,32 @@ export function LoginScreen({
 
   const rawStudio = event.include_company_branding ? event.company_name : undefined;
   const studio = rawStudio ? truncateStudio(rawStudio) : undefined;
-  const eventName = event.event_name || "this event";
 
   return (
     <div className="relative isolate flex min-h-[100dvh] flex-col" style={{ background: t.bg, fontFamily: t.font }}>
       <AmbientBackdrop a={t.cover[0]} b={t.brand} />
 
       <div className="relative flex flex-1 flex-col px-7 sm:px-10">
-        <div className="fx-stagger mx-auto flex w-full max-w-[380px] flex-1 flex-col justify-center">
-          <SignInStep
-            theme={t}
-            eventName={eventName}
-            studio={studio}
-            authError={authError}
-            uniqueIdentifier={uniqueIdentifier}
-            onAuthed={onAuthed}
-          />
-
-          <p className="mb-2 mt-5 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
-            By continuing you agree to our{" "}
-            <button type="button" onClick={() => openPolicy("terms")} className="underline underline-offset-2" style={{ color: t.muted }}>
-              Terms
-            </button>{" "}
-            &amp;{" "}
-            <button type="button" onClick={() => openPolicy("privacy")} className="underline underline-offset-2" style={{ color: t.muted }}>
-              Privacy Policy
-            </button>
-            .
-          </p>
-        </div>
-
-        <PoweredBy />
+        <SignInStep
+          theme={t}
+          studio={studio}
+          authError={authError}
+          uniqueIdentifier={uniqueIdentifier}
+          onAuthed={onAuthed}
+          footer={
+            <p className="mt-0.5 text-center text-[11px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
+              By continuing you agree to our{" "}
+              <button type="button" onClick={() => openPolicy("terms")} className="underline underline-offset-2" style={{ color: t.muted }}>
+                Terms
+              </button>{" "}
+              &amp;{" "}
+              <button type="button" onClick={() => openPolicy("privacy")} className="underline underline-offset-2" style={{ color: t.muted }}>
+                Privacy Policy
+              </button>
+              .
+            </p>
+          }
+        />
       </div>
 
       {cameraUnsupported && <BrowserUnsupportedNotice t={t} />}

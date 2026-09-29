@@ -117,9 +117,45 @@ export function useFriendsDirectory({
   // `active` flipping true is what triggers a load; the payload itself must not
   // be a dependency of that effect or applying a result would re-run it.
   const payloadRef = useRef<FriendFinderPeople | null>(null);
+  const activeRef = useRef(active);
   useEffect(() => {
     payloadRef.current = payload;
+    activeRef.current = active;
   });
+
+  /**
+   * Fresh like counts that arrived while a surface was on screen, held back
+   * until the Guest leaves it.
+   *
+   * The counts decide My People's order, and they arrive a moment AFTER the
+   * cached payload has painted the grid, so applying them at once reordered
+   * (and reloaded) the grid right under a Guest who had only just opened it.
+   * They are written to the cache immediately and applied here when the
+   * surface closes, so the next open paints in the new order from the start.
+   * Kept with the ids they line up with, and applied only if those still match.
+   */
+  const pendingCounts = useRef<{ mediaIds: string[]; counts: number[] } | null>(null);
+  useEffect(() => {
+    if (active || !pendingCounts.current) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve(); // defer — no synchronous setState in an effect body
+      if (cancelled) return;
+      const held = pendingCounts.current;
+      pendingCounts.current = null;
+      if (!held) return;
+      setPayload((prev) =>
+        prev &&
+        prev.media_ids.length === held.mediaIds.length &&
+        prev.media_ids.every((id, i) => id === held.mediaIds[i])
+          ? { ...prev, like_counts: held.counts }
+          : prev,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
 
   const load = useCallback(async () => {
     // A cache hit paints first and then revalidates behind the guest's eyes;
@@ -149,6 +185,29 @@ export function useFriendsDirectory({
         return;
       }
       if (isUnchanged(people)) {
+        /* The cache still holds — but its LIKE COUNTS may not. Likes do not
+         * move `rev` (a heart must not invalidate every Guest's cache at the
+         * wedding), so the short-circuit carries fresh counts keyed by media
+         * id, and they are folded into the payload in hand here. Only when
+         * something actually moved: an identical array would rebuild the feed
+         * for nothing. The new order waits for the Guest to leave the surface
+         * (see pendingCounts), so neither the first paint nor a heart tapped
+         * on My People is ever reordered under the Guest. */
+        const byId = people.like_counts_by_id;
+        // The cached payload this request was conditional on, if the render
+        // that puts it in the ref has not happened yet.
+        const current = payloadRef.current ?? (fresh && cached ? cached.payload : null);
+        if (byId && current) {
+          const next = current.media_ids.map((id) => byId[id] ?? 0);
+          const prev = current.like_counts;
+          const moved = !prev || prev.length !== next.length || prev.some((n, i) => n !== next[i]);
+          if (moved) {
+            const merged = { ...current, like_counts: next };
+            if (guestId) writePeopleCache(bookingId, guestId, merged);
+            if (activeRef.current) pendingCounts.current = { mediaIds: current.media_ids, counts: next };
+            else setPayload(merged);
+          }
+        }
         setStatus("ready");
         return;
       }
@@ -182,16 +241,16 @@ export function useFriendsDirectory({
   /**
    * ONE retry when the server says it is still working.
    *
-   * `preparing` now means only one thing: this guest's own `search-selfie` has
-   * answered them but the write that stores their matched set has not landed
-   * yet — a sub-second gap in the same visit. It used to mean "a background
-   * sweep will get to you", which could be ten minutes and which no amount of
-   * retrying would have helped; there is no sweep any more.
+   * `preparing` means this guest has a selfie but no stored matched set yet.
+   * `search-selfie` now stores the set BEFORE it answers, so this is only the
+   * gallery's own search still in flight when the tab opened (it runs on every
+   * visit) or a store that failed. It used to mean "a background sweep will
+   * get to you", which could be ten minutes; there is no sweep any more.
    *
-   * So a single delayed refetch closes the only gap that is left, and the guest
-   * sees their photos instead of a message telling them to come back. Not a
-   * poll: if the one retry still says `preparing`, something actually failed
-   * and their next visit is what fixes it.
+   * So a single delayed refetch covers the in-flight case, and the guest sees
+   * their photos instead of a message telling them to come back. Not a poll:
+   * if the one retry still says `preparing`, something actually failed and
+   * their next visit is what fixes it.
    */
   useEffect(() => {
     if (!active || payload?.state !== "preparing") return;

@@ -40,10 +40,10 @@ export function ScanFlow({
    * `enabled`, not merely the block's presence — a studio can have the feature
    * off for their gallery, and the sentence below would then be false).
    *
-   * It adds ONE sentence to the consent, and records the consent against
-   * `v1.1` instead of `v1.0`. Default false, so with the feature off this
-   * screen's text and the version it sends are exactly what they have always
-   * been.
+   * It continues the consent paragraph by ONE sentence, and records the
+   * consent against `v1.3` instead of `v1.2` (see PolicyContext for what each
+   * version showed). Default false, so with the feature off this screen shows
+   * the base sentence alone and records the base version.
    */
   friendsNotice?: boolean;
   /**
@@ -275,7 +275,7 @@ export function ScanFlow({
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 px-6 pb-2">
+        <div className="flex flex-col gap-3 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           {/* consent checkbox — directly under the viewfinder; ticking it starts the camera */}
           <button
             type="button"
@@ -284,14 +284,14 @@ export function ScanFlow({
             style={{ background: agreed ? t.accentWash : t.card, border: `1px solid ${agreed ? t.brand : t.border}` }}
           >
             <Checkbox checked={agreed} />
+            {/* ONE paragraph, one colour and weight: the face sentence
+                continues the consent rather than sitting under it as a muted
+                aside, because it is part of what the Guest agrees to. The
+                exact words are versioned (v1.2 / v1.3, see PolicyContext) —
+                any edit here is a new version in both repositories. */}
             <span className="text-[12.5px] font-semibold leading-[1.45]" style={{ color: t.text }}>
-              I agree to let Vyavasth use my selfie to match my face to these photos and keep it on my gallery profile.
-              {friendsNotice && (
-                <span className="mt-1.5 block" style={{ color: t.muted }}>
-                  Your face picture from this event&rsquo;s photos will be visible to other guests at this
-                  wedding.
-                </span>
-              )}
+              I agree to let Vyavasth use my selfie to find my photos and save it to my profile.
+              {friendsNotice && " Other guests here can see my face picture."}
             </span>
           </button>
 
@@ -347,7 +347,6 @@ export function ScanFlow({
             )}
           </div>
         </div>
-        <PoweredBy />
         {camGate && (
           <PermissionGate gate={camGate} onRetry={() => setCamAttempt((n) => n + 1)} secondary={secondary} />
         )}
@@ -387,11 +386,10 @@ export function ScanFlow({
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-2 px-7 pb-2" style={{ color: t.faint }}>
+        <div className="flex items-center justify-center gap-2 px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))]" style={{ color: t.faint }}>
           <IconLock size={13} />
           <span className="text-center text-[12px] font-semibold">Your selfie is saved to your gallery profile to match your photos — rescan anytime.</span>
         </div>
-        <PoweredBy />
       </Shell>
     );
   }
@@ -409,7 +407,7 @@ export function ScanFlow({
           {errorMsg ?? "Something went wrong. Please retake your selfie."}
         </p>
       </div>
-      <div className="flex flex-col gap-2.5 px-7 pb-2">
+      <div className="flex flex-col gap-2.5 px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {/* Face search switched off under the Guest's feet: a retake would fail
             in exactly the same way, so the only button offered is the one that
             gets them into the gallery. For a Guest who arrived at this screen
@@ -449,7 +447,6 @@ export function ScanFlow({
           </>
         )}
       </div>
-      <PoweredBy />
     </Shell>
   );
 }
@@ -644,15 +641,6 @@ function Shell({ guestName, children }: { guestName?: string; children: React.Re
         )}
       </div>
       <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col">{children}</div>
-    </div>
-  );
-}
-
-export function PoweredBy() {
-  const { theme: t } = useEventTheme();
-  return (
-    <div className="py-4 text-center text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: t.faint }}>
-      Powered by Vyavasth
     </div>
   );
 }

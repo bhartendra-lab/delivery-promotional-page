@@ -179,7 +179,7 @@ export type EventContextValue = {
    * already-uploaded ones included — and takes effect for guests immediately.
    * Rejects on failure so the caller can keep its dialog open.
    */
-  saveDeliveryPreferences: (next: DeliveryPreferences) => Promise<void>;
+  saveDeliveryPreferences: (next: DeliveryPreferences, extra?: { includeBranding?: boolean }) => Promise<void>;
   /** Mint a fresh family passcode; returns the new code. */
   regenerateFamilyPasscode: () => Promise<string>;
   /** Set the cover from an already-uploaded R2 url, optionally with a focal position. */

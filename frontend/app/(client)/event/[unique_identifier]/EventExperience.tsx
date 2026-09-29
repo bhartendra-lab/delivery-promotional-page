@@ -11,6 +11,7 @@ import { EventThemeProvider } from "@/components/event/EventThemeContext";
 import { EventFlow } from "@/components/event/EventFlow";
 import { PolicyProvider } from "@/components/event/policy/PolicyContext";
 import { PolicyOverlay } from "@/components/event/policy/PolicyOverlay";
+import { GuestInspectDeterrent } from "@/components/event/GuestInspectDeterrent";
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
@@ -61,6 +62,8 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
   return (
     <EventThemeProvider value={{ theme, event, uniqueIdentifier }}>
       <PolicyProvider>
+        {/* Guest routes only — a casual-inspection deterrent, see the file. */}
+        <GuestInspectDeterrent />
         <EventFlow />
         <PolicyOverlay />
       </PolicyProvider>

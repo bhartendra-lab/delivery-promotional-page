@@ -263,7 +263,9 @@ function withScheme(url: string): string {
 export type SocialVisitGate = { platform: SocialPlatformKey; label: string; url: string };
 
 /**
- * The link this Guest must open before entering, or null when there is no gate.
+ * The link this Guest must open once, before their FIRST DOWNLOAD, or null when
+ * there is no gate. (It used to be before entering the gallery, inside the name
+ * dialog; browsing is never blocked now — see LoungeGallery's withVisitGate.)
  * Null for every one of these reasons, and each one matters:
  *   - the event hides Studio branding (every Studio link is hidden from its
  *     Guests, so asking them to open one would undo that choice);

@@ -10,7 +10,7 @@ import { resolveWelcomeBand } from "@/lib/welcome-band";
 import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
 import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
-import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, searchSelfie, unlikePhoto, updateGuestSubType } from "@/lib/guest-api";
+import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, saveIntake, searchSelfie, unlikePhoto } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
@@ -25,6 +25,8 @@ import { PhotoViewer } from "./lounge/PhotoViewer";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 import { ProfileSheet } from "./lounge/ProfileSheet";
 import { IntakeSheet } from "./lounge/IntakeSheet";
+import { intakeNeeds, type IntakeAnswer } from "@/lib/guest-intake";
+import { VisitGateSheet } from "./lounge/VisitGateSheet";
 import { TopBar } from "./lounge/TopBar";
 import { CoverMasthead } from "./lounge/CoverMasthead";
 import { DesktopCover } from "./lounge/DesktopCover";
@@ -111,8 +113,6 @@ export function LoungeGallery({
   onSessionChange,
   friendFinder,
   onFriendFinderChange,
-  scanJustCompleted,
-  onScanTriggerConsumed,
   onReauth,
   onRescan,
   onSignOut,
@@ -123,9 +123,6 @@ export function LoungeGallery({
    *  backend's global switch is off. Nothing renders unless `enabled` is true. */
   friendFinder: FriendFinderBlock | null;
   onFriendFinderChange: (patch: Partial<FriendFinderBlock>) => void;
-  /** A scan finished during this visit — arms the friends sheet. */
-  scanJustCompleted: boolean;
-  onScanTriggerConsumed: () => void;
   onReauth: () => void;
   onRescan: () => void;
   onSignOut: () => void;
@@ -136,12 +133,12 @@ export function LoungeGallery({
   const unlocked = session.guest_type === "host";
   const hasStudio = branding && !!event.company_name;
 
-  // "Tell us about you" sheet — raised once, over the Lounge, for whichever
-  // of these the guest hasn't answered yet. Computed locally (not routed to
-  // by EventFlow) so a returning guest who already has them all never sees it.
-  const needsName = !session.name || session.name === "Guest";
+  // "Tell us about you" sheet — raised over the Lounge for whichever of these
+  // the guest hasn't answered yet. EventFlow raises the same sheet over the
+  // selfie step, so this one is for a Guest who came straight here; a
+  // returning guest who already has them all never sees either.
   const intakeTeams = event.guest_types ?? [];
-  const needsTeam = intakeTeams.length > 0 && !session.guest_sub_type;
+  const { needsName, needsTeam, show: showIntakeSheet } = intakeNeeds(session, intakeTeams);
 
   // Only ONE shell is mounted at a time (not two CSS-toggled trees): a hidden
   // `display:none` GalleryGrid measures 0 width and would render nothing, and
@@ -171,12 +168,16 @@ export function LoungeGallery({
   const hasSelfie = !!session.selfie_id;
   /**
    * The event has something for a Guest without the passcode to look at.
-   * `sample_media_urls` is filled by the landing endpoint from images in PUBLIC
-   * folders only, so it is exactly the right signal and costs nothing — it is
-   * already on the page. Known edge: a public folder holding only videos reads
-   * as "nothing public" here.
+   *
+   * An EXPLICIT flag from the landing endpoint (any media in a public folder,
+   * videos included). It used to be read off `sample_media_urls.length`, which
+   * was right only while the welcome strip was built from public folders; the
+   * strip can show PRIVATE photos now (as separate teaser copies), so its
+   * length says nothing about what a Guest without the passcode may see, and
+   * reading it that way would make the passcode optional for a Guest facing an
+   * empty gallery. The fallback covers only a backend that predates the flag.
    */
-  const hasPublicPhotos = (event.sample_media_urls?.length ?? 0) > 0;
+  const hasPublicPhotos = event.has_public_photos ?? (event.sample_media_urls?.length ?? 0) > 0;
   /**
    * The passcode stops being optional. With face search off there is no matched
    * set, and with no public folder there are no Highlights either — so this
@@ -186,9 +187,9 @@ export function LoungeGallery({
    */
   const passcodeRequired = !faceSearchOn && !unlocked && !hasPublicPhotos;
 
-  // The Studio's required visit. Catches EVERY Guest once per gallery — not
-  // just Guests missing a name — so a Guest who signed in with Google (name
-  // already present) still gets the sheet, for the link alone.
+  // The Studio's required visit. Asked of EVERY Guest once per gallery, at
+  // their FIRST DOWNLOAD — never in front of the gallery itself any more (see
+  // withVisitGate below).
   const gate = useMemo(
     () =>
       resolveSocialVisitGate({
@@ -202,7 +203,8 @@ export function LoungeGallery({
   // Satisfaction is once per event and platform-independent by design — see the
   // comment on `mandatory_link_visited_at`.
   const needsSocialVisit = !!gate && !session.mandatory_link_visited_at;
-  const showIntakeSheet = needsName || needsTeam || needsSocialVisit;
+  // The intake sheet asks name and team only (see intakeNeeds). The visit is
+  // NOT there any more.
 
   /** The Guest opened the gate's link from the sheet. Local and optimistic: set
    *  by the link's own click, before (and regardless of) the record request. */
@@ -235,39 +237,68 @@ export function LoungeGallery({
     [sendVisit],
   );
 
-  async function submitIntake(patch: { name?: string; team?: string }) {
-    // The visit never blocks entry. A failed or timed-out record is retried
-    // once here; if that fails too the Guest is let in on a local stamp. The
-    // Studio losing one recorded click is nothing; a Guest locked out of their
-    // wedding photos is a support call and a broken promise. (On a reload
-    // before a record lands, the Guest is simply asked again.)
-    let visit: Partial<Pick<GuestSession, "mandatory_link_visited_at" | "mandatory_link_platform">> = {};
-    if (needsSocialVisit && visitedPlatform) {
-      const result = (await visitAttempt.current) ?? (await sendVisit(visitedPlatform));
-      visit = {
-        mandatory_link_visited_at: result?.mandatory_link_visited_at ?? Date.now(),
-        mandatory_link_platform: result?.mandatory_link_platform ?? visitedPlatform,
-      };
-    }
-    // Only when there is something to save: a Guest who only had the link to
-    // open must not be held up by a request with nothing in it.
-    if (patch.name !== undefined || patch.team !== undefined) {
-      await updateGuestSubType(uniqueIdentifier, { name: patch.name, guestSubType: patch.team });
-    }
-    // The session is patched HERE, on Continue, and not when the record lands:
-    // for a Guest who only had the link, that would close the sheet while they
-    // are still in the portal's tab.
-    onSessionChange({
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.team !== undefined ? { guest_sub_type: patch.team } : {}),
-      ...visit,
-    });
+  async function submitIntake(answer: IntakeAnswer) {
+    onSessionChange(await saveIntake(uniqueIdentifier, answer));
   }
 
-  // Full-gallery ZIP is host-only and now built in the browser (client-zip,
-  // streamed to disk), so it's available whenever the guest is unlocked — there's
-  // no backend zip state to gate on any more. The studio preference gates it too.
-  const canDownloadAll = unlocked && canDownload;
+  /* ── the required visit, at the first download ──────────────────────────
+   *
+   * `withVisitGate(action)` is what every download entry point goes through:
+   * with no live gate, or a Guest who has already opened the link, the action
+   * runs now; otherwise it is remembered, the sheet opens, and Continue records
+   * the visit and then runs it ONCE. Dismissing the sheet cancels the download
+   * and records nothing, so the next download asks again. Browsing is never
+   * blocked.
+   *
+   * `visitedRef` rather than the session alone: the remembered action runs
+   * straight after the session patch, in the same tick, and anything inside it
+   * that asked the gate again would read the pre-patch session from its
+   * closure and open the sheet a second time. */
+  const [visitGateOpen, setVisitGateOpen] = useState(false);
+  const [visitSaving, setVisitSaving] = useState(false);
+  const pendingDownload = useRef<(() => void) | null>(null);
+  const visitedRef = useRef(!needsSocialVisit);
+  useEffect(() => {
+    if (!needsSocialVisit) visitedRef.current = true;
+  }, [needsSocialVisit]);
+
+  const withVisitGate = useCallback(
+    (action: () => void) => {
+      if (!gate || visitedRef.current) {
+        action();
+        return;
+      }
+      pendingDownload.current = action;
+      setVisitGateOpen(true);
+    },
+    [gate],
+  );
+
+  const dismissVisitGate = useCallback(() => {
+    pendingDownload.current = null;
+    setVisitGateOpen(false);
+  }, []);
+
+  async function continueVisitGate() {
+    if (!visitedPlatform) return;
+    setVisitSaving(true);
+    // The visit never blocks the download. A failed or timed-out record is
+    // retried once here; if that fails too the Guest gets their download on a
+    // local stamp. The Studio losing one recorded click is nothing; a Guest
+    // refused their wedding photos is a support call and a broken promise. (On
+    // a reload before a record lands, the Guest is simply asked again.)
+    const result = (await visitAttempt.current) ?? (await sendVisit(visitedPlatform));
+    visitedRef.current = true;
+    onSessionChange({
+      mandatory_link_visited_at: result?.mandatory_link_visited_at ?? Date.now(),
+      mandatory_link_platform: result?.mandatory_link_platform ?? visitedPlatform,
+    });
+    setVisitSaving(false);
+    setVisitGateOpen(false);
+    const action = pendingDownload.current;
+    pendingDownload.current = null;
+    action?.();
+  }
 
   /**
    * Select mode exists solely to download a subset — its action bar is Cancel +
@@ -357,13 +388,16 @@ export function LoungeGallery({
    *  banner all come from the friends chunk, through slots of their own. */
   const [manageSlot, setManageSlot] = useState<HTMLDivElement | null>(null);
   const [requestsBannerSlot, setRequestsBannerSlot] = useState<HTMLDivElement | null>(null);
+  /** My People's face filter bar, directly under the tabs and above the
+   *  requests banner. From the friends chunk like the rest of that tab. */
+  const [faceFilterSlot, setFaceFilterSlot] = useState<HTMLDivElement | null>(null);
   const [groupEmptySlot, setGroupEmptySlot] = useState<HTMLDivElement | null>(null);
   /**
    * My People's pager, handed over by the friends surface.
    *
    * This is the whole seam. The gallery knows how to page a feed and nothing
-   * about how one is built: the bucketing, the labels and the intersection
-   * maths all live on the other side of this type. Null until the friends
+   * about how one is built: the ranking, the face filter and the
+   * intersection maths all live on the other side of this type. Null until the friends
    * payload has resolved, which is why the group tab waits rather than asking
    * for photos it cannot scope yet.
    */
@@ -386,19 +420,21 @@ export function LoungeGallery({
    */
   const [itemBuckets, setItemBuckets] = useState<number[]>([]);
   /**
-   * Whether the gallery offers My People at all.
-   *
-   * As soon as the guest has ANSWERED — not, as before, only once they have
-   * added somebody. Two reasons it moved: a guest who has chosen but added
-   * nobody had no way into the feature at all on a laptop once the card above
-   * the tabs went, and a request badge has to have somewhere to live, which a
-   * tab that only appears after you have added someone does not provide.
+   * Whether the gallery offers My People at all: whenever the feature is live
+   * for this Guest — answered or NOT. It used to wait for an answer, but the
+   * tab is now where the question is asked (its first visit opens the
+   * preference sheet), so it has to be there before one.
    *
    * `faceSearchOn` still gates it: the feed is an intersection of face-matched
    * sets, and without face search there is nothing to intersect.
+   *
+   * THE DEFAULT FOR A GUEST WHO NEVER ANSWERS — backend behaviour, nothing to
+   * build, and deliberately never shown anywhere in this UI: their name and
+   * face picture stay visible to other guests (the face through the v1.3 scan
+   * consent), and others can only send them a request — `allows()` is false
+   * for `choice: null` unless the Guest named that person themselves.
    */
-  const showPeopleTab =
-    faceSearchOn && friendFinder?.enabled === true && friendFinder.choice !== null;
+  const showPeopleTab = faceSearchOn && friendFinder?.enabled === true;
   /**
    * The bulk-download pre-flight + progress surface. Every bulk download in this
    * gallery goes through it — the modal is where the plan is shown, the tier is
@@ -454,6 +490,30 @@ export function LoungeGallery({
    */
   const groupView = effTab === "group" && !likedView;
   const loadingMoreRef = useRef(false);
+
+  /**
+   * "Download all", for whom and where.
+   *
+   * A Guest with the passcode, anywhere. A Guest WITHOUT it, on the two tabs
+   * that are theirs: My Photos (when they have a selfie and something in it)
+   * and My People (when the feed has photos). Never on All Photos or Liked
+   * without the passcode. `!likedView` is spelled out because Liked is a
+   * filter that leaves `tab` where it was — `effTab === "mine"` alone stays
+   * true under it.
+   *
+   * Nothing downstream assumes a Host: `currentScope()` scopes My Photos and My
+   * People to `{ mine: true }`, My People passes its own id list, the
+   * unwatermarked tier is the server's per-viewer `archive_access` (for
+   * `host_only` a non-host gets the watermarked copy, and the URL endpoint
+   * re-checks and intersects with the Guest's own matched set), and the file
+   * name comes from `nameForScope`. The ZIP is built in the browser, so there
+   * is no backend zip state to gate on. The studio preference gates it too.
+   */
+  const canDownloadAll =
+    canDownload &&
+    (unlocked ||
+      (!likedView && effTab === "mine" && hasSelfie && totalForView > 0) ||
+      (groupView && (groupFeed?.total ?? 0) > 0));
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
   // not stored server-side: the cached set (from a fresh scan or an earlier
@@ -798,9 +858,9 @@ export function LoungeGallery({
   // scroll so that's always true, but on mobile the data loads while Home is
   // still showing — without this the nudge would pop over the Home tab before
   // any gallery had rendered. Nor while the intake sheet is up: a Guest who
-  // is still being asked for a name or to open the Studio's link is not
-  // looking at photos yet, and two asks at once is one too many. The delay
-  // simply starts once the sheet closes.
+  // is still being asked for their name is not looking at photos yet, and two
+  // asks at once is one too many. The delay simply starts once the sheet
+  // closes.
   const galleryReady =
     !loading &&
     !loadError &&
@@ -1102,6 +1162,14 @@ export function LoungeGallery({
     },
     [singleDownload],
   );
+  /** `downloadOne` behind the required visit — what the grid tile, the
+   *  lightbox chip and every other single-photo entry point call. The
+   *  ungated one above is for code already past the gate (a one-photo
+   *  selection, inside `downloadSelected`). */
+  const requestDownloadOne = useCallback(
+    (item: GuestMediaItem) => withVisitGate(() => downloadOne(item)),
+    [withVisitGate, downloadOne],
+  );
 
   /** One media row as the download planner wants it. `folderName` comes from the
    *  media document (via the folder registry), never from whatever folder view
@@ -1120,7 +1188,13 @@ export function LoungeGallery({
     [folders],
   );
 
+  /** The select bar's Download, behind the required visit. Dismissing the
+   *  visit sheet leaves the selection exactly as it was. */
   function downloadSelected() {
+    withVisitGate(downloadSelectedNow);
+  }
+
+  function downloadSelectedNow() {
     // Select-all with pages still unfetched: walk the same scope the grid is
     // showing and subtract the exclusions, so photos infinite scroll never
     // reached are included. `hasMore` guarantees at least a full page is
@@ -1236,7 +1310,11 @@ export function LoungeGallery({
       const base = (event.event_name || "gallery").trim() || "gallery";
       const n = `(${count.toLocaleString("en-IN")} photo${count === 1 ? "" : "s"})`;
       if (likedView) return `${base} - liked ${n}`;
-      if (effTab === "group") return `${base} - my people ${n}`;
+      if (effTab === "group") {
+        // The face filter narrows what "all" means here, and the file should
+        // say so rather than look like the whole group.
+        return groupFeedRef.current?.filtered ? `${base} - my people (filtered) ${n}` : `${base} - my people ${n}`;
+      }
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
         return `${base} - ${folderName} ${n}`;
@@ -1250,7 +1328,7 @@ export function LoungeGallery({
   // to an unscoped { mine: false } whenever the folder pill was on All, so My
   // Photos + All quietly zipped the entire gallery; `currentScope` is now the
   // single source of truth for both this and the select-all download.
-  const downloadGalleryZip = useCallback(() => {
+  const downloadGalleryZipNow = useCallback(() => {
     const scope = currentScope();
     // My People passes its OWN id list into the same planner every other view
     // uses. `allIds` is the feed in order, so the ZIP holds exactly the photos
@@ -1261,6 +1339,11 @@ export function LoungeGallery({
     // id list is passed, and `currentScope`/`nameForScope` already carry the
     // tab itself.
   }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, groupView]);
+  /** Download all, behind the required visit (phone menu and laptop row). */
+  const downloadGalleryZip = useCallback(
+    () => withVisitGate(downloadGalleryZipNow),
+    [withVisitGate, downloadGalleryZipNow],
+  );
 
   // Studio-CTA engagement tracking. Fire-and-forget so it can never block the
   // link's navigation (both CTAs open an external page in a new tab).
@@ -1301,7 +1384,8 @@ export function LoungeGallery({
   /** The lounge's OWN modals and gates — what this screen showed before the
    *  friends feature existed. Kept separate from `overlayOpen` below so the
    *  friends surface can be gated on it without depending on itself. */
-  const loungeModalOpen = viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet;
+  const loungeModalOpen =
+    viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet || visitGateOpen;
   const overlayOpen = loungeModalOpen || friendsSheetOpen;
   /**
    * Everything that must finish before a friends sheet may open itself.
@@ -1576,9 +1660,9 @@ export function LoungeGallery({
               grid's controls. It is gone: it repeated what the My People tab
               says, and on the tab itself it appeared a second time above the
               photos. Everything it offered now lives on that tab — which is
-              always there once the guest has chosen, so nothing is lost. The
-              undecided guest is still asked by the consent sheet, which opens
-              on its own once per visit. */}
+              there whenever the feature is live, answered or not, so nothing
+              is lost. The undecided guest is asked the preference on their
+              first visit to that tab, and nowhere else. */}
 
           <StickyControlRow
             rowRef={controlRowRef}
@@ -1623,6 +1707,7 @@ export function LoungeGallery({
                 none of their copy is in the lounge's own bundle: the requests
                 banner directly under the tabs, and "Manage my people" beside
                 it. On a laptop there is room for them on one line. */}
+            {groupView && <div ref={setFaceFilterSlot} className="mb-4 empty:hidden" />}
             {groupView && (
               <div className="mb-5 flex flex-wrap items-center gap-3 empty:hidden">
                 <div ref={setRequestsBannerSlot} className="min-w-[260px] flex-1 empty:hidden" />
@@ -1681,7 +1766,7 @@ export function LoungeGallery({
                     onToggleSelect={toggleSel}
                     onToggleLike={toggleLike}
                     onEnterSelectWith={canSelect ? enterSelectWith : undefined}
-                    onDownload={canDownload ? downloadOne : undefined}
+                    onDownload={canDownload ? requestDownloadOne : undefined}
                   />
                 ) : (
                 <GalleryGrid
@@ -1694,7 +1779,7 @@ export function LoungeGallery({
                   onToggleSelect={toggleSel}
                   onToggleLike={toggleLike}
                   onEnterSelectWith={canSelect ? enterSelectWith : undefined}
-                  onDownload={canDownload ? downloadOne : undefined}
+                  onDownload={canDownload ? requestDownloadOne : undefined}
                 />
                 )}
                 {loadingMore && (
@@ -1809,7 +1894,7 @@ export function LoungeGallery({
             onToggleSelect={toggleSel}
             onToggleLike={toggleLike}
             onEnterSelectWith={canSelect ? enterSelectWith : undefined}
-            onDownload={canDownload ? downloadOne : undefined}
+            onDownload={canDownload ? requestDownloadOne : undefined}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             canSelect={canSelect}
@@ -1835,9 +1920,12 @@ export function LoungeGallery({
             groupLabels={groupFeed?.labels ?? []}
             manageRef={setManageSlot}
             requestsBannerRef={setRequestsBannerSlot}
+            faceFilterRef={setFaceFilterSlot}
             groupEmptyRef={setGroupEmptySlot}
             groupFailed={groupFailed}
-            pendingCount={friendFinder?.pending_count ?? 0}
+            // Only while the tab is offered: the studio switching the feature
+            // off mid-visit must take the menu badge with it.
+            pendingCount={showPeopleTab ? (friendFinder?.pending_count ?? 0) : 0}
           />
         )}
 
@@ -1904,7 +1992,7 @@ export function LoungeGallery({
           onToggleSelect={toggleSel}
           onToast={setToast}
           canDownload={canDownload}
-          onDownload={downloadOne}
+          onDownload={requestDownloadOne}
         />
       )}
 
@@ -1913,10 +2001,21 @@ export function LoungeGallery({
         <IntakeSheet
           showName={needsName}
           teams={needsTeam ? intakeTeams : []}
-          gate={needsSocialVisit ? gate : null}
-          visited={visitedPlatform !== null}
-          onVisit={onVisit}
           onSubmit={submitIntake}
+        />
+      )}
+
+      {/* The Studio's required visit, at the first download — dismissible,
+          and stacked over the PhotoViewer so a download started there is
+          answered without leaving the photo. */}
+      {visitGateOpen && gate && (
+        <VisitGateSheet
+          gate={gate}
+          visited={visitedPlatform !== null}
+          busy={visitSaving}
+          onVisit={() => onVisit(gate.platform)}
+          onContinue={() => void continueVisitGate()}
+          onClose={dismissVisitGate}
         />
       )}
 
@@ -2010,14 +2109,13 @@ export function LoungeGallery({
           slot={friendsSlot}
           manageSlot={manageSlot}
           requestsBannerSlot={requestsBannerSlot}
+          faceFilterSlot={faceFilterSlot}
           groupEmptySlot={groupEmptySlot}
           groupTabActive={groupView}
           onGroupFeedChange={setGroupFeed}
           onGroupStateChange={setGroupState}
           onShowGroup={() => (isDesktop ? desktopSetTab("group") : gotoGallery("group"))}
           blocked={friendsBlocked}
-          scanJustCompleted={scanJustCompleted}
-          onScanTriggerConsumed={onScanTriggerConsumed}
           desktop={isDesktop}
           onOpenChange={setFriendsSheetOpen}
           onBlockChange={onFriendFinderChange}
@@ -2045,9 +2143,11 @@ type Theme = ReturnType<typeof useEventTheme>["theme"];
 
 /** Tracks the `lg` (1024px) breakpoint so exactly one shell mounts at a time.
  *  Reads synchronously on first render (this tree is client-only, mounted
- *  behind a loading gate) so there's no wrong-shell flash. */
+ *  behind a loading gate) so there's no wrong-shell flash. Exported for the
+ *  welcome screen, whose event title switches to the desktop size at the same
+ *  breakpoint the lounge's shells do. */
 const LG_QUERY = "(min-width: 1024px)";
-function useIsDesktop(): boolean {
+export function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(LG_QUERY).matches : false,
   );
@@ -2102,11 +2202,14 @@ function MobileGalleryView(props: {
    *  the pending-requests banner, and the empty state. */
   manageRef: (el: HTMLDivElement | null) => void;
   requestsBannerRef: (el: HTMLDivElement | null) => void;
+  /** The face filter bar's slot, above the requests banner. */
+  faceFilterRef: (el: HTMLDivElement | null) => void;
   groupEmptyRef: (el: HTMLDivElement | null) => void;
   /** The friends directory failed to load, so My People has no feed and never
    *  will without a retry — distinct from a group that is simply empty. */
   groupFailed: boolean;
-  /** People waiting on this guest — the red dot on the My People tab. */
+  /** People waiting on this guest. On a phone the badge sits on the overflow
+   *  menu button (and on "Manage my people" inside it), not on the tab. */
   pendingCount: number;
   onOpenPrivate: () => void;
   folders: CustomFolder[];
@@ -2171,7 +2274,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, manageRef, requestsBannerRef, groupEmptyRef, groupFailed } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, manageRef, requestsBannerRef, faceFilterRef, groupEmptyRef, groupFailed } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
@@ -2215,14 +2318,9 @@ function MobileGalleryView(props: {
               Liked
             </span>
           ) : (
-            <UnlockAwareSwitcher
-              t={t}
-              tab={tab}
-              setTab={setTab}
-              showMine={faceSearchOn}
-              showGroup={showGroup}
-              pendingCount={props.pendingCount}
-            />
+            // No request badge on the tab on a phone: it lives on the menu
+            // button beside it, which is where "Manage my people" is.
+            <UnlockAwareSwitcher t={t} tab={tab} setTab={setTab} showMine={faceSearchOn} showGroup={showGroup} />
           )}
           <ActionsCluster
             t={t}
@@ -2239,6 +2337,7 @@ function MobileGalleryView(props: {
             onOpenPrivate={onOpenPrivate}
             overflow
             extraSlotRef={showGroup ? manageRef : undefined}
+            menuBadgeCount={showGroup ? props.pendingCount : 0}
           />
         </div>
 
@@ -2272,6 +2371,7 @@ function MobileGalleryView(props: {
       >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
+          {groupView && <div ref={faceFilterRef} className="mb-4 empty:hidden" />}
           {groupView && <div ref={requestsBannerRef} className="mb-4 empty:hidden" />}
           {loading ? (
             <LoadingSkeleton />
@@ -2359,6 +2459,12 @@ function MobileGalleryView(props: {
 /**
  * My People's grid: the same `GalleryGrid`, once per bucket, with a divider
  * between the runs.
+ *
+ * The feed is ONE ranked list now (most liked, then most of the Guest's people
+ * — see lib/friend-finder/feed.ts), so it always arrives as a single bucket
+ * with no label and this renders one run and no divider. The run machinery is
+ * kept rather than torn out so the grid needs no second code path should the
+ * feed ever be sectioned again.
  *
  * One flat `items` array still backs the whole thing — the lightbox, the
  * selection and the downloads all read it unchanged — and each run simply

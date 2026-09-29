@@ -5,22 +5,33 @@ import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
 import { HeroSubtitle } from "./lounge/HeroSubtitle";
-import { formatDate } from "./LoungeGallery";
+import { eventTitleStyle } from "./lounge/eventTitleStyle";
+import { formatDate, useIsDesktop } from "./LoungeGallery";
 import { IconImages } from "@/components/ui/icons";
 
 /**
  * Pre-auth welcome — the first thing an unauthenticated guest sees: the
- * event's cover, name, studio, date, a teaser strip from the (public-folder-
- * scoped) sample photos, and a single CTA into sign-in. Skipped entirely for a
- * guest with a valid stored token (see `EventFlow`) — this is only ever the
- * guest's first screen, never shown again once they've signed in once.
+ * event's cover, name, studio and date, a teaser strip, and a single CTA into
+ * sign-in. Skipped entirely for a guest with a valid stored token (see
+ * `EventFlow`) — this is only ever the guest's first screen, never shown again
+ * once they've signed in once.
  *
- * Both the CTA and the line above it follow the event's face search switch: a
- * gallery with it off never asks for a selfie, so promising one here would be
- * the first thing it got wrong.
+ * THE STRIP may show private photos. `sample_media_urls` comes from the
+ * landing endpoint's teaser copies (public-folder photos first, then the most
+ * liked, then the most recent): separate ~320px WebPs under unguessable keys,
+ * never the gallery's own URLs, so nothing here can be turned back into a
+ * full-size photo. A brand-new gallery may have none yet (they are built after
+ * the first visit), and then the strip is simply absent.
+ *
+ * The COVER is the flexible element: it takes whatever height the bottom block
+ * (count, strip, CTA) leaves, so there is no dead band between them, and on a
+ * very short viewport (a landscape phone) its minimum holds and the page
+ * scrolls. The CTA follows the event's face search switch: a gallery with it
+ * off never asks for a selfie.
  */
 export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
   const { theme: t, event } = useEventTheme();
+  const isDesktop = useIsDesktop();
   const eventName = event.event_name || "this event";
   const branding = event.include_company_branding === true;
   const date = formatDate(event.event_date);
@@ -40,7 +51,7 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
       <AmbientBackdrop a={t.cover[0]} b={t.brand} />
 
       {/* cover */}
-      <div className="relative h-[42vh] min-h-[260px] shrink-0 overflow-hidden">
+      <div className="relative min-h-[300px] flex-1 overflow-hidden">
         <div className={`absolute inset-0 ${event.background_image ? "hero-kenburns" : ""}`} style={cover} />
         <div className="absolute inset-0" style={{ background: t.heroScrim }} />
         <div className="fx-blur-in absolute inset-x-0 bottom-0 p-7">
@@ -49,14 +60,18 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
               Gallery by {event.company_name}
             </span>
           )}
-          <h1 className="mt-1.5 text-[32px] font-extrabold leading-[1.1] tracking-[-0.02em] text-white">
+          {/* The lounge covers' own title treatment, from the one helper all
+              three share, so this screen and the gallery it leads into can no
+              longer drift apart. */}
+          <h1 className="mt-1.5 text-white" style={eventTitleStyle(isDesktop ? "desktop" : "mobile")}>
             {eventName}
           </h1>
           <HeroSubtitle event={event} date={date} size="mobile" />
         </div>
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[460px] flex-1 flex-col px-7 pb-8 pt-6">
+      {/* Sized to its content; the cover above absorbs the rest. */}
+      <div className="relative mx-auto flex w-full max-w-[460px] shrink-0 flex-col px-7 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6">
         {photoCount > 0 && (
           <div className="fx-rise text-center text-[14.5px] font-bold" style={{ color: t.text }}>
             {photoCount.toLocaleString("en-IN")} photo{photoCount === 1 ? "" : "s"} waiting for you
@@ -68,26 +83,23 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
             {sampleUrls.map((url, i) => (
               <div key={i} className="h-24 w-24 flex-none overflow-hidden rounded-xl" style={{ background: t.sunken }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" className="h-full w-full object-cover" />
+                <img
+                  src={url}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                  className="h-full w-full select-none object-cover [-webkit-touch-callout:none]"
+                />
               </div>
             ))}
           </div>
         )}
 
-        <div className="flex-1" />
-
-        <p className="mb-4 text-center text-[12.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
-          {faceSearchOn
-            ? // "can take" rather than "and take": the selfie is optional now,
-              // and this sentence is the first place that has to say so.
-              "You’ll sign in with WhatsApp, then you can take a quick selfie to find your photos."
-            : "You’ll sign in with WhatsApp to open the gallery."}
-        </p>
-
         <button
           type="button"
           onClick={onContinue}
-          className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+          className={`cta-shine ${photoCount > 0 || sampleUrls.length > 0 ? "mt-6" : ""} flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]`}
           style={{ background: t.brand, color: t.onBrand, boxShadow: t.shadowSm }}
         >
           <IconImages size={18} /> {faceSearchOn ? "Find my photos" : "View photos"}

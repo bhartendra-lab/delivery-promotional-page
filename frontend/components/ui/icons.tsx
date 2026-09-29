@@ -44,6 +44,7 @@ import {
   FloppyDisk,
   Folder,
   FolderPlus,
+  Funnel,
   Gear,
   Globe,
   Heart,
@@ -200,6 +201,7 @@ export const IconCaretUpDown = wrapPhosphor(CaretUpDown, 14, "IconCaretUpDown");
 export const IconShare = wrapPhosphor(Export, 15, "IconShare");
 export const IconRestore = wrapPhosphor(ArrowCounterClockwise, 15, "IconRestore");
 export const IconFolderPlus = wrapPhosphor(FolderPlus, 16, "IconFolderPlus");
+export const IconFunnel = wrapPhosphor(Funnel, 16, "IconFunnel");
 export const IconImages = wrapPhosphor(Images, 16, "IconImages");
 export const IconDragHandle = wrapPhosphor(DotsSixVertical, 12, "IconDragHandle");
 export const IconPlus = wrapPhosphor(Plus, 15, "IconPlus");

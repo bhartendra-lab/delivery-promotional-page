@@ -3,20 +3,24 @@
 /**
  * Everything a guest can change about their own participation.
  *
- * Two things now: who may add them, and what other guests see of them. It
- * opens from the gear inside Manage my people rather than from the gallery, so
- * the settings sit beside the list they act on.
+ * Two things now: who may search common photos with them, and the picture
+ * other guests see. It opens from the gear inside Manage my people rather than
+ * from the gallery, so the settings sit beside the list they act on.
  *
- * WHERE "STOP SHARING" WENT. There is no withdrawal button any more. A guest
- * who wants out chooses "Only people I choose" and removes everyone from their
- * list — which is on the screen this sheet opens over, and which the consent
- * notice names as the way to stop. The old Stop sharing wrote a `stopped_at`
- * stamp that every read then had to special-case, and the one thing it bought
- * over the two-step path was a confirm dialog.
+ * The question is titled exactly as the preference sheet asks it, with the
+ * same bare options, so a Guest recognises the answer they gave.
+ *
+ * WHERE "STOP SHARING" WENT. There is no withdrawal button, and no longer a
+ * line spelling out the two-step path either (the ff-v1.2 notice says only
+ * "You can change this anytime"). A guest who wants out chooses "Only people I
+ * choose" and removes everyone from their list, which is on the screen this
+ * sheet opens over. The old Stop sharing wrote a `stopped_at` stamp that every
+ * read then had to special-case, and the one thing it bought over the two-step
+ * path was a confirm dialog.
  */
 
 import type { ClientTheme } from "@/lib/client-theme";
-import { FRIENDS_CHOICES } from "@/lib/friend-finder/copy";
+import { FRIENDS_CHOICES, FRIENDS_SHEET_COPY } from "@/lib/friend-finder/copy";
 import type { FriendChoice, FriendFinderBlock } from "@/lib/friend-finder/types";
 import { IconCheck } from "@/components/ui/icons";
 import { SheetShell } from "./SheetShell";
@@ -39,9 +43,9 @@ export function FriendsSettingsSheet({
   onChangePhoto: () => void;
 }) {
   return (
-    <SheetShell t={t} open={open} onClose={onClose} title="Find my people settings">
-      <Section t={t} title="Who can add you">
-        <div className="flex flex-col gap-2" role="radiogroup" aria-label="Who can add you">
+    <SheetShell t={t} open={open} onClose={onClose} title={FRIENDS_SHEET_COPY.title}>
+      <section className="mb-5 mt-1">
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label={FRIENDS_SHEET_COPY.title}>
           {FRIENDS_CHOICES.map((option) => {
             const on = block.choice === option.value;
             return (
@@ -52,14 +56,14 @@ export function FriendsSettingsSheet({
                 aria-checked={on}
                 disabled={busy}
                 onClick={() => onChoose(option.value)}
-                className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-2xl p-3 text-left disabled:opacity-60"
+                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-2xl p-3 text-left disabled:opacity-60"
                 style={{
                   background: on ? t.accentWash : t.sunken,
                   border: `1px solid ${on ? t.brand : t.border}`,
                 }}
               >
                 <span
-                  className="mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
+                  className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full"
                   style={{
                     background: on ? t.brand : "transparent",
                     border: on ? "none" : `2px solid ${t.border}`,
@@ -69,32 +73,21 @@ export function FriendsSettingsSheet({
                 >
                   {on && <IconCheck size={11} weight="bold" />}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13.5px] font-extrabold" style={{ color: t.text }}>
-                    {option.label}
-                  </span>
-                  <span className="mt-0.5 block text-[12px] font-semibold" style={{ color: t.muted }}>
-                    {option.subtitle}
-                  </span>
+                <span className="min-w-0 flex-1 text-[13.5px] font-extrabold" style={{ color: t.text }}>
+                  {option.label}
                 </span>
               </button>
             );
           })}
         </div>
-        {/* The withdrawal path, said plainly where the choice is made. It is
-            the only one there is, so it cannot be left to be inferred. */}
-        <p className="mt-2.5 text-[11.5px] font-semibold leading-[1.5]" style={{ color: t.faint }}>
-          To stop sharing altogether, choose &ldquo;Only people I choose&rdquo; and remove everyone from
-          your list.
-        </p>
-      </Section>
+      </section>
 
-      <Section t={t} title="My photo">
+      <Section t={t} title="My display photo">
         {/* The NAME is not editable here. A Guest has one name — the one they
-            gave when they signed in — and it is what the Studio's guest list,
-            the gallery and this directory all show. A second name settable
-            only here would mean the Studio knows them as one person while the
-            wedding sees another. Correcting it is done at sign-in. */}
+            gave on the lounge's intake sheet, or their Google name — and it is
+            what the Studio's guest list, the gallery and this directory all
+            show. A second name settable only here would mean the Studio knows
+            them as one person while the wedding sees another. */}
         <button
           type="button"
           onClick={onChangePhoto}

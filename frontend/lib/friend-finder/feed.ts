@@ -1,108 +1,104 @@
 /**
  * My People's feed: which photos it shows, and in what order.
  *
- * The rule, in one sentence: every photo in the guest's OWN set that contains
- * at least one connected group member, biggest group photos first.
+ * WHICH: every photo in the guest's OWN set that contains at least one of the
+ * people being looked at — every connected member, or only the faces picked in
+ * the filter bar. Nothing else, ever. A photo the guest is not in is NEVER
+ * shown here, not even to a guest holding the passcode who can see it under
+ * All Photos: the passcode widens All Photos only, never what can be searched
+ * together with other people. That is guaranteed server-side, not here — each
+ * person's `shared` is `$setIntersection` of the requester's own matched set
+ * with theirs, and `media_ids` is built only from those — and this module has
+ * no notion of access at all, so there is nothing for it to widen.
  *
- * All of it is computed on the client from one payload. The directory sends
- * `media_ids` once and each person's `shared` as indices into it, so the
- * intersections the server already did are reused here rather than asked for
- * again — and the server never has to know which tab is open.
+ * ORDER, one list with no dividers:
+ *   1. most liked first (`like_counts`, every Guest's likes at the event);
+ *   2. then more of the looked-at people in the photo;
+ *   3. then fewer;
+ *   4. then the gallery's own order, which is `media_ids` order — the server
+ *      sorts it by `captured_at` — so the list, and paging over it, is stable.
+ * The "With 2 of your people" dividers went with this: they only read right
+ * when the list is grouped by people count, and likes now outrank that.
+ *
+ * All of it is computed on the client from one payload the guest already
+ * holds. Filtering is a subset of that same data run back through this module,
+ * so it costs no requests and cannot reveal anything new. Do not add an
+ * endpoint for it.
  */
 
 import type { GuestMediaItem } from "../types";
 import type { FriendPerson } from "./types";
 
-/** Photos per request while paging a bucket. Matches the gallery's own page
+/** Photos per request while paging the feed. Matches the gallery's own page
  *  size, so a My People page costs what a My Photos page costs. */
 export const FEED_PAGE = 60;
 
-/** One run of photos that `n` of the guest's group members appear in. */
-export type FeedBucket = {
-  /** How many connected members are in every photo of this bucket. */
-  count: number;
-  /** Media ids, in the directory's own order (which is the gallery's order). */
-  ids: string[];
-};
-
 /**
- * Bucket the feed by how many group members each photo holds.
+ * The feed's media ids, in order.
  *
- * Only `in_group` people count. That matters: `media_ids` also carries photos
- * shared with people who merely ALLOW this guest (`open`), because the server
- * computes an intersection for anyone whose permission reaches them. Those
- * photos score zero here and are left out of the feed entirely, which is the
- * difference between "photos with my friends" and "photos with people who
- * would let me see them".
+ * Only the `members` passed in count. That matters: `media_ids` also carries
+ * photos shared with people who merely ALLOW this guest (`open`), because the
+ * server computes an intersection for anyone whose permission reaches them.
+ * Those photos score zero here and are left out entirely, which is the
+ * difference between "photos with my people" and "photos with people who would
+ * let me see them". The caller passes the connected members, or the filtered
+ * subset of them.
  */
-export function buildFeedBuckets({
+export function rankFeedIds({
   mediaIds,
+  likeCounts,
   members,
 }: {
   mediaIds: string[];
+  /** Parallel to `mediaIds`. Absent or short reads as zero. */
+  likeCounts?: number[];
   members: FriendPerson[];
-}): FeedBucket[] {
+}): string[] {
   const perPhoto = new Map<number, number>();
   for (const member of members) {
     for (const index of member.shared) {
       // A malformed index cannot be allowed to invent a photo.
-      if (index < 0 || index >= mediaIds.length) continue;
+      if (!Number.isInteger(index) || index < 0 || index >= mediaIds.length) continue;
       perPhoto.set(index, (perPhoto.get(index) ?? 0) + 1);
     }
   }
-
-  const byCount = new Map<number, string[]>();
-  // Walked in `mediaIds` order rather than by iterating the Map, so a bucket's
-  // ids come out in the gallery's own order and two runs produce the same
-  // buckets — which is what makes `skip`/`limit` paging over them stable.
-  for (let index = 0; index < mediaIds.length; index++) {
-    const count = perPhoto.get(index) ?? 0;
-    if (count < 1) continue;
-    const bucket = byCount.get(count);
-    if (bucket) bucket.push(mediaIds[index]);
-    else byCount.set(count, [mediaIds[index]]);
-  }
-
-  return [...byCount.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([count, ids]) => ({ count, ids }));
+  const likesAt = (index: number) => Math.max(0, Number(likeCounts?.[index]) || 0);
+  return [...perPhoto.keys()]
+    .sort(
+      (a, b) =>
+        likesAt(b) - likesAt(a) ||
+        (perPhoto.get(b) ?? 0) - (perPhoto.get(a) ?? 0) ||
+        // Gallery order: the server hands `media_ids` over sorted by it.
+        a - b,
+    )
+    .map((index) => mediaIds[index]);
 }
 
 /**
- * The divider above a bucket, or "" when there should not be one.
+ * Put one page back into the order its ids were asked for.
  *
- * With a single connected member every photo in the feed has exactly one of
- * them in it, so there is only ever one bucket and a divider would be labelling
- * the whole list. Hence the two-member floor.
+ * The feed pages by slicing its ranked id list and asking `get-media` for each
+ * slice, but `get-media` answers a slice in ITS sort order (capture time), not
+ * the order the ids were sent in. Without this the likes ordering would be
+ * scrambled within every page of 60. Anything the server returned that was not
+ * asked for is dropped rather than trusted.
  */
-export function bucketLabel(count: number, memberCount: number): string {
-  if (memberCount < 2) return "";
-  if (count >= memberCount) return "With everyone";
-  if (count === 1) return "With one of your people";
-  return `With ${count} of your people`;
-}
-
-/**
- * "Waiting for Priya and Rahul to say yes."
- *
- * Listed rather than counted: a guest who has asked two people wants to know
- * WHICH two are yet to answer, and at three or more the names stop being the
- * useful part.
- */
-export function waitingSentence(names: string[]): string {
-  if (names.length === 0) return "Waiting for your people to say yes.";
-  if (names.length === 1) return `Waiting for ${names[0]} to say yes.`;
-  if (names.length === 2) return `Waiting for ${names[0]} and ${names[1]} to say yes.`;
-  return `Waiting for ${names[0]}, ${names[1]} and ${names.length - 2} more to say yes.`;
+export function orderPageLike(slice: string[], items: GuestMediaItem[]): GuestMediaItem[] {
+  const position = new Map(slice.map((id, i) => [id, i]));
+  return items
+    .filter((item) => position.has(item.media_id))
+    .sort((a, b) => (position.get(a.media_id) ?? 0) - (position.get(b.media_id) ?? 0));
 }
 
 /* ── the pager the gallery drives ────────────────────────────────────────── */
 
-/** Where the feed has got to: which bucket, and how far into it. */
+/** How far into the feed the gallery has got. `bucket` is always 0 now — the
+ *  feed is one list — and stays in the shape so the gallery's paging needs no
+ *  second kind of cursor. */
 export type GroupCursor = { bucket: number; skip: number };
 
-/** One page of the feed, tagged with the bucket it came from so the gallery
- *  can put a divider between runs without knowing how bucketing works. */
+/** One page of the feed. `bucket` is always 0 (see GroupCursor); the gallery
+ *  still tags items with it, which now yields a single run with no divider. */
 export type GroupPage = {
   items: GuestMediaItem[];
   bucket: number;
@@ -116,101 +112,113 @@ export type GroupPage = {
  *
  * This is the seam. `LoungeGallery` imports only the TYPE (erased at compile
  * time), receives an instance from the lazily-loaded friends surface, and
- * pages it with the same machinery it uses for every other tab. The bucketing,
- * the labels and the requests all live on this side of the line.
+ * pages it with the same machinery it uses for every other tab. The ranking,
+ * the filter and the requests all live on this side of the line.
  */
 export type GroupFeed = {
   /**
    * Identity of the CONTENTS, not the object.
    *
    * The gallery keys its loader on this rather than on the feed itself, so an
-   * optimistic row change in the people screen that resolves to the same group
-   * does not reload the grid under the guest's finger.
+   * optimistic row change in the people screen that resolves to the same feed
+   * does not reload the grid under the guest's finger. It changes when the
+   * people looked at change (the filter included) or the like counts do.
    */
   key: string;
-  /** Photos in the whole feed, across every bucket. Known exactly up front,
-   *  because it is an intersection the client already holds. */
+  /** Photos in the whole feed. Known exactly up front, because it is an
+   *  intersection the client already holds — and it follows the filter, so
+   *  "Download all (N)" and Select all describe what is on screen. */
   total: number;
-  /** Every media id in feed order — what a download of "my group" covers. */
+  /** Every media id in feed order — what a download of "my people" covers. */
   allIds: string[];
   memberCount: number;
-  /** Divider text per bucket index; "" for a feed that should have none. */
+  /** Always empty now: one list, no dividers. Kept so the gallery's grid needs
+   *  no second code path. */
   labels: string[];
+  /** The face filter is narrowing this feed. Drives the download's name. */
+  filtered: boolean;
   loadPage: (cursor: GroupCursor | null) => Promise<GroupPage>;
 };
 
+/** FNV-1a over the like counts: short, cheap, and different when any count
+ *  moves, which is all a cache key needs. */
+function likesSignature(likeCounts: number[] | undefined): string {
+  if (!likeCounts?.length) return "0";
+  let hash = 0x811c9dc5;
+  for (const n of likeCounts) {
+    hash ^= Math.max(0, Number(n) || 0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${likeCounts.length}:${hash.toString(36)}`;
+}
+
 /** Signature of the inputs that actually change the feed. See `GroupFeed.key`. */
-export function feedKey(mediaIds: string[], members: FriendPerson[]): string {
+export function feedKey(
+  mediaIds: string[],
+  members: FriendPerson[],
+  likeCounts?: number[],
+  filtered = false,
+): string {
   const who = members
     .map((m) => `${m.guest_id}#${m.shared.length}`)
     .sort()
     .join(",");
-  return `${mediaIds.length}|${who}`;
+  return `${mediaIds.length}|${who}|${likesSignature(likeCounts)}|${filtered ? "f" : "a"}`;
 }
 
 /**
  * Build the pager.
  *
  * `fetchPage` is injected rather than imported so this module stays free of the
- * API layer and can be exercised directly — the paging rules below (a short
- * page ends a bucket, an empty bucket is skipped, the cursor never stalls) are
- * the kind of thing that is much easier to get wrong than to test.
+ * API layer and can be exercised directly. It is handed one slice of ids and
+ * must return whichever of them still exist; the paging rules below (a slice
+ * that comes back short still advances by its full length, an all-deleted slice
+ * is skipped rather than ending the feed, every page is put back in feed order)
+ * are the kind of thing much easier to get wrong than to test.
  */
 export function buildGroupFeed({
   mediaIds,
+  likeCounts,
   members,
+  filtered = false,
   fetchPage,
 }: {
   mediaIds: string[];
+  likeCounts?: number[];
+  /** The people being looked at: every connected member, or the filter's pick. */
   members: FriendPerson[];
-  /** Ask for one page of a bucket. The caller binds this to `get-media`. */
-  fetchPage: (ids: string[], skip: number, limit: number) => Promise<GuestMediaItem[]>;
+  filtered?: boolean;
+  /** Ask for the photos behind one slice of ids. Bound to `get-media`. */
+  fetchPage: (ids: string[]) => Promise<GuestMediaItem[]>;
 }): GroupFeed {
-  const buckets = buildFeedBuckets({ mediaIds, members });
-  const memberCount = members.length;
+  const ordered = rankFeedIds({ mediaIds, likeCounts, members });
 
   const loadPage = async (cursor: GroupCursor | null): Promise<GroupPage> => {
-    let bucket = cursor?.bucket ?? 0;
     let skip = cursor?.skip ?? 0;
-
-    while (bucket < buckets.length) {
-      const ids = buckets[bucket].ids;
-      if (skip >= ids.length) {
-        bucket += 1;
-        skip = 0;
-        continue;
-      }
-      const items = await fetchPage(ids, skip, FEED_PAGE);
-      // A short page means this bucket is done — the same rule the gallery's
-      // own download walk uses, and for the same reason: `total` can be capped
-      // server-side but a short page never lies.
-      const bucketDone = items.length < FEED_PAGE;
-      if (items.length === 0) {
-        // Every id in this bucket has since been deleted, or the guest can no
-        // longer see them. Move on rather than reporting the feed finished.
-        bucket += 1;
-        skip = 0;
-        continue;
-      }
+    while (skip < ordered.length) {
+      const slice = ordered.slice(skip, skip + FEED_PAGE);
+      const items = orderPageLike(slice, await fetchPage(slice));
+      // Advance by the SLICE, not by what came back: a photo deleted since the
+      // guest's last scan simply returns nothing, and the next slice starts
+      // where this one ended rather than re-asking for it forever.
+      skip += slice.length;
+      if (items.length === 0) continue;
       return {
         items,
-        bucket,
-        nextCursor: bucketDone
-          ? bucket + 1 < buckets.length
-            ? { bucket: bucket + 1, skip: 0 }
-            : null
-          : { bucket, skip: skip + items.length },
+        bucket: 0,
+        nextCursor: skip < ordered.length ? { bucket: 0, skip } : null,
       };
     }
-    return { items: [], bucket: Math.max(0, buckets.length - 1), nextCursor: null };
+    return { items: [], bucket: 0, nextCursor: null };
   };
 
   return {
-    key: feedKey(mediaIds, members),
-    total: buckets.reduce((sum, b) => sum + b.ids.length, 0),
-    allIds: buckets.flatMap((b) => b.ids),
-    memberCount,
-    labels: buckets.map((b) => bucketLabel(b.count, memberCount)),
+    key: feedKey(mediaIds, members, likeCounts, filtered),
+    total: ordered.length,
+    allIds: ordered,
+    memberCount: members.length,
+    labels: [],
+    filtered,
     loadPage,
   };
 }

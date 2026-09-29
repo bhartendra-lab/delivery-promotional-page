@@ -752,8 +752,10 @@ export type UpdateBookingInput = {
   include_company_branding?: boolean;
   /**
    * Guest teams / sub-types. Persisted onto the delivery-landing-page (the API
-   * name is misleading). The backend ignores empty arrays, so this can add or
-   * change teams but cannot clear them to `[]`.
+   * name is misleading). `[]` clears them — it used to be silently dropped,
+   * which is why deleting the last team never stuck. The backend trims,
+   * de-duplicates case-insensitively and caps the list (6 teams, 40 characters
+   * each), so send what the Studio typed.
    */
   guest_types?: string[];
   /**
@@ -1584,14 +1586,16 @@ export function resendGuestOtp(input: { uniqueIdentifier: string; phone: string 
 
 /**
  * POST /auth/verify-otp — on success returns a guest JWT identical in shape to
- * the Google-SSO path. `name` is the one the guest typed on `PhoneStep`; the
- * backend persists it here, once the code proves they own the number.
+ * the Google-SSO path.
+ *
+ * No name is sent: the sign-in screen no longer asks for one. The lounge's
+ * intake sheet collects it (through `updateGuestSubType`) for any Guest whose
+ * name is missing or the "Guest" placeholder.
  */
 export function verifyGuestOtp(input: {
   uniqueIdentifier: string;
   phone: string;
   code: string;
-  name?: string;
 }) {
   return request<GuestOtpVerifyResponse>("/auth/verify-otp", {
     method: "POST",
@@ -1600,7 +1604,6 @@ export function verifyGuestOtp(input: {
       phone: input.phone,
       unique_identifier: input.uniqueIdentifier,
       code: input.code,
-      ...(input.name ? { name: input.name } : {}),
     }),
     auth: false,
   });

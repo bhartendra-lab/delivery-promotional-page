@@ -161,7 +161,7 @@ export default function SocialLinksPage() {
               <SocialChip platform={requiredSpec.key} size={24} />
               <p className="min-w-0 flex-1 basis-[220px] text-[13px] text-[var(--color-brand-ink)]">
                 <span className="font-semibold">Required visit: {requiredSpec.label}.</span> Guests open this once before
-                entering any gallery.
+                their first download in any gallery.
               </p>
               <button
                 type="button"

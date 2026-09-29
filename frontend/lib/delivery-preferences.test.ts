@@ -71,24 +71,31 @@ test("no surface calls a 4K file an original, or vice versa", () => {
   // The reason the label is tier-specific rather than a generic
   // "Full-resolution": a 4096px re-encode is not the studio's original file, and a
   // studio must not come away believing it has handed over one or the other.
+  const copyOf = (row: NonNullable<ReturnType<typeof archiveRow>>) =>
+    [row.label, row.description, ...row.options!.flatMap((o) => [o.label, o.note ?? ""])].join(" ");
   const cinema = archiveRow(prefs(), "4096")!;
-  const cinemaCopy = [cinema.label, cinema.description, ...cinema.options!.map((o) => o.description)].join(" ");
+  const cinemaCopy = copyOf(cinema);
   assert.ok(!/original/i.test(cinemaCopy), "4K copy must never say 'original'");
   assert.ok(/4K/.test(cinemaCopy));
 
   const original = archiveRow(prefs(), "original")!;
-  const originalCopy = [original.label, original.description, ...original.options!.map((o) => o.description)].join(" ");
+  const originalCopy = copyOf(original);
   assert.ok(!/4K|4096/.test(originalCopy), "original-tier copy must never say '4K'");
   assert.ok(/original camera files|Original file/.test(originalCopy));
 });
 
 test("the permissive option states the consequence bluntly, at both tiers", () => {
   // A studio must not enable this believing it is the same file at a larger
-  // size — these copies carry no watermark.
+  // size — these copies carry no watermark. It is the ONE option that keeps a
+  // line, shown under the control while it is selected.
   for (const tier of ["4096", "original"] as ArchiveTier[]) {
-    const allGuests = archiveRow(prefs(), tier)!.options!.find((o) => o.value === "all_guests")!;
-    assert.match(allGuests.description, /unwatermarked/);
-    assert.match(allGuests.description, /appear in/);
+    const row = archiveRow(prefs(), tier)!;
+    const allGuests = row.options!.find((o) => o.value === "all_guests")!;
+    assert.equal(allGuests.note, "These files have no watermark.");
+    for (const other of row.options!.filter((o) => o.value !== "all_guests")) {
+      assert.equal(other.note, undefined, `${other.value} is label-only`);
+    }
+    assert.match(row.description, /unwatermarked/);
   }
 });
 
@@ -105,8 +112,7 @@ test("an event that MIXES upload tiers names both, and calls the row by the gene
   // would tell the studio something false about half their photos.
   const row = archiveRow(prefs(), "original", "4096")!;
   assert.equal(row.label, "Full-resolution downloads");
-  const copy = [row.description, ...row.options!.map((o) => o.description)].join(" ");
-  assert.match(copy, /4K and original files/);
+  assert.match(row.description, /4K and original files/);
 });
 
 test("a mixed event still shows the row, and a HD-only one still hides it", () => {
@@ -208,12 +214,24 @@ test("the upload dialog's surface stays the smaller set", () => {
   assert.ok(!gallery.includes("require_social_visit"));
 });
 
-test("the required visit row names the Studio's platform", () => {
+test("the required visit row names the Studio's platform, and says when it is asked", () => {
   const row = accessRows(prefs(), { requiredVisitLabel: "WedMeGood" }).find(
     (f) => f.key === "require_social_visit",
   )!;
   assert.equal(row.label, "Ask Guests to open WedMeGood");
-  assert.match(row.description, /WedMeGood page/);
+  // At the first download now, never in front of the gallery.
+  assert.equal(row.description, "Once, before their first download.");
+  assert.match(row.consequence!, /download without opening it/);
+});
+
+test("downloads switched off hides the required visit row: it can never be asked", () => {
+  // The visit is asked at a Guest's first download, so with downloads off it
+  // never fires, and an off switch for it would govern nothing. Same pattern
+  // as the archive row.
+  const keysWith = (allow: boolean) =>
+    accessRows(prefs({ allow_download: allow }), { requiredVisitLabel: "Instagram" }).map((f) => f.key);
+  assert.ok(keysWith(true).includes("require_social_visit"));
+  assert.ok(!keysWith(false).includes("require_social_visit"));
 });
 
 test("no required link means no required visit row — not an off switch for nothing", () => {
@@ -335,4 +353,22 @@ test("an event created before the new preferences reads both as on", () => {
   const resolved = normalizeDeliveryPreferences({ allow_download: false, archive_download_access: "none" });
   assert.equal(resolved.require_social_visit, true);
   assert.equal(resolved.show_google_review, true);
+});
+
+/* ── The modal reads in five seconds ─────────────────────────────────────── */
+
+test("every row is a label plus at most one short hint, and no copy uses an em or en dash", () => {
+  const rows = resolveDeliveryPreferenceFields(
+    prefs({ allow_download: false, show_google_review: false, require_social_visit: false, face_search_enabled: false }),
+    { archiveTiers: ["original", "4096"], requiredVisitLabel: "Instagram", hasPublicFolderWithMedia: false },
+    "access",
+  ).concat(resolveDeliveryPreferenceFields(prefs(), { archiveTiers: ["4096"], requiredVisitLabel: "Instagram" }, "access"));
+  for (const row of rows) {
+    const words = row.description.trim() ? row.description.trim().split(/\s+/).length : 0;
+    assert.ok(words <= 10, `${row.key} hint is ${words} words: ${row.description}`);
+    const all = [row.label, row.description, row.consequence ?? "", row.warning ?? "", ...(row.options ?? []).flatMap((o) => [o.label, o.note ?? ""])];
+    for (const line of all) {
+      assert.ok(!line.includes("\u2014") && !line.includes("\u2013"), `${row.key}: ${line}`);
+    }
+  }
 });

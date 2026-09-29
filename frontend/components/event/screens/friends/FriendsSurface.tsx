@@ -22,7 +22,7 @@ import { getGuestMedia, GuestAuthError } from "@/lib/guest-api";
 import { getGuestToken, decodeGuestToken } from "@/lib/guest-auth";
 import type { ClientTheme } from "@/lib/client-theme";
 import { friendFinderAction } from "@/lib/friend-finder/api";
-import { buildGroupFeed, type GroupFeed } from "@/lib/friend-finder/feed";
+import { buildGroupFeed, rankFeedIds, type GroupFeed } from "@/lib/friend-finder/feed";
 import { ACTION_FAILED_TOAST } from "@/lib/friend-finder/copy";
 import {
   clearIntent,
@@ -37,7 +37,9 @@ import type {
   FriendFinderBlock,
   FriendPerson,
 } from "@/lib/friend-finder/types";
+import { SIGNAL } from "@/lib/client-theme";
 import { IconUsers } from "@/components/ui/icons";
+import { FaceFilterBar } from "./FaceFilterBar";
 import { FriendsCard, type FriendsCardState } from "./FriendsCard";
 import { FriendsSheet } from "./FriendsSheet";
 import { FriendsToast, type FriendsToastState } from "./FriendsToast";
@@ -58,14 +60,13 @@ export function FriendsSurface({
   slot,
   manageSlot,
   requestsBannerSlot,
+  faceFilterSlot,
   groupEmptySlot,
   groupTabActive,
   onGroupFeedChange,
   onGroupStateChange,
   onShowGroup,
   blocked,
-  scanJustCompleted,
-  onScanTriggerConsumed,
   onOpenChange,
   onBlockChange,
   onRescan,
@@ -93,6 +94,9 @@ export function FriendsSurface({
   /** Where the pending-requests banner renders: under the tabs, above the
    *  photos. Null unless the My People tab is showing with requests waiting. */
   requestsBannerSlot: HTMLElement | null;
+  /** Where the face filter bar renders: directly under the tabs row, above
+   *  the requests banner. Null unless the My People tab is showing. */
+  faceFilterSlot: HTMLElement | null;
   /** Where My People's empty state renders. Null unless that tab is showing. */
   groupEmptySlot: HTMLElement | null;
   /**
@@ -121,13 +125,11 @@ export function FriendsSurface({
   onShowGroup: () => void;
   /**
    * Another lounge modal or gate is open (or its pop-up is pending). No friends
-   * sheet may open over one, so an auto-trigger waits here rather than being
-   * dropped: when this goes false the effect re-runs and the queued sheet opens.
+   * sheet may open over one, so the tab's first-visit sheet and the approval
+   * link's intent wait here rather than being dropped: when this goes false
+   * the effect re-runs and the queued sheet opens.
    */
   blocked: boolean;
-  /** A scan finished during this visit — the `sheet_after_scan` trigger. */
-  scanJustCompleted: boolean;
-  onScanTriggerConsumed: () => void;
   /** Lets the lounge treat an open friends sheet as an overlay of its own. */
   onOpenChange: (open: boolean) => void;
   onBlockChange: (patch: Partial<FriendFinderBlock>) => void;
@@ -163,9 +165,23 @@ export function FriendsSurface({
   const [busy, setBusy] = useState(false);
   /** Which trigger opened the sheet — it travels with the consent row, because
    *  "they agreed" is a weaker record than "they agreed HERE". */
-  const [method, setMethod] = useState<FriendConsentMethod>("lounge_card");
-  /** One automatic sheet per lounge visit, whichever trigger fires first. */
-  const autoOpened = useRef(false);
+  const [method, setMethod] = useState<FriendConsentMethod>("people_tab");
+  /** Where Continue on the preference sheet leads: Manage my people, landing
+   *  on "Wants to add you" when the sheet stood in front of an approval link. */
+  const afterChoice = useRef<"people" | "requests">("people");
+  /** The tab's first-visit sheet opens once per lounge visit. Dismissing it
+   *  records nothing, and the tab's empty state is how it is reopened. */
+  const tabSheetShown = useRef(false);
+  /**
+   * The face filter's selection: guest ids of the connected members being
+   * looked at. Empty means everyone.
+   *
+   * Held here, where the feed is built, and at this level because this
+   * surface is mounted once for the whole lounge visit — so the selection
+   * survives switching tabs and back, and is dropped on reload. Never
+   * persisted, and never sent anywhere.
+   */
+  const [filterIds, setFilterIds] = useState<ReadonlySet<string>>(() => new Set());
 
   /**
    * The directory lives HERE, not inside the people screen.
@@ -249,21 +265,58 @@ export function FriendsSurface({
    * loader on that rather than on this object — so a rebuild that produces the
    * same group never reloads the grid under the guest's finger.
    */
+  /** The selection, minus anyone who has since left the group — a selected
+   *  member who is removed simply drops out, rather than pinning the feed to
+   *  someone the guest can no longer look at. */
+  const activeFilter = useMemo(() => {
+    const present = new Set(directory.members.map((m) => m.guest_id));
+    return new Set([...filterIds].filter((id) => present.has(id)));
+  }, [filterIds, directory.members]);
+  const lookedAt = useMemo(
+    () => (activeFilter.size > 0 ? directory.members.filter((m) => activeFilter.has(m.guest_id)) : directory.members),
+    [activeFilter, directory.members],
+  );
+
   const groupFeed = useMemo<GroupFeed | null>(() => {
     const payload = directory.payload;
     if (!payload) return null;
+    /* The face filter is a SUBSET of data already on this device, run back
+     * through the same builder: no endpoint, no request per tap, nothing the
+     * guest could not already see. Do not add a server call for it. */
     return buildGroupFeed({
       mediaIds: payload.media_ids,
-      members: directory.members,
-      // The gallery's own endpoint, scoped to one bucket's ids. My People is a
-      // subset of My Photos, so `mine` is true and the backend applies exactly
-      // the rules it always has.
-      fetchPage: async (ids, skip, limit) => {
-        const res = await getGuestMedia(uid, bookingId, { mine: true, skip, limit }, ids);
+      likeCounts: payload.like_counts,
+      members: lookedAt,
+      filtered: activeFilter.size > 0,
+      // The gallery's own endpoint, asked for one slice of the ranked ids.
+      // My People is a subset of My Photos, so `mine` is true and the backend
+      // applies exactly the rules it always has. `get-media` answers in its
+      // own order; the feed puts each page back in ranked order.
+      fetchPage: async (ids) => {
+        const res = await getGuestMedia(uid, bookingId, { mine: true, skip: 0, limit: ids.length }, ids);
         return res.media ?? [];
       },
     });
-  }, [directory.payload, directory.members, uid, bookingId]);
+  }, [directory.payload, lookedAt, activeFilter, uid, bookingId]);
+
+  /** Photos with ALL connected members, whatever the filter says — the bar
+   *  shows only while this is above zero. */
+  const unfilteredTotal = useMemo(
+    () =>
+      directory.payload
+        ? rankFeedIds({ mediaIds: directory.payload.media_ids, members: directory.members }).length
+        : 0,
+    [directory.payload, directory.members],
+  );
+  const toggleFilter = useCallback((guestId: string) => {
+    setFilterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(guestId)) next.delete(guestId);
+      else next.add(guestId);
+      return next;
+    });
+  }, []);
+  const clearFilter = useCallback(() => setFilterIds(new Set()), []);
 
   useEffect(() => {
     onGroupFeedChange(groupFeed);
@@ -308,6 +361,18 @@ export function FriendsSurface({
    * Cleared the moment the screen is SHOWN, not when it is read, so a guest who
    * is still working through a gate does not lose their place.
    */
+  const undecided = block.choice === null;
+
+  /** Ask the preference, then carry on to Manage my people — to its requests
+   *  section when that is what the guest came for. */
+  const askThenManage = useCallback(
+    (then: "people" | "requests", via: FriendConsentMethod = "people_tab") => {
+      afterChoice.current = then;
+      openSheet(via);
+    },
+    [openSheet],
+  );
+
   const intentHandled = useRef(false);
   useEffect(() => {
     if (intentHandled.current || blocked) return;
@@ -318,46 +383,43 @@ export function FriendsSurface({
       if (cancelled) return;
       intentHandled.current = true;
       clearIntent();
-      openPeople(true);
+      // An undecided guest answers the preference first — there is no answer
+      // to a request without it — and Continue then lands on the requests.
+      if (undecided) askThenManage("requests");
+      else openPeople(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [blocked, openPeople]);
+  }, [blocked, openPeople, undecided, askThenManage]);
 
-  /* ── the two automatic triggers ───────────────────────────────────────
-     Both are for a guest who has not answered the question yet. A guest who
-     chose (or who chose and then stopped) has answered it, and re-asking by
-     pop-up would be nagging — the card is how they change their mind. */
-  const undecided = block.choice === null;
-
+  /* ── the one automatic trigger: the My People tab's first visit ────────
+   *
+   * The preference is asked in exactly ONE place now. It used to open by
+   * itself after the selfie and again on a lounge visit; both are gone, and
+   * the lounge card sends an undecided guest to this tab rather than to the
+   * sheet. So: the first time an undecided guest with a selfie is LOOKING at
+   * My People, the sheet opens; Continue records the choice and opens Manage.
+   * Dismissing records nothing, and the tab's empty state reopens it.
+   *
+   * Without a selfie the tab shows the scan prompt instead, and the preference
+   * waits for the next visit after the selfie. A guest who followed an
+   * approval link is handled by the intent above, not here. */
   useEffect(() => {
-    if (!undecided) return;
-    // A guest who followed a "Review request" link is here to answer somebody,
-    // not to be asked a question of our own.
+    if (!groupTabActive || !undecided || !hasSelfie || blocked || tabSheetShown.current) return;
     if (readIntent()) return;
-    // Queued, not dropped: this effect re-runs when the gate in front of it
-    // closes, and the sheet the Guest was owed opens then.
-    if (blocked) return;
-    if (!scanJustCompleted && (!hasSelfie || autoOpened.current)) return;
-
     let cancelled = false;
     (async () => {
       // Deferred, house style — no synchronous setState in an effect body.
       await Promise.resolve();
       if (cancelled) return;
-      autoOpened.current = true;
-      if (scanJustCompleted) {
-        openSheet("sheet_after_scan");
-        onScanTriggerConsumed();
-      } else {
-        openSheet("sheet_lounge_visit");
-      }
+      tabSheetShown.current = true;
+      askThenManage("people");
     })();
     return () => {
       cancelled = true;
     };
-  }, [undecided, blocked, scanJustCompleted, hasSelfie, onScanTriggerConsumed, openSheet]);
+  }, [groupTabActive, undecided, hasSelfie, blocked, askThenManage]);
 
 
   /** Every message this layer raises. Plain text, or text with one action. */
@@ -367,17 +429,31 @@ export function FriendsSurface({
     [],
   );
 
-  /** Post a `choose` and fold the answer back into the session block. */
+  /** Post a `choose` and fold the answer back into the session block.
+   *  `via` names where the answer was given when that is not the sheet's own
+   *  `method` — the settings sheet passes "settings" here directly, because a
+   *  `setMethod` in the same tick would not reach this closure and the row
+   *  would record wherever the sheet was last opened from. */
   const sendChoice = useCallback(
-    async (choice: FriendChoice) => {
+    async (choice: FriendChoice, via?: FriendConsentMethod) => {
       setBusy(true);
       try {
         const result = await friendFinderAction(uid, {
           action: "choose",
           choice,
-          consent_method: method,
+          consent_method: via ?? method,
         });
-        onBlockChange({ choice: result.choice, face_visible: result.face_visible });
+        // "Everyone" accepts the requests already waiting (see the backend's
+        // chooseFriendsConsent), and says so in its answer, so the badge clears
+        // and the card moves on without a refetch. Each field is folded in only
+        // when the answer carries it: "selected" leaves the count alone, and a
+        // backend that predates the auto-accept sends neither.
+        onBlockChange({
+          choice: result.choice,
+          face_visible: result.face_visible,
+          ...(typeof result.pending_count === "number" ? { pending_count: result.pending_count } : {}),
+          ...(result.has_group === true ? { has_group: true } : {}),
+        });
         // `rev` has moved for everyone at this event, so whatever is cached no
         // longer describes it. The payload is kept; only its token is poisoned,
         // so the next open revalidates instead of short-circuiting.
@@ -402,10 +478,13 @@ export function FriendsSurface({
     [uid, method, onBlockChange, say, bookingId, guestId, closeSheet, onReauth],
   );
 
-  /** People this guest has asked who have not answered yet — the "N waiting"
-   *  pill, and the names the empty state says it is waiting for. */
-  const waitingPeople = useMemo(
-    () => (directory.payload?.people ?? []).filter((person) => person.rel === "requested"),
+  /** Everyone this guest has put in their group, answered or not: connected,
+   *  still asked, or turned down. Zero is My People's "nobody added" state. */
+  const addedCount = useMemo(
+    () =>
+      (directory.payload?.people ?? []).filter(
+        (person) => person.rel === "in_group" || person.rel === "requested" || person.rel === "declined",
+      ).length,
     [directory.payload],
   );
 
@@ -465,21 +544,28 @@ export function FriendsSurface({
 
   const cardState = resolveCardState({ block, hasSelfie, members: directory.members });
 
+  /* The card no longer opens the preference sheet itself: undecided and
+   * chosen-but-nobody-yet both go to the My People tab, whose first visit asks
+   * the preference (undecided) or shows the "add some people" state. The
+   * question is asked in exactly one place. */
   const onCardAction = useCallback(() => {
     switch (cardState.kind) {
       case "no_selfie":
         onRescan();
         return;
       case "undecided":
-        openSheet("lounge_card");
-        return;
       case "chosen_no_group":
-        openPeople();
-        return;
       case "has_group":
         openGroup();
     }
-  }, [cardState.kind, onRescan, openPeople, openGroup, openSheet]);
+  }, [cardState.kind, onRescan, openGroup]);
+
+  /** "Add more people" on the empty tab: while the preference is still
+   *  unanswered it is asked first, then Manage opens. */
+  const onAddMore = useCallback(() => {
+    if (undecided) askThenManage("people");
+    else openPeople();
+  }, [undecided, askThenManage, openPeople]);
 
   return (
     <>
@@ -499,7 +585,27 @@ export function FriendsSurface({
           overflow menu (or on the tab, on a laptop), and the gear inside the
           screen it opens. */}
       {manageSlot &&
-        createPortal(<ManageControl t={t} desktop={desktop} onOpen={() => openPeople()} />, manageSlot)}
+        createPortal(
+          <ManageControl t={t} desktop={desktop} pendingCount={block.pending_count} onOpen={() => openPeople()} />,
+          manageSlot,
+        )}
+
+      {/* Only with photos to narrow (the UNFILTERED feed is not empty) and at
+          least two connected people — with one, it would filter nothing. */}
+      {faceFilterSlot &&
+        unfilteredTotal > 0 &&
+        directory.members.length >= 2 &&
+        createPortal(
+          <FaceFilterBar
+            t={t}
+            members={directory.members}
+            selected={activeFilter}
+            onToggle={toggleFilter}
+            onClear={clearFilter}
+            desktop={desktop}
+          />,
+          faceFilterSlot,
+        )}
 
       {requestsBannerSlot &&
         block.pending_count > 0 &&
@@ -512,10 +618,11 @@ export function FriendsSurface({
         createPortal(
           <GroupEmpty
             t={t}
-            memberCount={directory.members.length}
-            waitingNames={waitingPeople.map((person) => person.name)}
+            addedCount={addedCount}
             preparing={directory.payload?.state === "preparing"}
-            onAddMore={() => openPeople()}
+            needsSelfie={!hasSelfie}
+            onAddMore={onAddMore}
+            onScan={onRescan}
           />,
           groupEmptySlot,
         )}
@@ -559,7 +666,7 @@ export function FriendsSurface({
         onClose={closeSheet}
         onChoose={(choice) => {
           void sendChoice(choice).then((ok) => {
-            if (ok) openPeople();
+            if (ok) openPeople(afterChoice.current === "requests");
           });
         }}
       />
@@ -575,8 +682,7 @@ export function FriendsSurface({
           // audit row records — a choice changed here is a different event from
           // the same choice made in the sheet after a scan.
           onChoose={(choice) => {
-            setMethod("settings");
-            void sendChoice(choice);
+            void sendChoice(choice, "settings");
           }}
           onChangePhoto={() => setPhotoOpen(true)}
         />
@@ -619,22 +725,32 @@ export function FriendsSurface({
 function ManageControl({
   t,
   desktop,
+  pendingCount,
   onOpen,
 }: {
   t: ClientTheme;
   desktop: boolean;
+  /** People waiting on this guest. Above zero, the badge at the end of the
+   *  control — the same one the phone's menu button and the laptop's tab
+   *  carry, so the count leads here. */
+  pendingCount: number;
   onOpen: () => void;
 }) {
+  const badge = pendingCount > 0 && <CountBadge count={pendingCount} />;
+  const label =
+    pendingCount > 0 ? `Manage my people, ${pendingCount} ${pendingCount === 1 ? "request" : "requests"} waiting` : undefined;
   if (desktop) {
     return (
       <button
         type="button"
         onClick={onOpen}
+        aria-label={label}
         className="flex min-h-[38px] cursor-pointer items-center gap-2 rounded-full px-4 text-[13px] font-extrabold"
         style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
       >
         <IconUsers size={15} />
         Manage my people
+        {badge}
       </button>
     );
   }
@@ -642,12 +758,29 @@ function ManageControl({
     <button
       type="button"
       onClick={onOpen}
+      aria-label={label}
       className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 px-4 text-left text-[13.5px] font-bold"
       style={{ color: t.text }}
     >
       <IconUsers size={16} />
-      Manage my people
+      <span className="min-w-0 flex-1">Manage my people</span>
+      {badge}
     </button>
+  );
+}
+
+/** The red request count, in the same shape and signal colour wherever it
+ *  appears (the gallery's menu button and My People tab draw their own copy,
+ *  outside this chunk). "9+" past nine. */
+function CountBadge({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden
+      className="flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-full px-[4px] text-[10px] font-extrabold leading-none tabular-nums"
+      style={{ background: SIGNAL.liked, color: "#fff" }}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
   );
 }
 

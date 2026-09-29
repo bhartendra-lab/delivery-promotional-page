@@ -650,10 +650,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
    * second write path) so the response re-normalises into `meta` and refreshes
    * the localStorage cache exactly like every other booking edit. Rejects on
    * failure — the calling dialog owns the error surface.
+   *
+   * `includeBranding` rides in the SAME update-booking call when the Gallery
+   * preferences modal changed "Show your studio profile": it is the landing
+   * page's top-level `include_company_branding`, not a delivery preference, but
+   * the Studio saves both with one button and must never see half of it land.
    */
   const saveDeliveryPreferences = useCallback(
-    async (next: DeliveryPreferences) => {
-      await persistBooking({ delivery_preferences: next });
+    async (next: DeliveryPreferences, extra?: { includeBranding?: boolean }) => {
+      await persistBooking({
+        delivery_preferences: next,
+        ...(extra?.includeBranding !== undefined ? { include_company_branding: extra.includeBranding } : {}),
+      });
     },
     [persistBooking],
   );

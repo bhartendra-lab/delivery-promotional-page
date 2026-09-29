@@ -7,7 +7,7 @@ import {
 } from "./copy.ts";
 
 /**
- * The exact string the backend stores as the `ff-v1.1` notice
+ * The exact string the backend stores as the `ff-v1.2` notice
  * (`FRIEND_FINDER_NOTICE_TEXT` in src/utils/friend-finder.utils.js).
  *
  * Copied here on purpose rather than imported: the two live in different
@@ -20,26 +20,19 @@ import {
  * FRIEND_FINDER_POLICY_VERSION here and the backend's constant together, and
  * update this literal in the same commit.
  */
-const BACKEND_NOTICE_FF_V1_1 =
-  "Find my people. See the photos you are in with your people, all in one place. " +
-  "You and another guest see your photos together once you have both said yes. " +
-  "Everyone at this wedding: anyone here can add you straight away. " +
-  "Only people I choose: you pick who, and they are asked to add you back. " +
-  "Your name and face picture are visible to guests at this wedding. " +
-  "You can change your answer at any time, and to stop sharing altogether, " +
-  "choose Only people I choose and remove everyone from your list.";
-
-const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
+const BACKEND_NOTICE_FF_V1_2 =
+  "Who can search common photos with you. Everyone at this wedding. Only people I choose. " +
+  "Your name and face picture are visible to guests at this wedding. You can change this anytime.";
 
 /** The sheet's copy, read back in the order a guest reads it on screen. */
 function assembledNotice(): string {
-  const options = FRIENDS_CHOICES.map((c) => `${c.label}: ${lowerFirst(c.subtitle)}.`).join(" ");
-  return `${FRIENDS_SHEET_COPY.title}. ${FRIENDS_SHEET_COPY.body} ${options} ${FRIENDS_SHEET_COPY.smallPrint}`;
+  const options = FRIENDS_CHOICES.map((c) => `${c.label}.`).join(" ");
+  return `${FRIENDS_SHEET_COPY.title}. ${options} ${FRIENDS_SHEET_COPY.smallPrint}`;
 }
 
-test("the consent sheet shows exactly the notice the backend records as ff-v1.1", () => {
-  assert.equal(FRIEND_FINDER_POLICY_VERSION, "ff-v1.1");
-  assert.equal(assembledNotice(), BACKEND_NOTICE_FF_V1_1);
+test("the consent sheet shows exactly the notice the backend records as ff-v1.2", () => {
+  assert.equal(FRIEND_FINDER_POLICY_VERSION, "ff-v1.2");
+  assert.equal(assembledNotice(), BACKEND_NOTICE_FF_V1_2);
 });
 
 test("no em dash or en dash anywhere in the consent copy", () => {
@@ -47,13 +40,12 @@ test("no em dash or en dash anywhere in the consent copy", () => {
   // in a way that is invisible on screen and obvious in a diff.
   const all = [
     FRIENDS_SHEET_COPY.title,
-    FRIENDS_SHEET_COPY.body,
     FRIENDS_SHEET_COPY.smallPrint,
     FRIENDS_SHEET_COPY.continueLabel,
-    ...FRIENDS_CHOICES.flatMap((c) => [c.label, c.subtitle]),
+    ...FRIENDS_CHOICES.map((c) => c.label),
   ];
   for (const line of all) {
-    assert.ok(!line.includes("—") && !line.includes("–"), line);
+    assert.ok(!line.includes("\u2014") && !line.includes("\u2013"), line);
   }
 });
 
@@ -68,17 +60,18 @@ test("there are exactly two choices, and no stored way to refuse", () => {
   );
 });
 
-test("the notice names the way to stop, because it is the only one there is", () => {
-  // With no "Stop sharing" button, a guest who cannot infer the two-step path
-  // has no way out at all — so the notice they consent under has to say it.
-  assert.match(FRIENDS_SHEET_COPY.smallPrint, /stop sharing altogether/i);
-  assert.match(FRIENDS_SHEET_COPY.smallPrint, /remove everyone from your list/i);
+test("the one line left carries both the disclosure and the withdrawal notice", () => {
+  // The sheet is minimal, and these are the two things minimal cannot drop:
+  // what other guests will see, and that the answer can be changed. With the
+  // old "to stop sharing" line gone, the second is the only withdrawal notice.
+  assert.match(FRIENDS_SHEET_COPY.smallPrint, /name and face picture are visible/i);
+  assert.match(FRIENDS_SHEET_COPY.smallPrint, /change this anytime/i);
 });
 
 test("neither option is written as a default, so neither can be pre-selected by copy", () => {
   // The choice is never pre-selected; this pins that nothing in the copy
   // nudges one of them as recommended.
   for (const choice of FRIENDS_CHOICES) {
-    assert.ok(!/recommend|default|suggested/i.test(`${choice.label} ${choice.subtitle}`));
+    assert.ok(!/recommend|default|suggested/i.test(choice.label));
   }
 });

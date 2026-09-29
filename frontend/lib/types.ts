@@ -158,9 +158,9 @@ export type Company = {
   instagram_link?: string;
   facebook_link?: string;
   social_links?: SocialLinks;
-  /** The one platform every Guest is asked to open before entering any of
-   *  this Studio's galleries; null/absent means no required visit. Holds a
-   *  platform key — the URL lives in `social_links`. */
+  /** The one platform every Guest is asked to open once, before their first
+   *  download in any of this Studio's galleries; null/absent means no required
+   *  visit. Holds a platform key — the URL lives in `social_links`. */
   mandatory_visit_platform?: SocialPlatformKey | null;
   /** Company-wide master switch for every Guest-facing Google review
    *  affordance. Absent on a company cached before it existed: read `!== false`. */
@@ -715,9 +715,17 @@ export type DeliveryLandingPageData = {
   gallery_publish_status?: GalleryPublishStatus;
   /** Total media count for the booking — not folder-scoped, just a number, safe pre-auth. */
   photo_count?: number;
-  /** A small (≤6), "public"-folder-scoped, images-only preview for the pre-auth welcome
-   *  screen's teaser strip. Deliberately not the full gallery — this is served unauthenticated. */
+  /** The pre-auth welcome screen's teaser strip: at most 6 URLs of SEPARATE small
+   *  copies (~320px WebP, unguessable keys), public-folder photos first, then the most
+   *  liked, then the most recent — private ones included. Never a gallery URL: this
+   *  endpoint is unauthenticated, and a thumbnail URL is its full-size URL plus a
+   *  suffix. Empty for a gallery whose strip has not been built yet. */
   sample_media_urls?: string[];
+  /** At least one public ("Highlights") folder holds media, so a Guest without the
+   *  passcode has something to see even with face search off. Explicit, because the
+   *  strip above can no longer answer it: it may show private photos. Absent on a
+   *  backend that predates it — read through `?? sample_media_urls.length > 0`. */
+  has_public_photos?: boolean;
 };
 
 /** A media item as returned to guests by `get-media` (carries `media_id` + likes). */
@@ -791,10 +799,11 @@ export type GuestSession = {
   selfie_url: string | null;
   has_selfie: boolean;
   /**
-   * The validated selfie id. Combined with the event's booking_id it lets the
-   * client re-run `search-selfie` on a returning visit when the per-session
-   * matched-photos cache is empty. Matched media_ids themselves are not stored
-   * server-side — they live in `sessionStorage` (see `getCachedMediaIds`).
+   * The validated selfie id. Its presence is what tells the lounge to run
+   * `search-selfie` (which searches with the stored selfie, whatever id is
+   * sent). The matched media_ids are cached in `sessionStorage` to paint with
+   * (see `getCachedMediaIds`) and stored server-side, which is the copy
+   * `get-media` trusts.
    */
   selfie_id: string | null;
   /**

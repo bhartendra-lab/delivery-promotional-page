@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
-import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import { DeliveryPreferencesPanel, ToggleRow } from "./DeliveryPreferencesPanel";
 import {
   changedPreferenceKeys,
   type DeliveryPreferenceContext,
@@ -19,6 +19,15 @@ import {
  * step 2: that step asks only about the run being uploaded, while this is the
  * whole picture (face search and the required visit included). Preferences are
  * event-scoped, so both read and write the same value.
+ *
+ * With `studioProfile` it also carries "Show your studio profile" as the first
+ * row. That is not a delivery preference — it is the landing page's top-level
+ * `include_company_branding` — so it keeps its own draft here rather than being
+ * forced into the typed registry, and is saved in the SAME update-booking call
+ * as the preferences (dirty when either changed). The required-visit row
+ * depends on it (no profile, no Studio links, so no gate — see
+ * resolveSocialVisitGate), so that row is evaluated against the DRAFT value:
+ * switching the profile off hides it in this modal immediately.
  */
 export function DeliveryPreferencesModal({
   open,
@@ -29,6 +38,7 @@ export function DeliveryPreferencesModal({
   toast,
   context,
   surface = "access",
+  studioProfile,
 }: {
   open: boolean;
   onClose: () => void;
@@ -36,7 +46,9 @@ export function DeliveryPreferencesModal({
   eventName: string;
   /** Currently persisted preferences — seeds the draft each time this opens. */
   saved: DeliveryPreferences;
-  onSave: (next: DeliveryPreferences) => Promise<void>;
+  /** `includeBranding` is present only when this modal carries the Studio
+   *  profile row and its value changed. */
+  onSave: (next: DeliveryPreferences, extra?: { includeBranding?: boolean }) => Promise<void>;
   toast: (msg: string, type?: "success" | "error") => void;
   /** The booking's archive quality tier, the required-visit label, and whether
    *  any public folder holds media — the registry decides which rows to show,
@@ -45,8 +57,17 @@ export function DeliveryPreferencesModal({
   /** Which slice of the registry to render. Defaults to the full Access &
    *  Sharing set; the upload dialog renders "gallery" through the panel. */
   surface?: DeliveryPreferenceSurface;
+  /**
+   * The "Show your studio profile" row: its saved value, and the required
+   * visit platform's label as it would read WITH the profile shown (absent
+   * when the Studio has no live required link at all). The context's own
+   * `requiredVisitLabel` is ignored while this is given, because it was
+   * resolved against the SAVED profile and this modal edits a draft of it.
+   */
+  studioProfile?: { saved: boolean; visitLabelWhenShown?: string };
 }) {
   const [draft, setDraft] = useState<DeliveryPreferences>(saved);
+  const [draftProfile, setDraftProfile] = useState<boolean>(studioProfile?.saved ?? true);
   const [saving, setSaving] = useState(false);
 
   // Re-seed on the open transition only. Depending on `saved` as well would
@@ -55,17 +76,25 @@ export function DeliveryPreferencesModal({
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- seeds the draft on the open transition, not a render loop
     setDraft(saved);
+    setDraftProfile(studioProfile?.saved ?? true);
     setSaving(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const dirty = changedPreferenceKeys(draft, saved).length > 0;
+  const profileChanged = !!studioProfile && draftProfile !== studioProfile.saved;
+  const dirty = changedPreferenceKeys(draft, saved).length > 0 || profileChanged;
+  const effectiveContext: DeliveryPreferenceContext | undefined = studioProfile
+    ? {
+        ...(context ?? { archiveTiers: [] }),
+        requiredVisitLabel: draftProfile ? studioProfile.visitLabelWhenShown : undefined,
+      }
+    : context;
 
   async function save() {
     if (!dirty || saving) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(draft, profileChanged ? { includeBranding: draftProfile } : undefined);
       toast("Gallery preferences saved");
       onClose();
     } catch (err) {
@@ -110,8 +139,19 @@ export function DeliveryPreferencesModal({
         value={draft}
         onChange={setDraft}
         disabled={saving}
-        context={context}
+        context={effectiveContext}
         surface={surface}
+        leading={
+          studioProfile && (
+            <ToggleRow
+              label="Show your studio profile"
+              hint="Your name, logo, social links and review button."
+              checked={draftProfile}
+              onChange={setDraftProfile}
+              disabled={saving}
+            />
+          )
+        }
       />
     </Modal>
   );

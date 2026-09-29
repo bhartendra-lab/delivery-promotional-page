@@ -42,12 +42,20 @@ export type FriendRel =
 export type FriendFinderState = "needs_selfie" | "preparing" | "ready";
 
 /** Where in the gallery the guest was standing when they consented. Recorded on
- *  the consent row — "they agreed HERE, having been shown this". */
+ *  the consent row — "they agreed HERE, having been shown this".
+ *
+ *  Mirrors the backend's FRIEND_FINDER_CONSENT_METHODS. `people_tab` is where
+ *  the preference is asked now; the two `sheet_*` values are no longer sent
+ *  (their automatic sheets are gone) but stay valid for existing rows; and
+ *  `auto_everyone` is written only by the server, when an "Everyone" answer
+ *  accepts a request on the Guest's behalf. */
 export type FriendConsentMethod =
   | "sheet_after_scan"
   | "sheet_lounge_visit"
   | "lounge_card"
-  | "settings";
+  | "settings"
+  | "people_tab"
+  | "auto_everyone";
 
 /**
  * The block on `get-guest-session`.
@@ -68,9 +76,13 @@ export type FriendFinderBlock = {
   avatar_url: string | null;
   face_visible: boolean;
   /** Set on the first add ever and never cleared. Note the My People tab does
-   *  NOT hang off this any more — it appears as soon as the guest has chosen,
-   *  so a request badge always has somewhere to land. */
+   *  NOT hang off this any more — it is offered whenever the feature is live
+   *  for this Guest, answered or not, because that tab is where the question
+   *  is asked. */
   has_group: boolean;
+  /** People waiting on this guest's answer. On a phone it is the badge on the
+   *  overflow-menu button and on "Manage my people"; on a laptop, on the My
+   *  People tab and the Manage pill. */
   pending_count: number;
   group_updated_at: number | null;
   /** Bumps whenever anything about OTHER guests at this event changes. Paired
@@ -105,7 +117,21 @@ export type FriendFinderPeople = {
   state: FriendFinderState;
   rev: number;
   group_updated_at: number;
+  /**
+   * The requester's OWN photos that at least one other guest's `shared` points
+   * at, in the gallery's own order (`captured_at`, then `_id` — settled
+   * server-side, since the client cannot know it for photos it has not
+   * fetched). A photo that has since been deleted is not here.
+   */
   media_ids: string[];
+  /**
+   * Parallel to `media_ids`: every Guest's likes on each photo at this event.
+   * Counts only, never who. What My People sorts by first.
+   *
+   * Optional because a payload cached before this field existed, or one sent
+   * while the count read failed, has none — read absent as all zeros.
+   */
+  like_counts?: number[];
   people: FriendPerson[];
   me: {
     avatar_source: string | null;
@@ -118,6 +144,17 @@ export type FriendFinderUnchanged = {
   unchanged: true;
   rev: number;
   group_updated_at: number;
+  /**
+   * Fresh like counts for the cached payload, keyed by media id, above zero
+   * only. Likes do not move `rev` (a heart must not invalidate every Guest's
+   * cache at the wedding), so this is how the cached `like_counts` catch up.
+   *
+   * A map rather than a parallel array because the server answers this branch
+   * without building `media_ids`, so it has no order to be parallel to; the
+   * client maps it onto the `media_ids` it already holds. Absent when the read
+   * failed, and then the cached counts stand.
+   */
+  like_counts_by_id?: Record<string, number>;
 };
 
 export type FriendFinderPeopleResponse = FriendFinderPeople | FriendFinderUnchanged;
@@ -142,6 +179,13 @@ export type ChooseResult = {
   choice: FriendChoice;
   participant: boolean;
   face_visible: boolean;
+  /** Requests "Everyone" just accepted on this guest's behalf. Absent from a
+   *  backend that predates the auto-accept. */
+  accepted_count?: number;
+  /** Present only after "everyone", where it is known to be zero. After
+   *  "selected" the waiting requests still wait, and the count stands. */
+  pending_count?: number;
+  has_group?: boolean;
 };
 export type AddResult = { guest_id: string; rel: FriendRel; connected: boolean };
 export type RemoveResult = { guest_id: string; rel: FriendRel };

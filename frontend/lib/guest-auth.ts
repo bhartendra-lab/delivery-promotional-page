@@ -43,10 +43,11 @@ export function clearGuestToken(uid: string): void {
 
 /* ── matched media_ids — per-session cache ──────────────────────────────────
  *
- * The guest's matched photos (the `search-selfie` result) are deliberately not
- * stored server-side. They live here in `sessionStorage`, keyed per event, so a
- * reload / in-app navigation within the same tab has something to paint with
- * straight away. It is NOT a way to skip the search: the lounge re-runs
+ * The guest's matched photos (the `search-selfie` result), kept here in
+ * `sessionStorage`, keyed per event, so a reload / in-app navigation within the
+ * same tab has something to paint with straight away. The server stores the
+ * set too, and `get-media` answers from ITS copy: these ids can narrow a view
+ * but never widen it. It is NOT a way to skip the search: the lounge re-runs
  * `search-selfie` on every mount and overwrites this, and only falls back to the
  * cached set when that search fails. A rescan overwrites it too.
  */

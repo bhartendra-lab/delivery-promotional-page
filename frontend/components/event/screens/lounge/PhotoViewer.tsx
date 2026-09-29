@@ -300,7 +300,7 @@ function ZoomImage({ src }: { src: string }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        className="max-h-full max-w-full select-none rounded-xl object-contain"
+        className="max-h-full max-w-full select-none rounded-xl object-contain [-webkit-touch-callout:none]"
         style={{
           transform: `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`,
           transition: gesturing ? "none" : "transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1)",

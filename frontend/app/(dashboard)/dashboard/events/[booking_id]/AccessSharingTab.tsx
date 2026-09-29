@@ -87,14 +87,20 @@ export function AccessSharingTab({
    * Resolved here and handed to the registry as `requiredVisitLabel`, which is
    * also the row's own visibility signal — undefined and the row hides.
    * Mirrors `resolveSocialVisitGate`: no platform, a platform whose URL was
-   * cleared, or an event that hides Studio branding all mean "no gate".
+   * cleared, or an event that hides the Studio profile all mean "no gate".
+   *
+   * Two forms, because the Gallery preferences modal can switch the profile
+   * itself: `visitLabelWhenShown` ignores the profile (the modal applies its
+   * DRAFT value to it), and `requiredVisitLabel` applies the SAVED one (the
+   * summary card).
    */
   const visitPlatform = company?.mandatory_visit_platform;
   const visitSpec = isSocialPlatformKey(visitPlatform) ? SOCIAL_PLATFORM_BY_KEY[visitPlatform] : null;
-  const requiredVisitLabel =
-    visitSpec && company?.social_links?.[visitSpec.key]?.trim() && meta.includeBranding === true
-      ? visitSpec.label
-      : undefined;
+  const visitLabelWhenShown =
+    visitSpec && company?.social_links?.[visitSpec.key]?.trim() ? visitSpec.label : undefined;
+  // Read `=== true`, exactly as the Guest gallery reads it.
+  const studioProfileOn = meta.includeBranding === true;
+  const requiredVisitLabel = studioProfileOn ? visitLabelWhenShown : undefined;
 
   // Guests sign in with WhatsApp, not Google — the old message said Google, and
   // rewriting it for the switch is the moment to fix that too.
@@ -191,6 +197,7 @@ ${shareUrl}`;
           <PreferencesCard
             onOpen={() => setPrefsOpen(true)}
             prefs={prefs}
+            studioProfileOn={studioProfileOn}
             requiredVisitLabel={requiredVisitLabel}
             reviewsEnabledGlobally={company?.google_review_enabled !== false}
           />
@@ -217,6 +224,11 @@ ${shareUrl}`;
           googleReviewEnabledGlobally: company?.google_review_enabled !== false,
           hasPublicFolderWithMedia: hasPublicPhotos,
         }}
+        // "Show your studio profile" lives here now, moved from Gallery
+        // design: it decides what a Guest sees (the Studio's name, logo,
+        // links, review button — and so whether the required visit can be
+        // asked at all), which is what this modal is for.
+        studioProfile={{ saved: studioProfileOn, visitLabelWhenShown }}
       />
     </div>
   );
@@ -627,11 +639,14 @@ function hasPublicFolderWithPhotos(
 function PreferencesCard({
   onOpen,
   prefs,
+  studioProfileOn,
   requiredVisitLabel,
   reviewsEnabledGlobally,
 }: {
   onOpen: () => void;
   prefs: DeliveryPreferences;
+  /** The saved `include_company_branding`, read `=== true` like the gallery. */
+  studioProfileOn: boolean;
   /** Present only when this event has a live required-visit gate. */
   requiredVisitLabel?: string;
   /** The company-wide review switch — off overrides this event's own value, so
@@ -639,6 +654,7 @@ function PreferencesCard({
   reviewsEnabledGlobally: boolean;
 }) {
   const chips: { label: string; on: boolean }[] = [
+    { label: "Studio profile", on: studioProfileOn },
     { label: "Face search", on: prefs.face_search_enabled },
     { label: "Downloads", on: prefs.allow_download },
     { label: "Reviews", on: prefs.show_google_review && reviewsEnabledGlobally },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
@@ -30,6 +30,12 @@ import {
  * `surface` picks which rows this host shows: the upload dialog asks only about
  * the run it is uploading, while the Access & Sharing modal carries every row.
  * Both read the same registry, so a row's copy is written once.
+ *
+ * `leading` renders one extra row FIRST, in the same list — the Access &
+ * Sharing modal's "Show your studio profile", which is not a delivery
+ * preference (it is the landing page's top-level `include_company_branding`)
+ * and so is not forced into the typed registry. `ToggleRow` below is the shape
+ * it should use, so it cannot drift from the registry's own toggle rows.
  */
 export function DeliveryPreferencesPanel({
   value,
@@ -37,17 +43,20 @@ export function DeliveryPreferencesPanel({
   disabled = false,
   context,
   surface = "gallery",
+  leading,
 }: {
   value: DeliveryPreferences;
   onChange: (next: DeliveryPreferences) => void;
   disabled?: boolean;
   context?: DeliveryPreferenceContext;
   surface?: DeliveryPreferenceSurface;
+  leading?: ReactNode;
 }) {
   const fields = resolveDeliveryPreferenceFields(value, context, surface);
   return (
     <div className="flex flex-col gap-3">
       <div className="divide-y divide-[var(--color-brand-border)] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
+        {leading}
         {fields.map((field) => (
           <PreferenceRow
             key={field.key}
@@ -86,8 +95,7 @@ function PreferenceRow({
   // about it yet.
   let control: React.ReactNode = null;
   // A select's options are full-width rows under the label, not a control
-  // squeezed beside it: each carries a sentence the studio has to actually
-  // read before choosing.
+  // squeezed beside it — labels only now, so the whole group reads at a glance.
   let stacked: React.ReactNode = null;
   switch (field.type) {
     case "toggle":
@@ -97,13 +105,17 @@ function PreferenceRow({
           onChange={(next) => onChange({ ...value, [field.key]: next })}
           disabled={rowDisabled}
           label={field.label}
-          describedById={descriptionId}
+          describedById={field.description ? descriptionId : undefined}
         />
       );
       break;
-    case "select":
+    case "select": {
       if (!field.options?.length) return null;
+      // The one line a select keeps, for the option whose consequence must not
+      // be missed — shown only while that option is the one chosen.
+      const note = field.options.find((option) => option.value === current)?.note;
       stacked = (
+        <>
         <div role="radiogroup" aria-label={field.label} className="flex flex-col gap-1.5">
           {field.options.map((option) => {
             const selected = current === option.value;
@@ -125,20 +137,20 @@ function PreferenceRow({
                   onChange={() => onChange({ ...value, [field.key]: option.value } as DeliveryPreferences)}
                   className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-brand-navy-deep)]"
                 />
-                <span className="min-w-0">
-                  <span className="block text-[12.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
-                    {option.label}
-                  </span>
-                  <span className="mt-0.5 block text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
-                    {option.description}
-                  </span>
+                <span className="min-w-0 text-[12.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
+                  {option.label}
                 </span>
               </label>
             );
           })}
         </div>
+        {note && (
+          <p className="text-[11.5px] font-medium leading-relaxed text-[var(--color-brand-warning)]">{note}</p>
+        )}
+        </>
       );
       break;
+    }
     default:
       return null;
   }
@@ -150,12 +162,14 @@ function PreferenceRow({
           <div className="text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
             {field.label}
           </div>
-          <p
-            id={descriptionId}
-            className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]"
-          >
-            {field.description}
-          </p>
+          {field.description && (
+            <p
+              id={descriptionId}
+              className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]"
+            >
+              {field.description}
+            </p>
+          )}
         </div>
         {control}
       </div>
@@ -184,6 +198,46 @@ function PreferenceRow({
           </div>
         )
       )}
+    </div>
+  );
+}
+
+/**
+ * A plain toggle row in the same shape as the registry's, for a setting that
+ * lives OUTSIDE the registry but belongs in the same list (see `leading`).
+ * Label, an optional one-line hint, the switch — nothing else.
+ */
+export function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  const hintId = useId();
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-3.5">
+      <div className="min-w-0">
+        <div className="text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">{label}</div>
+        {hint && (
+          <p id={hintId} className="mt-0.5 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+            {hint}
+          </p>
+        )}
+      </div>
+      <ToggleSwitch
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        label={label}
+        describedById={hint ? hintId : undefined}
+      />
     </div>
   );
 }

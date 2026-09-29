@@ -12,8 +12,8 @@ export const ALL = "__all__";
 /**
  * The tabs the gallery switcher can show.
  *
- * "group" is "Find my people"'s My People tab, offered once that guest has
- * answered the consent question (see `showGroup`). The union is widened rather
+ * "group" is "Find my people"'s My People tab, offered whenever the feature is
+ * live for that guest (see `showGroup`). The union is widened rather
  * than a second control being added, because these three are mutually
  * exclusive views of the same grid and a separate control would let a guest
  * pick two.
@@ -62,12 +62,12 @@ export function UnlockAwareSwitcher({
   showMine?: boolean;
   /**
    * Offer the third segment, My People. False by default, so every existing
-   * call site renders the same two segments it always has — and a guest who
-   * has not answered the question never sees a tab with nothing behind it.
+   * call site renders the same two segments it always has.
    */
   showGroup?: boolean;
-  /** People waiting on an answer from this guest. Shown as a red dot with the
-   *  count on My People, and as nothing at all at zero. */
+  /** People waiting on an answer from this guest, as a red count on My People
+   *  — on a LAPTOP only, where there is no menu button to carry it. The phone
+   *  passes nothing here and badges its overflow menu instead. */
   pendingCount?: number;
 }) {
   return (
@@ -346,6 +346,7 @@ export function ActionsCluster({
   iconOnly = false,
   overflow = false,
   extraSlotRef,
+  menuBadgeCount = 0,
 }: {
   t: ClientTheme;
   likedView: boolean;
@@ -376,6 +377,9 @@ export function ActionsCluster({
    * gallery without the feature, and `empty:hidden` keeps the divider honest.
    */
   extraSlotRef?: (el: HTMLDivElement | null) => void;
+  /** Phone: requests waiting, badged on the menu button itself. Zero (the
+   *  default) renders no badge. */
+  menuBadgeCount?: number;
 }) {
   if (overflow) {
     return (
@@ -391,6 +395,7 @@ export function ActionsCluster({
         unlocked={unlocked}
         onOpenPrivate={onOpenPrivate}
         extraSlotRef={extraSlotRef}
+        badgeCount={menuBadgeCount}
       />
     );
   }
@@ -512,6 +517,7 @@ function OverflowMenu({
   unlocked,
   onOpenPrivate,
   extraSlotRef,
+  badgeCount,
 }: {
   t: ClientTheme;
   selectMode: boolean;
@@ -524,6 +530,9 @@ function OverflowMenu({
   unlocked: boolean;
   onOpenPrivate: () => void;
   extraSlotRef?: (el: HTMLDivElement | null) => void;
+  /** Requests waiting on this guest. The phone's one place for the count
+   *  outside the menu: "Manage my people" inside it carries it too. */
+  badgeCount: number;
 }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -569,13 +578,28 @@ function OverflowMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label="More options"
+        aria-label={
+          badgeCount > 0
+            ? `More options, ${badgeCount} ${badgeCount === 1 ? "request" : "requests"} waiting`
+            : "More options"
+        }
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
+        className="relative flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full"
         style={{ color: t.brand, background: open ? t.sunken : "transparent" }}
       >
         <IconMenuBars size={18} />
+        {badgeCount > 0 && (
+          <span
+            aria-hidden
+            // Top-right of the glyph, the same red and the same "9+" cap the
+            // laptop's My People tab uses.
+            className="absolute right-1 top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-[3px] text-[9.5px] font-extrabold leading-none tabular-nums"
+            style={{ background: SIGNAL.liked, color: "#fff" }}
+          >
+            {badgeCount > 9 ? "9+" : badgeCount}
+          </span>
+        )}
       </button>
 
       {open && (

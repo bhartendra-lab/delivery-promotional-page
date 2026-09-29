@@ -55,15 +55,17 @@ export function StickyControlRow({
   setTab: (k: GalleryTab) => void;
   /** False with face search off — see `UnlockAwareSwitcher`. */
   showMine?: boolean;
-  /** True once this guest has answered the consent question — adds the third
+  /** True whenever Find my people is live for this guest — adds the third
    *  segment, My People. */
   showGroup?: boolean;
-  /** People waiting on this guest — the red dot on that segment. */
+  /** People waiting on this guest — the red count on that segment. The laptop
+   *  keeps it on the tab (it has no menu button to move it to), and on the
+   *  Manage my people pill. */
   pendingCount?: number;
   /**
-   * False on My People, whose feed is grouped by how many friends are in each
-   * photo rather than by folder. The pills would filter a view they do not
-   * describe. Default true, so every other tab is untouched.
+   * False on My People, whose feed is ranked by likes and by who is in each
+   * photo rather than filed by folder. The pills would filter a view they do
+   * not describe. Default true, so every other tab is untouched.
    */
   showFolders?: boolean;
   /** Opens the gallery-passcode sheet (the "Unlock" action). */

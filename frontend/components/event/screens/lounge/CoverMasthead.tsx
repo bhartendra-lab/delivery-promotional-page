@@ -4,6 +4,7 @@ import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import type { WelcomeBand } from "@/lib/welcome-band";
 import { HeroSubtitle } from "./HeroSubtitle";
+import { eventTitleStyle } from "./eventTitleStyle";
 import { IconArrowRight } from "@/components/ui/icons";
 
 /**
@@ -68,16 +69,7 @@ export function CoverMasthead({
             Gallery by {event.company_name}
           </span>
         )}
-        <h1
-          className="mt-2 text-white"
-          style={{
-            fontFamily: "var(--font-playfair), Georgia, serif",
-            fontStyle: "italic",
-            fontSize: "clamp(30px, 8vw, 44px)",
-            fontWeight: 700,
-            lineHeight: 1.1,
-          }}
-        >
+        <h1 className="mt-2 text-white" style={eventTitleStyle("mobile")}>
           {event.event_name}
         </h1>
 

@@ -5,7 +5,7 @@ import type { GuestSession } from "@/lib/types";
 import type { FriendFinderBlock } from "@/lib/friend-finder/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
-import { GuestAuthError, getGuestSession, updateGuestSubType } from "@/lib/guest-api";
+import { GuestAuthError, getGuestSession, saveIntake, updateGuestSubType } from "@/lib/guest-api";
 import { reportBug } from "@/lib/report-bug";
 import { BrandLoader } from "./BrandLoader";
 import { useEventTheme } from "./EventThemeContext";
@@ -13,6 +13,8 @@ import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ScanFlow } from "./screens/ScanFlow";
 import { LoungeGallery } from "./screens/LoungeGallery";
+import { IntakeSheet } from "./screens/lounge/IntakeSheet";
+import { intakeNeeds, type IntakeAnswer } from "@/lib/guest-intake";
 
 type Step = "welcome" | "login" | "scan" | "lounge";
 
@@ -23,9 +25,9 @@ type ScanOrigin = "entry" | "gallery";
 
 /**
  * Decide where a signed-in guest lands. There's no separate "team" step —
- * the name + team question is raised by `LoungeGallery` itself as a
- * non-dismissible sheet when it's still missing, so every authed guest just
- * goes to "scan" (no selfie yet) or "lounge".
+ * the name + team question is a non-dismissible sheet over whichever screen
+ * comes first (the selfie screen here, or the Lounge), so every authed guest
+ * just goes to "scan" (no selfie yet) or "lounge".
  *
  * Three ways to earn the lounge without a selfie, and they are not the same:
  * the Studio has switched face search off for this event (there is no selfie
@@ -61,9 +63,6 @@ export function EventFlow() {
    * renders for this feature unless the block is here AND `enabled` is true.
    */
   const [friendFinder, setFriendFinder] = useState<FriendFinderBlock | null>(null);
-  /** A scan finished during this visit, so the lounge should raise the friends
-   *  sheet once it has settled. Cleared by the lounge when it acts on it. */
-  const [scanJustCompleted, setScanJustCompleted] = useState(false);
 
   // The Studio's per-event switch. Off means this flow has no selfie step at
   // all — see the render guard below, which is what stops a stale `step` from
@@ -163,6 +162,23 @@ export function EventFlow() {
    * would be exactly backwards — the worst case of a failure is being asked
    * again next time, which is where they already are.
    */
+  /* "Tell us about you", over the selfie screen.
+   *
+   * A new WhatsApp Guest has no name, and asking for it in the Lounge left them
+   * nameless for the whole selfie step: the friends list drops the "Guest"
+   * placeholder, so for that long nobody could find them. Asked here, the
+   * sheet rises the moment they sign in, before anything else. The Lounge
+   * still raises the same sheet for a Guest who goes straight there. */
+  const intakeTeams = event.guest_types ?? [];
+  const intake = session ? intakeNeeds(session, intakeTeams) : null;
+  const submitIntake = useCallback(
+    async (answer: IntakeAnswer) => {
+      const patch = await saveIntake(uniqueIdentifier, answer);
+      setSession((s) => (s ? { ...s, ...patch } : s));
+    },
+    [uniqueIdentifier],
+  );
+
   const skipScan = useCallback(() => {
     setSession((s) => (s ? { ...s, face_scan_skipped_at: Date.now() } : s));
     void updateGuestSubType(uniqueIdentifier, { faceScanSkipped: true }).catch((err) => {
@@ -187,32 +203,46 @@ export function EventFlow() {
   // there is nothing left for this screen to do.
   if (step === "scan" && faceSearchOn) {
     return (
-      <ScanFlow
-        guestName={session?.name}
-        friendsNotice={friendFinder?.enabled === true}
-        secondary={
-          scanOrigin === "gallery"
-            ? // Opened from inside the gallery. Backing out records nothing and
-              // leaves any existing selfie exactly as it was.
-              { label: "Back to gallery", onSelect: () => setStep("lounge") }
-            : {
-                label: "Skip for now",
-                note: "You can still browse the gallery and scan your face later.",
-                onSelect: skipScan,
-              }
-        }
-        onComplete={(selfieUrl, selfieId) => {
-          // The face search itself (and the matched-photos reveal) now happens
-          // in the Lounge, driven by session.selfie_id — mirror it here so that
-          // effect can run without waiting for a getGuestSession refetch.
-          setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl, selfie_id: selfieId } : s));
-          // Arms the friends sheet's `sheet_after_scan` trigger. Set for every
-          // successful scan, entry or rescan; the lounge decides whether this
-          // guest is one who should be asked, and clears it either way.
-          setScanJustCompleted(true);
-          setStep("lounge");
-        }}
-      />
+      <>
+        <ScanFlow
+          // A new WhatsApp Guest carries the "Guest" placeholder until they
+          // answer the intake sheet over this screen, and the header would
+          // show it as a name. Only a name they (or Google) actually gave is
+          // shown.
+          guestName={session?.name && session.name !== "Guest" ? session.name : undefined}
+          // Drives the consent sentence about the face picture (and so the
+          // policy version recorded), not any sheet: the sharing preference is
+          // asked on the My People tab now.
+          friendsNotice={friendFinder?.enabled === true}
+          secondary={
+            scanOrigin === "gallery"
+              ? // Opened from inside the gallery. Backing out records nothing and
+                // leaves any existing selfie exactly as it was.
+                { label: "Back to gallery", onSelect: () => setStep("lounge") }
+              : {
+                  label: "Skip for now",
+                  note: "You can still browse the gallery and scan your face later.",
+                  onSelect: skipScan,
+                }
+          }
+          onComplete={(selfieUrl, selfieId) => {
+            // The face search itself (and the matched-photos reveal) now happens
+            // in the Lounge, driven by session.selfie_id — mirror it here so that
+            // effect can run without waiting for a getGuestSession refetch.
+            setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl, selfie_id: selfieId } : s));
+            // No friends sheet follows the scan any more: the preference is
+            // asked on the Guest's next visit to the My People tab.
+            setStep("lounge");
+          }}
+        />
+        {session && intake?.show && (
+          <IntakeSheet
+            showName={intake.needsName}
+            teams={intake.needsTeam ? intakeTeams : []}
+            onSubmit={submitIntake}
+          />
+        )}
+      </>
     );
   }
 
@@ -224,8 +254,6 @@ export function EventFlow() {
       onSessionChange={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
       friendFinder={friendFinder}
       onFriendFinderChange={(patch) => setFriendFinder((f) => (f ? { ...f, ...patch } : f))}
-      scanJustCompleted={scanJustCompleted}
-      onScanTriggerConsumed={() => setScanJustCompleted(false)}
       onReauth={() => {
         clearGuestToken(uniqueIdentifier);
         setSession(null);

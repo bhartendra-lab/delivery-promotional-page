@@ -11,6 +11,7 @@ import { ApiError, type PresignRequest, type PresignedUpload } from "./api";
 import { ensureGuestToken, refreshGuest } from "./guest-auth";
 import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./types";
 import type { FriendFinderBlock } from "./friend-finder/types";
+import type { IntakeAnswer } from "./guest-intake";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -108,6 +109,19 @@ export function updateGuestSubType(
   });
 }
 
+/** Save the intake sheet's answer, resolving to the session patch it makes.
+ *  Rejects when the save fails, so the sheet can say so and stay up. Shared by
+ *  both places the sheet rises (see guest-intake.ts). */
+export async function saveIntake(uid: string, answer: IntakeAnswer): Promise<Partial<GuestSession>> {
+  if (answer.name !== undefined || answer.team !== undefined) {
+    await updateGuestSubType(uid, { name: answer.name, guestSubType: answer.team });
+  }
+  return {
+    ...(answer.name !== undefined ? { name: answer.name } : {}),
+    ...(answer.team !== undefined ? { guest_sub_type: answer.team } : {}),
+  };
+}
+
 /* ── selfie / face search ───────────────────────────────────────────────── */
 
 /**
@@ -184,11 +198,13 @@ export type GuestMediaQuery = {
 
 /**
  * Paginated gallery media for guests. `mine` → My Photos (matched set); without
- * it a host (passcode-unlocked) gets All Photos. The matched set is no longer
- * stored server-side, so the caller passes the session-cached `mediaIds`; the
- * backend restricts non-host guests (and any `mine` request) to that set and
- * ignores it for a host browsing All. POST (not GET) so the array rides in the
- * body. First page also returns customFolders + counts.
+ * it a host (passcode-unlocked) gets All Photos. The caller passes the ids its
+ * last `search-selfie` returned (or a slice of them, for My People); the
+ * backend keeps only those in the set IT stored at that search, restricts
+ * non-host guests (and any `mine` request) to the result, and ignores the ids
+ * for a host browsing All. So they can narrow a view but never widen it. POST
+ * (not GET) so the array rides in the body. First page also returns
+ * customFolders + counts.
  */
 export function getGuestMedia(
   uid: string,

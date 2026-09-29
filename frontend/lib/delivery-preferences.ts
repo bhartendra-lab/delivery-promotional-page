@@ -16,7 +16,6 @@
 
 import {
   ARCHIVE_TIER_SHORT,
-  DELIVERY_TIER_LABEL,
   archiveFilesPhrase,
   type ArchiveTier,
 } from "./quality-tiers.ts";
@@ -64,10 +63,16 @@ export const DELIVERY_PREFERENCE_ENUMS: { archive_download_access: ArchiveDownlo
 /** One choice in a `select` preference. */
 export type DeliveryPreferenceOption = {
   value: string;
+  /** The whole option, on its own: the modal is meant to be read in five
+   *  seconds, so options carry no per-option paragraph any more. */
   label: string;
-  /** Shown under the label. For a permissive option this must state the
-   *  consequence in plain words, not a neutral restatement of the label. */
-  description: string;
+  /**
+   * ONE short line shown under the control only while THIS option is
+   * selected — for the option whose consequence a studio must not miss (the
+   * archive row's "Every guest": those files carry no watermark). Absent on
+   * every other option.
+   */
+  note?: string;
 };
 
 /**
@@ -130,7 +135,8 @@ export type DeliveryPreferenceField = {
   key: keyof DeliveryPreferences;
   type: "toggle" | "select";
   label: string;
-  /** Always-visible one-line explanation of what the preference does. */
+  /** At most one short hint under the label (10 words or fewer), or "" for
+   *  none — the label should carry the row on its own. */
   description: string;
   /** Extra line shown only while the preference is in its non-default state,
    *  so the studio sees the consequence at the moment it opts in to it. */
@@ -187,16 +193,24 @@ type DeliveryPreferenceSpec = {
   lock?: (ctx: DeliveryPreferenceContext) => DeliveryPreferenceField["locked"] | null;
 };
 
-/** Render order within each surface. */
+/**
+ * Render order within each surface.
+ *
+ * THE COPY IS MINIMAL ON PURPOSE: a studio should be able to scan the whole
+ * modal in five seconds. Every row is a label plus at most one short hint;
+ * select options are labels only; a consequence box is one line, shown only
+ * when the value is off its default; a warning is one line. These strings are
+ * shared with the upload dialog's Preferences step (`surface: "gallery"`),
+ * which is meant to be quick for the same reason.
+ */
 const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
   {
     key: "allow_download",
     type: "toggle",
     surfaces: ["gallery", "access"],
-    label: () => "Allow guests to download photos",
+    label: () => "Allow downloads",
     description: () => "",
-    consequence: () =>
-      "Downloads are hidden for everyone — including family members who have entered the passcode. You can still download everything from this dashboard.",
+    consequence: () => "Downloads are hidden for every Guest, passcode holders included.",
   },
   {
     key: "archive_download_access",
@@ -213,45 +227,33 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
           // where the generic label earns its place — the setting governs both
           // equally.
           "Full-resolution downloads",
-    description: (ctx) =>
-      `Who can download the unwatermarked ${archiveFilesPhrase(ctx.archiveTiers)} you uploaded. Everyone else gets the watermarked ${DELIVERY_TIER_LABEL.studio} version.`,
+    // Tier-aware even in one line, for the same honesty reason as the label.
+    description: (ctx) => `Who gets the unwatermarked ${archiveFilesPhrase(ctx.archiveTiers)}.`,
     // Two independent reasons this row can be meaningless, and both hide it
     // rather than showing a control that governs nothing:
     //  - the event is HD-only, so no unwatermarked copy exists at all;
     //  - downloads are switched off outright, which overrides this setting
     //    anyway (see the endpoint's authorisation order).
     isRelevant: (ctx, value) => value.allow_download && ctx.archiveTiers.length > 0,
-    options: (ctx) => {
-      const files = archiveFilesPhrase(ctx.archiveTiers);
-      return [
-        {
-          value: "host_only",
-          label: "Only the family (passcode holders)",
-          description: `Guests who have entered the family passcode can download the ${files}. Everyone else gets the watermarked ${DELIVERY_TIER_LABEL.studio} copy.`,
-        },
-        {
-          value: "all_guests",
-          label: "Every guest",
-          // Blunt on purpose. A studio must not enable this believing it is the
-          // same file at a larger size — these copies carry no watermark.
-          description: `Every guest can download the unwatermarked ${files} for photos they appear in.`,
-        },
-        {
-          value: "none",
-          label: "Nobody",
-          description: `Nobody in the gallery can download the ${files} — not even passcode holders. You can still download them from this dashboard.`,
-        },
-      ];
-    },
+    options: () => [
+      { value: "host_only", label: "Only the family (passcode holders)" },
+      {
+        value: "all_guests",
+        label: "Every guest",
+        // Blunt on purpose, and the one line this row keeps. A studio must not
+        // enable this believing it is the same file at a larger size.
+        note: "These files have no watermark.",
+      },
+      { value: "none", label: "Nobody" },
+    ],
   },
   {
     key: "show_google_review",
     type: "toggle",
     surfaces: ["gallery", "access"],
-    label: () => "Ask Guests for reviews",
-    description: () => "Show the Google review button and prompt in this gallery.",
-    consequence: () =>
-      "No review button or prompt anywhere in this gallery. Guests can still find you through your other links.",
+    label: () => "Ask for Google reviews",
+    description: () => "",
+    consequence: () => "No review button or prompt in this gallery.",
     // Disabled and shown OFF, never hidden, while the Studio has reviews off
     // for every gallery: the event's own value is kept but has no effect, and
     // a row claiming "on" would be a lie the studio acts on.
@@ -268,37 +270,35 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
     // only opt out of it, never point somewhere else.
     surfaces: ["access"],
     // Hidden unless there is a live gate to switch off: no required platform,
-    // a platform whose link is gone, or an event that hides Studio branding
-    // (the gallery gates none of those — see resolveSocialVisitGate). An off
-    // switch for something already off is noise, and there is nothing the
-    // Studio can do about it from here. This used to live in the card wrapper;
-    // the row owns it now that the card is gone.
-    isRelevant: (ctx) => !!ctx.requiredVisitLabel,
+    // a platform whose link is gone, or an event that hides the Studio profile
+    // (the gallery gates none of those — see resolveSocialVisitGate). And
+    // hidden with downloads OFF: the visit is asked at a Guest's first
+    // download, so with no downloads it can never be asked — the same pattern
+    // the archive row follows. An off switch for something already off is
+    // noise, and there is nothing the Studio can do about it from here.
+    isRelevant: (ctx, value) => !!ctx.requiredVisitLabel && value.allow_download,
     label: (ctx) => `Ask Guests to open ${ctx.requiredVisitLabel ?? "your required link"}`,
-    description: (ctx) =>
-      `Every Guest opens your ${ctx.requiredVisitLabel ?? "required"} page once before they see their photos. The link is set in Settings → Social Links.`,
-    consequence: () => "Guests of this event go straight to their photos. Your other events still ask.",
+    description: () => "Once, before their first download.",
+    consequence: () => "Guests of this event download without opening it. Your other events still ask.",
   },
   {
     key: "face_search_enabled",
     type: "toggle",
     surfaces: ["access"],
-    label: () => "Let Guests find their photos with a selfie",
-    description: () =>
-      "Guests can take a selfie to see the photos they appear in, or skip it and browse.",
+    label: () => "Selfie search",
+    description: () => "Guests find their photos with a selfie.",
     // Spells out what a Guest is left with, because the answer depends on
     // something the Studio controls on a different tab: without face search,
     // a public folder is the only thing standing between a Guest and a
     // passcode prompt.
-    consequence: () =>
-      "No selfie step and no My Photos tab. Guests without the passcode see only your public folders, and must enter the passcode if no folder is public.",
+    consequence: () => "No selfie step or My Photos. Guests without the passcode see only public folders.",
     // The combination that leaves a Guest with nothing: face search off AND no
     // public folder holding anything. Both halves are deliberate settings, they
     // live on different tabs, and neither is wrong on its own — which is
     // exactly why this has to be said where the second one is chosen.
     warning: (ctx, value) =>
       !value.face_search_enabled && ctx.hasPublicFolderWithMedia === false
-        ? "No folder is public yet, so Guests will need the passcode to see any photos. Make a folder public from the Media tab to give everyone a preview."
+        ? "No folder is public, so Guests need the passcode to see photos. Make one public on the Media tab."
         : null,
   },
 ];

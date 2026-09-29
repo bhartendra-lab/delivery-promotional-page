@@ -272,12 +272,16 @@ function PhotoTile({
           src={gridSrc(item)}
           alt=""
           loading="lazy"
+          // Casual-save deterrent (see GuestInspectDeterrent): no drag-out, no
+          // iOS long-press save sheet, no selection highlight. On the image
+          // only — the page's text stays selectable.
+          draggable={false}
           onLoad={() => setLoaded(true)}
           onError={(e) => degradeGridSrc(e.currentTarget, item)}
           className={
             isJustified
-              ? `absolute inset-0 h-full w-full rounded-[8px] object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`
-              : "h-full w-full object-cover transition-opacity duration-300 ease-out group-hover:opacity-[0.94]"
+              ? `absolute inset-0 h-full w-full select-none rounded-[8px] object-cover transition-opacity duration-300 ease-out [-webkit-touch-callout:none] ${loaded ? "opacity-100" : "opacity-0"}`
+              : "h-full w-full select-none object-cover transition-opacity duration-300 ease-out [-webkit-touch-callout:none] group-hover:opacity-[0.94]"
           }
         />
         {/* soft theme-tinted wash on hover (replaces the old zoom) */}

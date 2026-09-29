@@ -84,10 +84,12 @@ export function GalleryDesignTab({
    * not have is a lie the studio would design around.
    */
   faceSearchEnabled: boolean;
+  /** No `include_company_branding` any more: "Show your studio profile" moved
+   *  to the Gallery preferences modal on Access & Sharing, and saving here
+   *  must not write back a stale copy of it. */
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
-    include_company_branding: boolean;
     guest_types: string[];
   }) => Promise<void>;
 }) {
@@ -111,7 +113,10 @@ export function GalleryDesignTab({
   );
   const [showAllThemes, setShowAllThemes] = useState(false);
   const [message, setMessage] = useState(initialCustomMessage ?? "");
-  const [branding, setBranding] = useState(initialIncludeBranding ?? true);
+  // READ-ONLY here now. "Show your studio profile" is edited in the Gallery
+  // preferences modal on Access & Sharing; the preview follows the SAVED value
+  // (ctx.meta.includeBranding), so it still shows exactly what Guests get.
+  const branding = initialIncludeBranding ?? true;
   const [guestTypes, setGuestTypes] = useState<string[]>(initialGuestTypes ?? []);
   const [scope, setScope] = useState<"landing" | "gallery">("landing");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -145,9 +150,8 @@ export function GalleryDesignTab({
     () =>
       variant !== startVariant ||
       message !== (initialCustomMessage ?? "") ||
-      branding !== (initialIncludeBranding ?? true) ||
       JSON.stringify(cleanGuestTypes) !== JSON.stringify(initialClean),
-    [variant, message, branding, cleanGuestTypes, initialClean, startVariant, initialCustomMessage, initialIncludeBranding],
+    [variant, message, cleanGuestTypes, initialClean, startVariant, initialCustomMessage],
   );
 
   async function save() {
@@ -156,7 +160,6 @@ export function GalleryDesignTab({
       await onSave({
         style_variant: variant,
         custom_message: message,
-        include_company_branding: branding,
         guest_types: cleanGuestTypes,
       });
       setSavedTick(true);
@@ -259,6 +262,7 @@ export function GalleryDesignTab({
         <SectionCard
           overline="Guest Teams / Sub-types"
           tip="Shown on the guest “Which team are you in?” screen after sign-in (e.g. Bride Team / Groom Team). Leave empty to skip that step entirely."
+          last
         >
           {guestTypes.length > 0 && (
             <div className="mb-2 flex flex-col gap-2">
@@ -271,6 +275,10 @@ export function GalleryDesignTab({
                     }
                     placeholder="e.g. Bride Team"
                     aria-label={`Team ${i + 1}`}
+                    // The server keeps 40 characters and 6 teams (see
+                    // sanitizeGuestTypes); the form says so up front rather
+                    // than letting a save quietly trim.
+                    maxLength={40}
                     className="brand-focus block min-w-0 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[13.5px] text-[var(--color-brand-ink)] outline-none"
                   />
                   <button
@@ -285,6 +293,7 @@ export function GalleryDesignTab({
               ))}
             </div>
           )}
+          {guestTypes.length < 6 && (
           <button
             type="button"
             onClick={() => setGuestTypes((prev) => [...prev, ""])}
@@ -292,40 +301,12 @@ export function GalleryDesignTab({
           >
             <IconPlus size={14} /> Add team
           </button>
+          )}
           {guestTypes.length === 0 && (
             <p className="mt-2 text-[12px] text-[var(--color-brand-muted)]">
               No teams. Guests skip the team question and go straight to their photos.
             </p>
           )}
-        </SectionCard>
-
-        <SectionCard overline="Global Profile Injections" last>
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <span
-              className="mt-px inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border"
-              style={{
-                borderColor: branding ? "var(--color-brand-navy)" : "var(--color-brand-outline)",
-                background: branding ? "var(--color-brand-navy)" : "#FFFFFF",
-                color: "#FFFFFF",
-              }}
-            >
-              {branding && <IconCheck size={12} />}
-            </span>
-            <input
-              type="checkbox"
-              checked={branding}
-              onChange={(e) => setBranding(e.target.checked)}
-              className="sr-only"
-            />
-            <span className="text-[13.5px] font-semibold text-[var(--color-brand-ink)]">
-              Inject Studio Socials &amp; Review Links
-              <span className="mt-0.5 block text-[12px] font-normal text-[var(--color-brand-muted)]">
-                {showReviewPrompt
-                  ? "Shows your Instagram, Facebook and a Google review prompt at the foot of the gallery."
-                  : "Shows your social links at the foot of the gallery. Google review prompts are off for this gallery."}
-              </span>
-            </span>
-          </label>
         </SectionCard>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
