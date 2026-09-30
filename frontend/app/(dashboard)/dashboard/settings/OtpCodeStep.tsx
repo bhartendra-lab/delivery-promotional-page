@@ -10,7 +10,8 @@ const CODE_LEN = 6;
 
 /**
  * The OTP-entry step shared by the business-email and WhatsApp-number verify
- * flows (Settings → Studio Identity): code input, auto-submit at CODE_LEN,
+ * flows (Settings → Studio Identity) and the emailed-code sign-in on /login:
+ * code input, auto-submit at CODE_LEN,
  * the error box, Verify, the resend countdown, and resend's 429/retryAfter
  * drift-safety. Step 1 — collecting the destination — stays owned by each
  * caller; it's genuinely different there (email input + "same as login

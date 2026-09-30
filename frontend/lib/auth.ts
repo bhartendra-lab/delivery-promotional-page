@@ -1,7 +1,19 @@
 import type { Company } from "./types";
 
-const TOKEN_KEY = "dlp_token";
+/** Shared with app/api/session/route.ts, which re-issues the same cookie. */
+export const TOKEN_KEY = "dlp_token";
 const COMPANY_KEY = "dlp_company";
+
+/**
+ * "Stay signed in on this device." 400 days is the longest any browser will
+ * keep a cookie (Chrome caps Max-Age there). The backend's token lasts a year
+ * and is re-minted daily while the dashboard is in use (refreshSessionIfStale
+ * in lib/api.ts), so an active device never reaches either limit.
+ */
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 400;
+
+/** How old a session token gets before the dashboard swaps it for a fresh one. */
+export const SESSION_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
 
 export function getToken(): string | null {
   if (typeof document === "undefined") return null;
@@ -12,15 +24,48 @@ export function getToken(): string | null {
   return decodeURIComponent(match.split("=")[1] ?? "") || null;
 }
 
-export function setToken(token: string) {
+/**
+ * Stores the session token, then has our own server re-issue the same cookie.
+ *
+ * The first write is here so the very next request can already read it. It is
+ * not enough on its own: Safari (and every iOS browser) caps a cookie written
+ * from JavaScript at 7 days whatever Max-Age says, which would sign a studio
+ * out after a week away. A Set-Cookie from the same origin isn't capped, so
+ * /api/session repeats it with the full lifetime. If that call fails the studio
+ * is still signed in — only the week-long Safari limit comes back.
+ */
+export async function setToken(token: string): Promise<void> {
   if (typeof document === "undefined") return;
-  const oneWeek = 60 * 60 * 24 * 7;
-  document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; Path=/; Max-Age=${oneWeek}; SameSite=Lax`;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+  try {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    /* see above — the cookie written here still works */
+  }
 }
 
 export function clearToken() {
   if (typeof document === "undefined") return;
+  // Also removes the /api/session copy: same name, host and path, and it is
+  // deliberately not HttpOnly (every API call reads it for the Bearer header).
   document.cookie = `${TOKEN_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+/** When the token was minted (ms), from its `iat` claim — null if unreadable. No signature check: scheduling only. */
+export function tokenIssuedAt(token: string): number | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const { iat } = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as { iat?: unknown };
+    return typeof iat === "number" ? iat * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isAuthenticated(): boolean {

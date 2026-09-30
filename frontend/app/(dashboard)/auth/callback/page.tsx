@@ -18,8 +18,8 @@ export default function StudioAuthCallbackPage() {
       window.location.replace("/login?error=auth_failed");
       return;
     }
-    setToken(token);
-    getCompanyDetails()
+    setToken(token)
+      .then(() => getCompanyDetails())
       .then(({ company }) => {
         setCompany(company);
         const dest = needsOnboarding(company) ? "/onboarding" : "/dashboard";

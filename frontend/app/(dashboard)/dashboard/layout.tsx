@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getCompany, setCompany, isAuthenticated, needsOnboarding } from "@/lib/auth";
-import { getCompanyDetails } from "@/lib/api";
+import { getCompanyDetails, refreshSessionIfStale } from "@/lib/api";
 import { Sidebar, useSidebarCollapsed } from "@/components/dashboard/Sidebar";
 import { Topbar, type Breadcrumb } from "@/components/dashboard/Topbar";
 import { ActiveUploadsIndicator } from "@/components/dashboard/ActiveUploadsIndicator";
@@ -28,6 +28,9 @@ export default function DashboardLayout({
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }
+    // Keeps this device signed in: a no-op until the token is a day old, then
+    // swapped for one good for another year. Fire-and-forget.
+    void refreshSessionIfStale();
     const cached = getCompany();
     if (cached) {
       if (needsOnboarding(cached)) {

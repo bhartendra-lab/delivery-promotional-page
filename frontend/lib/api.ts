@@ -1,4 +1,4 @@
-import { getToken, clearToken, getCompany } from "./auth";
+import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { UploadVariant } from "./r2-upload/compressor";
 import type {
@@ -138,11 +138,16 @@ export function getCompanyDetails() {
   return request<{ company: Company }>("/onboarding/get-company-details");
 }
 
-/* ── Get Started: email-or-Google login ────────────────────────── */
+/* ── Studio sign-in: emailed code (or Google) ──────────────────── */
 
-/** POST /auth/check-email — does any User already exist for this email? Pre-auth, no cookie yet. */
-export function checkEmailExists(email: string) {
-  return request<{ exists: boolean }>("/auth/check-email", {
+/**
+ * POST /auth/studio/request-otp — emails a 6-digit sign-in code. Works the same
+ * for an existing studio and a brand-new email; nothing is created until the
+ * code is verified. 429 (with `retryAfter`) inside the 30s resend cooldown,
+ * 403 for a deactivated account.
+ */
+export function requestStudioOtp(email: string) {
+  return request<{ message: string }>("/auth/studio/request-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -150,19 +155,34 @@ export function checkEmailExists(email: string) {
   });
 }
 
-/**
- * POST /auth/email-signup — brand-new email: auto-provisions a Company +
- * admin User + Free subscription and emails a password-setup link. No token
- * back — the user must complete that link (existing /reset-password flow)
- * before they can log in.
- */
-export function emailSignup(email: string) {
-  return request<{ message: string }>("/auth/email-signup", {
+/** POST /auth/studio/verify-otp — signs in (creating the studio for a new email) and returns a long-lived token. */
+export function verifyStudioOtp(email: string, code: string) {
+  return request<LoginResponse>("/auth/studio/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, code }),
     auth: false,
   });
+}
+
+/**
+ * Swaps the session token for a fresh one once it's a day old — what keeps a
+ * device signed in for good: each day the dashboard is opened pushes expiry a
+ * full year out (and re-issues the 400-day cookie). Best-effort; the current
+ * token keeps working until then. A 401 here means the token is already dead,
+ * and `request` clears it like any other 401.
+ */
+export async function refreshSessionIfStale(): Promise<void> {
+  const token = getToken();
+  if (!token) return;
+  const issuedAt = tokenIssuedAt(token);
+  if (issuedAt !== null && Date.now() - issuedAt < SESSION_REFRESH_AFTER_MS) return;
+  try {
+    const res = await request<{ token: string }>("/auth/studio/refresh", { method: "POST" });
+    await setToken(res.token);
+  } catch {
+    /* best-effort — see above */
+  }
 }
 
 /* ── Mandatory studio onboarding: WhatsApp OTP ─────────────────── */
@@ -617,30 +637,6 @@ export function previewCheckout(input: { service_id: string; quantity?: number; 
  */
 export function getInvoice(id: string) {
   return request<{ invoice: Invoice; pdf_url: string }>(`/billing/invoices/${encodeURIComponent(id)}`);
-}
-
-export function checkResetLink(userId: string) {
-  return request<{ valid: true }>(`/auth/check-reset-link/${encodeURIComponent(userId)}`, {
-    auth: false,
-  });
-}
-
-export function resetPassword(userId: string, newPassword: string) {
-  return request<LoginResponse>("/auth/reset-password", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId, new_password: newPassword }),
-    auth: false,
-  });
-}
-
-export function login(email: string, password: string) {
-  return request<LoginResponse>("/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-    auth: false,
-  });
 }
 
 export function getDlpUsage() {

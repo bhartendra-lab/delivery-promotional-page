@@ -105,6 +105,8 @@ test("isGuestSurfacePath: every dashboard surface is refused", () => {
     "/checkout",
     "/reset-password",
     "/auth/callback",
+    // The studio session cookie is only ever set on the dashboard's own domain.
+    "/api/session",
   ]) {
     assert.equal(isGuestSurfacePath(path), false, path);
   }

@@ -2,9 +2,10 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { login, checkEmailExists, emailSignup } from "@/lib/api";
+import { requestStudioOtp, verifyStudioOtp, ApiError } from "@/lib/api";
 import { setToken, setCompany, sanitizeRedirectPath } from "@/lib/auth";
-import { IconMail, IconLock, IconWarningCircle, IconArrowRight, IconGoogle, IconArrowLeft } from "@/components/ui/icons";
+import { IconMail, IconWarningCircle, IconArrowRight, IconGoogle } from "@/components/ui/icons";
+import { OtpCodeStep } from "@/app/(dashboard)/dashboard/settings/OtpCodeStep";
 
 export default function LoginPage() {
   return (
@@ -88,7 +89,7 @@ function BrandPanel() {
   );
 }
 
-type Step = "email" | "password" | "check-email";
+type Step = "email" | "code";
 
 function LoginForm() {
   const router = useRouter();
@@ -98,52 +99,47 @@ function LoginForm() {
 
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const googleHref = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/auth/google/studio-login`;
 
-  async function handleEmailContinue(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSendCode(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) return;
     setSubmitting(true);
     setError(null);
     try {
-      const { exists } = await checkEmailExists(trimmed);
-      if (exists) {
-        setStep("password");
-      } else {
-        await emailSignup(trimmed);
-        setStep("check-email");
-      }
+      await requestStudioOtp(trimmed);
+      setEmail(trimmed);
+      setStep("code");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      // The server's resend cooldown (it carries `retryAfter`; the IP rate
+      // limiter's 429 doesn't) means a code went to this address seconds ago —
+      // typically "Back" then "Send code" again. That code is still good, so
+      // go and enter it.
+      if (err instanceof ApiError && err.status === 429 && err.body && typeof err.body === "object" && "retryAfter" in err.body) {
+        setEmail(trimmed);
+        setStep("code");
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handlePasswordSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await login(email, password);
-      setToken(res.token);
-      setCompany(res.company);
-      router.replace(redirectTo);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setSubmitting(false);
-    }
+  async function handleVerify(code: string) {
+    // Throws on a bad code; OtpCodeStep shows the message and clears the boxes.
+    const res = await verifyStudioOtp(email, code);
+    await setToken(res.token);
+    setCompany(res.company);
+    router.replace(redirectTo);
   }
 
   function backToEmail() {
     setStep("email");
-    setPassword("");
     setError(null);
   }
 
@@ -166,7 +162,7 @@ function LoginForm() {
                   Sign in to your studio
                 </h2>
                 <p className="text-sm text-[var(--color-brand-muted)]">
-                  Enter your email to continue.
+                  Enter your email and we&apos;ll send you a 6-digit code. New here? The same code sets up your studio.
                 </p>
               </div>
 
@@ -180,7 +176,7 @@ function LoginForm() {
                 </p>
               )}
 
-              <form onSubmit={handleEmailContinue} className="mt-7 space-y-4">
+              <form onSubmit={handleSendCode} className="mt-7 space-y-4">
                 <Field
                   label="Email"
                   type="email"
@@ -199,9 +195,9 @@ function LoginForm() {
                   className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {submitting ? (
-                    <><Spinner />Checking…</>
+                    <><Spinner />Sending code…</>
                   ) : (
-                    <>Continue<IconArrowRight size={15} /></>
+                    <>Send code<IconArrowRight size={15} /></>
                   )}
                 </button>
               </form>
@@ -226,74 +222,29 @@ function LoginForm() {
             </>
           )}
 
-          {step === "password" && (
+          {step === "code" && (
             <>
-              <div className="space-y-1.5">
+              <div className="mb-5 space-y-1.5">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-muted)]">
-                  Welcome back
+                  Check your inbox
                 </p>
                 <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">
-                  Enter your password
+                  Enter your code
                 </h2>
                 <p className="text-sm text-[var(--color-brand-muted)]">
-                  Signing in as <span className="font-medium text-[var(--color-brand-ink)]">{email}</span>.{" "}
-                  <button type="button" onClick={backToEmail} className="brand-focus font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline">
-                    Use a different email
-                  </button>
+                  You&apos;ll stay signed in on this device.
                 </p>
               </div>
 
-              <form onSubmit={handlePasswordSubmit} className="mt-7 space-y-4">
-                <Field
-                  label="Password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={setPassword}
-                  icon={<IconLock size={16} />}
-                />
+              <OtpCodeStep
+                destination={email}
+                onBack={backToEmail}
+                onVerify={handleVerify}
+                onResend={() => requestStudioOtp(email)}
+              />
 
-                {error && <ErrorBanner message={error} />}
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submitting ? (
-                    <><Spinner />Signing in…</>
-                  ) : (
-                    <>Sign in<IconArrowRight size={15} /></>
-                  )}
-                </button>
-
-                <p className="pt-1 text-center text-xs text-[var(--color-brand-muted)]">
-                  Trouble signing in? Reach out to your account manager.
-                </p>
-              </form>
-            </>
-          )}
-
-          {step === "check-email" && (
-            <>
-              <button
-                type="button"
-                onClick={backToEmail}
-                className="brand-focus mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-              >
-                <IconArrowLeft size={13} />
-                Back
-              </button>
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]">
-                <IconMail size={18} />
-              </div>
-              <h2 className="mt-4 text-2xl font-bold text-[var(--color-brand-ink)]">
-                Check your email
-              </h2>
-              <p className="mt-1.5 text-sm text-[var(--color-brand-muted)]">
-                We&apos;ve sent a link to <span className="font-medium text-[var(--color-brand-ink)]">{email}</span> to
-                set up your password. Click it to finish setting up your studio.
+              <p className="pt-4 text-center text-xs text-[var(--color-brand-muted)]">
+                Can&apos;t find it? Check your spam folder, or reach out to your account manager.
               </p>
             </>
           )}
