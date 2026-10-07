@@ -144,6 +144,15 @@ export function isPhotoCapExceeded(err: unknown): boolean {
   return getApiErrorCode(err) === "PHOTO_CAP_EXCEEDED";
 }
 
+/**
+ * True for the 402 presign-uploads and create-media answer with when a storage
+ * plan is full. Like the photo cap, the uploader pauses on it rather than
+ * failing, so check it before any blanket 402 handling.
+ */
+export function isStorageLimitExceeded(err: unknown): boolean {
+  return getApiErrorCode(err) === "STORAGE_LIMIT_EXCEEDED";
+}
+
 /** The cap status carried by a PHOTO_CAP_EXCEEDED error, or null. */
 export function getApiPhotoCap(err: unknown): PhotoCap | null {
   if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
