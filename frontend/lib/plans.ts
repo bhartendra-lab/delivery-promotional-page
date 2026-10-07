@@ -183,7 +183,7 @@ export function payPerEventTerms(
 ): string[] {
   const { cap, addonSize, addonPrice } = photoCapTermsOf(plan);
   const lines = [
-    `Each event can hold up to ${formatCount(cap)} photos and videos at a time.`,
+    `Each event can hold up to ${formatCount(cap)} photos at a time.`,
     "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
     `Need more room? Add ${formatCount(addonSize)} photos to an event for ${formatInr(addonPrice)}. Capacity is added in blocks of ${formatCount(addonSize)}.`,
     "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",

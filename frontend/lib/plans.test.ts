@@ -162,7 +162,7 @@ test("photoCapTermsOf: API figures win; the named fallbacks fill only what is mi
 test("payPerEventTerms: every figure comes from the plan", () => {
   const lines = payPerEventTerms(eventPlan({ photo_cap: 25000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 }));
   assert.equal(lines.length, 5);
-  assert.equal(lines[0], "Each event can hold up to 25,000 photos and videos at a time.");
+  assert.equal(lines[0], "Each event can hold up to 25,000 photos at a time.");
   assert.equal(lines[2], "Need more room? Add 2,500 photos to an event for ₹75. Capacity is added in blocks of 2,500.");
 });
 
