@@ -30,6 +30,10 @@ type SubscriptionBase = {
   grace_until: number | null;
   suspend_at: number | null;
   delete_at: number | null;
+  /** True when this studio would get the first-purchase bonus if it bought
+   *  events now. Optional: older API responses don't carry it. Never show the
+   *  offer to a studio without it. */
+  first_purchase_offer_eligible?: boolean;
 };
 
 export type CountBasedSnapshot = SubscriptionBase & {
@@ -115,7 +119,7 @@ export type CheckoutProration = {
 export type CheckoutPreview =
   | { mode: "scheduled"; message: string; effective_at: number }
   | {
-      mode: "event_topup" | "new_subscription" | "tier_upgrade" | "interval_upgrade";
+      mode: "event_topup" | "new_subscription" | "tier_upgrade" | "interval_upgrade" | "photo_cap_topup";
       description: string;
       gross_amount: number;
       discount_amount: number;
@@ -125,7 +129,34 @@ export type CheckoutPreview =
       /** false when a coupon covers the full price — show "Activate plan", not "Pay ₹0.00". */
       requires_payment: boolean;
       proration: CheckoutProration | null;
+      /** Free events the first-purchase offer adds to this purchase; 0 or absent when none. */
+      bonus_events?: number;
+      /** Set when this event purchase leaves a lapsed storage plan that still
+       *  has galleries: paying deletes them. Checkout refuses until the request
+       *  carries `confirm_storage_clear: true`. */
+      storage_data_warning?: StorageDataWarning | null;
+      /** photo_cap_topup only: items this purchase adds to the event's cap. */
+      photos_added?: number;
     };
+
+export type StorageDataWarning = { galleries: number; message: string };
+
+/**
+ * Photo cap status of one event. Null (or absent) means the event has no cap,
+ * which is every storage-plan event. Sent by GET /deliverables/archive-tiers,
+ * by create-media next to `storage`, and inside the 402 both upload endpoints
+ * answer with when the cap is hit ({ code: "PHOTO_CAP_EXCEEDED", photo_cap }).
+ */
+export type PhotoCap = {
+  /** Base cap plus whatever was bought for this event. */
+  cap: number;
+  /** Media items in the event right now. */
+  used: number;
+  remaining: number;
+  addon_size: number;
+  /** GST-inclusive rupees per block. */
+  addon_price: number;
+};
 
 export type Invoice = {
   _id: string;

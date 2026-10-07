@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getCompany, setCompany, isAuthenticated, needsOnboarding } from "@/lib/auth";
+import { getCompany, setCompany, isAuthenticated, needsOnboarding, needsPlan, PLAN_STEP_PATH } from "@/lib/auth";
 import { getCompanyDetails, refreshSessionIfStale } from "@/lib/api";
 import { Sidebar, useSidebarCollapsed } from "@/components/dashboard/Sidebar";
 import { Topbar, type Breadcrumb } from "@/components/dashboard/Topbar";
@@ -37,6 +37,13 @@ export default function DashboardLayout({
         router.replace("/onboarding");
         return;
       }
+      // Onboarded but not paid: the compulsory plan step. That page re-checks
+      // against a fresh company, so a cache that is merely stale (the studio
+      // paid on another device) sends them back here with the gate open.
+      if (needsPlan(cached)) {
+        router.replace(PLAN_STEP_PATH);
+        return;
+      }
       // eslint-disable-next-line react-hooks/set-state-in-effect -- auth/onboarding gate: flips once after a synchronous cache check
       setReady(true);
       // Refresh the cache in the BACKGROUND, without re-running the gate above.
@@ -52,8 +59,16 @@ export default function DashboardLayout({
       // Deliberately does NOT re-evaluate needsOnboarding: the gate has already
       // decided from the cache, and letting a late response redirect someone
       // mid-session would be a behaviour change well beyond keeping links fresh.
+      //
+      // The one exception is the plan gate. A studio that has not paid must
+      // never be left on the dashboard, and a cache written before
+      // `plan_required` existed cannot know: so if the fresh company says a
+      // plan is required, that redirect does happen.
       getCompanyDetails()
-        .then((res) => setCompany(res.company))
+        .then((res) => {
+          setCompany(res.company);
+          if (!needsOnboarding(res.company) && needsPlan(res.company)) router.replace(PLAN_STEP_PATH);
+        })
         .catch(() => {
           /* best-effort; the cache simply stays as it was */
         });
@@ -63,6 +78,10 @@ export default function DashboardLayout({
           setCompany(res.company);
           if (needsOnboarding(res.company)) {
             router.replace("/onboarding");
+            return;
+          }
+          if (needsPlan(res.company)) {
+            router.replace(PLAN_STEP_PATH);
             return;
           }
           setReady(true);

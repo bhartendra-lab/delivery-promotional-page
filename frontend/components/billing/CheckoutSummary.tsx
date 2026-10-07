@@ -7,6 +7,7 @@ export function CheckoutSummary({
   subtitle,
   lines,
   discountAmount,
+  bonusEvents,
   taxableValue,
   taxLines,
   prorationCredit,
@@ -20,6 +21,8 @@ export function CheckoutSummary({
   subtitle?: string;
   lines: { label: string; amount: number }[];
   discountAmount?: number | null;
+  /** Free events the first-purchase offer adds to this purchase (the preview's `bonus_events`). */
+  bonusEvents?: number | null;
   /** Taxable value (post-discount, pre-GST) and the CGST+SGST or IGST breakdown, from POST /billing/checkout/preview. */
   taxableValue?: number | null;
   taxLines?: { type: string; percent: number; amount: number }[] | null;
@@ -58,6 +61,14 @@ export function CheckoutSummary({
             <span className="tabular-nums text-[var(--color-brand-navy-deep)]">
               −{formatInr(discountAmount, { paise: true })}
             </span>
+          </div>
+        )}
+        {typeof bonusEvents === "number" && bonusEvents > 0 && (
+          <div className="flex items-baseline justify-between text-sm">
+            <span className="text-[var(--color-brand-muted)]">
+              First purchase offer: +{bonusEvents} free event{bonusEvents === 1 ? "" : "s"}
+            </span>
+            <span className="tabular-nums text-[var(--color-brand-navy-deep)]">{formatInr(0)}</span>
           </div>
         )}
         {prorationCredit && prorationCredit.amount > 0 && (

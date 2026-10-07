@@ -55,6 +55,12 @@ export type UploadEngineHook = {
   resumePendingMetadata: () => Promise<void>;
   /** Re-run the batch create-media call after a transient backend error. */
   retryMetadataSave: () => Promise<void>;
+  /**
+   * Carry on after the event's photo cap was raised: resumes a run that paused
+   * on the limit, or saves the rows a finished run could not. Call it only
+   * once the cap has actually grown, or the server refuses again.
+   */
+  resumeAfterPhotoCap: () => Promise<void>;
   /** Re-compress + re-upload one previously-failed file (user picks again). */
   retryFailed: (recordId: string, file: File) => Promise<void>;
   /** Wipe persisted state for this booking. */
@@ -335,6 +341,10 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
     await engine.retryMetadataSave();
   }, [engine]);
 
+  const resumeAfterPhotoCap = useCallback(async () => {
+    await engine.resumeAfterPhotoCap();
+  }, [engine]);
+
   const retryFailed = useCallback(
     async (recordId: string, file: File) => {
       await engine.retryFailed(recordId, file);
@@ -367,12 +377,13 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       setOutOfSync,
       resumePendingMetadata,
       retryMetadataSave,
+      resumeAfterPhotoCap,
       retryFailed,
       resetPersisted,
       onMediaUploaded,
       onMetadataSaved,
     }),
-    [progress, failed, resumableRecords, startUpload, cancelUpload, pause, resume, uploadCover, setOutOfSync, resumePendingMetadata, retryMetadataSave, retryFailed, resetPersisted, onMediaUploaded, onMetadataSaved],
+    [progress, failed, resumableRecords, startUpload, cancelUpload, pause, resume, uploadCover, setOutOfSync, resumePendingMetadata, retryMetadataSave, resumeAfterPhotoCap, retryFailed, resetPersisted, onMediaUploaded, onMetadataSaved],
   );
 }
 

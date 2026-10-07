@@ -178,8 +178,14 @@ export type Company = {
   gmb_skipped?: boolean;
   /** Stamped when the studio finishes the last mandatory onboarding step (Google Business, after WhatsApp verification). */
   onboarding_completed_at?: number | null;
-  /** One-shot flag for the "2 free events" welcome dialog. */
+  /** One-shot flag for the post-onboarding welcome dialog. */
   welcome_dialog_seen_at?: number | null;
+  /**
+   * True when the studio has not paid yet: it must buy events or a storage
+   * plan before it can use the dashboard. Read through needsPlan() in
+   * lib/auth.ts, which treats an absent value (an older cached company) as false.
+   */
+  plan_required?: boolean;
   /* ── Custom gallery domain ────────────────────────────────────────────
    * Mirrors the pending/verified shape of business_email above. The backend
    * deliberately never sends `cloudflare_custom_hostname_id` (stripped in

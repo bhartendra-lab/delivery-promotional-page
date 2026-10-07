@@ -14,11 +14,14 @@ export function UploadProgress({
   progress,
   onCancel,
   onTogglePause,
+  onAddCapacity,
 }: {
   progress: EngineProgress;
   /** Resolves once the run has fully settled (the caller shows the summary). */
   onCancel: () => void | Promise<void>;
   onTogglePause: () => void;
+  /** Opens the photo-limit panel. Offered only while the run is paused on the event's photo cap. */
+  onAddCapacity?: () => void;
 }) {
   const dashOffset = RING_CIRC * (1 - progress.percent / 100);
   const paused = progress.paused;
@@ -34,6 +37,11 @@ export function UploadProgress({
   // Nothing has moved for a while (most often: this tab was backgrounded and
   // the browser throttled it). Say so instead of spinning a stalled ring.
   const stalled = useUploadStalled(progress.isUploading, paused, progress.photosDone);
+  // Paused because the event reached its photo cap (another device filled it,
+  // or this tab was stale). Same shape as a full storage plan: a pause with a
+  // reason, never a failure.
+  const capPause = paused ? progress.photoCapPause : null;
+  const waiting = capPause?.waiting ?? 0;
 
   // No reset needed when the run ends: this card only renders while the engine
   // is active, so it unmounts (taking `cancelling` with it) the moment cancel
@@ -102,6 +110,8 @@ export function UploadProgress({
           <h3 className="mt-6 text-[22px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
             {cancelling
               ? "Stopping the upload…"
+              : capPause
+              ? "This event reached its photo limit"
               : paused && progress.storageFullWarning
               ? `Storage full — paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : paused
@@ -128,6 +138,12 @@ export function UploadProgress({
               ) : (
                 <>Finishing the photos already in flight so none are left half-uploaded.</>
               )
+            ) : capPause ? (
+              <>
+                <strong className="text-[var(--color-brand-ink)]">{waiting.toLocaleString("en-IN")}</strong> photo
+                {waiting === 1 ? " is" : "s are"} waiting. Add capacity to carry on, or stop here and keep what is
+                already in the gallery.
+              </>
             ) : paused && progress.storageFullWarning ? (
               <>
                 Every photo uploaded so far is saved and in the gallery. Free up space or upgrade
@@ -177,6 +193,31 @@ export function UploadProgress({
             <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
               {progress.storageFullWarning}
             </p>
+          </div>
+        )}
+
+        {/* The event's photo cap was reached mid-run. Adding capacity resumes
+            the run from where it paused; deleting photos and pressing Resume
+            works too, since only what is in the event right now counts. */}
+        {capPause && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-8 py-3.5">
+            <div className="flex items-start gap-2.5">
+              <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+              <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+                This event reached its photo limit. {waiting.toLocaleString("en-IN")} photo
+                {waiting === 1 ? " is" : "s are"} waiting.
+              </p>
+            </div>
+            {onAddCapacity && (
+              <button
+                type="button"
+                onClick={onAddCapacity}
+                disabled={cancelling}
+                className="brand-focus inline-flex shrink-0 items-center rounded-md bg-[var(--color-brand-navy)] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Add capacity
+              </button>
+            )}
           </div>
         )}
 
@@ -276,7 +317,7 @@ export function UploadProgress({
               disabled={cancelling}
               className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {cancelling ? "Stopping…" : "Stop upload"}
+              {cancelling ? "Stopping…" : capPause ? "Stop here" : "Stop upload"}
             </button>
             <button
               type="button"

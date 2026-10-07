@@ -9,6 +9,14 @@ const FOCUSABLE_SELECTOR =
 
 type Size = "sm" | "md" | "lg";
 
+/**
+ * Open modals, bottom to top. A dialog can now open over another one (the
+ * photo-limit terms over the upgrade modal), and only the TOP one may answer
+ * Escape or trap Tab — otherwise one Escape closes both. The page's scroll lock
+ * is released only when the last one closes.
+ */
+const openModals: symbol[] = [];
+
 const SIZE_CLASSES: Record<Size, string> = {
   sm: "sm:max-w-md",
   md: "sm:max-w-lg",
@@ -67,6 +75,10 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
 
+    const self = Symbol("modal");
+    openModals.push(self);
+    const isTop = () => openModals[openModals.length - 1] === self;
+
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     const focusables = panel?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
@@ -77,6 +89,7 @@ export function Modal({
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      if (!isTop()) return;
       if (e.key === "Escape") {
         onCloseRef.current();
         return;
@@ -100,7 +113,9 @@ export function Modal({
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = "";
+      const at = openModals.indexOf(self);
+      if (at >= 0) openModals.splice(at, 1);
+      if (openModals.length === 0) document.body.style.overflow = "";
       previouslyFocused.current?.focus();
     };
     // Deliberately excludes `onClose` — see onCloseRef above. This effect

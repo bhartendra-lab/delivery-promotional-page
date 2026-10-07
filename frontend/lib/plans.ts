@@ -5,6 +5,18 @@
 export type ServiceType = "Free" | "Event-based" | "Monthly" | "Yearly";
 export type BillingInterval = "one_time" | "monthly" | "yearly";
 
+/**
+ * The first-purchase offer on the pay-per-event plan: bonus events added to a
+ * studio's FIRST event purchase. A fixed number per studio, not per event
+ * bought. The API sends null whenever the offer is not live right now, so
+ * nothing here does date math: show it if it is there.
+ */
+export type FirstPurchaseOffer = {
+  bonus_events: number;
+  /** epoch ms; null = no end date */
+  valid_until: number | null;
+};
+
 export type Plan = {
   _id: string;
   name?: string | null;
@@ -17,6 +29,14 @@ export type Plan = {
   included_events?: number | null;
   qr_limit?: number | null;
   features?: string[] | null;
+  /* ── Event-based plan only. Optional: an API that predates them sends none. */
+  /** Media items one pay-per-event event can hold at a time. */
+  photo_cap?: number | null;
+  /** Items added by one paid capacity block. */
+  photo_cap_addon_size?: number | null;
+  /** GST-inclusive rupees for one capacity block. */
+  photo_cap_addon_price?: number | null;
+  first_purchase_offer?: FirstPurchaseOffer | null;
 };
 
 /**
@@ -100,6 +120,101 @@ export function eventPlanOf(plans: Plan[]): Plan | null {
 
 export function freePlanOf(plans: Plan[]): Plan | null {
   return plans.find((p) => p.service_type === "Free") ?? null;
+}
+
+/** The live first-purchase offer on a plan, or null. Never a zero-bonus offer. */
+export function firstPurchaseOfferOf(plan: Plan | null | undefined): FirstPurchaseOffer | null {
+  const offer = plan?.first_purchase_offer;
+  if (!offer || typeof offer.bonus_events !== "number" || offer.bonus_events <= 0) return null;
+  return {
+    bonus_events: offer.bonus_events,
+    valid_until: typeof offer.valid_until === "number" ? offer.valid_until : null,
+  };
+}
+
+/** "Buy 1 event, get 1 free" — the one wording of the offer, used everywhere. */
+export function offerLine(offer: FirstPurchaseOffer): string {
+  return `Buy 1 event, get ${offer.bonus_events} free`;
+}
+
+/** "1 free event" / "2 free events" */
+export function freeEventsLabel(count: number): string {
+  return `${count} free event${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Fallbacks for the photo-cap terms, used ONLY when the API does not send
+ * them (an older API, or the plans request failed). Every figure a studio
+ * reads should come from the plans API; these exist so copy never renders
+ * "undefined".
+ */
+export const FALLBACK_PHOTO_CAP = 20000;
+export const FALLBACK_PHOTO_CAP_ADDON_SIZE = 5000;
+export const FALLBACK_PHOTO_CAP_ADDON_PRICE = 50;
+
+export type PhotoCapTerms = {
+  /** Items one pay-per-event event holds at a time, before any add-on. */
+  cap: number;
+  addonSize: number;
+  /** GST-inclusive rupees per add-on block. */
+  addonPrice: number;
+};
+
+export function photoCapTermsOf(plan: Plan | null | undefined): PhotoCapTerms {
+  const num = (value: number | null | undefined, fallback: number) =>
+    typeof value === "number" && value >= 0 ? value : fallback;
+  return {
+    cap: num(plan?.photo_cap, FALLBACK_PHOTO_CAP),
+    addonSize: num(plan?.photo_cap_addon_size, FALLBACK_PHOTO_CAP_ADDON_SIZE) || FALLBACK_PHOTO_CAP_ADDON_SIZE,
+    addonPrice: num(plan?.photo_cap_addon_price, FALLBACK_PHOTO_CAP_ADDON_PRICE),
+  };
+}
+
+/**
+ * The pay-per-event terms, one sentence per line, with every figure taken from
+ * the plan. This is the text behind every "T&C apply": the app's terms dialog
+ * and the pricing page render exactly these lines, so they cannot disagree.
+ *
+ * `includeOffer: false` drops the offer line for a studio that cannot get it.
+ */
+export function payPerEventTerms(
+  plan: Plan | null | undefined,
+  opts: { includeOffer?: boolean } = {},
+): string[] {
+  const { cap, addonSize, addonPrice } = photoCapTermsOf(plan);
+  const lines = [
+    `Each event can hold up to ${formatCount(cap)} photos and videos at a time.`,
+    "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
+    `Need more room? Add ${formatCount(addonSize)} photos to an event for ${formatInr(addonPrice)}. Capacity is added in blocks of ${formatCount(addonSize)}.`,
+    "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",
+    "Each event stays live for 3 months from the day you create it. Unused events never expire.",
+  ];
+  const offer = opts.includeOffer === false ? null : firstPurchaseOfferOf(plan);
+  if (offer) {
+    const until = offer.valid_until != null ? ` Offer valid till ${formatOfferDate(offer.valid_until)}.` : "";
+    lines.push(
+      `First purchase offer for new studios: buy at least 1 event and get ${offer.bonus_events} free. One time per studio, whatever number of events you buy.${until}`,
+    );
+  }
+  return lines;
+}
+
+/** 20000 → "20,000" */
+export function formatCount(n: number): string {
+  return new Intl.NumberFormat("en-IN").format(n);
+}
+
+/**
+ * An offer's end date as a studio reads it: "31 Dec 2026". Pinned to India
+ * time so a server render and the browser can never disagree about the day.
+ */
+export function formatOfferDate(ms: number): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(ms));
 }
 
 /** Whole percent saved by paying yearly vs 12× monthly. null when incomparable. */

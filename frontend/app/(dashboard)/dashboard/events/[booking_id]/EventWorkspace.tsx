@@ -36,6 +36,7 @@ import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
+import type { PhotoCap } from "@/lib/billing-types";
 import {
   EventProvider,
   ALL_MEDIA_ID,
@@ -174,6 +175,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   /** The quality tier this event's last upload run used — seeds the upload
    *  dialog so the studio picks once per event. Null until the first upload. */
   const [uploadQualityTier, setUploadQualityTier] = useState<UploadVariant | null>(null);
+  // The event's photo cap as last read from archive-tiers; null when uncapped.
+  const [fetchedPhotoCap, setFetchedPhotoCap] = useState<PhotoCap | null>(null);
   const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
@@ -200,6 +203,20 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const { refreshDlpUsage } = useChrome();
 
   const engine = useUploadEngine(bookingId);
+  // The engine hears the cap on every create-media response, so during a run
+  // its figure is the fresher one. `used` is not read from either: the page's
+  // own `totalCount` is the live count of what is in the event.
+  //
+  // Whichever knows the higher cap wins: capacity is only ever added, so the
+  // lower figure is the stale one (the engine keeps its last value after a run,
+  // and would otherwise hide capacity bought since).
+  const enginePhotoCap = engine.progress.photoCap;
+  const photoCap =
+    enginePhotoCap && fetchedPhotoCap
+      ? enginePhotoCap.cap >= fetchedPhotoCap.cap
+        ? enginePhotoCap
+        : fetchedPhotoCap
+      : (enginePhotoCap ?? fetchedPhotoCap);
 
   // Pause needs its own trigger point — unlike cancel/completion it never
   // flips `isUploading` false, so it doesn't pass through the run-completion
@@ -543,14 +560,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // the booking (134 ms on a 20,000-photo event) and it was paying that on
   // every gallery load and every folder switch. Once per event instead, and
   // again after an upload run, which is the only thing that can change it.
-  const refreshArchiveTiers = useCallback(async () => {
+  const refreshArchiveTiers = useCallback(async (): Promise<PhotoCap | null> => {
     try {
       const res = await getArchiveTiers(bookingId);
       setArchiveTiers(res.archive_tiers ?? []);
       setUploadQualityTier(res.upload_quality_tier ?? null);
+      setFetchedPhotoCap(res.photo_cap ?? null);
+      return res.photo_cap ?? null;
     } catch {
       // Advisory only — it labels the download row and seeds the upload
-      // dialog. A failure here must not disturb the grid.
+      // dialog. A failure here must not disturb the grid. (The photo cap is
+      // enforced by the server whatever this page believes.)
+      return null;
     }
   }, [bookingId]);
 
@@ -930,6 +951,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       likedCount,
       archiveTiers,
       uploadQualityTier,
+      photoCap,
+      refreshPhotoCap: refreshArchiveTiers,
       shortlistedCount,
       likedFilters,
       setLikedFilters,
@@ -954,7 +977,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

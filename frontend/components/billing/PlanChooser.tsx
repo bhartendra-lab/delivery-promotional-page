@@ -5,6 +5,8 @@ import type { Plan, StorageTier } from "@/lib/plans";
 import {
   buildStorageTiers,
   eventPlanOf,
+  firstPurchaseOfferOf,
+  offerLine,
   formatInr,
   formatStorage,
   nearestAvailableIndex,
@@ -18,6 +20,7 @@ import { isStorageSnapshot } from "@/lib/billing-types";
 import { planHasLapsed } from "@/lib/subscription-status";
 import { StorageSlider } from "./StorageSlider";
 import { EventQuantity } from "./EventQuantity";
+import { PhotoLimitTermsLink } from "./PhotoLimitTerms";
 import { StorageIcon } from "@/app/(dashboard)/dashboard/settings/SettingsUI";
 import { IconCalendar, IconCheck, IconArrowLeft } from "@/components/ui/icons";
 
@@ -72,10 +75,19 @@ export function PlanChooser({
   const eventPlan = useMemo(() => eventPlanOf(plans), [plans]);
   const tiers = useMemo(() => buildStorageTiers(plans), [plans]);
   const currentServiceType = currentSnapshot?.service?.service_type ?? null;
-  // Single derived boolean every branch below reasons about — a storage-plan
-  // studio must never encounter any trace of pay-per-event (total
-  // suppression), and this is the one place that decision is made.
-  const eventOptionAvailable = Boolean(eventPlan) && !isStorageBasedPlan(currentServiceType);
+  // Single derived boolean every branch below reasons about — a studio on a
+  // RUNNING storage plan must never encounter any trace of pay-per-event
+  // (total suppression), and this is the one place that decision is made. A
+  // storage plan that has fully lapsed can move to pay per event (the API
+  // allows it, and warns before it clears that plan's galleries), so for that
+  // studio the option comes back.
+  const eventOptionAvailable =
+    Boolean(eventPlan) && (!isStorageBasedPlan(currentServiceType) || planHasLapsed(currentSnapshot));
+  // The first-purchase offer, shown only when it is live AND the API says this
+  // studio would get it. A studio that has bought events before, or was given
+  // free events at signup, must never see the line.
+  const liveOffer = firstPurchaseOfferOf(eventPlan);
+  const offer = liveOffer && currentSnapshot?.first_purchase_offer_eligible === true ? liveOffer : null;
   const hasStorage = tiers.length > 0;
   const bothAvailable = eventOptionAvailable && hasStorage;
 
@@ -188,6 +200,8 @@ export function PlanChooser({
       <PricingModelCards
         eventPlan={eventPlan!}
         tiers={tiers}
+        offerText={offer ? `${offerLine(offer)} on your first purchase` : null}
+        showOfferInTerms={Boolean(offer)}
         selectedMode={mode}
         onSelect={(m) => {
           setMode(m);
@@ -257,12 +271,29 @@ export function PlanChooser({
 
       {mode === "event" && eventPlan && (
         <div className="flex flex-col gap-4">
-          <p className="text-sm text-[var(--color-brand-muted)]">
-            {formatInr(eventPlan.event_unit_price ?? 0)} per event · GST included
-          </p>
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm text-[var(--color-brand-muted)]">
+              {formatInr(eventPlan.event_unit_price ?? 0)} per event · GST included
+            </p>
+            {offer && (
+              <p className="w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-navy-deep)]">
+                {offerLine(offer)} on your first purchase
+              </p>
+            )}
+            <p className="text-xs text-[var(--color-brand-muted)]">
+              Upload unlimited photos. Each event stays live for 3 months.{" "}
+              <PhotoLimitTermsLink eventPlan={eventPlan} showOffer={Boolean(offer)} />
+            </p>
+          </div>
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--color-brand-ink)]">How many events?</p>
             <EventQuantity quantity={qty} onChange={setQty} />
+            {/* The line that makes "one free, however many you buy" obvious. */}
+            {offer && (
+              <p className="mt-2 text-sm text-[var(--color-brand-ink)]" aria-live="polite">
+                You pay for {qty}. You get {qty + offer.bonus_events}.
+              </p>
+            )}
           </div>
           <div className="flex items-baseline justify-between rounded-lg bg-[var(--color-brand-bg)] px-4 py-3">
             <span className="text-sm text-[var(--color-brand-muted)]">
@@ -384,11 +415,16 @@ export function PlanChooser({
 function PricingModelCards({
   eventPlan,
   tiers,
+  offerText,
+  showOfferInTerms,
   selectedMode,
   onSelect,
 }: {
   eventPlan: Plan;
   tiers: StorageTier[];
+  /** The first-purchase offer line, or null when this studio would not get it. */
+  offerText: string | null;
+  showOfferInTerms: boolean;
   selectedMode: Mode;
   onSelect: (mode: Mode) => void;
 }) {
@@ -411,6 +447,7 @@ function PricingModelCards({
   const cardSelected = "border-[var(--color-brand-navy)] ring-1 ring-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]";
 
   return (
+    <div className="flex flex-col gap-3">
     <div role="radiogroup" aria-label="Pricing model" className="grid gap-4 sm:grid-cols-2">
       <button
         type="button"
@@ -426,10 +463,15 @@ function PricingModelCards({
           {formatInr(eventPlan.event_unit_price ?? 0)}
           <span className="text-sm font-normal text-[var(--color-brand-muted)]"> / event</span>
         </p>
+        {offerText && (
+          <p className="mt-2 w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-brand-navy-deep)]">
+            {offerText}
+          </p>
+        )}
         <ul className="mt-3 space-y-1.5 text-xs text-[var(--color-brand-muted)]">
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
-            Unlimited storage on every event
+            Upload unlimited photos*
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
@@ -476,6 +518,12 @@ function PricingModelCards({
           </li>
         </ul>
       </button>
+    </div>
+    {/* Outside the cards on purpose: each card is itself a button, and a
+        button cannot hold another one. */}
+    <p className="text-xs text-[var(--color-brand-muted)]">
+      *<PhotoLimitTermsLink eventPlan={eventPlan} showOffer={showOfferInTerms} />
+    </p>
     </div>
   );
 }

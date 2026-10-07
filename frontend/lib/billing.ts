@@ -19,8 +19,10 @@ export {
   getInvoice,
   ApiError,
   getApiErrorCode,
+  isPhotoCapExceeded,
+  getApiPhotoCap,
 } from "./api";
-export type { BillingProfileInput } from "./api";
+export type { BillingProfileInput, CheckoutInput } from "./api";
 
 export type {
   PlansResponse,
@@ -39,5 +41,7 @@ export type {
   BillingProfile,
   CheckoutProration,
   CheckoutPreview,
+  PhotoCap,
+  StorageDataWarning,
 } from "./billing-types";
 export { isStorageSnapshot } from "./billing-types";

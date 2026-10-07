@@ -15,15 +15,28 @@ import { CouponField, type AppliedCoupon } from "@/components/billing/CouponFiel
 import { CheckoutSummary } from "@/components/billing/CheckoutSummary";
 import { CheckoutFlowStatus } from "@/components/billing/CheckoutFlowStatus";
 import { useCheckoutFlow } from "@/components/billing/useCheckoutFlow";
+import { OnboardingPlanStep } from "@/components/billing/OnboardingPlanStep";
+import { StorageClearConfirm } from "@/components/billing/StorageClearConfirm";
+import { planHasLapsed } from "@/lib/subscription-status";
 
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
 export default function CheckoutPage() {
   return (
     <Suspense fallback={<CheckoutFallback />}>
-      <CheckoutShell />
+      <CheckoutRoute />
     </Suspense>
   );
+}
+
+/**
+ * `?onboarding=1` is the compulsory choose-a-plan step a new studio lands on
+ * after onboarding. Same route and the same purchase pieces, but a different
+ * frame: no plan is pre-chosen, and there is no way out except paying.
+ */
+function CheckoutRoute() {
+  const search = useSearchParams();
+  return search.get("onboarding") === "1" ? <OnboardingPlanStep /> : <CheckoutShell />;
 }
 
 function CheckoutFallback() {
@@ -58,6 +71,9 @@ function CheckoutShell() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [billingProfileIncomplete, setBillingProfileIncomplete] = useState(false);
+  // Ticked when the purchase would delete a lapsed storage plan's galleries
+  // (the preview's storage_data_warning).
+  const [confirmStorageClear, setConfirmStorageClear] = useState(false);
 
   const { state, runCheckout, reset } = useCheckoutFlow();
 
@@ -110,10 +126,13 @@ function CheckoutShell() {
   const guardMessage = useMemo(() => {
     if (!targetPlan) return null;
     if (targetPlan.service_type === "Free") return "The Free plan can't be purchased directly.";
+    // A storage plan that is still running cannot be traded for events. One
+    // that has fully lapsed can (the confirm step warns about its galleries).
     if (
       snapshot?.service &&
       ["Monthly", "Yearly"].includes(snapshot.service.service_type) &&
-      targetPlan.service_type === "Event-based"
+      targetPlan.service_type === "Event-based" &&
+      !planHasLapsed(snapshot)
     ) {
       return "Cannot switch from a storage plan to pay-per-event. Choose a storage tier instead.";
     }
@@ -133,6 +152,10 @@ function CheckoutShell() {
   }, [selection, targetPlan, guardMessage, qty]);
 
   const currentPlanName = snapshot?.service?.name || snapshot?.service?.service_type || "your current plan";
+  // Leaving a lapsed storage plan for events deletes that plan's galleries, so
+  // this purchase is never opened automatically: the studio reads the warning
+  // on the confirm step and ticks it first.
+  const needsStorageClearReview = effectiveSelection?.mode === "event" && planHasLapsed(snapshot);
 
   useEffect(() => {
     if (
@@ -140,13 +163,14 @@ function CheckoutShell() {
       effectiveSelection &&
       state.phase === "idle" &&
       !guardMessage &&
-      targetPlan
+      targetPlan &&
+      !needsStorageClearReview
     ) {
       autoOpened.current = true;
       fireCheckout(effectiveSelection);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveSelection, guardMessage, targetPlan]);
+  }, [effectiveSelection, guardMessage, targetPlan, needsStorageClearReview]);
 
   // Real tax + proration breakdown, computed server-side against the
   // company's own billing profile — replaces the client-guessed gross/total
@@ -203,6 +227,7 @@ function CheckoutShell() {
         ? { name: company.name, email: company.business_email, contact: company.whatsapp_number }
         : undefined,
       onCouponRejected: () => setAppliedCoupon(null),
+      confirmStorageClear,
     });
   }
 
@@ -304,7 +329,12 @@ function CheckoutShell() {
   // A coupon covering the full price leaves nothing to pay — the server
   // activates the plan outright, so the CTA must not read "Pay ₹0.00".
   const isFullyCouponed = hasPreview && !preview.requires_payment;
-  const canPay = !previewLoading && !billingProfileIncomplete && (isScheduled || displayTotal !== null);
+  const storageWarning = hasPreview ? preview.storage_data_warning ?? null : null;
+  const canPay =
+    !previewLoading &&
+    !billingProfileIncomplete &&
+    (isScheduled || displayTotal !== null) &&
+    (!storageWarning || confirmStorageClear);
   const payLabel =
     state.phase === "processing"
       ? isFullyCouponed
@@ -342,6 +372,7 @@ function CheckoutShell() {
         subtitle={isEvent ? `${qty} event${qty === 1 ? "" : "s"}` : undefined}
         lines={[{ label: grossLineLabel, amount: displayGross }]}
         discountAmount={displayDiscount}
+        bonusEvents={hasPreview ? preview.bonus_events : null}
         taxableValue={hasPreview ? preview.taxable_value : null}
         taxLines={hasPreview ? preview.tax_lines : null}
         prorationCredit={prorationCredit}
@@ -361,6 +392,10 @@ function CheckoutShell() {
           onChange={setAppliedCoupon}
           initialCode={couponParam}
         />
+      )}
+
+      {storageWarning && (
+        <StorageClearConfirm warning={storageWarning} checked={confirmStorageClear} onChange={setConfirmStorageClear} />
       )}
 
       <button

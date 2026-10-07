@@ -119,6 +119,15 @@ export type FolderProgress = {
   failed: number;
 };
 
+/** Mirrors `PhotoCap` in lib/billing-types.ts (kept structural so this module stays import-free). */
+export type PhotoCapStatus = {
+  cap: number;
+  used: number;
+  remaining: number;
+  addon_size: number;
+  addon_price: number;
+};
+
 /** Overall progress snapshot for the UI. */
 export type EngineProgress = {
   percent: number;
@@ -166,6 +175,24 @@ export type EngineProgress = {
    * Null on count-based plans and before the first figure lands.
    */
   storageRemainingGB: number | null;
+  /**
+   * Set when the event reached its photo cap mid-run (another device filled
+   * it, or this tab was stale): the server refused a presign or create-media
+   * with PHOTO_CAP_EXCEEDED. The run is PAUSED, not failed, exactly as a full
+   * storage plan pauses it. `waiting` is how many photos are not in the
+   * gallery yet; `photoCap` is the cap the server reported, when it sent one.
+   *
+   * Cleared by resume. After capacity is bought the run picks up where it
+   * stopped (`resumeAfterPhotoCap`); if the event is still full it simply
+   * pauses again on the next refusal.
+   */
+  photoCapPause: { waiting: number; photoCap: PhotoCapStatus | null } | null;
+  /**
+   * Last photo-cap status reported by create-media, so the count on screen
+   * stays live through a run. Null on an uncapped (storage-plan) event and
+   * before the first chunk lands.
+   */
+  photoCap: PhotoCapStatus | null;
   /** Set true while the engine is actively running (compress + upload). */
   isUploading: boolean;
   /** Set true if there are uploaded-but-unsaved records that need finalising. */

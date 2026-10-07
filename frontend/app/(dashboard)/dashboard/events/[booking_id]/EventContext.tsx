@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 import type { CustomFolder, MediaItem } from "@/lib/types";
 import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
+import type { PhotoCap } from "@/lib/billing-types";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -137,6 +138,14 @@ export type EventContextValue = {
    * confirmation, since mixing tiers leaves the gallery holding two qualities.
    */
   uploadQualityTier: UploadVariant | null;
+  /**
+   * Photo cap of a pay-per-event event: how many items it can hold at a time.
+   * Null for a storage-plan event, which has none. Read with the archive tiers
+   * and kept current from the upload engine's create-media responses.
+   */
+  photoCap: PhotoCap | null;
+  /** Re-reads the cap from the server; resolves with the fresh value. */
+  refreshPhotoCap: () => Promise<PhotoCap | null>;
   /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
   shortlistedCount: number;
   /** Active filters for the Smart Selects (liked) view. */

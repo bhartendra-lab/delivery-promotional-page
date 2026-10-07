@@ -8,6 +8,7 @@ import type { Plan } from "@/lib/plans";
 import { previewCheckout, getApiErrorCode } from "@/lib/billing";
 import type { CheckoutPreview } from "@/lib/billing-types";
 import { isStorageBasedPlan } from "@/lib/types";
+import { planHasLapsed } from "@/lib/subscription-status";
 import { useCompany } from "@/lib/useCompany";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
@@ -17,6 +18,7 @@ import { CheckoutSummary } from "@/components/billing/CheckoutSummary";
 import { CheckoutFlowStatus } from "@/components/billing/CheckoutFlowStatus";
 import { useCheckoutFlow } from "@/components/billing/useCheckoutFlow";
 import { BillingDetailsForm } from "@/components/billing/BillingDetailsForm";
+import { StorageClearConfirm } from "@/components/billing/StorageClearConfirm";
 import { IconArrowLeft, IconWarningCircle } from "@/components/ui/icons";
 
 type Step = "choose" | "billing" | "confirm" | "status";
@@ -66,12 +68,16 @@ export function UpgradeModal({
   const [preview, setPreview] = useState<CheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // Ticked on the confirm step when the purchase would delete a lapsed storage
+  // plan's galleries (the preview's storage_data_warning).
+  const [confirmStorageClear, setConfirmStorageClear] = useState(false);
 
   const currentPlanName = snapshot?.service?.name || snapshot?.service?.service_type || "your current plan";
   // Same derivation PlanChooser uses internally (same inputs), so the two
   // never disagree about whether pay-per-event exists for this studio.
   const eventOptionAvailable =
-    Boolean(eventPlanOf(plans)) && !isStorageBasedPlan(snapshot?.service?.service_type);
+    Boolean(eventPlanOf(plans)) &&
+    (!isStorageBasedPlan(snapshot?.service?.service_type) || planHasLapsed(snapshot));
   const needsBillingDetails = (billingKnownComplete ?? billingComplete) === false;
 
   function handleClose() {
@@ -79,12 +85,14 @@ export function UpgradeModal({
     setSelection(null);
     setAppliedCoupon(null);
     setPreview(null);
+    setConfirmStorageClear(false);
     reset();
     onClose();
   }
 
   function handleSelection(sel: PlanChooserSelection) {
     setSelection(sel);
+    setConfirmStorageClear(false);
     setStep(needsBillingDetails ? "billing" : "confirm");
   }
 
@@ -154,6 +162,7 @@ export function UpgradeModal({
         ? { name: company.name, email: company.business_email, contact: company.whatsapp_number }
         : undefined,
       onCouponRejected: () => setAppliedCoupon(null),
+      confirmStorageClear,
     });
   }
 
@@ -178,7 +187,9 @@ export function UpgradeModal({
   // A coupon covering the full price leaves nothing to pay — the server
   // activates the plan outright, so the CTA must not read "Pay ₹0.00".
   const isFullyCouponed = hasPreview && !preview.requires_payment;
-  const canPay = !previewLoading && (isScheduled || displayTotal !== null);
+  const storageWarning = hasPreview ? preview.storage_data_warning ?? null : null;
+  const canPay =
+    !previewLoading && (isScheduled || displayTotal !== null) && (!storageWarning || confirmStorageClear);
   const payLabel = isScheduled
     ? "Schedule change"
     : isFullyCouponed
@@ -288,6 +299,7 @@ export function UpgradeModal({
             subtitle={isEvent ? `${selection.quantity} event${selection.quantity === 1 ? "" : "s"}` : undefined}
             lines={[{ label: grossLineLabel, amount: displayGross }]}
             discountAmount={displayDiscount}
+            bonusEvents={hasPreview ? preview.bonus_events : null}
             taxableValue={hasPreview ? preview.taxable_value : null}
             taxLines={hasPreview ? preview.tax_lines : null}
             prorationCredit={prorationCredit}
@@ -310,6 +322,13 @@ export function UpgradeModal({
             quantity={isEvent ? selection.quantity : undefined}
             onChange={setAppliedCoupon}
           />
+          {storageWarning && (
+            <StorageClearConfirm
+              warning={storageWarning}
+              checked={confirmStorageClear}
+              onChange={setConfirmStorageClear}
+            />
+          )}
         </div>
       ) : loadFailed ? (
         <div className="flex flex-col items-center gap-3 py-8 text-center">

@@ -6,6 +6,16 @@ import {
   yearlySavingsPercent,
   formatStorage,
   formatInr,
+  firstPurchaseOfferOf,
+  offerLine,
+  freeEventsLabel,
+  photoCapTermsOf,
+  payPerEventTerms,
+  formatCount,
+  formatOfferDate,
+  FALLBACK_PHOTO_CAP,
+  FALLBACK_PHOTO_CAP_ADDON_SIZE,
+  FALLBACK_PHOTO_CAP_ADDON_PRICE,
   type Plan,
 } from "./plans.ts";
 
@@ -108,4 +118,81 @@ test("formatStorage: GB stays GB, TB rounds/formats", () => {
 
 test("formatInr: lakh grouping, not western thousands grouping", () => {
   assert.equal(formatInr(180000), "₹1,80,000");
+});
+
+/* ── Pay per event: first-purchase offer and photo cap ────────────────────── */
+
+function eventPlan(overrides: Partial<Plan> = {}): Plan {
+  return { _id: "event", service_type: "Event-based", event_unit_price: 499, ...overrides };
+}
+
+test("firstPurchaseOfferOf: null unless the API sent a live offer with a bonus", () => {
+  assert.equal(firstPurchaseOfferOf(null), null);
+  assert.equal(firstPurchaseOfferOf(eventPlan()), null);
+  assert.equal(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: null })), null);
+  assert.equal(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: { bonus_events: 0, valid_until: null } })), null);
+  assert.deepEqual(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: 123 } })), {
+    bonus_events: 1,
+    valid_until: 123,
+  });
+});
+
+test("offerLine / freeEventsLabel: the bonus comes from the offer, never a fixed 1", () => {
+  assert.equal(offerLine({ bonus_events: 1, valid_until: null }), "Buy 1 event, get 1 free");
+  assert.equal(offerLine({ bonus_events: 2, valid_until: null }), "Buy 1 event, get 2 free");
+  assert.equal(freeEventsLabel(1), "1 free event");
+  assert.equal(freeEventsLabel(2), "2 free events");
+});
+
+test("photoCapTermsOf: API figures win; the named fallbacks fill only what is missing", () => {
+  assert.deepEqual(photoCapTermsOf(null), {
+    cap: FALLBACK_PHOTO_CAP,
+    addonSize: FALLBACK_PHOTO_CAP_ADDON_SIZE,
+    addonPrice: FALLBACK_PHOTO_CAP_ADDON_PRICE,
+  });
+  assert.deepEqual(photoCapTermsOf(eventPlan({ photo_cap: 30000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 })), {
+    cap: 30000,
+    addonSize: 2500,
+    addonPrice: 75,
+  });
+  // A block that adds nothing is never offered.
+  assert.equal(photoCapTermsOf(eventPlan({ photo_cap_addon_size: 0 })).addonSize, FALLBACK_PHOTO_CAP_ADDON_SIZE);
+});
+
+test("payPerEventTerms: every figure comes from the plan", () => {
+  const lines = payPerEventTerms(eventPlan({ photo_cap: 25000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 }));
+  assert.equal(lines.length, 5);
+  assert.equal(lines[0], "Each event can hold up to 25,000 photos and videos at a time.");
+  assert.equal(lines[2], "Need more room? Add 2,500 photos to an event for ₹75. Capacity is added in blocks of 2,500.");
+});
+
+test("payPerEventTerms: the offer line appears only for a live offer, and only when asked for", () => {
+  const until = Date.UTC(2026, 11, 31, 12);
+  const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: until } });
+  const lines = payPerEventTerms(live);
+  assert.equal(lines.length, 6);
+  assert.equal(
+    lines[5],
+    "First purchase offer for new studios: buy at least 1 event and get 1 free. One time per studio, whatever number of events you buy. Offer valid till 31 Dec 2026.",
+  );
+  // No end date: the sentence about validity is left out, not left dangling.
+  const openEnded = payPerEventTerms(eventPlan({ first_purchase_offer: { bonus_events: 2, valid_until: null } }));
+  assert.equal(
+    openEnded[5],
+    "First purchase offer for new studios: buy at least 1 event and get 2 free. One time per studio, whatever number of events you buy.",
+  );
+  // A studio that cannot get the offer is not told about it.
+  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 5);
+});
+
+test("payPerEventTerms: no em dashes in copy a studio reads", () => {
+  const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: 1 } });
+  for (const line of payPerEventTerms(live)) assert.equal(line.includes("\u2014"), false, line);
+});
+
+test("formatCount / formatOfferDate", () => {
+  assert.equal(formatCount(20000), "20,000");
+  assert.equal(formatCount(500), "500");
+  // 31 Dec 2026, 23:30 IST is still the 31st in India, whatever zone the code runs in.
+  assert.equal(formatOfferDate(Date.UTC(2026, 11, 31, 18, 0)), "31 Dec 2026");
 });

@@ -87,6 +87,22 @@ export function needsOnboarding(company: Company): boolean {
 }
 
 /**
+ * The studio has finished onboarding but has not paid yet: it must buy events
+ * or a storage plan (the compulsory step at /checkout?onboarding=1) before it
+ * may see the dashboard. Decided by the API (`plan_required` on the company).
+ *
+ * An absent value is false on purpose. A company cached before this field
+ * existed has none, and reading that as "must pay" would trap every signed-in
+ * studio on the payment step.
+ */
+export function needsPlan(company: Company): boolean {
+  return company.plan_required === true;
+}
+
+/** Where a studio that still has to choose a plan is sent. */
+export const PLAN_STEP_PATH = "/checkout?onboarding=1";
+
+/**
  * Only allows a same-origin relative path as a post-login redirect target —
  * guards against an open redirect via a crafted `next`/`redirect` query
  * param (e.g. `//evil.com` or `https://evil.com`), which an attacker could

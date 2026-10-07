@@ -32,8 +32,10 @@ import {
   createArchiveMultipart,
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
+  getApiPhotoCap,
   getUploadedMediaIds,
   getWatermarkPresets,
+  isPhotoCapExceeded,
   presignUploads,
   putArchiveBlob,
   putArchivePart,
@@ -366,6 +368,14 @@ export class UploadEngineCore {
    */
   private storageRemainingGB: number | null = null;
   private storageMarkBytes = 0;
+  /**
+   * True once create-media has refused a chunk because the event is at its
+   * photo cap. While it is set nothing is flushed: every attempt would be
+   * refused again, and the flush loops would otherwise spin on it. Cleared by
+   * resume (manual, or after capacity is bought). A presign refusal alone does
+   * NOT set it, so rows already uploaded still get their chance to be saved.
+   */
+  private photoCapMetadataBlocked = false;
   /** Cumulative bytes (delivery copy + thumbnail) the backend has recorded. */
   private savedBytes = 0;
   private runningCompressors = 0;
@@ -438,6 +448,7 @@ export class UploadEngineCore {
     this.bytesUploaded = 0;
     this.storageRemainingGB = null;
     this.storageMarkBytes = 0;
+    this.photoCapMetadataBlocked = false;
     this.savedBytes = 0;
     this.runningCompressors = 0;
     this.runningUploaders = 0;
@@ -486,6 +497,7 @@ export class UploadEngineCore {
         watermarkWarning: null,
         storageFullWarning: null,
         storageRemainingGB: null,
+        photoCapPause: null,
       },
       true,
     );
@@ -631,7 +643,29 @@ export class UploadEngineCore {
     // number if the plan is still full.
     this.storageRemainingGB = null;
     this.storageMarkBytes = this.savedBytes;
-    this.scheduleEmit({ paused: false, storageFullWarning: null, storageRemainingGB: null }, true);
+    // Same for a photo-cap pause: let the run try again. If the event is still
+    // full the very next presign or create-media is refused and it re-pauses.
+    this.photoCapMetadataBlocked = false;
+    this.scheduleEmit(
+      { paused: false, storageFullWarning: null, storageRemainingGB: null, photoCapPause: null },
+      true,
+    );
+  }
+
+  /**
+   * Carry on after the event's photo cap was raised (capacity bought, and the
+   * cap confirmed to have grown). A paused run resumes exactly where it
+   * stopped. A run that had already ended with rows the cap refused has
+   * nothing to resume, so those rows are saved now instead.
+   */
+  async resumeAfterPhotoCap(): Promise<void> {
+    this.photoCapMetadataBlocked = false;
+    if (this.paused) {
+      this.resume();
+      return;
+    }
+    this.scheduleEmit({ photoCapPause: null }, true);
+    if (!this.state.isUploading) await this.resumePendingMetadata();
   }
 
   /** True while a run exists and is paused (used by the registry/UI). */
@@ -1074,6 +1108,14 @@ export class UploadEngineCore {
       // (no error log, no `failed` status); cancel wipes all state anyway.
       if (this.abort.signal.aborted || isAbortError(err)) {
         for (const id of batchIds) this.compressedBlobs.delete(id);
+        return;
+      }
+      // The event is at its photo cap. Not a failure: the files go back to the
+      // front of the queue with their compressed bytes intact, and the run
+      // pauses until capacity is added (or the studio stops here).
+      if (isPhotoCapExceeded(err)) {
+        this.compressedQueue.unshift(...batchIds);
+        this.pauseForPhotoCap(getApiPhotoCap(err));
         return;
       }
       const reason = err instanceof Error ? err.message : "presign failed";
@@ -1886,6 +1928,29 @@ export class UploadEngineCore {
     this.pause();
   }
 
+  /* ── photo cap ──────────────────────────────────────────────── */
+
+  /**
+   * Pause the run because the server refused work with PHOTO_CAP_EXCEEDED.
+   * Reached from both gates: presign (nothing was signed) and create-media
+   * (the chunk was refused whole). `waiting` counts every photo not yet in the
+   * gallery, including ones whose bytes are uploaded but whose rows the cap
+   * refused.
+   *
+   * `pause()` is a no-op when no run is active (a mount-time metadata resume
+   * that hits the cap), which is fine: the state below still tells the UI.
+   */
+  private pauseForPhotoCap(photoCap: EngineProgress["photoCap"]): void {
+    const waiting = Array.from(this.records.values()).filter(
+      (r) => r.status !== "saved" && r.status !== "failed",
+    ).length;
+    this.scheduleEmit({ photoCapPause: { waiting, photoCap }, ...(photoCap ? { photoCap } : {}) }, true);
+    // Not while a cancel is winding the run down: its loops must be free to
+    // settle, and a pause here would hold them until the cancel grace period
+    // ran out. The run is stopping anyway.
+    if (!this.stopping && !this.cancelling) this.pause();
+  }
+
   /* ── incremental metadata save ──────────────────────────────── */
 
   /**
@@ -1900,8 +1965,11 @@ export class UploadEngineCore {
       this.seedMetadataQueue();
 
       const policy = this.metadataFlushPolicy();
+      // At the photo cap every flush would be refused; hold them all until
+      // resume clears the block.
+      const mayFlush = !this.photoCapMetadataBlocked;
 
-      if (this.metadataPendingIds.length >= policy.size) {
+      if (mayFlush && this.metadataPendingIds.length >= policy.size) {
         await this.enqueueMetadataFlush();
         lastFlushAt = Date.now();
         if (this.state.metadataSaveError) return;
@@ -1913,6 +1981,7 @@ export class UploadEngineCore {
       // long enough to actually gather a batch (see METADATA_FLUSH_POLICY)
       // rather than firing on every photo.
       if (
+        mayFlush &&
         this.metadataPendingIds.length > 0 &&
         Date.now() - lastFlushAt >= policy.maxAgeMs &&
         !this.abort.signal.aborted
@@ -1930,6 +1999,7 @@ export class UploadEngineCore {
       // it — the next post-resume 200-chunk excludes these automatically (no
       // double-save).
       if (
+        mayFlush &&
         this.paused &&
         this.runningUploaders === 0 &&
         this.metadataPendingIds.length > 0 &&
@@ -2057,6 +2127,7 @@ export class UploadEngineCore {
     const deferEmbedding = this.deferEmbeddingForThisChunk();
 
     let storage: StorageMeter | undefined;
+    let photoCap: EngineProgress["photoCap"] = null;
     try {
       // Metadata saves are never tied to the upload abort signal — cancelling
       // or interrupting must still persist bytes already on R2.
@@ -2079,6 +2150,8 @@ export class UploadEngineCore {
           // count-based plans and when the backend's meter update failed —
           // treated as "no new information", never as zero.
           storage = res?.storage;
+          // The event's live photo-cap status, on the same response.
+          photoCap = res?.photo_cap ?? null;
         },
         {
           maxAttempts: METADATA_SAVE_ATTEMPTS,
@@ -2113,10 +2186,23 @@ export class UploadEngineCore {
         this.storageRemainingGB = storage.remaining;
         this.storageMarkBytes = this.savedBytes;
       }
-      this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null });
+      this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null, ...(photoCap ? { photoCap } : {}) });
       this.maybePauseForStorage();
       for (const fn of this.metadataSavedListeners) fn(recs.length);
     } catch (err) {
+      // The event is at its photo cap and the server refused this chunk whole.
+      // The bytes are on R2 and the rows stay "uploaded": they go back on the
+      // queue, flushing stops, and the run pauses with a reason rather than an
+      // error. Resume (after capacity is bought) saves them without re-uploading.
+      if (isPhotoCapExceeded(err)) {
+        for (const id of [...ids].reverse()) {
+          if (this.records.get(id)?.status === "uploaded") this.metadataPendingIds.unshift(id);
+        }
+        this.photoCapMetadataBlocked = true;
+        this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null });
+        this.pauseForPhotoCap(getApiPhotoCap(err));
+        return;
+      }
       const msg = err instanceof Error ? err.message : "metadata save failed";
       console.error("[upload:metadata] terminal failure", {
         files: recs.map((r) => r.filename),
@@ -2145,8 +2231,11 @@ export class UploadEngineCore {
     this.seedMetadataQueue();
 
     while (this.metadataPendingIds.length > 0) {
+      // At the photo cap: nothing more can be saved until it is raised. The
+      // rows stay "uploaded" (persisted), for resumeAfterPhotoCap to finish.
+      if (this.photoCapMetadataBlocked) return;
       await this.enqueueMetadataFlush();
-      if (this.state.metadataSaveError) return;
+      if (this.state.metadataSaveError || this.photoCapMetadataBlocked) return;
       this.seedMetadataQueue();
     }
 
@@ -2378,6 +2467,8 @@ export class UploadEngineCore {
       watermarkWarning: this.state.watermarkWarning,
       storageFullWarning: this.state.storageFullWarning,
       storageRemainingGB: this.state.storageRemainingGB,
+      photoCapPause: this.state.photoCapPause,
+      photoCap: this.state.photoCap,
       isUploading: this.state.isUploading,
       needsMetadataSave,
       isSavingMetadata: this.state.isSavingMetadata,
@@ -2461,6 +2552,8 @@ function makeIdleProgress(): EngineProgress {
     watermarkWarning: null,
     storageFullWarning: null,
     storageRemainingGB: null,
+    photoCapPause: null,
+    photoCap: null,
     isUploading: false,
     needsMetadataSave: false,
     isSavingMetadata: false,

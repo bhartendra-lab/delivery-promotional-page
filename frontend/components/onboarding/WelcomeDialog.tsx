@@ -6,20 +6,35 @@ import { setCompany } from "@/lib/auth";
 import { markWelcomeDialogSeen } from "@/lib/api";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
 import { isStorageSnapshot } from "@/lib/billing-types";
-import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
+import type { SubscriptionSnapshot } from "@/lib/billing-types";
+import { formatStorage } from "@/lib/plans";
 import { Modal } from "@/components/ui/Modal";
 import { IconSparkle } from "@/components/ui/icons";
 
-const FALLBACK_FREE_EVENTS = 2;
+/**
+ * What the studio has to work with, from its plan: "3 events" or "150 GB of
+ * storage". Null when the plan can't be read (a member without billing access
+ * gets no snapshot), in which case the dialog simply doesn't quote a figure.
+ */
+function readyToUse(snapshot: SubscriptionSnapshot | null): string | null {
+  if (!snapshot) return null;
+  if (isStorageSnapshot(snapshot)) {
+    return snapshot.storage.limit != null ? `${formatStorage(snapshot.storage.limit)} of storage` : null;
+  }
+  const remaining = snapshot.remaining;
+  if (typeof remaining !== "number" || remaining <= 0) return null;
+  return `${remaining} event${remaining === 1 ? "" : "s"}`;
+}
 
 /**
  * One-time "you're all set" celebration, mounted on the dashboard home (not
- * the layout) so it never fires while deep-linked into an event page.
+ * the layout) so it never fires while deep-linked into an event page. A studio
+ * only reaches the dashboard once it has a plan, so this confirms what it
+ * bought rather than promising anything free.
  */
 export function WelcomeDialog() {
   const company = useCompany();
   const { snapshot } = useSubscription();
-  const { openUpgradeModal } = useUpgradeModal();
   const seenRef = useRef(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -53,18 +68,9 @@ export function WelcomeDialog() {
     void markSeen();
   }
 
-  function handleUpgrade() {
-    setDismissed(true);
-    void markSeen();
-    openUpgradeModal();
-  }
-
   if (!open) return null;
 
-  const freeEvents =
-    snapshot && !isStorageSnapshot(snapshot) && typeof snapshot.limit === "number"
-      ? snapshot.limit
-      : FALLBACK_FREE_EVENTS;
+  const ready = readyToUse(snapshot);
 
   return (
     <Modal open={open} onClose={handleClose} title="You're all set 🎉" size="sm" dismissOnBackdrop={false}>
@@ -73,28 +79,22 @@ export function WelcomeDialog() {
           <IconSparkle size={26} />
         </span>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          Your studio is verified. You&apos;ve got{" "}
-          <strong className="font-semibold text-[var(--color-brand-ink)]">
-            {freeEvents} free event{freeEvents === 1 ? "" : "s"} with unlimited storage
-          </strong>{" "}
-          to try everything out — create a gallery, share the QR, and watch the deliveries land.
+          Your studio is verified and your plan is active.{" "}
+          {ready && (
+            <>
+              You have <strong className="font-semibold text-[var(--color-brand-ink)]">{ready}</strong> ready to
+              use.{" "}
+            </>
+          )}
+          Create a gallery, share the QR, and watch the deliveries land.
         </p>
-        <div className="mt-2 flex w-full flex-col gap-3 sm:flex-row-reverse">
-          <button
-            type="button"
-            onClick={handleUpgrade}
-            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] sm:flex-1"
-          >
-            Upgrade plan
-          </button>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)] sm:flex-1"
-          >
-            Start with free events
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleClose}
+          className="brand-focus mt-2 inline-flex h-11 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
+        >
+          Create your first event
+        </button>
       </div>
     </Modal>
   );

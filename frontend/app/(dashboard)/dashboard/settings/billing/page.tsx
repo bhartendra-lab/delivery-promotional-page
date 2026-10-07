@@ -9,6 +9,7 @@ import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
 import { PlanStatusCard } from "@/components/billing/PlanStatusCard";
 import { UsageMeter } from "@/components/billing/UsageMeter";
 import { InvoiceList } from "@/components/billing/InvoiceList";
+import { PayPerEventExplainer } from "@/components/billing/PayPerEventExplainer";
 import { ConfirmingPayment } from "@/components/billing/ConfirmingPayment";
 import { listInvoices, cancelSubscription, resumeSubscription, ApiError } from "@/lib/billing";
 import type { Invoice } from "@/lib/billing-types";
@@ -140,6 +141,8 @@ export default function BillingSettingsPage() {
             )}
           </div>
         </div>
+
+        <PayPerEventExplainer snapshot={snapshot} />
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button

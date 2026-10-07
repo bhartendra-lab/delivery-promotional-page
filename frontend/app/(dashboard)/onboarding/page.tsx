@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated, getCompany, setCompany, needsOnboarding } from "@/lib/auth";
+import { isAuthenticated, getCompany, setCompany, needsOnboarding, needsPlan, PLAN_STEP_PATH } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { StudioDetailsStep } from "@/components/onboarding/StudioDetailsStep";
@@ -14,20 +14,25 @@ type LoadState = { status: "loading" } | { status: "error"; message: string } | 
 
 const STEP_INDEX: Record<Step, number> = { details: 1, otp: 2, google: 3 };
 
-function OnboardingProgress({ step }: { step: Step }) {
+/**
+ * `total` is 4 for a studio that still has to choose a plan: the compulsory
+ * payment step at /checkout?onboarding=1 is the fourth and carries the same
+ * indicator. A studio that already has a plan sees the three steps here only.
+ */
+function OnboardingProgress({ step, total }: { step: Step; total: number }) {
   const current = STEP_INDEX[step];
   return (
     <div className="mb-4">
-      <p className="mb-1.5 text-xs text-[var(--color-brand-muted)]">Step {current} of 3</p>
+      <p className="mb-1.5 text-xs text-[var(--color-brand-muted)]">Step {current} of {total}</p>
       <div
         role="progressbar"
         aria-valuenow={current}
         aria-valuemin={1}
-        aria-valuemax={3}
+        aria-valuemax={total}
         aria-label="Studio setup progress"
         className="flex gap-1.5"
       >
-        {[1, 2, 3].map((n) => (
+        {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
           <span
             key={n}
             className={`h-1 flex-1 rounded-full ${
@@ -58,7 +63,8 @@ export default function OnboardingPage() {
     // right step instead of restarting at "details" or bouncing to /dashboard.
     function proceed(c: Company) {
       if (!needsOnboarding(c)) {
-        router.replace("/dashboard");
+        // Onboarded but not yet paid: straight to the plan step, never the dashboard.
+        router.replace(needsPlan(c) ? PLAN_STEP_PATH : "/dashboard");
         return;
       }
       setStep(c.whatsapp_verified ? "google" : "details");
@@ -118,7 +124,7 @@ export default function OnboardingPage() {
           <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={80} />
         </div>
 
-        <OnboardingProgress step={step} />
+        <OnboardingProgress step={step} total={needsPlan(company) ? 4 : 3} />
 
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "details" ? (
@@ -144,7 +150,7 @@ export default function OnboardingPage() {
             <GoogleBusinessStep
               onDone={(updatedCompany) => {
                 setCompany(updatedCompany);
-                router.replace("/dashboard");
+                router.replace(needsPlan(updatedCompany) ? PLAN_STEP_PATH : "/dashboard");
               }}
             />
           )}

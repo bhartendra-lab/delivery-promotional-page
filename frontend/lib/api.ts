@@ -12,6 +12,7 @@ import type {
   Invoice,
   BillingProfile,
   CheckoutPreview,
+  PhotoCap,
 } from "./billing-types";
 import type {
   ArchiveDownloadUrl,
@@ -132,6 +133,28 @@ export function getApiErrorCode(err: unknown): string | null {
   if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
   const code = (err.body as { code?: unknown }).code;
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * True for the 402 presign-uploads and create-media answer with when an event
+ * has reached its photo cap. Check this BEFORE any blanket 402 handling: it is
+ * not a plan-quota error and must not open the upgrade modal.
+ */
+export function isPhotoCapExceeded(err: unknown): boolean {
+  return getApiErrorCode(err) === "PHOTO_CAP_EXCEEDED";
+}
+
+/** The cap status carried by a PHOTO_CAP_EXCEEDED error, or null. */
+export function getApiPhotoCap(err: unknown): PhotoCap | null {
+  if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
+  const cap = (err.body as { photo_cap?: unknown }).photo_cap;
+  return isPhotoCap(cap) ? cap : null;
+}
+
+function isPhotoCap(value: unknown): value is PhotoCap {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return ["cap", "used", "remaining", "addon_size", "addon_price"].every((key) => typeof v[key] === "number");
 }
 
 export function getCompanyDetails() {
@@ -260,7 +283,7 @@ export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: st
   });
 }
 
-/** POST /onboarding/welcome-dialog-seen — idempotent one-shot ack for the "2 free events" dialog. */
+/** POST /onboarding/welcome-dialog-seen — idempotent one-shot ack for the post-onboarding welcome dialog. */
 export function markWelcomeDialogSeen() {
   return request<CompanyMutationResponse>("/onboarding/welcome-dialog-seen", { method: "POST" });
 }
@@ -568,7 +591,26 @@ export function validateCoupon(input: { coupon_code: string; service_id: string;
  * billing-types.ts#CheckoutResponse). 400/402/409 messages are backend
  * copy meant to be shown to the user verbatim via ApiError.message.
  */
-export function checkout(input: { service_id: string; quantity?: number; coupon_code?: string }) {
+export type CheckoutInput = {
+  service_id: string;
+  quantity?: number;
+  coupon_code?: string;
+  /**
+   * Extra photo capacity for one event: send both or neither. `service_id` is
+   * then the Event-based plan, and quantity / coupon_code do not apply.
+   */
+  booking_id?: string;
+  photo_cap_blocks?: number;
+  /**
+   * Checkout only. The studio has read the preview's `storage_data_warning`
+   * (an event purchase that leaves a lapsed storage plan deletes that plan's
+   * galleries). Without it such a purchase is refused with 409
+   * { code: "STORAGE_CLEAR_UNCONFIRMED" }.
+   */
+  confirm_storage_clear?: boolean;
+};
+
+export function checkout(input: CheckoutInput) {
   return request<CheckoutResponse>("/billing/checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -623,7 +665,7 @@ export function updateBillingProfile(input: BillingProfileInput) {
  * { code: "BILLING_PROFILE_INCOMPLETE" } until the company has a saved
  * billing profile (see getBillingProfile/updateBillingProfile above).
  */
-export function previewCheckout(input: { service_id: string; quantity?: number; coupon_code?: string }) {
+export function previewCheckout(input: Omit<CheckoutInput, "confirm_storage_clear">) {
   return request<CheckoutPreview>("/billing/checkout/preview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -916,7 +958,11 @@ export function createMediaBatch(
   /** Hold these rows back from booting a GPU pump — see EMBED_DEFER_THRESHOLD. */
   deferEmbedding?: boolean,
 ) {
-  return request<{ message: string; storage?: StorageMeter }>(
+  // `photo_cap` rides along the same way `storage` does: the live cap status of
+  // a pay-per-event event after this chunk, absent for an uncapped event. A
+  // chunk that would cross the cap is refused whole with 402
+  // { code: "PHOTO_CAP_EXCEEDED", photo_cap } — see isPhotoCapExceeded.
+  return request<{ message: string; storage?: StorageMeter; photo_cap?: PhotoCap }>(
     `/deliverables/create-media/${encodeURIComponent(bookingId)}`,
     {
       method: "POST",
@@ -1151,6 +1197,10 @@ export function getArchiveTiers(bookingId: string) {
   return request<{
     archive_tiers: ("4096" | "original")[];
     upload_quality_tier: "2560" | "4096" | "original" | null;
+    /** Photo cap of a pay-per-event event; null (or absent, on an older API)
+     *  when the event has no cap. Polled after a capacity purchase until the
+     *  cap has grown. */
+    photo_cap?: PhotoCap | null;
   }>(`/deliverables/archive-tiers/${encodeURIComponent(bookingId)}`);
 }
 

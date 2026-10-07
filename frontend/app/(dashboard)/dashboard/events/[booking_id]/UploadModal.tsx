@@ -14,6 +14,11 @@ import {
 import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
 import { useCompany } from "@/lib/useCompany";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
+import { getUploadedMediaIds } from "@/lib/api";
+import type { PhotoCap } from "@/lib/billing-types";
+import { photoCapOverBy } from "@/lib/photo-cap";
+import { resolveDedup } from "@/lib/r2-upload/dedup";
+import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
 import {
   IconUpload,
   IconFolder,
@@ -140,6 +145,15 @@ type Props = {
   /** The tier this event's LAST upload run used. Seeds the quality selector so
    *  the studio decides once per event; null before the first upload. */
   bookingUploadTier?: UploadVariant | null;
+  bookingId: string;
+  /**
+   * Photo cap of a pay-per-event event; null for a storage-plan event, in
+   * which case none of the cap logic below runs and the dialog behaves exactly
+   * as it always has.
+   */
+  photoCap: PhotoCap | null;
+  /** Re-reads the cap from the server; resolves with the fresh value. */
+  refreshPhotoCap: () => Promise<PhotoCap | null>;
 };
 
 type Analysis = {
@@ -166,6 +180,9 @@ export function UploadModal({
   onSavePreferences,
   bookingArchiveTiers,
   bookingUploadTier,
+  bookingId,
+  photoCap,
+  refreshPhotoCap,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
   // modal that unmounted to make way for this one — that double backdrop
@@ -410,6 +427,61 @@ export function UploadModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, storageGated, step, filesFingerprint, variant]);
 
+  /* ── Photo cap (pay-per-event events) ─────────────────────────────────────
+   *
+   * Checked on step 2, once the selection is final, the same place the storage
+   * estimate is. `incoming` is what will ACTUALLY be uploaded: the engine skips
+   * files already in the gallery at the start of a run (resolveDedup against
+   * the saved media ids), so the same rule is applied here first. Counting the
+   * raw selection would ask a studio re-selecting a folder to pay for photos it
+   * has already uploaded.
+   *
+   * This is a courtesy, not the control: the server refuses at presign and at
+   * create-media whatever this dialog decides. If the lookup fails the whole
+   * selection is counted, which can only over-ask, never under-ask. */
+  const capped = photoCap !== null;
+  const [capCheck, setCapCheck] = useState<{ cap: PhotoCap; incoming: number } | null>(null);
+  /** The terms dialog is up: this dialog's own Escape handling stands down. */
+  const [termsOpen, setTermsOpen] = useState(false);
+  // Read through refs: neither is a reason to re-run the check.
+  const photoCapRef = useRef(photoCap);
+  const refreshPhotoCapRef = useRef(refreshPhotoCap);
+  useEffect(() => {
+    photoCapRef.current = photoCap;
+    refreshPhotoCapRef.current = refreshPhotoCap;
+  });
+
+  useEffect(() => {
+    if (!open || !capped || files.length === 0 || step !== "preferences") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears a stale result synchronously when the selection changes or the studio steps back
+      setCapCheck(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([refreshPhotoCapRef.current(), getUploadedMediaIds(bookingId).catch(() => null)]).then(
+      ([fresh, uploadedIds]) => {
+        if (cancelled) return;
+        const cap = fresh ?? photoCapRef.current;
+        if (!cap) return;
+        const incoming = uploadedIds
+          ? resolveDedup(bookingId, files, new Set(uploadedIds)).filter((d) => d.match === null).length
+          : files.length;
+        setCapCheck({ cap, incoming });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // filesFingerprint captures the selection; files is read inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, capped, step, filesFingerprint, bookingId]);
+
+  const capOverBy = capCheck ? photoCapOverBy(capCheck.cap, capCheck.incoming) : 0;
+  const overCap = capOverBy > 0;
+  // True while a capped event's fit is still unknown. Upload stays disabled
+  // until it clears, exactly like `estimatePending` for a storage plan.
+  const capPending = capped && step === "preferences" && files.length > 0 && capCheck === null;
+
   // Only block once we have real numbers (never a false-positive before they land).
   const overStorage =
     storageGated &&
@@ -438,6 +510,8 @@ export function UploadModal({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // The terms dialog is on top and closes itself.
+      if (termsOpen) return;
       if (mixedOpen) {
         setMixedOpen(false);
         return;
@@ -452,7 +526,7 @@ export function UploadModal({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, mixedOpen, naming, onClose]);
+  }, [open, mixedOpen, naming, termsOpen, onClose]);
 
   const analysis = useMemo<Analysis>(() => analyze(files, firstRoot), [files, firstRoot]);
 
@@ -589,9 +663,13 @@ export function UploadModal({
    * hands the plan over — a batch must never go live under preferences the
    * studio believed they had already changed.
    */
-  async function startUpload() {
+  async function startUpload(opts: { capCleared?: boolean } = {}) {
     // Re-check defensively: usage could have landed between the two steps.
     if (files.length === 0 || estimatePending || overStorage || savingPrefs) return;
+    // `capCleared` is passed by the photo-limit panel the moment a capacity
+    // purchase is confirmed: the state this render closed over still says
+    // "over", but the cap has grown and the selection now fits.
+    if (capPending || (overCap && !opts.capCleared)) return;
 
     if (changedPreferenceKeys(draftPrefs, preferences).length > 0) {
       setSavingPrefs(true);
@@ -924,6 +1002,41 @@ export function UploadModal({
             />
           )}
 
+          {/* Photo cap (pay-per-event events only). Fits: one quiet line. Does
+              not fit: the Upload button below gives way to this panel, the way
+              an over-quota storage estimate blocks it, and the upload starts by
+              itself once a capacity purchase is confirmed. The selection and
+              every choice on this step stay exactly as they are throughout. */}
+          {step === "preferences" && hasSelection && capCheck && !overCap && (
+            <p className="border-t border-[var(--color-brand-border)] px-6 py-2.5 text-right text-[12.5px] tabular-nums text-[var(--color-brand-muted)]">
+              {(capCheck.cap.used + capCheck.incoming).toLocaleString("en-IN")} of{" "}
+              {capCheck.cap.cap.toLocaleString("en-IN")} photos after this upload
+            </p>
+          )}
+          {step === "preferences" && hasSelection && capCheck && overCap && (
+            <div className="border-t border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-5 py-4 sm:px-6">
+              <PhotoCapPanel
+                bookingId={bookingId}
+                photoCap={capCheck.cap}
+                incoming={capCheck.incoming}
+                context="selection"
+                refreshPhotoCap={refreshPhotoCap}
+                onTermsOpenChange={setTermsOpen}
+                onCapacityAdded={(fresh) => {
+                  setCapCheck({ cap: fresh, incoming: capCheck.incoming });
+                  // Paid and confirmed. If it now fits, upload without making
+                  // the studio press Upload again; if it still does not (the
+                  // purchase was smaller than the overrun), the panel stays.
+                  if (photoCapOverBy(fresh, capCheck.incoming) <= 0) void startUpload({ capCleared: true });
+                }}
+                secondary={{
+                  label: "Go back and select fewer photos",
+                  onClick: () => setStep("select"),
+                }}
+              />
+            </div>
+          )}
+
           {/* Footer */}
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-4 py-3.5 sm:gap-2.5 sm:px-6">
             {step === "preferences" ? (
@@ -960,16 +1073,18 @@ export function UploadModal({
             >
               Cancel
             </button>
-            {step === "preferences" ? (
+            {step === "preferences" && overCap ? null : step === "preferences" ? (
               <button
                 type="button"
-                disabled={files.length === 0 || overStorage || estimatePending || savingPrefs}
+                disabled={files.length === 0 || overStorage || estimatePending || capPending || savingPrefs}
                 onClick={() => void startUpload()}
                 className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {savingPrefs
                   ? "Saving preferences…"
-                  : `Upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`}
+                  : capPending
+                    ? "Checking photo limit…"
+                    : `Upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`}
               </button>
             ) : (
               <button

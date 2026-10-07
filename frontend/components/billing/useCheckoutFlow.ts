@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { checkout, ApiError } from "@/lib/billing";
+import { checkout, ApiError, getApiErrorCode } from "@/lib/billing";
 import { openCheckout } from "@/lib/razorpay";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 
-export type CheckoutPurpose = "event_topup" | "subscription" | "tier_upgrade";
+/**
+ * "photo_cap_topup" buys extra photo capacity for ONE event (it needs
+ * `bookingId` and `blocks`). It shares everything up to the Razorpay step, but
+ * what it grants lands on the event, not the subscription, so its "confirming"
+ * phase is watched by the photo-limit panel (which polls the event's cap) and
+ * never by <ConfirmingPayment>.
+ */
+export type CheckoutPurpose = "event_topup" | "subscription" | "tier_upgrade" | "photo_cap_topup";
 
 export type CheckoutFlowState =
   | { phase: "idle" }
@@ -14,7 +21,7 @@ export type CheckoutFlowState =
   | { phase: "confirming"; purpose: CheckoutPurpose; targetServiceId: string; before: SubscriptionSnapshot | null }
   | { phase: "dismissed"; planName: string }
   | { phase: "fallback_link"; shortUrl: string }
-  | { phase: "error"; message: string };
+  | { phase: "error"; message: string; code: string | null };
 
 export type RunCheckoutInput = {
   serviceId: string;
@@ -25,6 +32,11 @@ export type RunCheckoutInput = {
   before: SubscriptionSnapshot | null;
   currentPlanName: string;
   prefill?: { name?: string; email?: string; contact?: string };
+  /** photo_cap_topup only: the event, and how many capacity blocks. */
+  bookingId?: string;
+  blocks?: number;
+  /** The studio ticked the storage-clear confirmation (see StorageClearConfirm). */
+  confirmStorageClear?: boolean;
   /** Called when the server rejects the coupon at redeem time (400) even
    *  though it validated fine earlier — lets the caller clear the applied chip. */
   onCouponRejected?: (message: string) => void;
@@ -53,6 +65,10 @@ export function useCheckoutFlow() {
         service_id: input.serviceId,
         quantity: input.quantity,
         coupon_code: input.couponCode ?? undefined,
+        ...(input.purpose === "photo_cap_topup"
+          ? { booking_id: input.bookingId, photo_cap_blocks: input.blocks }
+          : {}),
+        ...(input.confirmStorageClear ? { confirm_storage_clear: true } : {}),
       });
 
       // Narrowing order per plan §1.5: `status` first, then razorpay_order_id
@@ -132,7 +148,9 @@ export function useCheckoutFlow() {
         err instanceof ApiError && [400, 402, 409].includes(err.status)
           ? err.message
           : "Something went wrong. Please contact support.";
-      setState({ phase: "error", message });
+      // The code lets a caller resolve what it can in place, e.g.
+      // BILLING_PROFILE_INCOMPLETE by showing the billing details form.
+      setState({ phase: "error", message, code: getApiErrorCode(err) });
     } finally {
       inFlight.current = false;
     }

@@ -16,6 +16,10 @@ import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { DELIVERY_PREFERENCE_DEFAULTS } from "@/lib/delivery-preferences";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
 import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
+import { Modal } from "@/components/ui/Modal";
+import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
+import type { PhotoCap } from "@/lib/billing-types";
+import { photoCapNearlyFull } from "@/lib/photo-cap";
 
 /** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
 type UploadIntent = { step: UploadModalStep; target: UploadFolderOption | null; folderOnly: boolean };
@@ -42,6 +46,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     folderCounts,
     archiveTiers,
     uploadQualityTier,
+    photoCap,
+    refreshPhotoCap,
     totalCount,
     totalForView,
     hasMore,
@@ -90,8 +96,21 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // confirms its position in `CoverPositionModal` — nothing is persisted until then.
   const [pendingCover, setPendingCover] = useState<PendingCover | null>(null);
 
+  // The photo-limit dialog, opened from the event header ("room": nothing is
+  // waiting, the studio just wants more) or from a run that paused on the
+  // limit ("paused": resumes that run once the capacity has landed).
+  const [capDialog, setCapDialog] = useState<"room" | "paused" | null>(null);
+
   const paused = engine.progress.paused;
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
+  const capPause = engine.progress.photoCapPause;
+  // What the dialog is priced against. `used` is the page's own live count.
+  const capForDialog: PhotoCap | null = (() => {
+    const base = capPause?.photoCap ?? photoCap;
+    if (!base) return null;
+    if (capDialog === "paused" && capPause?.photoCap) return capPause.photoCap;
+    return { ...base, used: totalCount, remaining: Math.max(0, base.cap - totalCount) };
+  })();
   // "populated" vs "empty" is event-level (does the booking have any media),
   // not view-level — an empty folder still shows the populated chrome with an
   // empty grid, mirroring the prior behaviour. This follows the engine alone:
@@ -400,7 +419,43 @@ export function MediaTab({ loading }: { loading: boolean }) {
           activeIsSystem={activeIsSystem}
           onUploadMore={handleUploadMore}
           onEdit={() => setEditOpen(true)}
+          photoCap={photoCap}
+          onAddCapacity={() => setCapDialog("room")}
         />
+
+        {/* A run that ENDED with photos the limit refused: their bytes are
+            uploaded, their rows are not in the gallery. Nothing is spinning, so
+            without this the studio would never know they are waiting. */}
+        {!engineActive && capPause && state !== "loading" && (
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-6 py-3.5 sm:px-10">
+            <div className="flex items-start gap-2.5">
+              <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
+              <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+                This event reached its photo limit. {capPause.waiting.toLocaleString("en-IN")} photo
+                {capPause.waiting === 1 ? " is" : "s are"} waiting.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Deleting photos frees room too: this saves the waiting ones
+                  again without buying anything, and re-shows this notice if the
+                  event is still full. */}
+              <button
+                type="button"
+                onClick={() => void engine.resumeAfterPhotoCap()}
+                className="brand-focus rounded-md px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={() => setCapDialog("paused")}
+                className="brand-focus inline-flex items-center rounded-md bg-[var(--color-brand-navy)] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]"
+              >
+                Add capacity
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Mobile folder switcher (desktop uses the FoldersSidebar). */}
         {state === "populated" && folderRows.length > 0 && (
@@ -421,6 +476,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             progress={engine.progress}
             onCancel={handleCancelUpload}
             onTogglePause={() => (paused ? engine.resume() : pauseUpload())}
+            onAddCapacity={() => setCapDialog("paused")}
           />
         )}
         {state === "populated" && (
@@ -467,6 +523,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
         onSavePreferences={saveDeliveryPreferences}
         bookingArchiveTiers={archiveTiers}
         bookingUploadTier={uploadQualityTier}
+        bookingId={ctxBookingId}
+        photoCap={photoCap}
+        refreshPhotoCap={refreshPhotoCap}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -500,6 +559,41 @@ export function MediaTab({ loading }: { loading: boolean }) {
       />
 
       <WatermarkReminderDialog open={!!pendingUploadIntent} onSkip={handleWatermarkReminderSkip} />
+
+      <Modal
+        open={capDialog !== null && capForDialog !== null}
+        onClose={() => setCapDialog(null)}
+        title="Photo limit"
+        size="md"
+      >
+        {capDialog !== null && capForDialog !== null && (
+          <PhotoCapPanel
+            bookingId={ctxBookingId}
+            photoCap={capForDialog}
+            incoming={capDialog === "paused" ? (capPause?.waiting ?? 0) : 0}
+            context={capDialog}
+            refreshPhotoCap={refreshPhotoCap}
+            onCapacityAdded={() => {
+              const resumeRun = capDialog === "paused";
+              setCapDialog(null);
+              toast("Photo capacity added to this event.", "success");
+              // Only now: the cap has grown, so the server will accept the rest.
+              if (resumeRun) void engine.resumeAfterPhotoCap();
+            }}
+            secondary={
+              capDialog === "paused" && engineActive
+                ? {
+                    label: "Stop here",
+                    onClick: () => {
+                      setCapDialog(null);
+                      void handleCancelUpload();
+                    },
+                  }
+                : undefined
+            }
+          />
+        )}
+      </Modal>
 
       {cancelSummary && (
         <CancelSummaryCard saved={cancelSummary.saved} onClose={() => setCancelSummary(null)} />
@@ -544,7 +638,12 @@ function EventHeader({
   activeIsSystem,
   onUploadMore,
   onEdit,
+  photoCap,
+  onAddCapacity,
 }: {
+  /** Photo cap of a pay-per-event event; null on a storage-plan event, which shows nothing new. */
+  photoCap: PhotoCap | null;
+  onAddCapacity: () => void;
   meta: { name: string; type: string; eventDate: number | null };
   totalPhotos: number;
   folderCount: number;
@@ -566,7 +665,11 @@ function EventHeader({
       ? `Paused — ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"} detected`
       : `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folders detected`;
   else if (state === "populated")
-    subtitle = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} across ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
+    subtitle = photoCap
+      ? `${totalPhotos.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} photos across ${folderCount} folder${folderCount === 1 ? "" : "s"}`
+      : `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} across ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
+  // From 90% of the cap, offer more room before an upload has to ask for it.
+  const offerCapacity = state === "populated" && photoCapNearlyFull(photoCap, totalPhotos);
 
   return (
     <section className="flex shrink-0 flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">
@@ -606,7 +709,21 @@ function EventHeader({
             </button>
           )}
         </div>
-        <p className="mt-1.5 text-[13px] text-[var(--color-brand-muted)]">{subtitle}</p>
+        <p className="mt-1.5 text-[13px] text-[var(--color-brand-muted)]">
+          {subtitle}
+          {offerCapacity && (
+            <>
+              {" · "}
+              <button
+                type="button"
+                onClick={onAddCapacity}
+                className="brand-focus rounded-sm font-semibold text-[var(--color-brand-navy)] underline underline-offset-2 hover:text-[var(--color-brand-navy-deep)]"
+              >
+                Add capacity
+              </button>
+            </>
+          )}
+        </p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         {/* Gallery preferences used to sit here as a gear icon. It is on the

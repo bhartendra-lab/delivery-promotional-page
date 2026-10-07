@@ -13,12 +13,21 @@ export function CheckoutFlowStatus({
   state,
   onRetry,
   onGoToDashboard,
+  hideDashboardExit = false,
 }: {
   state: CheckoutFlowState;
   onRetry: () => void;
   onGoToDashboard: () => void;
+  /**
+   * The compulsory choose-a-plan step has no way back to the dashboard until
+   * the studio has paid, so an abandoned payment offers "Try again" only.
+   */
+  hideDashboardExit?: boolean;
 }) {
   if (state.phase === "confirming") {
+    // Extra photo capacity is confirmed by the panel that started it, against
+    // the event's cap (see useCheckoutFlow#CheckoutPurpose).
+    if (state.purpose === "photo_cap_topup") return null;
     return (
       <ConfirmingPayment
         purpose={state.purpose}
@@ -58,7 +67,9 @@ export function CheckoutFlowStatus({
           Payment wasn&apos;t completed.
         </p>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          You&apos;re still on {state.planName}.
+          {hideDashboardExit
+            ? "You have not been charged. Choose how you want to pay to open your dashboard."
+            : `You're still on ${state.planName}.`}
         </p>
         <div className="mt-2 flex items-center gap-3">
           <button
@@ -68,13 +79,15 @@ export function CheckoutFlowStatus({
           >
             Try again
           </button>
-          <button
-            type="button"
-            onClick={onGoToDashboard}
-            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
-          >
-            Back to dashboard
-          </button>
+          {!hideDashboardExit && (
+            <button
+              type="button"
+              onClick={onGoToDashboard}
+              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
+            >
+              Back to dashboard
+            </button>
+          )}
         </div>
       </div>
     );
