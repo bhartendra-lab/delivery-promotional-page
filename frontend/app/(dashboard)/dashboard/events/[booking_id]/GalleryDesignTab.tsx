@@ -494,7 +494,9 @@ function ClientPagePreview({
         <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0.34))" }} />
         <div className="relative text-center text-white">
           <div style={{ fontSize: compact ? 9 : 11, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", opacity: 0.92, marginBottom: 10 }}>
-            {eventType === "Corporate" ? "Event Gallery" : `The ${eventType} of`}
+            {/* "The Wedding of" reads; "The Corporate of" and "The Sports of" do
+                not, so those two get the plain wording. */}
+            {eventType === "Corporate" || eventType === "Sports" ? "Event Gallery" : `The ${eventType} of`}
           </div>
           <div style={{ fontSize: compact ? 22 : 34, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.1 }}>{eventName}</div>
           {eventDateLabel && (

@@ -1,5 +1,6 @@
 import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
+import type { GuestAccessLevel } from "./guest-access";
 import type { UploadVariant } from "./r2-upload/compressor";
 import type {
   PlansResponse,
@@ -24,6 +25,8 @@ import type {
   CustomFolder,
   DeliveryLandingPageData,
   DlpUsage,
+  EventClient,
+  EventExpiryInput,
   EventType,
   GalleryPublishStatus,
   SocialLinks,
@@ -36,7 +39,6 @@ import type {
   ReminderStatus,
   CustomDomainStatusResponse,
   CustomDomainRequestResponse,
-  ServiceType,
   StyleVariant,
   TrackingType,
   UserProfile,
@@ -739,7 +741,10 @@ export function archiveBooking(bookingId: string) {
  * expired card/overlay.
  */
 export function restoreBooking(bookingId: string) {
-  return request<{ message: string }>(
+  // `expiry_reset` is true when the event's own expiry had already passed, in
+  // which case the backend set it back to Never (otherwise the next nightly
+  // run would archive the event again). The caller tells the Studio.
+  return request<{ message: string; expiry_reset?: boolean }>(
     `/bookings/restore-booking/${encodeURIComponent(bookingId)}`,
     { method: "POST" },
   );
@@ -811,7 +816,26 @@ export type UpdateBookingInput = {
    * preference needs no change here or on the endpoint.
    */
   delivery_preferences?: Partial<DeliveryPreferences>;
+  /**
+   * The Studio's expiry for a storage plan event. Send it ONLY when the Studio
+   * changed it: absent leaves the stored value alone, and a preset sent again
+   * would restart its count from today. Ignored by the backend on a pay per
+   * event event.
+   */
+  event_expiry?: EventExpiryInput;
 };
+
+/**
+ * The `code` of a refused `update-booking`, when the refusal was one of the
+ * per-plan edit locks (HTTP 409): the event name on a pay per event event, or
+ * its cover once one is set. Null for every other error.
+ */
+export function editLockCodeOf(err: unknown): "name_locked" | "cover_locked" | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const code = (err.body as { code?: unknown } | null)?.code;
+  return code === "name_locked" || code === "cover_locked" ? code : null;
+}
+
 export function updateBooking(bookingId: string, body: UpdateBookingInput) {
   return request<{ booking: BookingDetail }>(
     `/bookings/update-booking/${encodeURIComponent(bookingId)}`,
@@ -824,17 +848,28 @@ export function updateBooking(bookingId: string, body: UpdateBookingInput) {
 }
 
 export function createBooking(body: {
-  event_name: string;
   event_type: EventType | string;
+  /**
+   * Required for every type except a couple type created with a Bride and a
+   * Groom: the backend names that event from their first names and ignores
+   * whatever is sent here.
+   */
+  event_name?: string;
   /** Optional numeric epoch (ms). Omit the field entirely when unset. */
   event_date?: number;
   /**
-   * The company's active plan type (whatever `getDlpUsage` returned for
-   * `service_type` on this dashboard load). Stored on the booking so
-   * `getDlpUsage`'s later aggregation can match bookings by plan. Omit/null
-   * gracefully when usage hasn't loaded yet — creation must not block on it.
+   * The people the event is for. Phones as bare 10 digits. Everyone given a
+   * number becomes a Client the moment the event exists, whether or not they
+   * are messaged.
    */
-  service_type?: ServiceType | string | null;
+  clients?: EventClient[];
+  /** Storage plans only; the backend ignores it on every other plan. */
+  event_expiry?: EventExpiryInput;
+  /** Whether the people with a number are sent the gallery link on WhatsApp. */
+  notify_clients?: boolean;
+  // The plan is NOT sent: the backend stamps the booking with whatever plan
+  // the company is actually on, and has ignored a client-supplied one since
+  // the cap could be dodged by naming a different plan.
 }) {
   // Always create under the Delivery Hub service so the booking's
   // creation_source matches the "DH" filter used by getAllBookings/getBookingById.
@@ -1246,7 +1281,7 @@ export function getArchiveDownloadUrls(bookingId: string, mediaIds: string[]) {
  * their like count. Powers the "Liked Media" per-guest filter (dashboard only)
  * and the Access & Sharing guest list.
  */
-export function getAllGuests(bookingId: string, opts?: { guestType?: "host" | "guest" }) {
+export function getAllGuests(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
   const params = new URLSearchParams();
   if (opts?.guestType) params.set("guest_type", opts.guestType);
   const qs = params.toString();
@@ -1261,7 +1296,7 @@ export function getAllGuests(bookingId: string, opts?: { guestType?: "host" | "g
  * helper) so the CSV blob and its filename survive, then triggers a browser
  * download via a throwaway anchor.
  */
-export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: "host" | "guest" }) {
+export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
   const params = new URLSearchParams({ exportCsv: "true" });
   if (opts?.guestType) params.set("guest_type", opts.guestType);
   const token = getToken();
@@ -1289,25 +1324,31 @@ export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: "h
 }
 
 /**
- * POST /deliverables/revoke-guest-access/:guest_id — sets a Guest's full-gallery
- * access in either direction. `fullAccess: true` gives them exactly what the
- * family passcode gives (every photo, the host-only download tiers, host
- * hearts); `false` takes it back and returns them to their own photos plus the
- * public folders.
+ * POST /deliverables/revoke-guest-access/:guest_id — sets a Guest's access
+ * LEVEL:
  *
- * One endpoint, one body flag, despite the "revoke" in the URL — the route kept
- * its original name when the give direction was added to it.
+ *   "guest"   their own photos plus the public folders
+ *   "host"    the full gallery, exactly what the family passcode gives (every
+ *             photo, the host-only download tiers, host hearts)
+ *   "client"  everything a Host has, plus the Client level
+ *
+ * One endpoint for all three, despite the "revoke" in the URL: the route kept
+ * its original name as it grew. Moving a Client to "host" removes Client and
+ * keeps full access; moving one to "guest" removes both in one step.
+ *
+ * The three filters of `getAllGuests` use the same words and are mutually
+ * exclusive there: "host" means Hosts who are not Clients.
  *
  * A 404 means the row was stale: another Member already made this change, and
  * the message says which way it went.
  */
-export function setGuestFullAccess(guestId: string, fullAccess: boolean) {
+export function setGuestAccessLevel(guestId: string, level: GuestAccessLevel) {
   return request<{ message: string; guest: Guest }>(
     `/deliverables/revoke-guest-access/${encodeURIComponent(guestId)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ full_access: fullAccess }),
+      body: JSON.stringify({ level }),
     },
   );
 }

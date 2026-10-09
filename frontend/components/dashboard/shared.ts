@@ -64,18 +64,25 @@ export function daysRemaining(sinceMs: number, windowDays: number): number {
 
 export type ExpiryWarning = { daysLeft: number; label: string } | null;
 
+/** How close a storage plan event's own expiry must be before its card warns. */
+const EXPIRY_WARNING_WINDOW_DAYS = 30;
+
 /**
- * Resolve the "expires in X days" warning for a booking row, matching the two
- * cron paths:
+ * Resolve the "expires in X days" warning for a booking row, matching the
+ * three cron paths:
  *   - Free / Event-based → 90 days from `createdAt`
  *   - archived (any plan, in practice Monthly/Yearly) → 7 days from archive
- * Expired bookings never warn; Monthly/Yearly that aren't archived never warn.
+ *   - a live Monthly/Yearly event with its own expiry → ARCHIVED (not deleted)
+ *     on that day, so it says "Archives", and only inside the last 30 days
+ * Expired bookings never warn; a Monthly/Yearly event with no expiry, or one
+ * further than 30 days out, never warns.
  */
 export function getExpiryWarning(row: {
   service_type?: string | null;
   gallery_publish_status?: string;
   createdAt?: string;
   gallery_archived_at?: number | null;
+  event_expiry_at?: number | null;
 }): ExpiryWarning {
   if (row.gallery_publish_status === "expired") return null; // never a warning
   if (row.gallery_publish_status === "archived") {
@@ -93,5 +100,19 @@ export function getExpiryWarning(row: {
       label: daysLeft <= 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
     };
   }
-  return null; // Monthly/Yearly, not archived → no warning, ever
+  if (
+    (row.service_type === "Monthly" || row.service_type === "Yearly") &&
+    row.gallery_publish_status === "published" &&
+    typeof row.event_expiry_at === "number"
+  ) {
+    // Days until the expiry instant itself: the same arithmetic as the windows
+    // above, with the window already folded into the timestamp.
+    const daysLeft = daysRemaining(row.event_expiry_at, 0);
+    if (daysLeft > EXPIRY_WARNING_WINDOW_DAYS) return null;
+    return {
+      daysLeft,
+      label: daysLeft <= 0 ? "Archives today" : `Archives in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+    };
+  }
+  return null; // Monthly/Yearly with no expiry near → no warning
 }

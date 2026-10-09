@@ -98,6 +98,7 @@ export function MediaGrid({
   emptyMessage,
   archiveName,
   coverUrl,
+  coverLocked,
   onSetCover,
   notify,
 }: {
@@ -144,6 +145,10 @@ export function MediaGrid({
    * download button becomes a "⋮" menu offering Download + Set as cover photo.
    */
   onSetCover?: (item: MediaItem) => void | Promise<void>;
+  /** The event's cover can no longer be changed (pay per event, once set), so
+   *  "Set as cover photo" is left out of every photo's menu. The photo that
+   *  IS the cover still says so. */
+  coverLocked?: boolean;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
 }) {
@@ -597,6 +602,7 @@ export function MediaGrid({
               {onSetCover && persisted && m.type === "image" ? (
                 <PhotoMenu
                   isCover={!!coverUrl && m.url === coverUrl}
+                  coverLocked={coverLocked}
                   onDownload={() => downloadOne(m)}
                   onSetCover={() => void onSetCover(m)}
                   onDelete={
@@ -843,11 +849,14 @@ function DeleteConfirm({
  */
 function PhotoMenu({
   isCover,
+  coverLocked,
   onDownload,
   onSetCover,
   onDelete,
 }: {
   isCover: boolean;
+  /** Hides "Set as cover photo"; the current cover keeps its (disabled) label. */
+  coverLocked?: boolean;
   onDownload: () => void;
   onSetCover: () => void;
   onDelete?: () => void;
@@ -901,20 +910,22 @@ function PhotoMenu({
             <IconDownload size={14} className="text-[var(--color-brand-muted)]" />
             Download
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            disabled={isCover}
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
-              onSetCover();
-            }}
-            className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] disabled:cursor-default disabled:text-[var(--color-brand-muted)] disabled:hover:bg-transparent"
-          >
-            <IconImage size={14} className="text-[var(--color-brand-muted)]" />
-            {isCover ? "Current cover photo" : "Set as cover photo"}
-          </button>
+          {(isCover || !coverLocked) && (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={isCover}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onSetCover();
+              }}
+              className="flex w-full items-center gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-2.5 text-left text-[12.5px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)] disabled:cursor-default disabled:text-[var(--color-brand-muted)] disabled:hover:bg-transparent"
+            >
+              <IconImage size={14} className="text-[var(--color-brand-muted)]" />
+              {isCover ? "Current cover photo" : "Set as cover photo"}
+            </button>
+          )}
           {onDelete && (
             <button
               type="button"

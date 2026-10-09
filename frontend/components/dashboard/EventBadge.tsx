@@ -9,6 +9,9 @@ const TONES: Record<EventType, { fg: string; bg: string }> = {
   "Pre-wedding": { fg: "#7c2d12", bg: "#fde8d3" },
   Engagement: { fg: "#9d2466", bg: "#fce7f3" },
   Corporate: { fg: "#1a365d", bg: "#e0ecf7" },
+  // A deep green on a soft one: the only green in the set, at the same depth
+  // and softness as the six beside it.
+  Sports: { fg: "#1f5a3a", bg: "#e2f3e8" },
 };
 
 const FALLBACK = { fg: "var(--color-brand-ink)", bg: "var(--color-brand-track)" };

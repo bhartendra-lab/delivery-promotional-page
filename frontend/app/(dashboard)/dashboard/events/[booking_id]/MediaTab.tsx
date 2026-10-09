@@ -2,7 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createCustomFolder, deleteCustomFolder, reorderCustomFolders, updateCustomFolder } from "@/lib/api";
-import { EVENT_TYPES, type CustomFolder, type MediaItem } from "@/lib/types";
+import {
+  EVENT_TYPES,
+  isCountBasedPlan,
+  isStorageBasedPlan,
+  type CustomFolder,
+  type EventExpiryChoice,
+  type EventExpiryInput,
+  type MediaItem,
+} from "@/lib/types";
+import {
+  eventExpiryPreview,
+  expiryOutcomeLine,
+  istDateInputOf,
+  resolveEventExpiry,
+} from "@/lib/event-clients";
+import { EventExpiryField } from "@/components/dashboard/EventExpiryField";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FoldersSidebar, InlineFolderInput, type FolderRow } from "@/components/dashboard/FoldersSidebar";
 import { UploadModal, type UploadFolderOption, type UploadModalStep } from "./UploadModal";
 import { UploadProgress } from "./UploadProgress";
@@ -56,7 +72,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
     engine,
     activeLocked,
     pauseUpload,
-    publishedEver,
+    serviceType,
     saveMeta,
     saveDeliveryPreferences,
     coverBusy,
@@ -95,6 +111,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
   // A cover pick (upload or "Set as cover photo") parked here until the studio
   // confirms its position in `CoverPositionModal` — nothing is persisted until then.
   const [pendingCover, setPendingCover] = useState<PendingCover | null>(null);
+  // On a pay per event event the cover locks the moment it is set, so the
+  // FIRST cover is confirmed before anything else happens: the pick waits here
+  // behind a ConfirmDialog, and only then goes on to position adjustment.
+  const [coverToConfirm, setCoverToConfirm] = useState<PendingCover | null>(null);
+  const coverLocked = meta.coverLocked === true;
+  // "Will lock once set" is a plan fact about THIS event (its own service
+  // type), not the company's plan today. Before the first cover there is no
+  // `cover_locked` to read: that flag only turns true once a cover exists.
+  const coverLocksOnceSet = isCountBasedPlan(serviceType) && !meta.backgroundImage;
 
   // The photo-limit dialog, opened from the event header ("room": nothing is
   // waiting, the studio just wants more) or from a run that paused on the
@@ -271,14 +296,40 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
   // A new file was picked as the cover — park it for position adjustment
   // instead of uploading/persisting right away.
-  const pickCoverFile = useCallback((file: File) => {
-    setPendingCover({ kind: "file", file, previewUrl: URL.createObjectURL(file) });
-  }, []);
+  const pickCoverFile = useCallback(
+    (file: File) => {
+      const pick: PendingCover = { kind: "file", file, previewUrl: URL.createObjectURL(file) };
+      if (coverLocksOnceSet) setCoverToConfirm(pick);
+      else setPendingCover(pick);
+    },
+    [coverLocksOnceSet],
+  );
 
   // "Set as cover photo" from the grid — same parking, no upload needed since
   // the image is already on R2.
-  const pickCoverFromMedia = useCallback((item: MediaItem) => {
-    setPendingCover({ kind: "existing", url: item.url });
+  const pickCoverFromMedia = useCallback(
+    (item: MediaItem) => {
+      const pick: PendingCover = { kind: "existing", url: item.url };
+      if (coverLocksOnceSet) setCoverToConfirm(pick);
+      else setPendingCover(pick);
+    },
+    [coverLocksOnceSet],
+  );
+
+  /** The Studio went ahead: the pick moves on to position adjustment. */
+  const confirmCoverPick = useCallback(() => {
+    setCoverToConfirm((pick) => {
+      if (pick) setPendingCover(pick);
+      return null;
+    });
+  }, []);
+
+  /** The Studio backed out: nothing was set, and a picked file's preview is freed. */
+  const cancelCoverPick = useCallback(() => {
+    setCoverToConfirm((pick) => {
+      if (pick?.kind === "file") URL.revokeObjectURL(pick.previewUrl);
+      return null;
+    });
   }, []);
 
   const closePendingCover = useCallback(() => {
@@ -403,6 +454,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             coverPosition={meta.backgroundPosition}
             busy={coverBusy}
             disabled={activeLocked}
+            coverLocked={coverLocked}
             onSetFromFile={pickCoverFile}
             onSavePosition={setCoverPosition}
           />
@@ -495,6 +547,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
             totalForView={totalForView}
             viewKey={activeFolderId}
             coverUrl={meta.backgroundImage}
+            coverLocked={coverLocked}
             onSetCover={pickCoverFromMedia}
             notify={toast}
             onRename={() => {
@@ -604,7 +657,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
           initialName={meta.name}
           initialType={meta.type}
           initialDate={meta.eventDate}
-          nameLocked={publishedEver}
+          nameLocked={meta.nameLocked === true}
+          // The expiry belongs to storage plan events only, by the event's
+          // OWN plan. Absent on every other event, where the sheet shows no
+          // expiry control at all.
+          expiry={
+            isStorageBasedPlan(serviceType)
+              ? { choice: meta.expiryChoice ?? null, at: meta.expiryAt ?? null }
+              : undefined
+          }
           onSave={async (next) => {
             await saveMeta(next);
             setEditOpen(false);
@@ -612,6 +673,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
           onClose={() => setEditOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={coverToConfirm !== null}
+        title="Set this as the cover?"
+        description="On pay per event plans the cover can't be changed after this."
+        confirmLabel="Set cover"
+        onConfirm={confirmCoverPick}
+        onCancel={cancelCoverPick}
+      />
 
       {pendingCover && (
         <CoverPositionModal
@@ -907,6 +977,7 @@ function PopulatedBody({
   viewKey,
   onRename,
   coverUrl,
+  coverLocked,
   onSetCover,
   notify,
   mediaSort,
@@ -931,6 +1002,8 @@ function PopulatedBody({
   onRename: () => void;
   /** Current event cover URL — flags the matching tile in the grid. */
   coverUrl?: string;
+  /** The cover can no longer be changed, so the grid stops offering to. */
+  coverLocked?: boolean;
   /** Set a grid photo as the event cover. */
   onSetCover: (item: MediaItem) => void | Promise<void>;
   /** Transient status messages (e.g. download progress). */
@@ -979,6 +1052,7 @@ function PopulatedBody({
         onLoadMore={onLoadMore}
         archiveName={activeFolderLabel}
         coverUrl={coverUrl}
+        coverLocked={coverLocked}
         onSetCover={onSetCover}
         notify={notify}
       />
@@ -1018,20 +1092,44 @@ function EditMetaSheet({
   initialType,
   initialDate,
   nameLocked = false,
+  expiry,
   onSave,
   onClose,
 }: {
   initialName: string;
   initialType: string;
   initialDate: number | null;
-  /** True once published — name is immutable to keep the shared link stable. */
+  /** The name can never change on this event (pay per event). Decided by the
+   *  backend from the plan the event was created under, not by whether its
+   *  photos have synced: a rename no longer touches the gallery link. */
   nameLocked?: boolean;
-  onSave: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
+  /** The stored expiry, on a storage plan event. Undefined on every other
+   *  event, which hides the control. `choice` null reads as Never. */
+  expiry?: { choice: EventExpiryChoice | null; at: number | null };
+  onSave: (next: {
+    name: string;
+    type: string;
+    eventDate: number | null;
+    eventExpiry?: EventExpiryInput;
+  }) => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initialName);
   const [type, setType] = useState(initialType);
   const [date, setDate] = useState(initialDate != null ? toDateInput(initialDate) : "");
+  // The expiry starts on what is stored (absent reads as Never) and is sent
+  // ONLY if the Studio touches it. That matters for the presets: "3 months"
+  // sent again would quietly restart its count from today. While untouched,
+  // the line underneath names the STORED date; once touched it names the date
+  // the new choice would give, counted from today.
+  const storedChoice: EventExpiryChoice = expiry?.choice ?? "never";
+  const storedAt = storedChoice === "never" ? null : (expiry?.at ?? null);
+  const [expiryChoice, setExpiryChoice] = useState<EventExpiryChoice>(storedChoice);
+  const [expiryDate, setExpiryDate] = useState(
+    storedChoice === "custom" && storedAt != null ? istDateInputOf(storedAt) : "",
+  );
+  const [expiryTouched, setExpiryTouched] = useState(false);
+  const [expiryDateError, setExpiryDateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLFormElement>(null);
@@ -1072,11 +1170,32 @@ function EditMetaSheet({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSave) return;
+    // A custom date is checked here with the server's own rule, so a wrong
+    // one is marked on its field instead of coming back as a failed save.
+    let eventExpiry: EventExpiryInput | undefined;
+    if (expiry && expiryTouched) {
+      if (expiryChoice === "custom") {
+        try {
+          resolveEventExpiry({ choice: "custom", date: expiryDate });
+        } catch (err) {
+          setExpiryDateError(!expiryDate ? "Pick a date" : err instanceof Error ? err.message : "Pick a date");
+          return;
+        }
+        eventExpiry = { choice: "custom", date: expiryDate };
+      } else {
+        eventExpiry = { choice: expiryChoice };
+      }
+    }
     setSaving(true);
     setError(null);
     try {
       const epoch = date ? new Date(`${date}T00:00:00`).getTime() : NaN;
-      await onSave({ name: name.trim(), type, eventDate: Number.isFinite(epoch) ? epoch : null });
+      await onSave({
+        name: name.trim(),
+        type,
+        eventDate: Number.isFinite(epoch) ? epoch : null,
+        ...(eventExpiry ? { eventExpiry } : {}),
+      });
     } catch (err) {
       setSaving(false);
       setError(err instanceof Error ? err.message : "Could not save changes");
@@ -1129,18 +1248,21 @@ function EditMetaSheet({
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={saving || nameLocked}
-          title={nameLocked ? "Locked after publishing to keep the shared link stable." : undefined}
+          title={nameLocked ? "The event name can't be changed on pay per event plans." : undefined}
           className="brand-focus block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--color-brand-bg)] disabled:text-[var(--color-brand-muted)]"
         />
         {nameLocked && (
           <p className="mt-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
-            Locked after publishing so the shared gallery link stays stable.
+            The event name can&apos;t be changed on pay per event plans.
           </p>
         )}
         <div className="mb-4" />
 
         <span className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">Event type</span>
-        <div className="mb-4 grid grid-cols-3 gap-2" role="group" aria-label="Event type">
+        {/* Seven chips. Two columns on a phone, three from 640px: this sheet is
+            460px wide at most, and a fourth column leaves a selected
+            "Pre-wedding" or "Anniversary" (tick included) no room. */}
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="Event type">
           {EVENT_TYPES.map((t) => {
             const active = t === type;
             return (
@@ -1174,6 +1296,32 @@ function EditMetaSheet({
           disabled={saving}
           className="brand-focus block w-full rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2.5 text-[14px] text-[var(--color-brand-ink)] outline-none"
         />
+
+        {expiry && (
+          <div className="mt-4">
+            <EventExpiryField
+              choice={expiryChoice}
+              date={expiryDate}
+              onChoice={(choice) => {
+                setExpiryChoice(choice);
+                setExpiryTouched(true);
+                setExpiryDateError(null);
+              }}
+              onDate={(next) => {
+                setExpiryDate(next);
+                setExpiryTouched(true);
+                setExpiryDateError(null);
+              }}
+              outcome={
+                expiryTouched
+                  ? eventExpiryPreview({ choice: expiryChoice, date: expiryDate })
+                  : expiryOutcomeLine(storedAt)
+              }
+              disabled={saving}
+              dateError={expiryDateError ?? undefined}
+            />
+          </div>
+        )}
 
         {error && (
           <p

@@ -8,6 +8,10 @@ import type { StyleVariant } from "./types";
  */
 export type Occasion = "wedding" | "celebration" | "corporate" | "neutral";
 
+// Sports is deliberately in none of the sets below: it falls through to
+// "neutral", the grouping with no occasion-specific wording, like any type
+// this file has not been taught about.
+
 const WEDDING_TYPES = new Set(["Wedding", "Pre-wedding", "Engagement"]);
 const CELEBRATION_TYPES = new Set(["Birthday", "Anniversary"]);
 

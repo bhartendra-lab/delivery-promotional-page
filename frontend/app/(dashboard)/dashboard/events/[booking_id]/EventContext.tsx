@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { CustomFolder, MediaItem } from "@/lib/types";
+import type { CustomFolder, EventExpiryChoice, EventExpiryInput, MediaItem, ServiceType } from "@/lib/types";
 import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import type { PhotoCap } from "@/lib/billing-types";
@@ -89,6 +89,20 @@ export type EventMeta = {
    * directly without re-checking for an absent key.
    */
   deliveryPreferences?: DeliveryPreferences;
+  /**
+   * What this event may still change, as the backend decided from the plan the
+   * EVENT was created under (`name_locked` / `cover_locked`). Pay per event:
+   * the name from creation, the cover once one is set. Absent (an older
+   * backend, or before the first load) reads as unlocked.
+   */
+  nameLocked?: boolean;
+  coverLocked?: boolean;
+  /**
+   * The Studio's own expiry for a storage plan event. Null or absent on both
+   * means "never". `expiryAt` is epoch ms, the end of that day in IST.
+   */
+  expiryChoice?: EventExpiryChoice | null;
+  expiryAt?: number | null;
 };
 
 /**
@@ -175,13 +189,24 @@ export type EventContextValue = {
   /** Pause the upload, then kick off the storage recalculation for it. */
   pauseUpload: () => void;
   /**
-   * True once the gallery has been published at least once. While true the
-   * event name is locked read-only to keep the shared
-   * `/event/<unique_identifier>` URL stable. The cover photo stays editable.
+   * True once the first photos have synced. It no longer locks anything: a
+   * rename does not change the gallery link any more, and what an event may
+   * still change is `meta.nameLocked` / `meta.coverLocked`.
    */
   publishedEver: boolean;
-  /** Edit name + type + date from the edit sheet. */
-  saveMeta: (next: { name: string; type: string; eventDate: number | null }) => Promise<void>;
+  /** The plan THIS EVENT was created under (not the company's plan today). */
+  serviceType: ServiceType | null;
+  /**
+   * Edit name + type + date from the edit sheet, and, on a storage plan
+   * event, its expiry. `eventExpiry` is passed ONLY when the Studio changed
+   * it: absent leaves the stored expiry alone.
+   */
+  saveMeta: (next: {
+    name: string;
+    type: string;
+    eventDate: number | null;
+    eventExpiry?: EventExpiryInput;
+  }) => Promise<void>;
   /**
    * Persist the event's guest delivery preferences. EVENT-SCOPED: there is one
    * preference set per event, so this covers every photo in the gallery —

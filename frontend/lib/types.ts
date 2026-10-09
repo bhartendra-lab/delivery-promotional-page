@@ -3,20 +3,55 @@ import type { SocialPlatformKey } from "./social-platforms";
 
 export type EventType =
   | "Wedding"
-  | "Birthday"
-  | "Anniversary"
   | "Pre-wedding"
   | "Engagement"
-  | "Corporate";
+  | "Anniversary"
+  | "Birthday"
+  | "Corporate"
+  | "Sports";
 
+/**
+ * Every event type, in the order the dashboard offers them: the four couple
+ * types first, then the rest. Mirrors the backend's EVENT_TYPES in
+ * events.model.js, which is what `create-booking` and `update-booking`
+ * validate against, so a type added here must be added there too.
+ */
 export const EVENT_TYPES: EventType[] = [
   "Wedding",
-  "Birthday",
-  "Anniversary",
   "Pre-wedding",
   "Engagement",
+  "Anniversary",
+  "Birthday",
   "Corporate",
+  "Sports",
 ];
+
+/** `value` as an EventType, or undefined when it is not one. `update-booking`
+ *  rejects anything else, so a caller passing the event's current type through
+ *  must drop a value it cannot vouch for (the "Event" placeholder shown while
+ *  an event's type is unknown) rather than send it. */
+export function knownEventType(value: string | null | undefined): EventType | undefined {
+  return EVENT_TYPES.find((t) => t === value);
+}
+
+/** Who a person is to an event. "client" is everyone who is not the couple. */
+export type EventClientRole = "bride" | "groom" | "client";
+
+/** What a Studio can answer when asked how long a storage plan event lives. */
+export type EventExpiryChoice = "1m" | "3m" | "6m" | "never" | "custom";
+
+/** One person the Studio set the event up for, as `create-booking` takes them
+ *  and as `get-booking-by-id` returns them (phone then in its stored
+ *  `91XXXXXXXXXX` form). */
+export type EventClient = {
+  role: EventClientRole;
+  name?: string;
+  phone?: string;
+};
+
+/** The expiry answer as it travels to the API. `date` is "YYYY-MM-DD" and is
+ *  sent only with "custom". */
+export type EventExpiryInput = { choice: EventExpiryChoice; date?: string };
 
 /**
  * Gallery appearance style variants — must match the backend
@@ -449,10 +484,27 @@ export type Guest = {
    * "passcode" — the passcode was the only way in at the time.
    */
   full_access_source?: "passcode" | "studio" | null;
+  /**
+   * The Client level. A Client is ALWAYS a Host as well (`guest_type` is
+   * "host"), so every full-access check keeps working; this flag says which
+   * Hosts are Clients. Absent on every row written before the level existed,
+   * so read it `=== true`. Use `levelOf` (lib/guest-access.ts) rather than
+   * branching on the raw fields.
+   */
+  is_client?: boolean;
+  /** Who they are to the event. "client" for anyone marked from the Guest list. */
+  client_role?: EventClientRole | null;
+  /** "event_setup" when the Studio typed them in at creation, "studio" when a
+   *  Member marked an existing Guest. Both hold the same level. */
+  client_source?: "event_setup" | "studio" | null;
+  /** True on a row created at event setup for someone who has not signed in yet. */
+  invite_pending?: boolean;
   guest_sub_type?: string | null;
   /** Guest's own selfie photo (set once they face-match), if any. */
   selfie_url?: string | null;
   likes_count?: number;
+  /** ISO timestamp. Orders the Client block (bride, groom, then by this). */
+  createdAt?: string;
 };
 
 export type GetAllGuestsResponse = {
@@ -466,9 +518,23 @@ export type GuestOtpVerifyResponse = {
   guest: Guest;
 };
 
+/**
+ * What became of the WhatsApp invitations for a newly created event:
+ *   "none"        nobody was added with a number
+ *   "skipped"     the Studio unticked "Send them the gallery link on WhatsApp"
+ *   "unavailable" the template is not live yet (or the send could not start)
+ *   "sending"     one message per person is on its way
+ * `count` is how many people that concerns. Absent from an older backend.
+ */
+export type ClientInvites = {
+  status: "none" | "skipped" | "unavailable" | "sending";
+  count: number;
+};
+
 export type CreateBookingResponse = {
   message: string;
   booking_id: string;
+  client_invites?: ClientInvites;
 };
 
 /**
@@ -498,6 +564,9 @@ export type Booking = {
   gallery_publish_status?: GalleryPublishStatus;
   /** Number of indexed faces in the gallery. */
   total_faces?: number;
+  /** The Studio's own expiry for a storage plan event (epoch ms, end of that
+   *  day in IST): the day it is archived automatically. Absent means never. */
+  event_expiry_at?: number | null;
   /** R2 cover image URL from the delivery landing page. */
   background_image?: string;
   /** Public slug for the delivery landing page. */
@@ -587,6 +656,25 @@ export type BookingDetail = {
   service_type?: ServiceType | string | null;
   /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
   gallery_archived_at?: number | null;
+  /**
+   * The Studio's own expiry for a storage plan event. Absent or null on both
+   * means "never", which is what every event created before the fields
+   * existed reads as. `event_expiry_at` is epoch ms, the end of that day in
+   * IST; the event is archived (not deleted) once it passes.
+   */
+  event_expiry_choice?: EventExpiryChoice | null;
+  event_expiry_at?: number | null;
+  /** The people the Studio set the event up for. A record only: whether
+   *  someone is a Client is decided by the Guest list, never by this. */
+  clients?: EventClient[];
+  /**
+   * What this event may still change, decided by the backend from the plan the
+   * EVENT was created under. Pay per event: the name is locked from creation,
+   * and the cover once one is set. Absent from an older backend, which reads
+   * as unlocked.
+   */
+  name_locked?: boolean;
+  cover_locked?: boolean;
   /** Reusable QR linked to this event, if any (joined by `getBookingById`).
    *  Both absent when no QR points here. */
   qr_unique_id?: string;
@@ -801,6 +889,13 @@ export type GuestSession = {
   email?: string;
   /** "host" once the family passcode has been entered; "guest" otherwise. */
   guest_type: "guest" | "host";
+  /**
+   * The Client level (a Client is a Host too, so `guest_type` above is already
+   * "host" for one). Nothing in the Guest gallery renders these yet; they are
+   * here so a Client-only feature can read them when one exists.
+   */
+  is_client?: boolean;
+  client_role?: EventClientRole | null;
   guest_sub_type: string | null;
   selfie_url: string | null;
   has_selfie: boolean;

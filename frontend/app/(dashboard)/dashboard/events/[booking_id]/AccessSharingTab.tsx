@@ -1,11 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ApiError, exportGuestsCsv, getAllGuests, setGuestFullAccess } from "@/lib/api";
+import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { CustomFolder, Guest } from "@/lib/types";
+import {
+  accessActionsFor,
+  fullAccessIsRedundant,
+  levelOf,
+  sortGuestsForList,
+  type GuestAccessAction,
+  type GuestAccessLevel,
+} from "@/lib/guest-access";
+import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
 import {
@@ -20,6 +29,7 @@ import { useEvent } from "./EventContext";
 import {
   IconCheck,
   IconCopy,
+  IconDotsVertical,
   IconDownload,
   IconGear,
   IconInfo,
@@ -76,6 +86,16 @@ export function AccessSharingTab({
   const prefs = normalizeDeliveryPreferences(meta.deliveryPreferences);
   const faceSearchOn = prefs.face_search_enabled;
   const hasPublicPhotos = hasPublicFolderWithPhotos(folders, folderCounts);
+  // When every photo is already public (and there is no Host-only download to
+  // gain), giving or removing full access changes nothing a Guest can see or
+  // do, so the Guest list stops offering it. See fullAccessIsRedundant.
+  const fullAccessRedundant = fullAccessIsRedundant({
+    folders,
+    folderCounts,
+    allowDownload: prefs.allow_download,
+    archiveDownloadAccess: prefs.archive_download_access,
+    archiveTierCount: archiveTiers.length,
+  });
 
   /** The Gallery preferences modal — every per-event Guest setting in one
    *  place. It used to be a gear on the Media tab, which is where a studio
@@ -203,8 +223,8 @@ ${shareUrl}`;
           />
         </div>
 
-        {/* Right — guest list, host/guest filter, export, revoke access. */}
-        <GuestsPanel bookingId={bookingId} />
+        {/* Right — guest list, level filter, export, and each Guest's access. */}
+        <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} />
       </div>
 
       {/* Every per-event Guest setting, in the tab that is about Guests.
@@ -236,9 +256,31 @@ ${shareUrl}`;
 
 /* ── guest list panel ───────────────────────────────────────────── */
 
-type GuestFilter = "all" | "host" | "guest";
+type GuestFilter = "all" | GuestAccessLevel;
 
-function GuestsPanel({ bookingId }: { bookingId: string }) {
+const FILTERS: ReadonlyArray<{ value: GuestFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "client", label: "Clients" },
+  { value: "host", label: "Hosts" },
+  { value: "guest", label: "Guests" },
+];
+
+const EMPTY_LABEL: Record<GuestFilter, string> = {
+  all: "No guests yet.",
+  client: "No Clients yet.",
+  host: "No Hosts yet.",
+  guest: "No Guests yet.",
+};
+
+function GuestsPanel({
+  bookingId,
+  fullAccessRedundant,
+}: {
+  bookingId: string;
+  /** Every photo is already public, so the full-access items are left out of
+   *  each row's menu. See fullAccessIsRedundant. */
+  fullAccessRedundant: boolean;
+}) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -251,7 +293,9 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
     setError(null);
     try {
       const res = await getAllGuests(bookingId, { guestType: filter === "all" ? undefined : filter });
-      setGuests(res.guests ?? []);
+      // Already in this order from the server; sorted again here so the list
+      // and every later local re-sort go through one comparator.
+      setGuests(sortGuestsForList(res.guests ?? []));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load guests");
     } finally {
@@ -265,17 +309,19 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
   }, [load]);
 
   /**
-   * A row's access changed, in either direction. The host/guest filters are
-   * SERVER-side, so a row that just crossed the line no longer belongs in a
-   * scoped list — drop it rather than leave a "Host" sitting under the Guest
-   * filter. Under "All" it stays put and simply re-labels.
+   * A row's level changed. The level filters are SERVER-side and mutually
+   * exclusive, so a row that just crossed a line no longer belongs in a scoped
+   * list — drop it rather than leave a "Host" sitting under the Guests filter.
+   * Under "All" it stays and is re-sorted at once, which is what makes a Guest
+   * marked as Client jump to the top (and a removed Client drop back into
+   * place) without a reload.
    */
   const handleAccessChanged = (guestId: string, updated: Guest) => {
     setGuests((prev) => {
       if (!prev) return prev;
-      const stillBelongs = filter === "all" || updated.guest_type === filter;
+      const stillBelongs = filter === "all" || levelOf(updated) === filter;
       if (!stillBelongs) return prev.filter((g) => g._id !== guestId);
-      return prev.map((g) => (g._id === guestId ? { ...g, ...updated } : g));
+      return sortGuestsForList(prev.map((g) => (g._id === guestId ? { ...g, ...updated } : g)));
     });
   };
 
@@ -290,6 +336,12 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
       setExporting(false);
     }
   };
+
+  // Clients always lead the list (see compareGuestsForList), so under "All"
+  // the first non-Client row is where everyone else begins. The divider is
+  // shown only when BOTH groups have rows; a list of one kind needs no label.
+  const firstOtherIndex = filter === "all" && guests ? guests.findIndex((g) => levelOf(g) !== "client") : -1;
+  const showDivider = firstOtherIndex > 0;
 
   return (
     // Fills the grid cell's full height in the wide layout (stretched by the
@@ -306,7 +358,7 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">Guests</h3>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Everyone who&apos;s opened the gallery link.
+            Everyone who has opened the gallery link, plus the Clients you added.
           </p>
         </div>
         <button
@@ -321,17 +373,23 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5 border-b border-[#ECE5D8] px-4 py-2.5">
-        <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
-          All
-        </FilterPill>
-        <FilterPill active={filter === "host"} onClick={() => setFilter("host")}>
-          Host
-        </FilterPill>
-        <FilterPill active={filter === "guest"} onClick={() => setFilter("guest")}>
-          Guest
-        </FilterPill>
+      {/* Four pills. On the narrowest phones they scroll sideways inside this
+          strip rather than wrapping or pushing the page wider. */}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-[#ECE5D8] px-4 py-2.5">
+        {FILTERS.map((f) => (
+          <FilterPill key={f.value} active={filter === f.value} onClick={() => setFilter(f.value)}>
+            {f.label}
+          </FilterPill>
+        ))}
       </div>
+
+      {/* Why the menus are shorter than usual, said once for the whole list. */}
+      {fullAccessRedundant && (
+        <p className="border-b border-[#ECE5D8] bg-[var(--color-brand-bg)] px-4 py-2 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
+          Every photo is in a public folder, so every Guest already sees the full gallery. Full access options are
+          hidden.
+        </p>
+      )}
 
       {exportError && (
         <div className="border-b border-[#ECE5D8] bg-[var(--color-brand-warning-soft)] px-4 py-2 text-[12px] text-[var(--color-brand-warning)]">
@@ -363,21 +421,28 @@ function GuestsPanel({ bookingId }: { bookingId: string }) {
         )}
         {!loading && !error && (guests?.length ?? 0) === 0 && (
           <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
-            {filter === "all" ? "No guests yet." : `No ${filter}s yet.`}
+            {EMPTY_LABEL[filter]}
           </div>
         )}
         {!loading &&
           !error &&
-          guests?.map((g) => (
-            <GuestRow
-              key={g._id}
-              guest={g}
-              onAccessChanged={(updated) => handleAccessChanged(g._id, updated)}
-              // A 404 means another Member already changed this row. The
-              // message is shown inline by the row itself; reloading is what
-              // makes the list agree with it again.
-              onStale={() => void load()}
-            />
+          guests?.map((g, index) => (
+            <div key={g._id}>
+              {showDivider && index === firstOtherIndex && (
+                <div className="border-b border-[#F1ECE2] bg-[var(--color-brand-bg)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">
+                  Guests
+                </div>
+              )}
+              <GuestRow
+                guest={g}
+                fullAccessRedundant={fullAccessRedundant}
+                onAccessChanged={(updated) => handleAccessChanged(g._id, updated)}
+                // A 404 means another Member already changed this row. The
+                // message is shown inline by the row itself; reloading is what
+                // makes the list agree with it again.
+                onStale={() => void load()}
+              />
+            </div>
           ))}
       </div>
     </section>
@@ -398,7 +463,7 @@ function FilterPill({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`brand-focus rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${active
+      className={`brand-focus shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${active
           ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
           : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
         }`}
@@ -424,47 +489,119 @@ function addressOf(name: string): { label: string; possessive: string; isNamed: 
   };
 }
 
+/** "this Guest is now a Client" opens a toast, so it takes a capital. */
+const sentenceStart = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+const CLIENT_ROLE_LABEL: Record<string, string> = { bride: "Bride", groom: "Groom" };
+
+/**
+ * The confirm shown under a row for the change that was picked from its menu:
+ * the sentence, its tone and the button's name. Giving is not a destructive
+ * act, so it gets the neutral surface; anything that takes the full gallery
+ * away keeps the warning one.
+ */
+function confirmCopyFor(
+  action: GuestAccessAction,
+  from: GuestAccessLevel,
+  who: ReturnType<typeof addressOf>,
+  givenByStudio: boolean,
+): { tone: "warning" | "neutral"; sentence: string; confirmLabel: string } {
+  if (action.to === "client") {
+    return {
+      tone: "neutral",
+      sentence: `Mark ${who.label} as a Client? Clients always have the full gallery and keep it when the passcode changes.`,
+      confirmLabel: "Mark as Client",
+    };
+  }
+  if (action.to === "host") {
+    return from === "client"
+      ? {
+          tone: "neutral",
+          sentence: `Remove ${who.label} as a Client? They keep full access to the gallery.`,
+          confirmLabel: "Remove Client",
+        }
+      : {
+          tone: "neutral",
+          sentence: `Give ${who.label} the full gallery? They will see every photo, the same as with the passcode.`,
+          confirmLabel: "Give access",
+        };
+  }
+  // To "guest". The sentence depends on what is being lost, and (for a Host)
+  // on whether the passcode can undo it behind the Studio's back.
+  if (from === "client") {
+    return {
+      tone: "warning",
+      sentence: `Remove ${who.possessive} full access? They will also stop being a Client and go back to their own photos and public folders.`,
+      confirmLabel: "Confirm",
+    };
+  }
+  return {
+    tone: "warning",
+    sentence: givenByStudio
+      ? `Remove ${who.possessive} full access? They will go back to their own photos and public folders.`
+      : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Regenerate the passcode if you need to keep them out.`,
+    confirmLabel: "Confirm",
+  };
+}
+
 function GuestRow({
   guest,
+  fullAccessRedundant,
   onAccessChanged,
   onStale,
 }: {
   guest: Guest;
+  fullAccessRedundant: boolean;
   onAccessChanged: (updated: Guest) => void;
   onStale: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  /** The change picked from the menu, awaiting its confirm. */
+  const [pending, setPending] = useState<GuestAccessAction | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useEvent();
-  const isHost = guest.guest_type === "host";
+  // One value per row, used everywhere below: a Client is stored as a Host
+  // with a flag, so the raw fields alone would read every Client as a Host.
+  const level = levelOf(guest);
   const contact = guest.email || guest.phone || "No contact info";
   // A Host promoted before the source was recorded can only have come in with
   // the passcode — it was the sole way in — so an absent value reads that way.
   const givenByStudio = guest.full_access_source === "studio";
   const who = addressOf(guest.name);
+  const actions = accessActionsFor(level, { fullAccessRedundant });
 
-  const setAccess = async (fullAccess: boolean) => {
+  const apply = async (action: GuestAccessAction) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await setGuestFullAccess(guest._id, fullAccess);
+      const res = await setGuestAccessLevel(guest._id, action.to);
       onAccessChanged(res.guest);
-      setConfirming(false);
-      toast(fullAccess ? `${who.label} now has full access` : `Full access removed for ${who.label}`);
+      setPending(null);
+      toast(
+        action.to === "client"
+          ? `${sentenceStart(who.label)} is now a Client`
+          : action.to === "host"
+            ? level === "client"
+              ? `${sentenceStart(who.label)} is no longer a Client`
+              : `${sentenceStart(who.label)} now has full access`
+            : `Full access removed for ${who.label}`,
+      );
     } catch (e) {
       // A 404 is not a failure so much as news: someone else got there first.
       // Show what the server said, then let the panel reload so the row stops
       // offering an action that no longer applies.
       setError(e instanceof Error ? e.message : "Couldn't update access");
       if (e instanceof ApiError && e.status === 404) {
-        setConfirming(false);
+        setPending(null);
         onStale();
       }
     } finally {
       setBusy(false);
     }
   };
+
+  const confirm = pending ? confirmCopyFor(pending, level, who, givenByStudio) : null;
+  const clientRole = CLIENT_ROLE_LABEL[guest.client_role ?? ""];
 
   return (
     <div className="flex flex-col gap-2 border-b border-[#F1ECE2] px-4 py-3 last:border-b-0">
@@ -473,56 +610,42 @@ function GuestRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{guest.name}</span>
-            <RoleBadge isHost={isHost} />
+            <RoleBadge level={level} />
           </div>
           <p className="truncate text-[12px] text-[var(--color-brand-muted)]">{contact}</p>
-          {/* Where a Host's access came from. Quiet on purpose: it only matters
-              when you are about to remove it, and the badge above already says
-              they are a Host. */}
-          {isHost && (
+          {/* Where this level came from. Quiet on purpose: it only matters when
+              you are about to change it, and the badge above already says what
+              they are. */}
+          {level === "client" && (
+            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
+              Client{clientRole ? ` · ${clientRole}` : ""} ·{" "}
+              {guest.client_source === "event_setup" ? "added at setup" : "marked by you"}
+            </p>
+          )}
+          {level === "host" && (
             <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
               Full access · {givenByStudio ? "given by you" : "passcode"}
             </p>
           )}
+          {/* Someone the Studio added at event setup who has not signed in. */}
+          {guest.invite_pending === true && (
+            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">Has not opened the gallery yet</p>
+          )}
         </div>
+        {/* Always visible, never a hover-only reveal: this list is used on
+            phones. */}
+        <GuestAccessMenu name={who.label} actions={actions} disabled={busy} onSelect={setPending} />
       </div>
 
-      {!confirming ? (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="brand-focus self-start rounded-md border border-[var(--color-brand-border)] px-2.5 py-1 text-[11.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
-        >
-          {isHost ? "Remove full access" : "Give full access"}
-        </button>
-      ) : isHost ? (
-        // Removing takes something away, so it keeps the warning treatment. The
-        // sentence depends on whether the passcode can undo it behind your back.
+      {pending && confirm && (
         <ConfirmBar
-          tone="warning"
+          tone={confirm.tone}
           busy={busy}
-          confirmLabel="Confirm"
-          onConfirm={() => void setAccess(false)}
-          onCancel={() => setConfirming(false)}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={() => void apply(pending)}
+          onCancel={() => setPending(null)}
         >
-          {givenByStudio
-            ? `Remove ${who.possessive} full access? They will go back to their own photos and public folders.`
-            : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Regenerate the passcode if you need to keep them out.`}
-        </ConfirmBar>
-      ) : (
-        // Giving is not a destructive act, so it gets a neutral surface rather
-        // than the warning one — the colour should not read as a warning when
-        // there is nothing to be careful about.
-        <ConfirmBar
-          tone="neutral"
-          busy={busy}
-          confirmLabel="Give access"
-          onConfirm={() => void setAccess(true)}
-          onCancel={() => setConfirming(false)}
-        >
-          {who.isNamed
-            ? `Give ${who.label} the full gallery? They will see every photo, the same as with the passcode.`
-            : "Give this Guest the full gallery? They will see every photo, the same as with the passcode."}
+          {confirm.sentence}
         </ConfirmBar>
       )}
       {error && <p className="text-[11.5px] text-[var(--color-brand-danger)]">{error}</p>}
@@ -530,7 +653,179 @@ function GuestRow({
   );
 }
 
-/** The inline confirm both directions share — same shape, two palettes. */
+const MENU_WIDTH = 240;
+/** Gap kept between the menu and the viewport edge, and the button. */
+const MENU_MARGIN = 8;
+const MENU_OFFSET = 4;
+
+/**
+ * A Guest row's 3 dot menu: every access change that row can make.
+ *
+ * Rendered into <body> at a fixed position, for the same reason `Tip` is: the
+ * list scrolls inside `overflow-y-auto` and its card clips overflow, so a menu
+ * positioned inside the row was cut off on the last rows. It is right-aligned
+ * to its button, clamped inside the viewport, and flipped above the button
+ * when there is no room below. Its position is a snapshot, so it closes on
+ * any scroll or resize rather than drifting away from its row.
+ *
+ * A real menu to the keyboard: focus goes to the first item on open, the
+ * arrow keys move between items, Home and End jump, Enter and Space activate,
+ * Escape and Tab close. Focus returns to the 3 dot button whenever it closes.
+ * Only one can be open at a time, because opening another means pressing
+ * outside this one.
+ */
+function GuestAccessMenu({
+  name,
+  actions,
+  disabled,
+  onSelect,
+}: {
+  /** Who the menu is about, for the button's accessible name. */
+  name: string;
+  actions: GuestAccessAction[];
+  disabled?: boolean;
+  onSelect: (action: GuestAccessAction) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuId = useId();
+
+  const close = useCallback(() => {
+    setOpen(false);
+    // preventScroll: a close caused by scrolling must not yank the list back.
+    buttonRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Place the menu once it is in the DOM and its real height is known. Written
+  // straight to the element rather than through state: it is one measurement,
+  // taken before paint, and nothing else needs to know where the menu landed.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const button = buttonRef.current?.getBoundingClientRect();
+    const menu = menuRef.current;
+    if (!button || !menu) return;
+    const width = Math.min(MENU_WIDTH, window.innerWidth - MENU_MARGIN * 2);
+    menu.style.width = `${width}px`;
+    const left = Math.min(Math.max(MENU_MARGIN, button.right - width), window.innerWidth - width - MENU_MARGIN);
+    const height = menu.offsetHeight;
+    const below = button.bottom + MENU_OFFSET;
+    const fitsBelow = below + height <= window.innerHeight - MENU_MARGIN;
+    const top = fitsBelow ? below : Math.max(MENU_MARGIN, button.top - MENU_OFFSET - height);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.visibility = "visible";
+    itemRefs.current[0]?.focus({ preventScroll: true });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // Its own Escape only: the tab's dialogs must not also react to it.
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open, close]);
+
+  const onItemKeyDown = (e: React.KeyboardEvent, index: number) => {
+    const focusItem = (next: number) => {
+      e.preventDefault();
+      itemRefs.current[(next + actions.length) % actions.length]?.focus();
+    };
+    if (e.key === "ArrowDown") focusItem(index + 1);
+    else if (e.key === "ArrowUp") focusItem(index - 1);
+    else if (e.key === "Home") focusItem(0);
+    else if (e.key === "End") focusItem(actions.length - 1);
+    else if (e.key === "Tab") {
+      // The menu lives at the end of <body>; a native Tab from here would land
+      // nowhere near the row. Close and hand focus back to the button instead.
+      e.preventDefault();
+      close();
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`Access options for ${name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className="brand-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
+      >
+        <IconDotsVertical size={16} />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            aria-label={`Access options for ${name}`}
+            // Hidden until the layout effect above has measured and placed it,
+            // so it never flashes at the top-left corner first.
+            style={{ visibility: "hidden", top: 0, left: 0 }}
+            className="fixed z-[60] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
+          >
+            {actions.map((action, index) => (
+              <button
+                key={action.key}
+                ref={(el) => {
+                  itemRefs.current[index] = el;
+                }}
+                type="button"
+                role="menuitem"
+                onKeyDown={(e) => onItemKeyDown(e, index)}
+                onClick={() => {
+                  close();
+                  onSelect(action);
+                }}
+                className={`brand-focus flex min-h-11 w-full flex-col justify-center rounded-md px-2.5 py-1.5 text-left ${
+                  action.destructive
+                    ? "mt-1 border-t border-[var(--color-brand-border)] pt-[9px] hover:bg-[var(--color-brand-danger-soft)]"
+                    : "hover:bg-[var(--color-brand-hover)]"
+                }`}
+              >
+                <span
+                  className={`text-[12.5px] font-semibold ${
+                    action.destructive ? "text-[var(--color-brand-danger)]" : "text-[var(--color-brand-ink)]"
+                  }`}
+                >
+                  {action.label}
+                </span>
+                <span className="text-[11px] leading-snug text-[var(--color-brand-muted)]">{action.description}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/** The inline confirm every access change shares — same shape, two palettes. */
 function ConfirmBar({
   tone,
   busy,
@@ -576,15 +871,20 @@ function ConfirmBar({
   );
 }
 
-function RoleBadge({ isHost }: { isHost: boolean }) {
+/** Three levels, three treatments, and never colour alone: the word is always
+ *  there. A Client gets the strongest one, since they are who the event is for. */
+function RoleBadge({ level }: { level: GuestAccessLevel }) {
+  const tone =
+    level === "client"
+      ? "bg-[var(--color-brand-navy)] text-white"
+      : level === "host"
+        ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
+        : "bg-[#F2F0EB] text-[var(--color-brand-muted)]";
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${isHost
-          ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-          : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
-        }`}
+      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${tone}`}
     >
-      {isHost ? "Host" : "Guest"}
+      {level === "client" ? "Client" : level === "host" ? "Host" : "Guest"}
     </span>
   );
 }
@@ -1008,73 +1308,3 @@ function Label({ children, tip }: { children: React.ReactNode; tip?: string }) {
     </div>
   );
 }
-
-const TIP_WIDTH = 250;
-/** Room a tip needs below its icon before it flips above instead. */
-const TIP_FLIP_AT = 120;
-
-/**
- * Info tip. Rendered into <body> at a fixed, viewport-clamped position rather
- * than absolutely inside its card: on this tab every card sits in a scrolling
- * column (and the cards clip their own overflow), so an in-place tooltip was
- * cut off at those edges — and a centred 250px one ran off a phone screen.
- *
- * Opens on hover, keyboard focus, and tap. Its position is a snapshot of the
- * icon's, so it closes on any scroll or resize rather than drifting away.
- */
-function Tip({ text }: { text: string }) {
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const tipId = useId();
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; above: boolean } | null>(null);
-
-  const open = () => {
-    const r = anchorRef.current?.getBoundingClientRect();
-    if (!r) return;
-    const width = Math.min(TIP_WIDTH, window.innerWidth - 16);
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8);
-    const above = r.bottom + TIP_FLIP_AT > window.innerHeight;
-    setPos({ top: above ? r.top - 8 : r.bottom + 8, left, width, above });
-  };
-  const close = () => setPos(null);
-
-  useEffect(() => {
-    if (!pos) return;
-    const dismiss = () => setPos(null);
-    window.addEventListener("scroll", dismiss, true);
-    window.addEventListener("resize", dismiss);
-    return () => {
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("resize", dismiss);
-    };
-  }, [pos]);
-
-  return (
-    <span className="inline-flex items-center" onMouseEnter={open} onMouseLeave={close}>
-      <button
-        ref={anchorRef}
-        type="button"
-        aria-label="More info"
-        aria-describedby={pos ? tipId : undefined}
-        onFocus={open}
-        onBlur={close}
-        onClick={() => (pos ? close() : open())}
-        className="brand-focus inline-flex cursor-help items-center rounded-full"
-      >
-        <IconInfo size={14} className="text-[#B5ADA4]" />
-      </button>
-      {pos &&
-        createPortal(
-          <span
-            id={tipId}
-            role="tooltip"
-            className="pointer-events-none fixed z-[70] rounded-lg bg-[var(--color-brand-ink)] px-3 py-2.5 text-left text-[11.5px] font-medium normal-case leading-relaxed tracking-normal text-white shadow-[0_6px_20px_rgba(42,34,24,0.22)]"
-            style={{ top: pos.top, left: pos.left, width: pos.width, transform: pos.above ? "translateY(-100%)" : undefined }}
-          >
-            {text}
-          </span>,
-          document.body,
-        )}
-    </span>
-  );
-}
-

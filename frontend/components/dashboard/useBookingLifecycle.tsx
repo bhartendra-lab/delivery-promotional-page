@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { Booking } from "@/lib/types";
 import { archiveBooking, clearBookingData, recalculateStudioStorage, restoreBooking } from "@/lib/api";
+import { RESTORED_WITH_EXPIRY_RESET } from "@/lib/event-clients";
 import { useChrome } from "./ChromeContext";
 
 /**
@@ -39,9 +40,9 @@ export function useBookingLifecycle(reload: () => Promise<void> | void) {
   const onRestore = useCallback(
     async (row: Booking) => {
       try {
-        await restoreBooking(row._id);
+        const res = await restoreBooking(row._id);
         await reload();
-        notify("Event restored — it's live for guests again.");
+        notify(res.expiry_reset ? RESTORED_WITH_EXPIRY_RESET : "Event restored — it's live for guests again.");
       } catch (err) {
         notify(err instanceof Error ? err.message : "Could not restore the event", "error");
         throw err;

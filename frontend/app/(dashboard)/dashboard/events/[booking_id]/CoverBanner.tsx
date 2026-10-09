@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { IconUpload, IconDownload, IconX, IconMove, IconExpand } from "./icons";
+import { IconUpload, IconDownload, IconX, IconMove, IconExpand, IconLock } from "./icons";
+import { useTip } from "@/components/ui/Tip";
 import { clamp, parsePosNums } from "./coverPosition";
 import { downloadImage } from "@/lib/media-actions";
 
@@ -13,12 +14,17 @@ const RAW_RE =
  * lifecycle never renders this). The cover is set by uploading a new image
  * (pushed through the upload engine → R2 url → `background_image`); already
  * uploaded photos get a "Set as cover photo" action in the media grid itself.
+ *
+ * On a pay per event event the cover locks once it is set (`coverLocked`): the
+ * image can no longer be changed, so "Change cover" goes and a small lock chip
+ * says why. Reframing it stays allowed: only the image is locked.
  */
 export function CoverBanner({
   coverUrl,
   coverPosition,
   busy,
   disabled,
+  coverLocked = false,
   onSetFromFile,
   onSavePosition,
 }: {
@@ -27,6 +33,8 @@ export function CoverBanner({
   coverPosition?: string;
   busy: boolean;
   disabled: boolean;
+  /** The image can no longer be changed (pay per event, once set). */
+  coverLocked?: boolean;
   onSetFromFile: (file: File) => void | Promise<void>;
   onSavePosition: (position: string) => void | Promise<void>;
 }) {
@@ -127,15 +135,19 @@ export function CoverBanner({
             </div>
           </>
         ) : filled ? (
-          /* Hover cluster — hidden at rest, revealed on hover/focus. */
+          <>
+          {coverLocked && <CoverLockChip />}
+          {/* Hover cluster — hidden at rest, revealed on hover/focus. */}
           <div className="absolute right-4 top-4 z-20 flex items-center divide-x divide-[var(--color-brand-border)] overflow-hidden rounded-md border border-[var(--color-brand-border)] bg-white/90 opacity-0 shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:right-6">
-            <CoverActionButton
-              onClick={() => fileRef.current?.click()}
-              disabled={disabled || busy}
-              busy={busy}
-              label="Change cover"
-              icon={<IconUpload size={14} />}
-            />
+            {!coverLocked && (
+              <CoverActionButton
+                onClick={() => fileRef.current?.click()}
+                disabled={disabled || busy}
+                busy={busy}
+                label="Change cover"
+                icon={<IconUpload size={14} />}
+              />
+            )}
             <CoverActionButton
               onClick={startReposition}
               disabled={disabled || busy}
@@ -155,6 +167,7 @@ export function CoverBanner({
               icon={<IconExpand size={14} />}
             />
           </div>
+          </>
         ) : (
           /* Empty state — nothing to hover over, so the CTA stays visible. */
           <div className="absolute right-4 top-4 sm:right-6">
@@ -190,6 +203,31 @@ export function CoverBanner({
       {fullscreen && coverUrl && (
         <FullscreenPreview url={coverUrl} onClose={() => setFullscreen(false)} />
       )}
+    </>
+  );
+}
+
+/**
+ * "Locked", top-left of a cover that can no longer be changed. Always visible
+ * (unlike the hover cluster opposite), because it is the answer to "where did
+ * Change cover go?", and it explains itself on hover, focus and tap.
+ */
+function CoverLockChip() {
+  const { anchorProps, tip } = useTip<HTMLButtonElement>(
+    "The cover can't be changed once it is set on pay per event plans.",
+  );
+  return (
+    <>
+      <button
+        type="button"
+        {...anchorProps}
+        aria-label="Cover locked"
+        className="brand-focus absolute left-4 top-4 z-20 inline-flex cursor-help items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-2 py-1 text-[11.5px] font-semibold text-[var(--color-brand-ink)] shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm sm:left-6"
+      >
+        <IconLock size={12} className="text-[var(--color-brand-muted)]" />
+        Locked
+      </button>
+      {tip}
     </>
   );
 }

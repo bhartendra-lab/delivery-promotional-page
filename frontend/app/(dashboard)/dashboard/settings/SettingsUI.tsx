@@ -14,6 +14,7 @@ import {
   IconArchive,
   IconOpen,
 } from "@/components/ui/icons";
+import { PhoneInput } from "@/components/ui/PhoneInput";
 
 /**
  * Shared presentational primitives for the sectioned Settings area.
@@ -499,24 +500,14 @@ export function PhoneField({
         {label}
         {required && <span className="ml-1 text-[var(--color-brand-danger)]">*</span>}
       </span>
-      <div
-        className={`flex h-10 items-center rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] ${isRow ? "lg:col-start-2 lg:row-start-1" : ""
-          }`}
-      >
-        <span className="flex h-full items-center border-r border-[var(--color-brand-border)] px-3 text-sm font-medium text-[var(--color-brand-muted)]">
-          +91
-        </span>
-        <input
-          type="tel"
-          inputMode="numeric"
-          value={value}
-          onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
-          maxLength={10}
-          required={required}
-          placeholder={placeholder}
-          className="brand-focus h-full flex-1 bg-transparent px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60"
-        />
-      </div>
+      {/* The +91 control itself is shared with the "Add new event" modal. */}
+      <PhoneInput
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
+        className={isRow ? "lg:col-start-2 lg:row-start-1" : ""}
+      />
       {hint && (
         <span
           className={`mt-1 block text-xs text-[var(--color-brand-muted)] ${isRow ? "lg:col-start-2 lg:row-start-2" : ""

@@ -13,6 +13,7 @@ import {
   regenerateFamilyPasscode,
   restoreBooking,
   updateBooking,
+  editLockCodeOf,
   updateGalleryActivationStatus,
   updateMediaShortlist,
   type MediaViewOptions,
@@ -22,10 +23,13 @@ import type {
   BookingDetail,
   CustomFolder,
   EmbeddingStatus,
+  EventExpiryInput,
   GalleryPublishStatus,
   MediaItem,
   ServiceType,
 } from "@/lib/types";
+import { knownEventType } from "@/lib/types";
+import { RESTORED_WITH_EXPIRY_RESET, createdEventNoticeKey } from "@/lib/event-clients";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
   normalizeDeliveryPreferences,
@@ -70,9 +74,11 @@ type PublishInfo = {
   serviceType: ServiceType | null;
   /**
    * True once the first photos have SYNCED (`gallery_published_at` set by the
-   * backend on the first completed finalize). Locks the event name — renaming
-   * would regenerate the unique_identifier and break the shared link, which by
-   * this point has plausibly been sent to guests.
+   * backend on the first completed finalize). It used to lock the event name,
+   * because a rename regenerated the unique_identifier and broke the shared
+   * link. A rename no longer touches the link, so this locks nothing now: what
+   * an event may still change comes from the backend as `name_locked` and
+   * `cover_locked` (see `normalizeMeta`), by the plan the event was made under.
    */
   hasBeenPublished: boolean;
 };
@@ -131,6 +137,15 @@ function normalizeMeta(
     // to `prev` there to avoid wiping a real link on an unrelated edit.
     qrUniqueId: opts.qrAuthoritative ? b.qr_unique_id : (b.qr_unique_id ?? prev?.qrUniqueId),
     qrImageUrl: opts.qrAuthoritative ? b.qr_image_url : (b.qr_image_url ?? prev?.qrImageUrl),
+    // The per-plan edit locks, decided by the backend so plan rules are never
+    // re-derived here. Absent (an older backend) keeps the cached value, and
+    // with none cached reads as unlocked.
+    nameLocked: b.name_locked ?? prev?.nameLocked,
+    coverLocked: b.cover_locked ?? prev?.coverLocked,
+    // `null` is a real answer here ("never"), so only `undefined` (a response
+    // that does not carry the field at all) falls back to the cached value.
+    expiryChoice: b.event_expiry_choice !== undefined ? b.event_expiry_choice : prev?.expiryChoice,
+    expiryAt: b.event_expiry_at !== undefined ? b.event_expiry_at : prev?.expiryAt,
   };
 }
 
@@ -142,8 +157,8 @@ function normalizePublish(b: BookingDetail): PublishInfo {
     outOfSync: b.media_out_of_sync === true,
     unsyncedCount: typeof b.unsynced_media_count === "number" ? b.unsynced_media_count : 0,
     serviceType: (b.service_type as ServiceType | null | undefined) ?? null,
-    // Name lock keys on "first photos synced", not on a publish action (which
-    // no longer exists) — see the PublishInfo docs.
+    // "First photos synced", not a publish action (which no longer exists) —
+    // see the PublishInfo docs.
     hasBeenPublished: typeof b.gallery_published_at === "number",
   };
 }
@@ -268,6 +283,23 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     const t = setTimeout(() => setToastMsg(null), 3200);
     return () => clearTimeout(t);
   }, [toastMsg]);
+
+  // An event that was created a moment ago says ONCE what happened to its
+  // WhatsApp invitations. The create modal leaves the sentence in
+  // sessionStorage; it is read and removed here, so a refresh (or coming back
+  // to the event later) cannot replay it.
+  useEffect(() => {
+    let notice: string | null = null;
+    try {
+      const key = createdEventNoticeKey(bookingId);
+      notice = sessionStorage.getItem(key);
+      if (notice) sessionStorage.removeItem(key);
+    } catch {
+      /* storage unavailable: nothing to show */
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of a sessionStorage hand-off from the create modal, on mount
+    if (notice) toast(notice);
+  }, [bookingId, toast]);
 
   /* ── data load ──────────────────────────────────────────────── */
 
@@ -635,7 +667,21 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     async (partial: UpdateBookingInput) => {
       // update-booking is conditional per field, so a partial body only touches
       // what's passed (the event date/type are preserved untouched).
-      const res = await updateBooking(bookingId, partial);
+      let res: Awaited<ReturnType<typeof updateBooking>>;
+      try {
+        res = await updateBooking(bookingId, partial);
+      } catch (err) {
+        // A per-plan edit lock refused the change (409). This workspace hides
+        // locked controls, so it means the lock is news to this tab: one left
+        // open across the deploy, or a cover set from another tab. Say what
+        // the server said and refetch, so the UI locks to match. Rethrown so
+        // the caller's own flow still stops.
+        if (editLockCodeOf(err)) {
+          toast(err instanceof Error ? err.message : "That can't be changed on this event", "error");
+          void reloadBooking();
+        }
+        throw err;
+      }
       const next = normalizeMeta(res.booking, metaRef.current);
       setMeta(next);
       try {
@@ -644,21 +690,28 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         /* ignore */
       }
     },
-    [bookingId],
+    [bookingId, toast, reloadBooking],
   );
 
   const saveMeta = useCallback(
-    async (next: { name: string; type: string; eventDate: number | null }) => {
-      // Once published, the event name is immutable — sending `event_name` would
-      // regenerate the unique_identifier and break the shared /event/<uid> URL.
-      const nameLocked = pubRef.current.hasBeenPublished;
+    async (next: { name: string; type: string; eventDate: number | null; eventExpiry?: EventExpiryInput }) => {
+      // Whether the name may change is the backend's call (`name_locked`): on
+      // a pay per event event it never may, and on a storage plan event it
+      // always may, including after photos sync. Renaming is safe for the
+      // shared /event/<uid> link either way, which a rename no longer touches.
+      const nameLocked = metaRef.current?.nameLocked === true;
       // Only send `event_name` when it actually changed — the update is
       // conditional per field, so omitting an unchanged name leaves it untouched.
       const nameChanged = next.name !== metaRef.current?.name;
+      // update-booking rejects a type it does not know, so the "Event"
+      // placeholder an event with no type shows is never sent back.
+      const eventType = knownEventType(next.type);
       await persistBooking({
         ...(!nameLocked && nameChanged ? { event_name: next.name } : {}),
-        event_type: next.type,
+        ...(eventType ? { event_type: eventType } : {}),
         ...(next.eventDate != null ? { event_date: next.eventDate } : {}),
+        // Present only when the Studio changed it in the sheet.
+        ...(next.eventExpiry ? { event_expiry: next.eventExpiry } : {}),
       });
       toast("Event details saved");
     },
@@ -702,6 +755,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         // API response may not echo background_image, so patch meta directly.
         setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: position } : prev));
         toast("Cover photo updated");
+      } catch (err) {
+        // Same as the upload path below. A refusal is a real possibility now
+        // (a cover locked from another tab), not just a network failure.
+        toast(err instanceof Error ? err.message : "Could not set cover", "error");
       } finally {
         setCoverBusy(false);
       }
@@ -754,7 +811,15 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       try {
         await deleteMedia(real);
         await reload();
-        if (metaRef.current?.backgroundImage && deletedUrls.has(metaRef.current.backgroundImage)) {
+        // The cover was picked from one of the deleted photos, so its file is
+        // gone and the cover is cleared with it. NOT on a locked cover: there
+        // the backend keeps the cover's own file when the photo is deleted
+        // (and would refuse the clear), so the cover simply keeps showing.
+        if (
+          !metaRef.current?.coverLocked &&
+          metaRef.current?.backgroundImage &&
+          deletedUrls.has(metaRef.current.backgroundImage)
+        ) {
           await persistBooking({ background_image: "" });
         }
         // delete-media releases the deleted bytes back to the plan, so the
@@ -850,11 +915,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const doRestore = useCallback(async () => {
     setOverlayBusy(true);
     try {
-      await restoreBooking(bookingId);
+      const res = await restoreBooking(bookingId);
       // Once status flips back to "published" the overlay unmounts and the
       // workspace becomes editable in place.
       await reloadBooking();
-      toast("Event restored — you can edit it right here.");
+      toast(res.expiry_reset ? RESTORED_WITH_EXPIRY_RESET : "Event restored — you can edit it right here.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not restore the event", "error");
     } finally {
@@ -966,6 +1031,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       activeLocked,
       pauseUpload,
       publishedEver: pub.hasBeenPublished,
+      serviceType: pub.serviceType,
       saveMeta,
       saveDeliveryPreferences,
       regenerateFamilyPasscode: doRegeneratePasscode,
@@ -977,7 +1043,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -1049,11 +1115,13 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 showGoogleReview={showGoogleReview}
                 faceSearchEnabled={faceSearchEnabled}
                 onSave={async (vals) => {
-                  // Pass through current event_type/date (never event_name) so the
-                  // landing-page save can't churn the shared URL or clobber the event.
+                  // Pass through current event_type/date (never event_name): this is
+                  // a landing-page save, and it must not rename or clobber the event.
+                  const eventType = knownEventType(ctx.meta.type);
                   await persistBooking({
                     ...vals,
-                    event_type: ctx.meta.type,
+                    // Only a type update-booking will accept; see saveMeta.
+                    ...(eventType ? { event_type: eventType } : {}),
                     ...(ctx.meta.eventDate != null ? { event_date: ctx.meta.eventDate } : {}),
                   });
                   toast("Gallery design saved");
