@@ -26,11 +26,19 @@ export function PhotoLimitTerms({
   const lines = payPerEventTerms(eventPlan, { includeOffer: showOffer });
   return (
     <Modal open={open} onClose={onClose} title="Pay per event: terms" size="md">
-      <ul className="flex list-disc flex-col gap-2.5 pl-5 text-sm leading-relaxed text-[var(--color-brand-ink)] marker:text-[var(--color-brand-muted)]">
-        {lines.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
+      {lines.length > 0 ? (
+        <ul className="flex list-disc flex-col gap-2.5 pl-5 text-sm leading-relaxed text-[var(--color-brand-ink)] marker:text-[var(--color-brand-muted)]">
+          {lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : (
+        // No plan yet (still loading, or the request failed). Every figure in
+        // the terms comes from the plan, so there is nothing honest to show.
+        <p className="text-sm leading-relaxed text-[var(--color-brand-muted)]">
+          The terms could not be loaded just now. Close this and open it again in a moment.
+        </p>
+      )}
     </Modal>
   );
 }

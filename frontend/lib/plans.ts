@@ -23,8 +23,20 @@ export type Plan = {
   description?: string | null;
   service_type: ServiceType;
   billing_interval?: BillingInterval | null;
+  /**
+   * The GST switch for every price on this plan. true: the prices include
+   * GST. false: they are before GST, and GST is added at checkout. Absent (an
+   * API from before the switch) means true. Read it with gstInclusiveOf.
+   */
+  gst_inclusive?: boolean | null;
+  /** As the plan lists it: with or without GST, as `gst_inclusive` says. */
   price?: number | null;
+  /** `price` as charged, GST included. The same number on a GST-inclusive plan. */
+  price_with_gst?: number | null;
+  /** One event, as the plan lists it. */
   event_unit_price?: number | null;
+  /** One event as charged, GST included. */
+  event_unit_price_with_gst?: number | null;
   storage_limit?: number | null;
   included_events?: number | null;
   qr_limit?: number | null;
@@ -34,18 +46,61 @@ export type Plan = {
   photo_cap?: number | null;
   /** Items added by one paid capacity block. */
   photo_cap_addon_size?: number | null;
-  /** GST-inclusive rupees for one capacity block. */
+  /** Rupees for one capacity block, as the plan lists it. */
   photo_cap_addon_price?: number | null;
+  /** One capacity block as charged, GST included. */
+  photo_cap_addon_price_with_gst?: number | null;
   first_purchase_offer?: FirstPurchaseOffer | null;
   /** Days a pay-per-event event stays live from the day it is created. */
   validity_base_days?: number | null;
   /** Paid validity extensions on sale: months added to an event's current end
-   *  date, for a GST-inclusive price in rupees. */
+   *  date, for a price in rupees. */
   validity_extension_options?: ValidityExtensionOption[] | null;
 };
 
-/** One paid validity extension: `months` more, for `price` rupees GST-inclusive. */
-export type ValidityExtensionOption = { months: number; price: number };
+/**
+ * One paid validity extension: `months` more, for `price` rupees as the plan
+ * lists it. `price_with_gst` is the same period as charged, GST included.
+ */
+export type ValidityExtensionOption = { months: number; price: number; price_with_gst?: number | null };
+
+/* ── The GST switch ─────────────────────────────────────────────────────────
+ * Each plan says whether its prices include GST (Service.gst_inclusive in the
+ * API). Nothing here works out tax: the API sends every price as listed and
+ * again as charged. These helpers only choose which figure to show and which
+ * words go beside it.
+ */
+
+/** Whether a plan's prices already include GST. No answer means they do. */
+export function gstInclusiveOf(plan: Plan | null | undefined): boolean {
+  return plan?.gst_inclusive !== false;
+}
+
+/** The words beside a listed price: "GST included" or "plus GST". */
+export function gstNote(inclusive: boolean): string {
+  return inclusive ? "GST included" : "plus GST";
+}
+
+/** A price with its paise only when it has any: ₹249, ₹234.82. */
+export function formatPrice(amount: number): string {
+  return formatInr(amount, { paise: !Number.isInteger(amount) });
+}
+
+/** A listed price as it is read: "₹249" when GST is in it, "₹249 + GST" when not. */
+export function formatListPrice(amount: number, inclusive: boolean): string {
+  return inclusive ? formatPrice(amount) : `${formatPrice(amount)} + GST`;
+}
+
+/**
+ * A price as charged, GST included: the `*_with_gst` figure when the API
+ * sends one, otherwise the listed price (an API from before the switch, when
+ * every listed price included GST). Use it wherever two prices are compared
+ * or a total to pay is shown.
+ */
+export function chargedPrice(listed: number | null | undefined, withGst: number | null | undefined): number | null {
+  if (typeof withGst === "number") return withGst;
+  return typeof listed === "number" ? listed : null;
+}
 
 /**
  * `billing_interval` is optional in the backend schema (no default, not
@@ -150,50 +205,46 @@ export function freeEventsLabel(count: number): string {
   return `${count} free event${count === 1 ? "" : "s"}`;
 }
 
-/**
- * Fallbacks for the photo-cap terms, used ONLY when the API does not send
- * them (an older API, or the plans request failed). Every figure a studio
- * reads should come from the plans API; these exist so copy never renders
- * "undefined".
- */
-export const FALLBACK_PHOTO_CAP = 20000;
-export const FALLBACK_PHOTO_CAP_ADDON_SIZE = 5000;
-export const FALLBACK_PHOTO_CAP_ADDON_PRICE = 50;
-
 export type PhotoCapTerms = {
   /** Items one pay-per-event event holds at a time, before any add-on. */
   cap: number;
   addonSize: number;
-  /** GST-inclusive rupees per add-on block. */
+  /** Rupees per add-on block, as the plan lists it. */
   addonPrice: number;
+  /** Whether `addonPrice` includes GST. */
+  gstInclusive: boolean;
 };
 
-export function photoCapTermsOf(plan: Plan | null | undefined): PhotoCapTerms {
-  const num = (value: number | null | undefined, fallback: number) =>
-    typeof value === "number" && value >= 0 ? value : fallback;
-  return {
-    cap: num(plan?.photo_cap, FALLBACK_PHOTO_CAP),
-    addonSize: num(plan?.photo_cap_addon_size, FALLBACK_PHOTO_CAP_ADDON_SIZE) || FALLBACK_PHOTO_CAP_ADDON_SIZE,
-    addonPrice: num(plan?.photo_cap_addon_price, FALLBACK_PHOTO_CAP_ADDON_PRICE),
-  };
+/**
+ * The photo limit, the size of one paid block and its price, from the plan.
+ *
+ * Null when the plan is missing or does not carry all three: NO figure is
+ * kept in this file to stand in for them. The limit and the prices live on
+ * the Event-based Service in the database and reach both apps only through
+ * the plans API, so changing them there changes every sentence built here. A
+ * caller with nothing to show leaves the sentence out.
+ */
+export function photoCapTermsOf(plan: Plan | null | undefined): PhotoCapTerms | null {
+  const cap = plan?.photo_cap;
+  const addonSize = plan?.photo_cap_addon_size;
+  const addonPrice = plan?.photo_cap_addon_price;
+  if (typeof cap !== "number" || cap < 0) return null;
+  if (typeof addonSize !== "number" || addonSize <= 0) return null;
+  if (typeof addonPrice !== "number" || addonPrice < 0) return null;
+  return { cap, addonSize, addonPrice, gstInclusive: gstInclusiveOf(plan) };
 }
 
 /**
- * Fallbacks for a plans API that predates validity extensions. They mirror
- * AUTO_DELETE_WINDOW_DAYS and DEFAULT_VALIDITY_EXTENSION_OPTIONS in the API
- * (retention.utils.js, billing.service.js), which is what actually charges:
- * the two change together. Nothing else in either app may spell these out.
+ * How long a pay-per-event event lives before it must be extended, for an API
+ * that does not say. Not a price: it mirrors AUTO_DELETE_WINDOW_DAYS, a
+ * constant in the API's own code (retention.utils.js).
  */
 export const FALLBACK_VALIDITY_BASE_DAYS = 90;
-export const FALLBACK_VALIDITY_EXTENSION_OPTIONS: ValidityExtensionOption[] = [
-  { months: 3, price: 199 },
-  { months: 6, price: 299 },
-  { months: 12, price: 499 },
-];
 
 /**
- * The validity extensions on sale, shortest first. The plan's own list when it
- * has a usable one, otherwise the fallback, so a caller always gets numbers.
+ * The validity extensions on sale, shortest first, exactly as the plan lists
+ * them. Empty when the plan has none to show: like the photo limit, no period
+ * and no price is kept in this file.
  */
 export function validityOptionsOf(plan: Plan | null | undefined): ValidityExtensionOption[] {
   const seen = new Set<number>();
@@ -204,8 +255,9 @@ export function validityOptionsOf(plan: Plan | null | undefined): ValidityExtens
     seen.add(option.months);
     return true;
   });
-  const source = usable.length ? usable : FALLBACK_VALIDITY_EXTENSION_OPTIONS;
-  return source.map(({ months, price }) => ({ months, price })).sort((a, b) => a.months - b.months);
+  return usable
+    .map(({ months, price, price_with_gst }) => ({ months, price, price_with_gst: chargedPrice(price, price_with_gst) }))
+    .sort((a, b) => a.months - b.months);
 }
 
 /** Days a pay-per-event event stays live before it must be extended. */
@@ -215,7 +267,7 @@ export function validityBaseDaysOf(plan: Plan | null | undefined): number {
 }
 
 /** 90 → "3 months" · 45 → "45 days". Whole months read better when they are whole. */
-function baseLifetimeLabel(days: number): string {
+export function baseLifetimeLabel(days: number): string {
   if (days % 30 === 0) {
     const months = days / 30;
     return `${months} month${months === 1 ? "" : "s"}`;
@@ -223,10 +275,10 @@ function baseLifetimeLabel(days: number): string {
   return `${days} days`;
 }
 
-/** "3 months for ₹199, 6 months for ₹299 or 12 months for ₹499" */
-function validityOptionsSentence(options: ValidityExtensionOption[]): string {
+/** "3 months for ₹199, 6 months for ₹299 or 12 months for ₹499", at the listed prices. */
+export function validityOptionsSentence(options: ValidityExtensionOption[]): string {
   const parts = options.map(
-    (option) => `${option.months} month${option.months === 1 ? "" : "s"} for ${formatInr(option.price, { paise: !Number.isInteger(option.price) })}`,
+    (option) => `${option.months} month${option.months === 1 ? "" : "s"} for ${formatPrice(option.price)}`,
   );
   if (parts.length <= 1) return parts.join("");
   return `${parts.slice(0, -1).join(", ")} or ${parts[parts.length - 1]}`;
@@ -237,21 +289,35 @@ function validityOptionsSentence(options: ValidityExtensionOption[]): string {
  * the plan. This is the text behind every "T&C apply": the app's terms dialog
  * and the pricing page render exactly these lines, so they cannot disagree.
  *
+ * No plan, no terms: the list is empty, since there is no figure to quote. A
+ * line whose figures the plan does not carry is left out on its own.
+ *
  * `includeOffer: false` drops the offer line for a studio that cannot get it.
  */
 export function payPerEventTerms(
   plan: Plan | null | undefined,
   opts: { includeOffer?: boolean } = {},
 ): string[] {
-  const { cap, addonSize, addonPrice } = photoCapTermsOf(plan);
+  if (!plan) return [];
+  const capTerms = photoCapTermsOf(plan);
+  const options = validityOptionsOf(plan);
+  const note = gstNote(gstInclusiveOf(plan));
   const lifetime = baseLifetimeLabel(validityBaseDaysOf(plan));
   const lines = [
-    `Each event can hold up to ${formatCount(cap)} photos at a time.`,
-    "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
-    `Need more room? Add ${formatCount(addonSize)} photos to an event for ${formatInr(addonPrice)}. Capacity is added in blocks of ${formatCount(addonSize)}.`,
-    "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",
+    ...(capTerms
+      ? [
+          `Each event can hold up to ${formatCount(capTerms.cap)} photos at a time.`,
+          "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
+          `Need more room? Add ${formatCount(capTerms.addonSize)} photos to an event for ${formatPrice(capTerms.addonPrice)}, ${note}. Capacity is added in blocks of ${formatCount(capTerms.addonSize)}.`,
+          "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",
+        ]
+      : []),
     `Each event stays live for ${lifetime} from the day you create it. Unused events never expire.`,
-    `Need it for longer? Before an event closes, you or your Client can extend it: ${validityOptionsSentence(validityOptionsOf(plan))}, GST included. The time is added to the date the event was due to close.`,
+    ...(options.length
+      ? [
+          `Need it for longer? Before an event closes, you or your Client can extend it: ${validityOptionsSentence(options)}, ${note}. The time is added to the date the event was due to close.`,
+        ]
+      : []),
     "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.",
     "When an event closes, guests can no longer open it and its photos are deleted. A closed event cannot be extended. Extensions are not refundable.",
   ];
@@ -283,10 +349,14 @@ export function formatOfferDate(ms: number): string {
   }).format(new Date(ms));
 }
 
-/** Whole percent saved by paying yearly vs 12× monthly. null when incomparable. */
+/**
+ * Whole percent saved by paying yearly vs 12× monthly. null when incomparable.
+ * Compared as charged, GST included, so a tier whose two plans list their
+ * prices differently is still measured in the same money.
+ */
 export function yearlySavingsPercent(tier: StorageTier): number | null {
-  const m = tier.monthly?.price;
-  const y = tier.yearly?.price;
+  const m = chargedPrice(tier.monthly?.price, tier.monthly?.price_with_gst);
+  const y = chargedPrice(tier.yearly?.price, tier.yearly?.price_with_gst);
   if (typeof m !== "number" || typeof y !== "number" || m <= 0 || y <= 0) return null;
   const pct = Math.round((1 - y / (m * 12)) * 100);
   return pct > 0 ? pct : null;

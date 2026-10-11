@@ -60,7 +60,13 @@ export function CouponField({
     try {
       const result = await validateCoupon({ coupon_code: code, service_id: serviceId, quantity });
       if (result.valid) {
-        const next = { code, discountAmount: result.discount_amount, finalAmount: result.final_amount };
+        // The discount as the plan lists its prices (before GST on a plan
+        // that lists them before GST), so it matches the summary's rows.
+        const next = {
+          code,
+          discountAmount: result.list_discount_amount ?? result.discount_amount,
+          finalAmount: result.final_amount,
+        };
         setApplied(next);
         onChange(next);
       } else {

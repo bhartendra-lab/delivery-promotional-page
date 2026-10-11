@@ -7,6 +7,7 @@ import { formatInr, planLabel, eventPlanOf } from "@/lib/plans";
 import type { Plan } from "@/lib/plans";
 import { previewCheckout, getApiErrorCode } from "@/lib/billing";
 import type { CheckoutPreview } from "@/lib/billing-types";
+import { summaryRowsOf } from "@/lib/checkout-summary";
 import { isStorageBasedPlan } from "@/lib/types";
 import { planHasLapsed } from "@/lib/subscription-status";
 import { useCompany } from "@/lib/useCompany";
@@ -175,12 +176,15 @@ export function UpgradeModal({
   const isScheduled = preview?.mode === "scheduled";
   const hasPreview = !!preview && !isScheduled;
   const displayTotal = hasPreview ? preview.total : null;
-  const displayGross = hasPreview ? preview.gross_amount : grossAmount;
-  const displayDiscount = hasPreview ? preview.discount_amount : appliedCoupon?.discountAmount;
+  // The price, coupon and credit rows in the basis the plan lists its prices
+  // in (lib/checkout-summary.ts).
+  const rows = hasPreview ? summaryRowsOf(preview) : null;
+  const displayGross = rows ? rows.lineAmount : grossAmount;
+  const displayDiscount = rows ? rows.discountAmount : appliedCoupon?.discountAmount;
   const proration = hasPreview ? preview.proration : null;
   const prorationCredit =
-    proration?.mode === "interval_upgrade" && proration.unused_credit
-      ? { label: "Unused plan credit", amount: proration.unused_credit }
+    proration?.mode === "interval_upgrade" && rows?.unusedCredit
+      ? { label: "Unused plan credit", amount: rows.unusedCredit }
       : null;
   const grossLineLabel = isEvent ? `${selection?.quantity} × ${formatInr(eventUnitPrice)}` : proration ? "Prorated charge" : "Plan price";
   const totalPendingLabel = previewLoading ? "Calculating…" : isScheduled ? "No charge now" : "Calculated at payment";

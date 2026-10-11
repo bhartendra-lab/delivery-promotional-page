@@ -126,6 +126,8 @@ export type PhotoCapStatus = {
   remaining: number;
   addon_size: number;
   addon_price: number;
+  addon_price_with_gst?: number;
+  gst_inclusive?: boolean;
 };
 
 /** Overall progress snapshot for the UI. */

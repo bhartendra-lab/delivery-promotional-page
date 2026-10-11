@@ -7,6 +7,9 @@ import {
   clampPhotoCapBlocks,
   photoCapHasGrown,
   photoCapNearlyFull,
+  photoCapGstInclusive,
+  photoCapListedTotal,
+  photoCapChargedTotal,
 } from "./photo-cap.ts";
 import type { PhotoCap } from "./billing-types.ts";
 
@@ -61,4 +64,23 @@ test("photoCapNearlyFull: from 90% of the cap", () => {
   assert.equal(photoCapNearlyFull(cap(0), 17999), false);
   assert.equal(photoCapNearlyFull(cap(0), 18000), true);
   assert.equal(photoCapNearlyFull(null, 50000), false);
+});
+
+test("what a purchase costs: listed and charged are the same while the price includes GST", () => {
+  // An API from before the GST switch sends neither field.
+  assert.equal(photoCapGstInclusive(cap(0)), true);
+  assert.equal(photoCapListedTotal(cap(0), 3), 150);
+  assert.equal(photoCapChargedTotal(cap(0), 3), 150);
+  const inclusive = cap(0, { gst_inclusive: true, addon_price_with_gst: 50 });
+  assert.equal(photoCapGstInclusive(inclusive), true);
+  assert.equal(photoCapChargedTotal(inclusive, 3), 150);
+});
+
+test("what a purchase costs: a block listed before GST is shown at 50 and paid at 59", () => {
+  const exclusive = cap(0, { gst_inclusive: false, addon_price_with_gst: 59 });
+  assert.equal(photoCapGstInclusive(exclusive), false);
+  assert.equal(photoCapListedTotal(exclusive, 3), 150);
+  assert.equal(photoCapChargedTotal(exclusive, 3), 177);
+  // Paise survive the multiplication.
+  assert.equal(photoCapChargedTotal(cap(0, { addon_price: 49.99, gst_inclusive: false, addon_price_with_gst: 58.99 }), 7), 412.93);
 });

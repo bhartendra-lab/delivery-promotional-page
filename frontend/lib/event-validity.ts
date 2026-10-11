@@ -11,8 +11,12 @@
 /** One period on sale for ONE event, with what buying it would do. */
 export type ValidityOption = {
   months: number;
-  /** GST-inclusive rupees. */
+  /** Rupees, as the Event-based plan lists it: with or without GST, as the
+   *  `gst_inclusive` beside the options says. */
   price: number;
+  /** The same period as charged, GST included. Absent from an API that
+   *  predates the GST switch, where `price` already included GST. */
+  price_with_gst?: number | null;
   /** Epoch ms: the last moment the event would be live after buying this. */
   new_end: number;
   /** The cheapest per month. At most one option carries it, and often none. */
@@ -91,6 +95,8 @@ export type ValidityLinkView = {
   fallback_photos?: string[];
   cover?: string | null;
   options: ValidityOption[];
+  /** Whether each option's `price` includes GST. Absent means it does. */
+  gst_inclusive?: boolean;
   guard: ValidityGuard;
   lock_held_by_other: boolean;
   billing: { email: string | null; state_code: string | null };
@@ -180,6 +186,15 @@ export function closesInLabel(endsAt: number, now: number = Date.now()): string 
 /** "3 months", "1 month". */
 export function periodLabel(months: number): string {
   return `${months} month${months === 1 ? "" : "s"}`;
+}
+
+/**
+ * What one period costs to buy, GST included: the figure the API sends, or
+ * the listed price from an API that predates the GST switch (where the listed
+ * price already included GST). The API works out the tax; this only picks.
+ */
+export function chargedOptionPrice(option: Pick<ValidityOption, "price" | "price_with_gst">): number {
+  return typeof option.price_with_gst === "number" ? option.price_with_gst : option.price;
 }
 
 /**

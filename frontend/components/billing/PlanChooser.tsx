@@ -4,11 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Plan, StorageTier } from "@/lib/plans";
 import {
   buildStorageTiers,
+  chargedPrice,
   eventPlanOf,
   firstPurchaseOfferOf,
   offerLine,
   formatInr,
   formatStorage,
+  gstInclusiveOf,
+  gstNote,
   nearestAvailableIndex,
   planForTier,
   planLabel,
@@ -36,7 +39,9 @@ export type PlanChooserSelection =
 function looksLikeDowngrade(current: Plan, target: Plan): boolean {
   if (current._id === target._id) return false;
   if (current.service_type === target.service_type) {
-    return (target.price ?? 0) < (current.price ?? 0);
+    // As charged, GST included: the same money the server compares, even when
+    // one plan lists its price before GST and the other with it.
+    return (chargedPrice(target.price, target.price_with_gst) ?? 0) < (chargedPrice(current.price, current.price_with_gst) ?? 0);
   }
   if (current.service_type === "Yearly" && target.service_type === "Monthly") return true;
   return false;
@@ -273,7 +278,7 @@ export function PlanChooser({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <p className="text-sm text-[var(--color-brand-muted)]">
-              {formatInr(eventPlan.event_unit_price ?? 0)} per event · GST included
+              {formatInr(eventPlan.event_unit_price ?? 0)} per event · {gstNote(gstInclusiveOf(eventPlan))}
             </p>
             {offer && (
               <p className="w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-navy-deep)]">
@@ -301,6 +306,11 @@ export function PlanChooser({
             </span>
             <span className="text-lg font-bold tabular-nums text-[var(--color-brand-ink)]">
               {formatInr(qty * (eventPlan.event_unit_price ?? 0))}
+              {/* A plan that lists its prices before GST says so; the amount
+                  with GST is on the next step, from the server. */}
+              {!gstInclusiveOf(eventPlan) && (
+                <span className="text-sm font-normal text-[var(--color-brand-muted)]"> + GST</span>
+              )}
             </span>
           </div>
           <p className="-mt-2 text-xs text-[var(--color-brand-muted)]">
@@ -381,7 +391,7 @@ export function PlanChooser({
                 <span className="text-xs text-[var(--color-brand-muted)]">Takes effect at renewal — no charge now.</span>
               ) : currentSnapshot?.service ? (
                 <span className="text-xs text-[var(--color-brand-muted)]">
-                  Including GST
+                  {gstInclusiveOf(activeStoragePlan) ? "Including GST" : "Plus GST"}
                 </span>
               ) : null}
             </div>
@@ -429,10 +439,12 @@ function PricingModelCards({
   onSelect: (mode: Mode) => void;
 }) {
   const largestTier = tiers[tiers.length - 1];
-  const cheapestMonthly = tiers
-    .map((t) => t.monthly?.price ?? t.yearly?.price ?? null)
-    .filter((p): p is number => p != null)
-    .sort((a, b) => a - b)[0];
+  // The cheapest plan's listed price, with whether GST is in it.
+  const cheapest = tiers
+    .map((t) => t.monthly ?? t.yearly)
+    .filter((plan): plan is Plan => plan != null && plan.price != null)
+    .sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
+  const cheapestMonthly = cheapest?.price ?? null;
   const maxSavings = tiers.length ? Math.max(0, ...tiers.map((t) => yearlySavingsPercent(t) ?? 0)) : 0;
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -461,7 +473,10 @@ function PricingModelCards({
         <p className="mt-3 text-base font-bold text-[var(--color-brand-ink)]">Pay per event</p>
         <p className="mt-1 text-2xl font-bold tabular-nums text-[var(--color-brand-ink)]">
           {formatInr(eventPlan.event_unit_price ?? 0)}
-          <span className="text-sm font-normal text-[var(--color-brand-muted)]"> / event</span>
+          <span className="text-sm font-normal text-[var(--color-brand-muted)]">
+            {" "}
+            / event{gstInclusiveOf(eventPlan) ? "" : " + GST"}
+          </span>
         </p>
         {offerText && (
           <p className="mt-2 w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-brand-navy-deep)]">
@@ -501,7 +516,10 @@ function PricingModelCards({
         <p className="mt-3 text-base font-bold text-[var(--color-brand-ink)]">Storage plan</p>
         <p className="mt-1 text-2xl font-bold tabular-nums text-[var(--color-brand-ink)]">
           From {formatInr(cheapestMonthly ?? 0)}
-          <span className="text-sm font-normal text-[var(--color-brand-muted)]"> / month</span>
+          <span className="text-sm font-normal text-[var(--color-brand-muted)]">
+            {" "}
+            / month{gstInclusiveOf(cheapest) ? "" : " + GST"}
+          </span>
         </p>
         <ul className="mt-3 space-y-1.5 text-xs text-[var(--color-brand-muted)]">
           <li className="flex items-center gap-1.5">

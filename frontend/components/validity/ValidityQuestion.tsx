@@ -4,9 +4,10 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { ApiError, confirmValidityPayment, getApiErrorCode, getApiFieldErrors, startValidityCheckout, validityReceiptUrl } from "@/lib/api";
 import { PLATFORM_SKIN, type ClientTheme } from "@/lib/client-theme";
 import { GST_STATE_CODES } from "@/lib/gst-state-codes";
-import { formatInr } from "@/lib/plans";
+import { formatPrice } from "@/lib/plans";
 import { openCheckout } from "@/lib/razorpay";
 import {
+  chargedOptionPrice,
   formatValidityDate,
   guardFollowUp,
   guardSentence,
@@ -29,7 +30,10 @@ const MAX_ATTEMPTS = 15;
 type Phase = "idle" | "opening" | "confirming" | "slow" | "done";
 type FieldErrors = { email?: string; state_code?: string };
 
-const priceOf = (option: ValidityOption) => formatInr(option.price, { paise: !Number.isInteger(option.price) });
+/** A period's price as the plan lists it: what the card shows. */
+const priceOf = (option: ValidityOption) => formatPrice(option.price);
+/** What the Client actually pays for it, GST included: what the button says. */
+const paidOf = (option: ValidityOption) => formatPrice(chargedOptionPrice(option));
 
 /** States A to Z, as a person looks for theirs. */
 const STATES = [...GST_STATE_CODES].sort((a, b) => a.name.localeCompare(b.name));
@@ -95,6 +99,10 @@ export function ValidityQuestion({
   const endsAt = view.ends_at ?? 0;
   const currentDate = formatValidityDate(endsAt);
   const picked = view.options.find((option) => option.months === months) ?? null;
+  // The Event-based plan's GST switch. When its prices are before GST, each
+  // card shows the listed price with "Plus GST" and the button shows what is
+  // paid. Absent from an API that predates the switch: every price included GST.
+  const gstInclusive = view.gst_inclusive !== false;
   const guardLine = guardSentence(view.guard, "client");
   const needsAgain = view.guard.extended;
   const locked = view.lock_held_by_other || lockedNow;
@@ -371,7 +379,7 @@ export function ValidityQuestion({
                           {priceOf(option)}
                         </span>
                         <span className="mt-1 block text-[12px] font-medium" style={{ color: t.muted }}>
-                          GST included
+                          {gstInclusive ? "GST included" : "Plus GST"}
                         </span>
                       </span>
                     </span>
@@ -547,8 +555,9 @@ export function ValidityQuestion({
                     ) : (
                       <>
                         <p className="mb-2.5 text-[11.5px] leading-snug" style={{ color: P.muted }}>
-                          Payment by Razorpay, for Vyavasth, the platform your photographer uses. GST included. Extensions are
-                          not refundable.
+                          Payment by Razorpay, for Vyavasth, the platform your photographer uses.{" "}
+                          {gstInclusive ? "GST included." : `${paidOf(picked)} includes GST.`} Extensions are not
+                          refundable.
                         </p>
                         <button
                           type="button"
@@ -558,7 +567,7 @@ export function ValidityQuestion({
                           style={{ background: P.brand, color: P.onBrand }}
                         >
                           <span className="text-[16px] font-extrabold leading-tight">
-                            {phase === "opening" ? "Opening payment" : `Pay ${priceOf(picked)}`}
+                            {phase === "opening" ? "Opening payment" : `Pay ${paidOf(picked)}`}
                           </span>
                           <span className="text-[12px] font-semibold leading-tight opacity-90">
                             Live till {formatValidityDate(picked.new_end)}

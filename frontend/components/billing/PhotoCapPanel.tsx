@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PhotoCap } from "@/lib/billing-types";
-import { formatCount, formatInr } from "@/lib/plans";
+import { formatCount, formatListPrice, formatPrice } from "@/lib/plans";
 import {
   MAX_PHOTO_CAP_BLOCKS,
   clampPhotoCapBlocks,
   minPhotoCapBlocks,
+  photoCapChargedTotal,
+  photoCapGstInclusive,
   photoCapHasGrown,
+  photoCapListedTotal,
   photoCapOverBy,
 } from "@/lib/photo-cap";
 import { useCompany } from "@/lib/useCompany";
@@ -77,7 +80,12 @@ export function PhotoCapPanel({
   const [picked, setPicked] = useState(min);
   const blocks = clampPhotoCapBlocks(picked, min);
   const photosAdded = blocks * photoCap.addon_size;
-  const amount = blocks * photoCap.addon_price;
+  // The Event-based plan lists a block with GST in its price or before GST.
+  // Beside the count: the listed price, saying which. On the button: what is
+  // actually paid, GST included. Both figures are the API's.
+  const gstInclusive = photoCapGstInclusive(photoCap);
+  const listedAmount = photoCapListedTotal(photoCap, blocks);
+  const amount = photoCapChargedTotal(photoCap, blocks);
   const over = photoCapOverBy(photoCap, incoming);
 
   /** What the purchase in flight was made against, for the confirmation poll. */
@@ -217,10 +225,10 @@ export function PhotoCapPanel({
         : `This event holds ${formatCount(photoCap.cap)} photos and has ${formatCount(photoCap.used)}.`;
   const payLabel =
     context === "selection"
-      ? `Pay ${formatInr(amount)} and upload`
+      ? `Pay ${formatPrice(amount)} and upload`
       : context === "paused"
-        ? `Pay ${formatInr(amount)} and continue`
-        : `Pay ${formatInr(amount)}`;
+        ? `Pay ${formatPrice(amount)} and continue`
+        : `Pay ${formatPrice(amount)}`;
   const processing = state.phase === "processing";
 
   return (
@@ -258,7 +266,10 @@ export function PhotoCapPanel({
             </div>
             <p className="text-[13px] text-[var(--color-brand-ink)]" aria-live="polite">
               Add <strong className="tabular-nums">{formatCount(photosAdded)}</strong> photos
-              <span className="text-[var(--color-brand-muted)]"> · {formatInr(amount)}, GST included</span>
+              <span className="text-[var(--color-brand-muted)]">
+                {" "}
+                · {gstInclusive ? `${formatPrice(listedAmount)}, GST included` : formatListPrice(listedAmount, false)}
+              </span>
             </p>
           </div>
 

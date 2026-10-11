@@ -702,6 +702,8 @@ export type BookingDetail = {
   /** The periods on sale for THIS event, each with the date it would run to.
    *  Empty once it can no longer be extended. */
   validity_options?: ValidityOption[];
+  /** Whether each option's `price` includes GST. Absent means it does. */
+  validity_gst_inclusive?: boolean;
   /** The newest ten extensions, newest first. */
   validity_extensions?: ValidityExtensionRecord[];
   validity_extension_count?: number;

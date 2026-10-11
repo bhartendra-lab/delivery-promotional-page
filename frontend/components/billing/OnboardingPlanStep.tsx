@@ -23,6 +23,7 @@ import {
 } from "@/lib/billing";
 import type { CheckoutPreview, SubscriptionSnapshot } from "@/lib/billing-types";
 import { formatInr, planLabel } from "@/lib/plans";
+import { summaryRowsOf } from "@/lib/checkout-summary";
 import type { Plan } from "@/lib/plans";
 import { PlanChooser, type PlanChooserSelection } from "@/components/billing/PlanChooser";
 import { CouponField, type AppliedCoupon } from "@/components/billing/CouponField";
@@ -254,8 +255,11 @@ export function OnboardingPlanStep() {
   const isScheduled = preview?.mode === "scheduled";
   const hasPreview = !!preview && !isScheduled;
   const displayTotal = hasPreview ? preview.total : null;
-  const displayGross = hasPreview
-    ? preview.gross_amount
+  // The price and coupon rows in the basis the plan lists its prices in
+  // (lib/checkout-summary.ts).
+  const rows = hasPreview ? summaryRowsOf(preview) : null;
+  const displayGross = rows
+    ? rows.lineAmount
     : isEvent
       ? selection.quantity * eventUnitPrice
       : (selection?.plan.price ?? 0);
@@ -333,7 +337,7 @@ export function OnboardingPlanStep() {
                   amount: displayGross,
                 },
               ]}
-              discountAmount={hasPreview ? preview.discount_amount : appliedCoupon?.discountAmount}
+              discountAmount={rows ? rows.discountAmount : appliedCoupon?.discountAmount}
               bonusEvents={hasPreview ? preview.bonus_events : null}
               taxableValue={hasPreview ? preview.taxable_value : null}
               taxLines={hasPreview ? preview.tax_lines : null}

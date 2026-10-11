@@ -40,3 +40,31 @@ export function photoCapNearlyFull(cap: PhotoCap | null | undefined, used: numbe
   if (!cap || cap.cap <= 0) return false;
   return used / cap.cap >= PHOTO_CAP_NEARLY_FULL;
 }
+
+/* ── What a purchase costs ──────────────────────────────────────────────────
+ * The Event-based plan lists a block either with GST in its price or before
+ * GST (`gst_inclusive`). The API sends a block both ways: `addon_price` as
+ * listed and `addon_price_with_gst` as charged. Nothing here works out tax.
+ */
+
+const toPaise = (rupees: number) => Math.round(rupees * 100) / 100;
+
+/** Whether a block's listed price includes GST. No answer means it does. */
+export function photoCapGstInclusive(cap: PhotoCap): boolean {
+  return cap.gst_inclusive !== false;
+}
+
+/** `blocks` blocks at the listed price: what the panel shows beside the count. */
+export function photoCapListedTotal(cap: PhotoCap, blocks: number): number {
+  return toPaise(blocks * cap.addon_price);
+}
+
+/**
+ * `blocks` blocks as charged, GST included: what the Pay button says. The API
+ * charges exactly blocks x its per-block figure, so this is the amount that
+ * opens in Razorpay. An API from before the GST switch sends no with-GST
+ * figure, and its listed price already included GST.
+ */
+export function photoCapChargedTotal(cap: PhotoCap, blocks: number): number {
+  return toPaise(blocks * (cap.addon_price_with_gst ?? cap.addon_price));
+}

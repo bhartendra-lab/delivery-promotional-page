@@ -11,6 +11,10 @@ export type SubscriptionStatus =
 
 /** GET /billing/plans */
 export type PlansResponse = {
+  /** The GST percent and its name, for copy such as "plus 18% GST". Absent
+   *  from an API that predates the GST switch. */
+  tax_percent?: number | null;
+  tax_label?: string;
   currency: string;
   plans: Plan[];
 };
@@ -61,7 +65,18 @@ export function isStorageSnapshot(s: SubscriptionSnapshot): s is StorageBasedSna
  * returning anything to pay. Prefer it over testing `final_amount === 0`.
  */
 export type CouponValidation =
-  | { valid: true; discount_amount: number; tax_amount: number; final_amount: number; requires_payment: boolean }
+  | {
+      valid: true;
+      discount_amount: number;
+      tax_amount: number;
+      final_amount: number;
+      requires_payment: boolean;
+      /** The discount in the basis the plan lists its prices in: before GST on
+       *  a plan that lists them before GST. Absent from an API that predates
+       *  the GST switch, where it equals `discount_amount`. */
+      list_discount_amount?: number;
+      gst_inclusive?: boolean;
+    }
   | { valid: false; message: string };
 
 /**
@@ -119,6 +134,9 @@ export type CheckoutProration = {
   old_price: number;
   new_price: number;
   unused_credit: number | null;
+  /** `unused_credit` in the basis the target plan lists its prices in (before
+   *  GST on a plan that lists them before GST): the summary's credit row. */
+  list_unused_credit?: number | null;
 };
 
 /**
@@ -143,6 +161,19 @@ export type CheckoutPreview =
       taxable_value: number;
       tax_lines: InvoiceTaxLine[];
       total: number;
+      /**
+       * The GST switch of the plan being bought, and the summary's price and
+       * coupon rows in the basis that plan lists its prices in.
+       *
+       * On a GST-inclusive plan they are `gross_amount` and `discount_amount`.
+       * On one that lists prices before GST they are the same two before GST,
+       * so the rows read price, discount, taxable value, GST, total, and add
+       * up. Absent from an API that predates the switch: read them through
+       * summaryRowsOf in lib/checkout-summary.ts.
+       */
+      gst_inclusive?: boolean;
+      list_amount?: number;
+      list_discount_amount?: number;
       /** false when a coupon covers the full price — show "Activate plan", not "Pay ₹0.00". */
       requires_payment: boolean;
       proration: CheckoutProration | null;
@@ -183,8 +214,13 @@ export type PhotoCap = {
   used: number;
   remaining: number;
   addon_size: number;
-  /** GST-inclusive rupees per block. */
+  /** Rupees per block, as the Event-based plan lists it. */
   addon_price: number;
+  /** One block as charged, GST included. Absent from an API that predates the
+   *  GST switch, where `addon_price` already included GST. */
+  addon_price_with_gst?: number;
+  /** Whether `addon_price` includes GST. Absent means it does. */
+  gst_inclusive?: boolean;
 };
 
 export type Invoice = {

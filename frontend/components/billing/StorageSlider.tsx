@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 import type { StorageTier } from "@/lib/plans";
-import { formatStorage, formatInr, planForTier } from "@/lib/plans";
+import { formatStorage, formatInr, gstInclusiveOf, planForTier } from "@/lib/plans";
 
 type Interval = "monthly" | "yearly";
 
@@ -25,7 +25,7 @@ export function StorageSlider({
   const pct = max > 0 ? (index / max) * 100 : 0;
   const activePlan = planForTier(tiers[index], interval);
   const priceLabel = activePlan
-    ? `${formatInr(activePlan.price ?? 0)} per ${interval === "monthly" ? "month" : "year"}`
+    ? `${formatInr(activePlan.price ?? 0)} per ${interval === "monthly" ? "month" : "year"}${gstInclusiveOf(activePlan) ? "" : " + GST"}`
     : `Not available on ${interval} billing`;
 
   return (

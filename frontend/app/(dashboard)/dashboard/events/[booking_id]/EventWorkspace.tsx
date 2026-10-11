@@ -176,6 +176,8 @@ type ValidityInfo = {
   lapsed: boolean;
   extendable: boolean;
   options: ValidityOption[];
+  /** Whether each option's price includes GST (the Event-based plan's switch). */
+  gstInclusive: boolean;
   extensions: ValidityExtensionRecord[];
   extensionCount: number;
 };
@@ -187,6 +189,8 @@ function normalizeValidity(b: BookingDetail): ValidityInfo | null {
     lapsed: b.validity_lapsed === true,
     extendable: b.validity_extendable === true,
     options: Array.isArray(b.validity_options) ? b.validity_options : [],
+    // Absent from a backend that predates the switch, where every price included GST.
+    gstInclusive: b.validity_gst_inclusive !== false,
     extensions: Array.isArray(b.validity_extensions) ? b.validity_extensions : [],
     extensionCount: typeof b.validity_extension_count === "number" ? b.validity_extension_count : 0,
   };

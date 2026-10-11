@@ -9,6 +9,7 @@ import type { PlansResponse, CheckoutPreview } from "@/lib/billing-types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 import { getSubscription, ApiError } from "@/lib/billing";
 import { eventPlanOf, formatInr, planLabel } from "@/lib/plans";
+import { summaryRowsOf } from "@/lib/checkout-summary";
 import type { Plan } from "@/lib/plans";
 import { PlanChooser, type PlanChooserSelection } from "@/components/billing/PlanChooser";
 import { CouponField, type AppliedCoupon } from "@/components/billing/CouponField";
@@ -306,12 +307,16 @@ function CheckoutShell() {
   const isScheduled = preview?.mode === "scheduled";
   const hasPreview = !!preview && !isScheduled;
   const displayTotal = hasPreview ? preview.total : null;
-  const displayGross = hasPreview ? preview.gross_amount : grossAmount;
-  const displayDiscount = hasPreview ? preview.discount_amount : appliedCoupon?.discountAmount;
+  // The price, coupon and credit rows in the basis the plan lists its prices
+  // in: before GST on a plan that lists them before GST, so the summary reads
+  // price, discount, taxable value, GST, total (lib/checkout-summary.ts).
+  const rows = hasPreview ? summaryRowsOf(preview) : null;
+  const displayGross = rows ? rows.lineAmount : grossAmount;
+  const displayDiscount = rows ? rows.discountAmount : appliedCoupon?.discountAmount;
   const proration = hasPreview ? preview.proration : null;
   const prorationCredit =
-    proration?.mode === "interval_upgrade" && proration.unused_credit
-      ? { label: "Unused plan credit", amount: proration.unused_credit }
+    proration?.mode === "interval_upgrade" && rows?.unusedCredit
+      ? { label: "Unused plan credit", amount: rows.unusedCredit }
       : null;
   const grossLineLabel = isEvent
     ? `${qty} × ${formatInr(eventPlan?.event_unit_price ?? 0)}`

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { previewCheckout, ApiError, getApiErrorCode } from "@/lib/billing";
 import type { CheckoutPreview } from "@/lib/billing-types";
-import { formatInr } from "@/lib/plans";
+import { formatInr, formatPrice } from "@/lib/plans";
 import {
+  chargedOptionPrice,
   formatValidityDate,
   guardFollowUp,
   guardSentence,
@@ -30,6 +31,9 @@ export type ExtendValidityEvent = {
   endsAt: number;
   /** The periods on sale for THIS event, each with the date it would run to. */
   options: ValidityOption[];
+  /** Whether each option's `price` includes GST. When it does not, the card
+   *  says "Plus GST" and the pay button carries the amount with GST. */
+  gstInclusive: boolean;
   /** The newest extensions, newest first, and how many there have been. */
   extensions: ValidityExtensionRecord[];
   extensionCount: number;
@@ -344,9 +348,11 @@ export function ExtendValidityModal({
                 </span>
                 <span className="shrink-0 text-right">
                   <span className="block text-[14px] font-bold tabular-nums text-[var(--color-brand-ink)]">
-                    {formatInr(option.price, { paise: !Number.isInteger(option.price) })}
+                    {formatPrice(option.price)}
                   </span>
-                  <span className="block text-[11.5px] text-[var(--color-brand-muted)]">GST included</span>
+                  <span className="block text-[11.5px] text-[var(--color-brand-muted)]">
+                    {event.gstInclusive ? "GST included" : "Plus GST"}
+                  </span>
                 </span>
               </label>
             );
@@ -463,7 +469,9 @@ export function ExtendValidityModal({
               {processing
                 ? "Opening payment…"
                 : picked
-                  ? `Pay ${formatInr(picked.price, { paise: !Number.isInteger(picked.price) })}`
+                  ? // What is actually paid, GST included: the preview's total
+                    // once it has answered, the option's own figure until then.
+                    `Pay ${formatPrice(preview?.total ?? chargedOptionPrice(picked))}`
                   : "Choose a period"}
             </button>
           </div>
