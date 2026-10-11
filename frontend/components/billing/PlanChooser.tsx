@@ -380,6 +380,9 @@ export function PlanChooser({
                   {formatInr(activeStoragePlan.price ?? 0)}
                   <span className="text-sm font-normal text-[var(--color-brand-muted)]">
                     /{interval === "monthly" ? "mo" : "yr"}
+                    {/* The plan's own gst_inclusive switch. A price before GST
+                        says so right beside it, whatever line follows below. */}
+                    {gstInclusiveOf(activeStoragePlan) ? "" : " + GST"}
                   </span>
                 </span>
               </div>
@@ -389,11 +392,11 @@ export function PlanChooser({
                 <span className="text-xs text-[var(--color-brand-muted)]">Your plan ended — renewing starts a new period.</span>
               ) : downgrade ? (
                 <span className="text-xs text-[var(--color-brand-muted)]">Takes effect at renewal — no charge now.</span>
-              ) : currentSnapshot?.service ? (
+              ) : (
                 <span className="text-xs text-[var(--color-brand-muted)]">
-                  {gstInclusiveOf(activeStoragePlan) ? "Including GST" : "Plus GST"}
+                  {gstInclusiveOf(activeStoragePlan) ? "Including GST" : "GST is added at checkout"}
                 </span>
-              ) : null}
+              )}
             </div>
           )}
 

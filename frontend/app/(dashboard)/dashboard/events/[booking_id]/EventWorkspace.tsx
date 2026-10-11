@@ -95,8 +95,6 @@ const DEFAULT_PUB: PublishInfo = {
   hasBeenPublished: false,
 };
 
-const POLL_MS = 20000;
-
 // Media grid loads one page on first paint and one more each scroll-to-end.
 const PAGE_SIZE = 100;
 
@@ -525,37 +523,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     void reloadBooking();
   }, [bookingId, reloadBooking]);
 
-  // Poll while the pipeline has work in flight for this booking (outOfSync =
-  // new media is being embedded + re-clustered + re-zipped automatically), so
-  // the amber "Syncing" pill resolves itself without a manual refresh.
-  // embedding "in_progress" only occurs via the legacy manual-sync endpoint
-  // but is included for completeness.
-  // Only a published booking has a pipeline worth polling — an archived/expired
-  // booking is static, so skip the 20s poll entirely for it.
-  const pipelineBusy =
-    pub.status === "published" && (pub.outOfSync || pub.embedding === "in_progress");
-  useEffect(() => {
-    if (!pipelineBusy) return;
-    const id = setInterval(() => void reloadBooking(), POLL_MS);
-    return () => clearInterval(id);
-  }, [pipelineBusy, reloadBooking]);
-
-  // Notify in-app when a sync lands (outOfSync true → false) or a processing
-  // run fails. Failures never take the gallery offline — the pipeline retries
-  // on its own, so the error toast is informational.
-  const prevEmbeddingRef = useRef<EmbeddingStatus | null>(null);
-  const prevOutOfSyncRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    const prevEmbedding = prevEmbeddingRef.current;
-    const prevOutOfSync = prevOutOfSyncRef.current;
-    if (prevOutOfSync === true && !pub.outOfSync && pub.embedding !== "failed") {
-      toast("New photos are synced — they're now in guest face search.");
-    } else if (prevEmbedding !== null && prevEmbedding !== "failed" && pub.embedding === "failed") {
-      toast("Photo processing hit a snag — it will retry automatically.", "error");
-    }
-    prevEmbeddingRef.current = pub.embedding;
-    prevOutOfSyncRef.current = pub.outOfSync;
-  }, [pub.embedding, pub.outOfSync, toast]);
+  // No polling for embedding/sync state: the studio never sees it (the pill is
+  // "Live" the moment photos finish uploading) and the pipeline runs on its own.
+  // reloadBooking still runs once on load, after each upload run, and after
+  // each booking mutation.
 
   /* ── engine ↔ state wiring ──────────────────────────────────── */
 

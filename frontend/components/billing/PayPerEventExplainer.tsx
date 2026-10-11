@@ -28,7 +28,7 @@ export function PayPerEventExplainer({ snapshot }: { snapshot: SubscriptionSnaps
         if (!cancelled) setEventPlan(eventPlanOf(res.plans));
       })
       .catch(() => {
-        /* The block still reads correctly without the plan: the terms fall back to their defaults. */
+        /* The block still reads correctly without the plan: it quotes no figure itself, and the terms dialog says it could not load. */
       });
     return () => {
       cancelled = true;
