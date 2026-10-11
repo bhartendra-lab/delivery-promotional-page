@@ -66,6 +66,15 @@ test("isGuestSurfacePath: the gallery and its sub-paths are allowed", () => {
   assert.equal(isGuestSurfacePath("/event/riya-and-arjun/auth/callback"), true);
 });
 
+test("a Client's validity extension page is served on the Vyavasth domain only, never on a studio's own", () => {
+  // The page takes a payment for Vyavasth, so its links are always minted on
+  // deliver.vyavasth.in. It is deliberately NOT on the guest surface: a custom
+  // hostname answers 404 for it.
+  assert.equal(isGuestSurfacePath("/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), false);
+  assert.equal(isRequestAllowed("gallery.studioxyz.com", "/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), false);
+  assert.equal(isRequestAllowed("deliver.vyavasth.in", "/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), true);
+});
+
 test("isGuestSurfacePath: the QR error screens are allowed", () => {
   assert.equal(isGuestSurfacePath("/error/qr-not-found"), true);
   assert.equal(isGuestSurfacePath("/error/qr-not-assigned"), true);

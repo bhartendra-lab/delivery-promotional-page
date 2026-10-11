@@ -398,7 +398,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
 
             {/* 4 · One line under whichever people group is showing. */}
             <p className={`-mt-2 ${HINT_CLASS}`}>
-              Optional. Anyone you add a number for joins as a Client and can sign in with that number.
+              Adding clients&apos; whatsapp contact will notify them about event activities.
             </p>
 
             {/* 5 · Event date. */}

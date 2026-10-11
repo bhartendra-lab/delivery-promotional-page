@@ -37,7 +37,15 @@ export type Plan = {
   /** GST-inclusive rupees for one capacity block. */
   photo_cap_addon_price?: number | null;
   first_purchase_offer?: FirstPurchaseOffer | null;
+  /** Days a pay-per-event event stays live from the day it is created. */
+  validity_base_days?: number | null;
+  /** Paid validity extensions on sale: months added to an event's current end
+   *  date, for a GST-inclusive price in rupees. */
+  validity_extension_options?: ValidityExtensionOption[] | null;
 };
+
+/** One paid validity extension: `months` more, for `price` rupees GST-inclusive. */
+export type ValidityExtensionOption = { months: number; price: number };
 
 /**
  * `billing_interval` is optional in the backend schema (no default, not
@@ -171,6 +179,60 @@ export function photoCapTermsOf(plan: Plan | null | undefined): PhotoCapTerms {
 }
 
 /**
+ * Fallbacks for a plans API that predates validity extensions. They mirror
+ * AUTO_DELETE_WINDOW_DAYS and DEFAULT_VALIDITY_EXTENSION_OPTIONS in the API
+ * (retention.utils.js, billing.service.js), which is what actually charges:
+ * the two change together. Nothing else in either app may spell these out.
+ */
+export const FALLBACK_VALIDITY_BASE_DAYS = 90;
+export const FALLBACK_VALIDITY_EXTENSION_OPTIONS: ValidityExtensionOption[] = [
+  { months: 3, price: 199 },
+  { months: 6, price: 299 },
+  { months: 12, price: 499 },
+];
+
+/**
+ * The validity extensions on sale, shortest first. The plan's own list when it
+ * has a usable one, otherwise the fallback, so a caller always gets numbers.
+ */
+export function validityOptionsOf(plan: Plan | null | undefined): ValidityExtensionOption[] {
+  const seen = new Set<number>();
+  const usable = (plan?.validity_extension_options ?? []).filter((option) => {
+    const ok =
+      Number.isInteger(option?.months) && option.months > 0 && typeof option?.price === "number" && option.price > 0;
+    if (!ok || seen.has(option.months)) return false;
+    seen.add(option.months);
+    return true;
+  });
+  const source = usable.length ? usable : FALLBACK_VALIDITY_EXTENSION_OPTIONS;
+  return source.map(({ months, price }) => ({ months, price })).sort((a, b) => a.months - b.months);
+}
+
+/** Days a pay-per-event event stays live before it must be extended. */
+export function validityBaseDaysOf(plan: Plan | null | undefined): number {
+  const days = plan?.validity_base_days;
+  return typeof days === "number" && days > 0 ? days : FALLBACK_VALIDITY_BASE_DAYS;
+}
+
+/** 90 → "3 months" · 45 → "45 days". Whole months read better when they are whole. */
+function baseLifetimeLabel(days: number): string {
+  if (days % 30 === 0) {
+    const months = days / 30;
+    return `${months} month${months === 1 ? "" : "s"}`;
+  }
+  return `${days} days`;
+}
+
+/** "3 months for ₹199, 6 months for ₹299 or 12 months for ₹499" */
+function validityOptionsSentence(options: ValidityExtensionOption[]): string {
+  const parts = options.map(
+    (option) => `${option.months} month${option.months === 1 ? "" : "s"} for ${formatInr(option.price, { paise: !Number.isInteger(option.price) })}`,
+  );
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} or ${parts[parts.length - 1]}`;
+}
+
+/**
  * The pay-per-event terms, one sentence per line, with every figure taken from
  * the plan. This is the text behind every "T&C apply": the app's terms dialog
  * and the pricing page render exactly these lines, so they cannot disagree.
@@ -182,12 +244,16 @@ export function payPerEventTerms(
   opts: { includeOffer?: boolean } = {},
 ): string[] {
   const { cap, addonSize, addonPrice } = photoCapTermsOf(plan);
+  const lifetime = baseLifetimeLabel(validityBaseDaysOf(plan));
   const lines = [
     `Each event can hold up to ${formatCount(cap)} photos at a time.`,
     "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
     `Need more room? Add ${formatCount(addonSize)} photos to an event for ${formatInr(addonPrice)}. Capacity is added in blocks of ${formatCount(addonSize)}.`,
     "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",
-    "Each event stays live for 3 months from the day you create it. Unused events never expire.",
+    `Each event stays live for ${lifetime} from the day you create it. Unused events never expire.`,
+    `Need it for longer? Before an event closes, you or your Client can extend it: ${validityOptionsSentence(validityOptionsOf(plan))}, GST included. The time is added to the date the event was due to close.`,
+    "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.",
+    "When an event closes, guests can no longer open it and its photos are deleted. A closed event cannot be extended. Extensions are not refundable.",
   ];
   const offer = opts.includeOffer === false ? null : firstPurchaseOfferOf(plan);
   if (offer) {

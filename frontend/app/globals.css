@@ -612,3 +612,98 @@ body {
 .range-slider:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 3px rgba(194, 90, 58, 0.4);
 }
+
+/* ---------------------------------------------------------------- */
+/* Client validity page (/validity/<token>)                          */
+/* ---------------------------------------------------------------- */
+
+/* The page a Client opens from their WhatsApp reminder: their own photos, in
+   the order the day happened, and then one question. Same easing family as
+   the rest of the guest gallery (the fx-* and lounge-* rules above), so it
+   reads as part of the same product.
+
+   Every motion here plays once, and only transform, opacity and filter are
+   ever animated. Under prefers-reduced-motion nothing moves: the global rule
+   near the top of this file collapses every duration, and the block at the
+   end of this section puts each element straight into its final state. The
+   motions driven from script (the strip's drift, the counting numbers, the
+   gather) check the same preference themselves; see components/validity. */
+
+/* The opening photo starts softly out of focus and sharpens: a memory coming
+   back. The slight scale hides the blurred edge and settles with the focus. */
+@keyframes validity-focus {
+  0%   { filter: blur(16px); transform: scale(1.05); opacity: 0.7; }
+  100% { filter: blur(0); transform: scale(1); opacity: 1; }
+}
+.validity-focus { animation: validity-focus 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+/* The words over it arrive once the photo has mostly resolved. */
+.validity-greeting { animation: fx-blur-in 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) 0.55s both; }
+
+/* A section coming into view. `is-in` is added once, by an observer that then
+   disconnects, so scrolling back up replays nothing. */
+.validity-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.6s cubic-bezier(0.2, 0.7, 0.3, 1),
+    transform 0.6s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.validity-reveal.is-in { opacity: 1; transform: none; }
+
+/* The strip of the day. It scrolls sideways (the only thing on the page that
+   does) and hides its scrollbar: the photos peeking in at the edge are the
+   affordance. Snap is switched off by script for the one slow drift, then
+   back on. */
+.validity-strip { scrollbar-width: none; -ms-overflow-style: none; }
+.validity-strip::-webkit-scrollbar { display: none; }
+
+/* The time-of-day wash behind the strip: one layer per part of the day, cross
+   faded by opacity, so the background colour itself is never animated. */
+.validity-tint { opacity: 0; transition: opacity 0.9s ease; }
+.validity-tint.is-on { opacity: 1; }
+
+/* Photos lift a little under a pointer, on a wide screen only. 2px, no more. */
+.validity-photo { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1); }
+@media (hover: hover) and (min-width: 1024px) {
+  .validity-photo:hover { transform: translateY(-2px); }
+}
+
+/* A date rolling into place, digit by digit, like an odometer (never a page
+   flip). Each digit is a window one line tall over a column of 0 to 9; `--d`
+   is the digit showing. Later digits start a beat after earlier ones. */
+.validity-digit {
+  display: inline-block;
+  height: 1.15em;
+  line-height: 1.15em;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.validity-digit > span {
+  display: block;
+  transform: translateY(calc(var(--d, 0) * -10%));
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.3, 1);
+  transition-delay: calc(var(--i, 0) * 45ms);
+}
+.validity-digit > span > span { display: block; height: 1.15em; }
+
+/* An option card: pressed in slightly while held, so it feels like a thing. */
+.validity-option { transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.2s ease; }
+.validity-option:active { transform: scale(0.985); }
+
+/* After payment, the day's photos gather into a small neat stack. The start
+   position of each is set inline from where it sat in the strip (a FLIP); this
+   only names the move. Under 700ms. */
+.validity-gather { transition: transform 0.65s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.4s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .validity-focus,
+  .validity-greeting { animation: none; }
+  .validity-reveal { opacity: 1; transform: none; transition: none; }
+  .validity-tint { transition: none; }
+  .validity-photo,
+  .validity-photo:hover,
+  .validity-option:active { transform: none; transition: none; }
+  .validity-digit > span { transition: none; }
+  .validity-gather { transition: none; }
+}

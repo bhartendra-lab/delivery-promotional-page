@@ -11,8 +11,18 @@ import type { SubscriptionSnapshot } from "@/lib/billing-types";
  * what it grants lands on the event, not the subscription, so its "confirming"
  * phase is watched by the photo-limit panel (which polls the event's cap) and
  * never by <ConfirmingPayment>.
+ *
+ * "validity_extension" keeps ONE pay per event event live for longer (it needs
+ * `bookingId` and `months`). Like a capacity purchase it lands on the event,
+ * so its "confirming" phase is watched by <ExtendValidityModal>, which polls
+ * the event until its end date has moved.
  */
-export type CheckoutPurpose = "event_topup" | "subscription" | "tier_upgrade" | "photo_cap_topup";
+export type CheckoutPurpose =
+  | "event_topup"
+  | "subscription"
+  | "tier_upgrade"
+  | "photo_cap_topup"
+  | "validity_extension";
 
 export type CheckoutFlowState =
   | { phase: "idle" }
@@ -32,9 +42,12 @@ export type RunCheckoutInput = {
   before: SubscriptionSnapshot | null;
   currentPlanName: string;
   prefill?: { name?: string; email?: string; contact?: string };
-  /** photo_cap_topup only: the event, and how many capacity blocks. */
+  /** photo_cap_topup and validity_extension: the event. */
   bookingId?: string;
+  /** photo_cap_topup only: how many capacity blocks. */
   blocks?: number;
+  /** validity_extension only: the period, one of the event's `validity_options`. */
+  months?: number;
   /** The studio ticked the storage-clear confirmation (see StorageClearConfirm). */
   confirmStorageClear?: boolean;
   /** Called when the server rejects the coupon at redeem time (400) even
@@ -67,6 +80,9 @@ export function useCheckoutFlow() {
         coupon_code: input.couponCode ?? undefined,
         ...(input.purpose === "photo_cap_topup"
           ? { booking_id: input.bookingId, photo_cap_blocks: input.blocks }
+          : {}),
+        ...(input.purpose === "validity_extension"
+          ? { booking_id: input.bookingId, validity_months: input.months }
           : {}),
         ...(input.confirmStorageClear ? { confirm_storage_clear: true } : {}),
       });
@@ -101,6 +117,9 @@ export function useCheckoutFlow() {
           amountRupees: res.amount,
           description: input.description,
           prefill: input.prefill,
+          // Sent only with a validity extension order, whose payment is
+          // captured inside a short window: Checkout closes itself with it.
+          timeoutSeconds: "checkout_timeout_seconds" in res ? res.checkout_timeout_seconds : undefined,
           onSuccess: () => {
             setState({
               phase: "confirming",

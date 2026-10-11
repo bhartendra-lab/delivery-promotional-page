@@ -16,6 +16,10 @@ import {
   FALLBACK_PHOTO_CAP,
   FALLBACK_PHOTO_CAP_ADDON_SIZE,
   FALLBACK_PHOTO_CAP_ADDON_PRICE,
+  FALLBACK_VALIDITY_BASE_DAYS,
+  FALLBACK_VALIDITY_EXTENSION_OPTIONS,
+  validityOptionsOf,
+  validityBaseDaysOf,
   type Plan,
 } from "./plans.ts";
 
@@ -161,33 +165,93 @@ test("photoCapTermsOf: API figures win; the named fallbacks fill only what is mi
 
 test("payPerEventTerms: every figure comes from the plan", () => {
   const lines = payPerEventTerms(eventPlan({ photo_cap: 25000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 }));
-  assert.equal(lines.length, 5);
+  assert.equal(lines.length, 8);
   assert.equal(lines[0], "Each event can hold up to 25,000 photos at a time.");
   assert.equal(lines[2], "Need more room? Add 2,500 photos to an event for ₹75. Capacity is added in blocks of 2,500.");
+});
+
+test("payPerEventTerms: how long an event lives and what extending it costs, from the plan", () => {
+  // A plans API that predates validity extensions: the fallbacks, which mirror
+  // what the API charges.
+  const fallback = payPerEventTerms(eventPlan());
+  assert.equal(fallback[4], "Each event stays live for 3 months from the day you create it. Unused events never expire.");
+  assert.equal(
+    fallback[5],
+    "Need it for longer? Before an event closes, you or your Client can extend it: 3 months for ₹199, 6 months for ₹299 or 12 months for ₹499, GST included. The time is added to the date the event was due to close.",
+  );
+  assert.equal(fallback[6], "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.");
+  assert.equal(
+    fallback[7],
+    "When an event closes, guests can no longer open it and its photos are deleted. A closed event cannot be extended. Extensions are not refundable.",
+  );
+
+  // Edited on the Service: both lines follow, with no deploy.
+  const edited = payPerEventTerms(
+    eventPlan({ validity_base_days: 45, validity_extension_options: [{ months: 6, price: 249.5 }, { months: 1, price: 99 }] }),
+  );
+  assert.equal(edited[4], "Each event stays live for 45 days from the day you create it. Unused events never expire.");
+  assert.ok(edited[5].includes("you or your Client can extend it: 1 month for ₹99 or 6 months for ₹249.50, GST included."));
+  const single = payPerEventTerms(eventPlan({ validity_base_days: 30, validity_extension_options: [{ months: 3, price: 199 }] }));
+  assert.equal(single[4], "Each event stays live for 1 month from the day you create it. Unused events never expire.");
+  assert.ok(single[5].includes("can extend it: 3 months for ₹199, GST included."));
+});
+
+test("validityOptionsOf / validityBaseDaysOf: the plan's own figures when usable, the fallback otherwise", () => {
+  assert.deepEqual(FALLBACK_VALIDITY_EXTENSION_OPTIONS, [
+    { months: 3, price: 199 },
+    { months: 6, price: 299 },
+    { months: 12, price: 499 },
+  ]);
+  assert.equal(FALLBACK_VALIDITY_BASE_DAYS, 90);
+  for (const plan of [null, undefined, eventPlan(), eventPlan({ validity_extension_options: [] }), eventPlan({ validity_extension_options: null })]) {
+    assert.deepEqual(validityOptionsOf(plan), FALLBACK_VALIDITY_EXTENSION_OPTIONS);
+    assert.equal(validityBaseDaysOf(plan), 90);
+  }
+  // Sorted, with an unusable entry and a repeated period dropped.
+  assert.deepEqual(
+    validityOptionsOf(
+      eventPlan({
+        validity_extension_options: [
+          { months: 12, price: 400 },
+          { months: 1, price: 99 },
+          { months: 1, price: 50 },
+          { months: 0, price: 10 },
+          { months: 2.5, price: 10 },
+          { months: 6, price: 0 },
+        ],
+      }),
+    ),
+    [{ months: 1, price: 99 }, { months: 12, price: 400 }],
+  );
+  // The fallback is never handed out by reference, so a caller cannot edit it.
+  validityOptionsOf(null)[0].price = 1;
+  assert.equal(FALLBACK_VALIDITY_EXTENSION_OPTIONS[0].price, 199);
+  assert.equal(validityBaseDaysOf(eventPlan({ validity_base_days: 120 })), 120);
+  assert.equal(validityBaseDaysOf(eventPlan({ validity_base_days: 0 })), 90);
 });
 
 test("payPerEventTerms: the offer line appears only for a live offer, and only when asked for", () => {
   const until = Date.UTC(2026, 11, 31, 12);
   const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: until } });
   const lines = payPerEventTerms(live);
-  assert.equal(lines.length, 6);
+  assert.equal(lines.length, 9);
   assert.equal(
-    lines[5],
+    lines[8],
     "First purchase offer for new studios: buy at least 1 event and get 1 free. One time per studio, whatever number of events you buy. Offer valid till 31 Dec 2026.",
   );
   // No end date: the sentence about validity is left out, not left dangling.
   const openEnded = payPerEventTerms(eventPlan({ first_purchase_offer: { bonus_events: 2, valid_until: null } }));
   assert.equal(
-    openEnded[5],
+    openEnded[8],
     "First purchase offer for new studios: buy at least 1 event and get 2 free. One time per studio, whatever number of events you buy.",
   );
   // A studio that cannot get the offer is not told about it.
-  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 5);
+  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 8);
 });
 
 test("payPerEventTerms: no em dashes in copy a studio reads", () => {
   const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: 1 } });
-  for (const line of payPerEventTerms(live)) assert.equal(line.includes("\u2014"), false, line);
+  for (const line of payPerEventTerms(live)) assert.doesNotMatch(line, /[\u2013\u2014]/, line);
 });
 
 test("formatCount / formatOfferDate", () => {

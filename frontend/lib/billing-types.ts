@@ -1,4 +1,5 @@
 import type { Plan, ServiceType } from "./plans";
+import type { ValidityGuard } from "./event-validity";
 
 export type SubscriptionStatus =
   | "active"
@@ -77,7 +78,17 @@ export type CheckoutResponse =
   | { status: "scheduled"; message: string; effective_at: number }
   | { status: "activated"; amount: number; discount_amount: number; coupon_code: string; subscription_id: string }
   | { razorpay_order_id: string; amount: number; razorpay_subscription_id: string; key_id: string }
-  | { razorpay_order_id: string; amount: number; key_id: string }
+  | {
+      razorpay_order_id: string;
+      amount: number;
+      key_id: string;
+      /** A validity extension only: Razorpay Checkout must close itself after
+       *  this many seconds, so a payment cannot be started long after the
+       *  order was opened. */
+      checkout_timeout_seconds?: number;
+      /** A validity extension only: our own reference for the order. */
+      order_ref?: string;
+    }
   | { razorpay_subscription_id: string; short_url: string; key_id: string };
 
 export type CancelSubscriptionResponse = { status: "cancelled"; runs_until: number | null };
@@ -119,7 +130,13 @@ export type CheckoutProration = {
 export type CheckoutPreview =
   | { mode: "scheduled"; message: string; effective_at: number }
   | {
-      mode: "event_topup" | "new_subscription" | "tier_upgrade" | "interval_upgrade" | "photo_cap_topup";
+      mode:
+        | "event_topup"
+        | "new_subscription"
+        | "tier_upgrade"
+        | "interval_upgrade"
+        | "photo_cap_topup"
+        | "event_validity_extension";
       description: string;
       gross_amount: number;
       discount_amount: number;
@@ -137,6 +154,18 @@ export type CheckoutPreview =
       storage_data_warning?: StorageDataWarning | null;
       /** photo_cap_topup only: items this purchase adds to the event's cap. */
       photos_added?: number;
+      /* ── event_validity_extension only ── */
+      /** The period being bought. */
+      months?: number;
+      /** Epoch ms: when the event closes now, and when it would after paying. */
+      current_end?: number;
+      new_end?: number;
+      /** Extensions already made, shown before the Studio pays again. */
+      guard?: ValidityGuard;
+      /** Someone else (a Client on their link, or another Member) has a
+       *  checkout open for this event right now. Checkout would answer 409
+       *  { code: "EXTENSION_IN_PROGRESS" }. */
+      lock_held_by_other?: boolean;
     };
 
 export type StorageDataWarning = { galleries: number; message: string };
@@ -178,4 +207,11 @@ export type Invoice = {
   status: "issued" | "void";
   createdAt: string;
   updatedAt: string;
+  /**
+   * Which list the row came from: a plan invoice, or the invoice for a
+   * validity extension the STUDIO paid for (a "renewal"). One a Client paid
+   * for is theirs and is never in this list. Absent from an older backend,
+   * where every row is a plan invoice.
+   */
+  kind?: "plan" | "renewal";
 };

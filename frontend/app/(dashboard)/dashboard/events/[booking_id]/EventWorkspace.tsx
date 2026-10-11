@@ -41,6 +41,8 @@ import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
 import type { PhotoCap } from "@/lib/billing-types";
+import { formatValidityDate, type ValidityExtensionRecord, type ValidityOption } from "@/lib/event-validity";
+import { ExtendValidityModal } from "@/components/billing/ExtendValidityModal";
 import {
   EventProvider,
   ALL_MEDIA_ID,
@@ -163,6 +165,33 @@ function normalizePublish(b: BookingDetail): PublishInfo {
   };
 }
 
+/**
+ * When a pay per event event closes and what extending it would cost, from
+ * get-booking-by-id. Null for a storage plan event (no validity), and for a
+ * backend that predates validity extensions, where the pill simply shows no
+ * "Extend validity" row.
+ */
+type ValidityInfo = {
+  endsAt: number;
+  lapsed: boolean;
+  extendable: boolean;
+  options: ValidityOption[];
+  extensions: ValidityExtensionRecord[];
+  extensionCount: number;
+};
+
+function normalizeValidity(b: BookingDetail): ValidityInfo | null {
+  if (typeof b.validity_ends_at !== "number") return null;
+  return {
+    endsAt: b.validity_ends_at,
+    lapsed: b.validity_lapsed === true,
+    extendable: b.validity_extendable === true,
+    options: Array.isArray(b.validity_options) ? b.validity_options : [],
+    extensions: Array.isArray(b.validity_extensions) ? b.validity_extensions : [],
+    extensionCount: typeof b.validity_extension_count === "number" ? b.validity_extension_count : 0,
+  };
+}
+
 function computePillState(pub: PublishInfo): LivePillState {
   if (!pub.isActive) return "deactivated";
   // The studio only ever sees "Live". Background processing (embeddings →
@@ -204,6 +233,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("media");
   const [pub, setPub] = useState<PublishInfo>(DEFAULT_PUB);
+  // Pay per event validity, and whether the extend dialog is open. The ref
+  // holds the freshest answer for the dialog's confirmation poll, which reads
+  // it straight after a reload, before the state has committed.
+  const [validity, setValidity] = useState<ValidityInfo | null>(null);
+  const validityRef = useRef<ValidityInfo | null>(null);
+  const [extendOpen, setExtendOpen] = useState(false);
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -457,8 +492,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       const res = await getBookingById(bookingId);
       const next = normalizeMeta(res.booking, metaRef.current, { qrAuthoritative: true });
       const nextPub = normalizePublish(res.booking);
+      const nextValidity = normalizeValidity(res.booking);
+      validityRef.current = nextValidity;
       setMeta(next);
       setPub(nextPub);
+      setValidity(nextValidity);
       setBookingName(bookingId, next.name);
       try {
         localStorage.setItem(`event_meta_${bookingId}`, JSON.stringify(next));
@@ -950,6 +988,63 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     }
   }, [bookingId, reloadBooking, refreshDlpUsage, toast]);
 
+  /* ── pay per event validity ─────────────────────────────────── */
+
+  const openExtend = useCallback(() => setExtendOpen(true), []);
+  // Only what the pill reads, so the pill is not rebuilt when the price list
+  // or the extension history is re-fetched unchanged.
+  const validityEndsAt = validity?.endsAt ?? null;
+  const validityExtendable = validity?.extendable === true;
+  const validityLapsed = validity?.lapsed === true;
+  const pillValidity = useMemo(
+    () =>
+      validityEndsAt == null ? null : { endsAt: validityEndsAt, extendable: validityExtendable, lapsed: validityLapsed },
+    [validityEndsAt, validityExtendable, validityLapsed],
+  );
+
+  // The reminder email's "Open the event" button lands on ?extend=1: open the
+  // extend dialog once the event has loaded, then drop the parameter so a
+  // refresh (or the back button) does not open it again. Read once, on mount.
+  const wantsExtendRef = useRef(false);
+  useEffect(() => {
+    try {
+      wantsExtendRef.current = new URLSearchParams(window.location.search).get("extend") === "1";
+    } catch {
+      wantsExtendRef.current = false;
+    }
+  }, []);
+  useEffect(() => {
+    if (!wantsExtendRef.current || validity == null) return;
+    wantsExtendRef.current = false;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("extend");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      /* the address bar keeps the parameter; the dialog still opens once */
+    }
+    if (validity.extendable && !validity.lapsed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time open from the reminder email's deep link, once the event has loaded
+      setExtendOpen(true);
+    } else {
+      toast("This event has closed and can no longer be extended.", "error");
+    }
+  }, [validity, toast]);
+
+  // The dialog's confirmation poll: re-read the event and answer its end date.
+  const refreshValidityEndsAt = useCallback(async (): Promise<number | null> => {
+    const fresh = await reloadBooking();
+    return fresh ? (validityRef.current?.endsAt ?? null) : null;
+  }, [reloadBooking]);
+
+  const onValidityExtended = useCallback(
+    (endsAt: number) => {
+      setExtendOpen(false);
+      toast(`Extended. This event is now live till ${formatValidityDate(endsAt)}.`);
+    },
+    [toast],
+  );
+
   /* ── topbar LivePill ────────────────────────────────────────── */
 
   const isTerminal = pub.status === "archived" || pub.status === "expired";
@@ -968,9 +1063,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           onActivate={doActivate}
           onDeactivate={doDeactivate}
           onArchive={doArchive}
+          validity={pillValidity}
+          onExtend={openExtend}
         />
       ),
-    [isTerminal, pillState, engineActive, pub.serviceType, doActivate, doDeactivate, doArchive],
+    [isTerminal, pillState, engineActive, pub.serviceType, doActivate, doDeactivate, doArchive, pillValidity, openExtend],
   );
   usePageTopbarExtra(pillNode);
 
@@ -1152,6 +1249,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           />
         )}
       </div>
+
+      {validity && (
+        <ExtendValidityModal
+          open={extendOpen}
+          onClose={() => setExtendOpen(false)}
+          bookingId={bookingId}
+          eventName={meta?.name || "This event"}
+          event={validity}
+          refreshEndsAt={refreshValidityEndsAt}
+          onExtended={onValidityExtended}
+        />
+      )}
 
       {clearConfirm && (
         <TypeConfirmModal

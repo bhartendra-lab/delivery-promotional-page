@@ -67,10 +67,19 @@ export type ExpiryWarning = { daysLeft: number; label: string } | null;
 /** How close a storage plan event's own expiry must be before its card warns. */
 const EXPIRY_WARNING_WINDOW_DAYS = 30;
 
+/** Base lifetime of a pay per event event, in days. Used ONLY for a row from a
+ *  backend that predates `validity_ends_at`; the API is the authority. */
+const LEGACY_PAY_PER_EVENT_DAYS = 90;
+
 /**
  * Resolve the "expires in X days" warning for a booking row, matching the
  * three cron paths:
- *   - Free / Event-based → 90 days from `createdAt`
+ *   - Free / Event-based → the row's own `validity_ends_at`, which the API
+ *     computes and which moves out when the event is extended. Once that has
+ *     passed (`validity_lapsed`) the event is closed to Guests and reads
+ *     "Closed", in the danger tone (daysLeft 0): its photos are deleted about
+ *     a day later. A row from an older backend carries neither field and falls
+ *     back to 90 days from `createdAt`.
  *   - archived (any plan, in practice Monthly/Yearly) → 7 days from archive
  *   - a live Monthly/Yearly event with its own expiry → ARCHIVED (not deleted)
  *     on that day, so it says "Archives", and only inside the last 30 days
@@ -83,6 +92,8 @@ export function getExpiryWarning(row: {
   createdAt?: string;
   gallery_archived_at?: number | null;
   event_expiry_at?: number | null;
+  validity_ends_at?: number | null;
+  validity_lapsed?: boolean;
 }): ExpiryWarning {
   if (row.gallery_publish_status === "expired") return null; // never a warning
   if (row.gallery_publish_status === "archived") {
@@ -93,8 +104,20 @@ export function getExpiryWarning(row: {
       label: daysLeft <= 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
     };
   }
-  if ((row.service_type === "Free" || row.service_type === "Event-based") && row.createdAt) {
-    const daysLeft = daysRemaining(new Date(row.createdAt).getTime(), 90);
+  if (row.service_type === "Free" || row.service_type === "Event-based") {
+    if (typeof row.validity_ends_at === "number") {
+      if (row.validity_lapsed || Date.now() > row.validity_ends_at) return { daysLeft: 0, label: "Closed" };
+      // The end is always the last millisecond of a day, so the whole days
+      // still to come are one fewer than the days the remaining time rounds up
+      // to: on the last day itself it is live till midnight and reads "today".
+      const daysLeft = Math.max(0, daysRemaining(row.validity_ends_at, 0) - 1);
+      return {
+        daysLeft,
+        label: daysLeft <= 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+      };
+    }
+    if (!row.createdAt) return null;
+    const daysLeft = daysRemaining(new Date(row.createdAt).getTime(), LEGACY_PAY_PER_EVENT_DAYS);
     return {
       daysLeft,
       label: daysLeft <= 0 ? "Expires today" : `Expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,

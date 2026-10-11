@@ -1,5 +1,6 @@
 import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
+import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
 import type { GuestAccessLevel } from "./guest-access";
 import type { UploadVariant } from "./r2-upload/compressor";
 import type {
@@ -613,6 +614,13 @@ export type CheckoutInput = {
   booking_id?: string;
   photo_cap_blocks?: number;
   /**
+   * A longer validity for one pay per event event: `booking_id` with this and
+   * WITHOUT `photo_cap_blocks` (the two are different purchases; `booking_id`
+   * must come with exactly one of them). One of the periods the event's
+   * `validity_options` lists.
+   */
+  validity_months?: number;
+  /**
    * Checkout only. The studio has read the preview's `storage_data_warning`
    * (an event purchase that leaves a lapsed storage plan deletes that plan's
    * galleries). Without it such a purchase is refused with 409
@@ -694,6 +702,57 @@ export function getInvoice(id: string) {
 
 export function getDlpUsage() {
   return request<DlpUsage>("/deliverables/get-dlp-usage");
+}
+
+/* ── A Client's validity extension link (public, no account) ───────
+ *
+ * The page at /validity/<token>. A Client has no sign-in: the token in the URL
+ * is all the authority there is, so none of these send an Authorization
+ * header (`auth: false`), exactly like the public gallery read.
+ */
+
+const validityLinkPath = (token: string) => `/billing/validity/${encodeURIComponent(token)}`;
+
+/** GET /billing/validity/:token — 404 { message: "This link is not valid." } for any bad token. */
+export function getValidityLink(token: string) {
+  return request<ValidityLinkView>(validityLinkPath(token), { auth: false });
+}
+
+/**
+ * POST /billing/validity/:token/checkout — opens a Razorpay order.
+ * 400 with `errors: [{ field, message }]` for a bad email or state;
+ * 409 { code: "EXTENSION_IN_PROGRESS" } while someone else is paying for the
+ * same event; 409 { code: "EVENT_EXPIRED" } once the event has closed.
+ */
+export function startValidityCheckout(token: string, input: { months: number; email: string; state_code: string }) {
+  return request<ValidityCheckoutResponse>(`${validityLinkPath(token)}/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    auth: false,
+  });
+}
+
+/**
+ * POST /billing/validity/:token/confirm — "did my payment land?". Safe to call
+ * repeatedly: the server settles the payment itself if its webhook is late.
+ */
+export function confirmValidityPayment(token: string, orderRef: string) {
+  return request<ValidityConfirmResponse>(`${validityLinkPath(token)}/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order_ref: orderRef }),
+    auth: false,
+  });
+}
+
+/**
+ * The address of the Client's own invoice PDF for one order. Not a fetch: the
+ * API answers it with a redirect to a short-lived download link, so it is used
+ * as a plain link the browser follows.
+ */
+export function validityReceiptUrl(token: string, orderRef: string): string {
+  return `${API_BASE}${validityLinkPath(token)}/receipt?order=${encodeURIComponent(orderRef)}`;
 }
 
 /* ── Bookings / events ─────────────────────────────────────────── */

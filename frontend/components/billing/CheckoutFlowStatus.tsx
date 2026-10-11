@@ -25,9 +25,11 @@ export function CheckoutFlowStatus({
   hideDashboardExit?: boolean;
 }) {
   if (state.phase === "confirming") {
-    // Extra photo capacity is confirmed by the panel that started it, against
-    // the event's cap (see useCheckoutFlow#CheckoutPurpose).
-    if (state.purpose === "photo_cap_topup") return null;
+    // The two per-event purchases are confirmed by whatever started them,
+    // against the event itself: extra photo capacity by its panel (the event's
+    // cap), a validity extension by its dialog (the event's end date). See
+    // useCheckoutFlow#CheckoutPurpose.
+    if (state.purpose === "photo_cap_topup" || state.purpose === "validity_extension") return null;
     return (
       <ConfirmingPayment
         purpose={state.purpose}

@@ -1,5 +1,6 @@
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { SocialPlatformKey } from "./social-platforms";
+import type { ValidityExtensionRecord, ValidityOption } from "./event-validity";
 
 export type EventType =
   | "Wedding"
@@ -580,6 +581,16 @@ export type Booking = {
   service_type?: ServiceType | string | null;
   /** Epoch ms the booking was archived (set on archive). Null/absent otherwise. */
   gallery_archived_at?: number | null;
+  /**
+   * Pay per event only: the last moment this event is live (epoch ms, the end
+   * of that day in IST), with any paid extension included. Null on a storage
+   * plan event; absent from a backend that predates validity extensions, in
+   * which case the card falls back to `createdAt` + 90 days.
+   */
+  validity_ends_at?: number | null;
+  /** That moment has passed: the gallery reads as closed to Guests, and its
+   *  photos are deleted about a day later. */
+  validity_lapsed?: boolean;
   /** Number of custom folders in this booking's gallery. */
   folder_count?: number;
   /** Number of media items (photos/videos) in this booking's gallery. */
@@ -679,6 +690,21 @@ export type BookingDetail = {
    *  Both absent when no QR points here. */
   qr_unique_id?: string;
   qr_image_url?: string;
+  /**
+   * Pay per event validity (see lib/event-validity.ts). `validity_ends_at` is
+   * the last moment the event is live; null on a storage plan event, and every
+   * field is absent from a backend that predates validity extensions.
+   */
+  validity_ends_at?: number | null;
+  validity_lapsed?: boolean;
+  /** Still live and neither archived nor expired: an extension can be bought. */
+  validity_extendable?: boolean;
+  /** The periods on sale for THIS event, each with the date it would run to.
+   *  Empty once it can no longer be extended. */
+  validity_options?: ValidityOption[];
+  /** The newest ten extensions, newest first. */
+  validity_extensions?: ValidityExtensionRecord[];
+  validity_extension_count?: number;
 
   /** Legacy/optional fields kept for backwards-compatible reads. */
   _id?: string;

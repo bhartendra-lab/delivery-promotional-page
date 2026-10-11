@@ -25,7 +25,13 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!isAuthenticated()) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      // The query string goes along with the path: a signed-out Member who
+      // opens a link like /dashboard/events/<id>?extend=1 (the validity
+      // reminder email) must land back on exactly that after signing in, and
+      // with the pathname alone the "?extend=1" was lost. The login page still
+      // passes `next` through sanitizeRedirectPath, which only ever allows a
+      // same-origin relative path.
+      router.replace(`/login?next=${encodeURIComponent(`${pathname}${window.location.search}`)}`);
       return;
     }
     // Keeps this device signed in: a no-op until the token is a day old, then

@@ -50,7 +50,17 @@ export function InvoiceList({ invoices, loading }: { invoices: Invoice[]; loadin
         <tbody>
           {invoices.map((inv) => (
             <tr key={inv._id} className="border-b border-[var(--color-brand-border)] last:border-0">
-              <td className="px-4 py-3 font-medium text-[var(--color-brand-ink)]">{inv.invoice_number}</td>
+              <td className="px-4 py-3 font-medium text-[var(--color-brand-ink)]">
+                {inv.invoice_number}
+                {/* An invoice for a validity extension the studio paid for. It
+                    has its own number series (VYR/...), so the label says what
+                    it is rather than leaving the prefix to explain itself. */}
+                {inv.kind === "renewal" && (
+                  <span className="ml-2 inline-block rounded-full bg-[var(--color-brand-bg)] px-2 py-0.5 align-middle text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-muted)]">
+                    Event renewal
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-[var(--color-brand-muted)]">{formatDate(inv.issued_at)}</td>
               <td className="px-4 py-3 tabular-nums text-[var(--color-brand-ink)]">
                 {formatInr(inv.total, { paise: true })}

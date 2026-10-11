@@ -16,6 +16,8 @@ type RazorpayOptions = {
   image?: string;
   prefill?: { name?: string; email?: string; contact?: string };
   theme?: { color: string };
+  /** Seconds after which Checkout closes itself. See OpenCheckoutArgs.timeoutSeconds. */
+  timeout?: number;
   handler: (response: { razorpay_payment_id: string }) => void;
   modal?: { ondismiss?: () => void; confirm_close?: boolean; escape?: boolean };
 };
@@ -80,6 +82,14 @@ export type OpenCheckoutArgs = {
   amountRupees?: number;
   description: string;
   prefill?: { name?: string; email?: string; contact?: string };
+  /**
+   * Close Checkout by itself after this many seconds. Sent by the server with
+   * a validity extension order (`checkout_timeout_seconds`): that order's
+   * payment is only captured inside a short window, so nobody must be able to
+   * start paying it long after it was opened. Left out, Checkout stays open as
+   * it always has.
+   */
+  timeoutSeconds?: number;
   onSuccess: (r: { razorpay_payment_id: string }) => void;
   onDismiss: () => void;
 };
@@ -100,6 +110,7 @@ export async function openCheckout(a: OpenCheckoutArgs): Promise<void> {
     // Razorpay Checkout can't read CSS custom properties, so the accent is
     // hardcoded here — it must stay in sync with --color-brand-navy.
     theme: { color: "#C25A3A" },
+    ...(a.timeoutSeconds && a.timeoutSeconds > 0 ? { timeout: Math.floor(a.timeoutSeconds) } : {}),
     handler: (response) => a.onSuccess(response),
     modal: { ondismiss: a.onDismiss, confirm_close: true, escape: true },
   });

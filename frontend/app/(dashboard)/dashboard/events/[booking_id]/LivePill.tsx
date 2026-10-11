@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ServiceType } from "@/lib/types";
 import { isStorageBasedPlan } from "@/lib/types";
 import { TypeConfirmModal, type ConfirmAction } from "./TypeConfirmModal";
-import { IconArchive, IconCaretDown, IconLock } from "./icons";
+import { IconArchive, IconCaretDown, IconClock, IconLock } from "./icons";
+import { VALIDITY_CLOSING_SOON_DAYS, closesInLabel, formatValidityDate, validityDaysLeft } from "@/lib/event-validity";
 
 /**
  * Pill state, derived by the workspace from the booking's DB fields.
@@ -19,6 +20,19 @@ import { IconArchive, IconCaretDown, IconLock } from "./icons";
  */
 export type LivePillState = "live" | "deactivated";
 
+/**
+ * When a pay per event event closes, as the API reports it. Null on a storage
+ * plan event, which has no validity and gets no row.
+ */
+export type LivePillValidity = {
+  /** Epoch ms: the last moment the event is live. */
+  endsAt: number;
+  /** Still live and neither archived nor expired, so it can be extended. */
+  extendable: boolean;
+  /** Its end has passed: closed to Guests, its photos deleted about a day later. */
+  lapsed: boolean;
+};
+
 type Props = {
   state: LivePillState;
   /** True while an upload is actively running — the pill is shown but inert. */
@@ -29,6 +43,10 @@ type Props = {
   onDeactivate: () => Promise<void>;
   /** Archive this booking (deactivate + start the 7-day expiry countdown). */
   onArchive?: () => Promise<void>;
+  /** Pay per event only: adds the "Extend validity" row to the menu. */
+  validity?: LivePillValidity | null;
+  /** Open the extend dialog. */
+  onExtend?: () => void;
 };
 
 export function LivePill({
@@ -38,6 +56,8 @@ export function LivePill({
   onActivate,
   onDeactivate,
   onArchive,
+  validity = null,
+  onExtend,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmAction | null>(null);
@@ -104,6 +124,13 @@ export function LivePill({
     </button>
   ) : null;
 
+  // "Extend validity", for a pay per event event: in the same menu as
+  // Deactivate / Activate, styled like the Archive row. (Archive is a storage
+  // plan control, so an event never shows both.) Its second line is the date
+  // the event is live till, the countdown once that is within a week, or why
+  // it can no longer be extended. The countdown is read when the menu opens.
+  const extendRow = validity ? <ExtendRow validity={validity} onExtend={onExtend} close={() => setOpen(false)} /> : null;
+
   // While uploading, show the current status inert (no actions).
   if (disabled) {
     const word = DISABLED_WORD[state];
@@ -162,12 +189,63 @@ export function LivePill({
                 <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">{nextDesc}</span>
               </span>
             </button>
+            {extendRow}
             {archiveRow}
           </div>
         )}
       </div>
       {modal}
     </>
+  );
+}
+
+function ExtendRow({
+  validity,
+  onExtend,
+  close,
+}: {
+  validity: LivePillValidity;
+  onExtend?: () => void;
+  close: () => void;
+}) {
+  // Mounted only while the menu is open, so this is "now" as of opening it.
+  const [now] = useState(() => Date.now());
+  const date = formatValidityDate(validity.endsAt);
+  const closingSoon = !validity.lapsed && validityDaysLeft(validity.endsAt, now) <= VALIDITY_CLOSING_SOON_DAYS;
+  const canExtend = validity.extendable && !validity.lapsed && !!onExtend;
+  const detail = validity.lapsed
+    ? `Closed on ${date}. It can no longer be extended.`
+    : closingSoon
+      ? `${closesInLabel(validity.endsAt, now)}, on ${date}`
+      : `Live till ${date}`;
+  return (
+    <button
+      type="button"
+      disabled={!canExtend}
+      onClick={() => {
+        close();
+        onExtend?.();
+      }}
+      className="flex w-full items-start gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-3 text-left hover:bg-[var(--color-brand-bg)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
+    >
+      <IconClock
+        size={15}
+        className={`mt-px shrink-0 ${canExtend ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"}`}
+      />
+      <span className="flex-1">
+        <span
+          className={`block text-[13px] font-semibold ${canExtend ? "text-[var(--color-brand-ink)]" : "text-[var(--color-brand-muted)]"}`}
+        >
+          Extend validity
+        </span>
+        <span
+          className="mt-px block text-[11.5px]"
+          style={{ color: closingSoon ? "var(--color-brand-warning)" : "var(--color-brand-muted)" }}
+        >
+          {detail}
+        </span>
+      </span>
+    </button>
   );
 }
 
