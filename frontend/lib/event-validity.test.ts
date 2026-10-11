@@ -15,8 +15,6 @@ import {
   guardFollowUp,
   maskEmail,
   partOfDay,
-  timeOfDayTint,
-  TIME_TINT_STRENGTH,
   daySpanLabel,
   reelPhotoAlt,
   lastPhotoLine,
@@ -139,27 +137,6 @@ test("partOfDay: morning, afternoon, golden hour and night", () => {
   // Hours are taken round the clock rather than trusted to be 0 to 23.
   assert.equal(partOfDay(24 + 9), "morning");
   assert.equal(partOfDay(-1), "night");
-});
-
-test("timeOfDayTint: the theme's own background, moved a little toward that hour's light", () => {
-  const bg = "#FBF7F4";
-  const channels = (css: string) => css.match(/\d+/g)!.map(Number);
-  const base = [0xfb, 0xf7, 0xf4];
-  for (const hour of [8, 13, 17, 22]) {
-    const mixed = channels(timeOfDayTint(hour, bg));
-    assert.equal(mixed.length, 3);
-    // Never more than the stated strength away from the theme on any channel.
-    mixed.forEach((value, i) => assert.ok(Math.abs(value - base[i]) <= Math.ceil(255 * TIME_TINT_STRENGTH), `${hour}h channel ${i}`));
-  }
-  assert.ok(TIME_TINT_STRENGTH <= 0.08);
-  // Night pulls a light background darker; morning gold pulls its blue down.
-  assert.ok(channels(timeOfDayTint(22, bg))[0] < base[0]);
-  assert.ok(channels(timeOfDayTint(8, bg))[2] < base[2]);
-  // Four different parts of the day, four different washes.
-  assert.equal(new Set([8, 13, 17, 22].map((hour) => timeOfDayTint(hour, bg))).size, 4);
-  // Short hex is read; a colour it cannot read comes back untouched.
-  assert.equal(timeOfDayTint(13, "#fff"), timeOfDayTint(13, "#ffffff"));
-  assert.equal(timeOfDayTint(13, "rgb(1, 2, 3)"), "rgb(1, 2, 3)");
 });
 
 test("daySpanLabel: only a span worth saying", () => {

@@ -7,34 +7,27 @@ import { formatValidityDate, type ValidityLinkView } from "@/lib/event-validity"
 import { AmbientBackdrop } from "@/components/event/AmbientBackdrop";
 import { BrandLoader } from "@/components/event/BrandLoader";
 import { eventTitleStyle } from "@/components/event/screens/lounge/eventTitleStyle";
-import { ValidityFavourite, ValidityNumbers, ValidityOpening, ValidityStrip, type OpeningPhoto } from "./ValidityMemory";
-import { ValidityQuestion } from "./ValidityQuestion";
+import { MemoryLane } from "./lane/MemoryLane";
 
 type Status = "loading" | "ready" | "invalid" | "error";
 
 /**
  * The Client's validity extension page: `/validity/<token>`.
  *
- * "The day, once more." Before it asks for anything, the page gives the Client
- * a minute of their own day back: their photos, in the order they happened,
- * with a few small true details. Then it asks one quiet question. Whatever
- * warmth it has comes from specifics that are real (the time of the last
- * photo, the hearts on the favourite), never from decoration, and never from
- * making anyone feel guilty: the deletion is stated once, plainly, where the
- * question is.
+ * This file is only the way in: it reads the link, and shows the loader, the
+ * "not valid" and "try again" notices, and the closed page. A live link is
+ * handed to MemoryLane (components/validity/lane), which is the page itself:
+ * a walk back through the day, and then one quiet question.
  *
  * PUBLIC, and reached only from a link sent to one Client. There is no
  * sign-in: the token in the URL is the whole of their authority, the API
  * answers one and the same 404 for any token it does not accept, and nothing
  * here ever shows a gallery photo's own address.
  *
- * The memory sections wear the event's own gallery theme; the details and the
- * payment switch to the Vyavasth platform skin (see ValidityQuestion).
- *
  * When there is no reel yet (it is built off the request path, normally before
- * the Client is messaged) the page falls back to the gallery's welcome strip
- * for its opening photo, then to the studio's cover, then to no photo at all,
- * and still asks its question.
+ * the Client is messaged) the walk falls back to the gallery's welcome strip
+ * for its photos, then to the studio's cover, then to no photo at all, and
+ * still asks its question.
  */
 export function ValidityExperience({ token }: { token: string }) {
   const [status, setStatus] = useState<Status>("loading");
@@ -90,7 +83,7 @@ export function ValidityExperience({ token }: { token: string }) {
       >
         <AmbientBackdrop a={theme.cover[0]} b={theme.cover[1]} />
         <div className="mx-auto w-full max-w-[560px]">
-          {/* The event's name as their gallery set it (see ValidityMemory). */}
+          {/* The event's name as their gallery sets it. */}
           <p className="text-balance" style={{ ...eventTitleStyle("mobile"), color: theme.text }}>
             {eventName}
           </p>
@@ -106,36 +99,7 @@ export function ValidityExperience({ token }: { token: string }) {
     );
   }
 
-  const reel = view.reel;
-  // The favourite opens the page; failing that the first photo of the day,
-  // then the welcome strip's first copy, then the studio's cover.
-  const opening: OpeningPhoto =
-    reel?.favourite ??
-    reel?.items[0] ??
-    (view.fallback_photos?.[0] ? { url: view.fallback_photos[0], width: null, height: null } : null) ??
-    (view.cover ? { url: view.cover, width: null, height: null } : null);
-  // The favourite also gets a section of its own further down, large, with
-  // its hearts and its caption: up here it is only the way in.
-  const favourite = reel?.favourite ?? null;
-
-  return (
-    // `clip`, not `hidden`: nothing may scroll the page sideways at 360px, and
-    // `hidden` would turn this into a scroll container and break the pay
-    // bar's sticking to the bottom of the screen.
-    <main style={{ background: theme.bg, fontFamily: theme.font, color: theme.text, overflowX: "clip" }}>
-      <ValidityOpening
-        t={theme}
-        photo={opening}
-        firstName={view.client_first_name}
-        eventName={eventName}
-        eventDate={view.event_date}
-      />
-      {reel && reel.items.length > 0 && <ValidityStrip t={theme} reel={reel} eventName={eventName} />}
-      {reel && <ValidityNumbers t={theme} reel={reel} />}
-      {favourite && <ValidityFavourite t={theme} favourite={favourite} eventName={eventName} />}
-      <ValidityQuestion t={theme} token={token} view={view} eventName={eventName} onRefresh={load} />
-    </main>
-  );
+  return <MemoryLane token={token} view={view} onRefresh={load} />;
 }
 
 /** A full-screen message on the Vyavasth platform skin: a bad link, or a page

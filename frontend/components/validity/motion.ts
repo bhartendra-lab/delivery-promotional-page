@@ -3,19 +3,18 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 /**
- * The small motion vocabulary of the Client's validity page.
+ * The small "when" hooks of the Client's validity page: has the reader asked
+ * for less motion, has a section been on screen yet, and a number that counts
+ * up once.
  *
- * Three rules hold for everything here, because the page is opened once, on a
- * phone, by someone who did not ask for a show:
+ * What moves, and how, is elsewhere: the first screen and the line of the day
+ * are driven by components/validity/lane/lane-engine.ts, and every keyframe is
+ * in lane.module.css. Three rules hold across all of it:
  *
- *   - every motion plays ONCE. Nothing loops, nothing replays on scroll back.
- *   - only `transform`, `opacity` and `filter` are animated.
- *   - with `prefers-reduced-motion: reduce` nothing moves at all: each hook
+ *   - what these hooks start plays ONCE, and does not replay on scroll back.
+ *   - only `transform` and `opacity` are animated.
+ *   - with `prefers-reduced-motion: reduce` nothing moves by itself: each hook
  *     answers with its finished state straight away.
- *
- * CSS does the easing (the keyframes and transitions live in globals.css,
- * under "Client validity page", in the same easing family as the rest of the
- * guest gallery). These hooks only decide WHEN.
  */
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";

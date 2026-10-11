@@ -1,0 +1,1475 @@
+/* The Client's memory lane page (/validity/<token>).
+
+   A dark, warm room with their own photos in it. Five colours come from the
+   mood of the event (lib/memory-lane.ts) as custom properties on .lane:
+   --l-bg0 (the page), --l-bg1 (the lighter tone it rises to), --l-glow (warm
+   light), --l-accent (buttons and marks) and --l-on-accent (text on them).
+   Everything else here is paper, ink and shadow, the same for every mood.
+
+   TYPE. No font is loaded for this page. Headlines and the event's name are
+   the gallery's own Playfair italic; the words written on prints are Cormorant
+   and the date stamps are Geist Mono, both already loaded by the root layout.
+
+   MOTION. Two things are driven from script, one frame at a time, and only by
+   transform and opacity: the prints of the first screen and the string of the
+   line (lane-engine.ts). Everything else is a keyframe or a transition here.
+   Under prefers-reduced-motion the global rule in app/globals.css collapses
+   every duration, and the block at the end of this file removes what would
+   still move by itself. */
+
+.lane {
+  --l-cream: #fff6ec;
+  --l-cream-dim: rgba(255, 246, 236, 0.74);
+  --l-paper: #fbf6ee;
+  --l-print: #fffdf8;
+  --l-ink: #2a2218;
+  --l-serif: var(--font-playfair), Georgia, serif;
+  --l-hand: var(--font-cormorant), Georgia, serif;
+  --l-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --l-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  position: relative;
+  flex: 1 0 auto;
+  width: 100%;
+  min-height: 100dvh;
+  background: var(--l-bg0);
+  color: var(--l-cream);
+  line-height: normal;
+  /* clip, not hidden: nothing may scroll the page sideways, and hidden would
+     make this a scroll container and break every sticky stage inside it. */
+  overflow-x: clip;
+}
+
+.marker {
+  height: 1px;
+  margin-top: -1px;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ───────────── THE DOOR ───────────── */
+
+.threshold {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--l-bg0);
+}
+.thresholdPhoto {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+  object-fit: cover;
+  filter: blur(34px) saturate(1.1);
+  opacity: 0.5;
+  animation: breathe 16s ease-in-out infinite alternate;
+}
+@keyframes breathe {
+  from { transform: scale(1.02); }
+  to { transform: scale(1.1); }
+}
+.thresholdWash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 70% at 50% 28%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.55) 55%, var(--l-bg0) 100%);
+}
+.thresholdInner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(560px, 88vw);
+  text-align: center;
+}
+.thresholdLead {
+  margin: 0;
+  font-size: clamp(15px, 4vw, 18px);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--l-cream-dim);
+  opacity: 0;
+  animation: rise 1.1s var(--l-ease) 0.2s forwards;
+}
+.thresholdName {
+  margin: 10px 0 0;
+  color: #fff;
+  text-wrap: balance;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  animation: rise 1.2s var(--l-ease) 0.5s forwards;
+}
+.thresholdDay {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--l-accent);
+  opacity: 0;
+  animation: rise 1.1s var(--l-ease) 0.8s forwards;
+}
+.thresholdEnter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 58px;
+  margin-top: clamp(28px, 6vh, 48px);
+  padding: 0 28px 0 11px;
+  border-radius: 999px;
+  background: var(--l-accent);
+  color: var(--l-on-accent);
+  font-size: 16.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  animation: rise 1.1s var(--l-ease) 1.15s forwards;
+}
+/* A slow ring leaving the button: the one invitation on a still screen. */
+.thresholdEnter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1.5px solid var(--l-accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: ring 3.2s ease-out 2.6s infinite;
+}
+@keyframes ring {
+  0% { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.16, 1.5); }
+}
+.thresholdPlay {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding-left: 2px;
+  border-radius: 50%;
+  background: var(--l-on-accent);
+  color: var(--l-accent);
+}
+.thresholdHint {
+  margin: 18px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--l-cream-dim);
+  opacity: 0;
+  animation: rise 1s var(--l-ease) 1.5s forwards;
+}
+.thresholdQuiet {
+  padding: 8px 2px;
+  background: none;
+  color: var(--l-cream);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.thresholdEnter:focus-visible,
+.thresholdQuiet:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+/* The tap: the words step back first, then the whole screen lifts away. */
+.thresholdLeaving {
+  pointer-events: none;
+  animation: lift 1.3s var(--l-ease) forwards;
+}
+.thresholdLeaving .thresholdInner {
+  animation: away 0.7s var(--l-ease) forwards;
+}
+@keyframes lift {
+  0%, 45% { opacity: 1; }
+  100% { opacity: 0; visibility: hidden; }
+}
+@keyframes away {
+  to { opacity: 0; transform: translateY(-18px) scale(0.98); }
+}
+
+/* ───────────── THE BAR ───────────── */
+
+.bar {
+  position: fixed;
+  z-index: 40;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 56px;
+  padding: 0 max(14px, 4vw);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease 0.5s;
+}
+.barIn {
+  opacity: 1;
+}
+.barStudio {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--l-cream-dim);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+  transition: opacity 0.4s ease;
+}
+/* Over the note's pale paper the label would be unreadable, so it steps out. */
+.barOnPaper .barStudio {
+  opacity: 0;
+}
+.sound {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.36);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.sound:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* ───────────── THE FIRST SCREEN ───────────── */
+
+/* Each svh height has a vh line before it, for a browser that has no svh. */
+.hero {
+  position: relative;
+  height: 270vh;
+  height: calc(100svh + 170vh);
+}
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  min-height: 540px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--l-bg0);
+}
+.backdrop {
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  width: 120%;
+  height: 120%;
+  object-fit: cover;
+  filter: blur(46px) saturate(1.15);
+  opacity: 0.42;
+  pointer-events: none;
+}
+/* Three layers over the backdrop: a scrim that sinks into the page colour, the
+   mood's lighter tone glowing down from the top, and a little film grain. */
+.wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.46) 62%, var(--l-bg0) 100%);
+}
+.wash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(95% 62% at 50% 0%, var(--l-bg1), transparent 72%);
+  opacity: 0.62;
+}
+.wash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.07;
+}
+
+/* What drifts in the air. */
+.specks {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.specks i {
+  position: absolute;
+  top: -6%;
+  display: block;
+  width: calc(12px * var(--size, 1));
+  height: calc(12px * var(--size, 1));
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: fall var(--dur, 18s) linear var(--delay, 0s) infinite;
+}
+@keyframes fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  8% { opacity: 0.6; }
+  90% { opacity: 0.45; }
+  100% { transform: translate3d(calc(var(--sway, 0) * 14vw), 114vh, 0) rotate(calc(var(--sway, 0) * 420deg)); opacity: 0; }
+}
+.specks[data-kind="petals"] i { border-radius: 70% 0 70% 0; background: linear-gradient(135deg, #ffe3dc, #f1a9a0); }
+.specks[data-kind="petals"] i[data-tone="1"] { background: linear-gradient(135deg, #fff1e6, #f6c7b1); }
+.specks[data-kind="petals"] i[data-tone="2"] { background: linear-gradient(135deg, #fbd0d6, #e58e9c); }
+.specks[data-kind="confetti"] i {
+  width: calc(7px * var(--size, 1));
+  height: calc(13px * var(--size, 1));
+  border-radius: 2px;
+  background: #ffcf5c;
+}
+.specks[data-kind="confetti"] i[data-tone="1"] { background: #ff7a8a; }
+.specks[data-kind="confetti"] i[data-tone="2"] { background: #7fd6c2; }
+.specks[data-kind="confetti"] i[data-tone="3"] { background: #b79bff; }
+.specks[data-kind="lights"] i {
+  top: auto;
+  bottom: -8%;
+  width: calc(26px * var(--size, 1));
+  height: calc(26px * var(--size, 1));
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--l-glow), transparent 68%);
+  animation-name: floatUp;
+}
+@keyframes floatUp {
+  0% { transform: translate3d(0, 0, 0) scale(0.8); opacity: 0; }
+  15% { opacity: 0.5; }
+  85% { opacity: 0.32; }
+  100% { transform: translate3d(calc(var(--sway, 0) * 10vw), -116vh, 0) scale(1.15); opacity: 0; }
+}
+
+/* The phone the photos gather in. Everything inside is in em of its height,
+   so it is the same picture at any size. */
+.halo {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  width: min(110vh, 1000px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.halo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--l-glow), transparent 72%);
+  opacity: 0.34;
+}
+.phone {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 50%;
+  width: var(--pw, 300px);
+  height: var(--ph, 600px);
+  font-size: calc(var(--ph, 600px) / 60);
+  color: var(--l-ink);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.bezel {
+  position: absolute;
+  inset: 0;
+  border-radius: 4.2em;
+  background: linear-gradient(160deg, #4b3a35, #140c0a);
+  box-shadow:
+    0 0 0 0.12em rgba(255, 255, 255, 0.14) inset,
+    0 3em 6em rgba(0, 0, 0, 0.5),
+    0 1em 2em rgba(0, 0, 0, 0.3);
+}
+.screen {
+  position: absolute;
+  inset: 0.8em;
+  border-radius: 3.5em;
+  background: var(--l-paper);
+  overflow: hidden;
+}
+.island {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 1.1em;
+  width: 8em;
+  height: 2.2em;
+  margin-left: -4em;
+  border-radius: 2em;
+  background: #140c0a;
+}
+.phoneHead {
+  padding: 4.4em 1.5em 0;
+}
+.phoneStudio {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.05em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a8a7c;
+}
+.phoneTitle {
+  margin-top: 0.3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--l-serif);
+  font-size: 2.3em;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.12;
+  color: var(--l-ink);
+}
+.phoneMeta {
+  margin-top: 0.45em;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #8a7b6e;
+  white-space: nowrap;
+}
+.phoneTabs {
+  display: flex;
+  gap: 0.5em;
+  margin-top: 0.95em;
+  overflow: hidden;
+  font-size: 1.05em;
+  font-weight: 700;
+  color: #8a7067;
+  white-space: nowrap;
+}
+.phoneTabs span {
+  padding: 0.5em 0.95em;
+  border-radius: 99em;
+  background: #f1e7dc;
+}
+.phoneTabs span.on {
+  background: var(--l-ink);
+  color: #fff;
+}
+.phoneGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5em;
+  padding: 1.1em 1.3em 0;
+}
+.slot {
+  aspect-ratio: 1;
+  border-radius: 0.9em;
+  background: #efe4d8;
+}
+.phoneMore {
+  margin-top: 1em;
+  text-align: center;
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #9a8a7c;
+}
+
+/* The prints. Each is a point at the centre of the stage that script moves;
+   the paper hangs centred on that point. `--g` runs 0 to 1 as a print travels
+   into the phone: its white border, its shadow and its date stamp melt away
+   and its corners round off, until it is a plain tile of the grid. */
+.objs {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.tile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  visibility: hidden;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.paper {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  width: var(--w);
+  padding: calc(10px * (1 - var(--g, 0))) calc(10px * (1 - var(--g, 0))) calc(38px * (1 - var(--g, 0)));
+  border-radius: calc(4px + 16px * var(--g, 0));
+  background: var(--l-print);
+  translate: -50% -50%;
+}
+.paper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.42),
+    0 4px 10px rgba(0, 0, 0, 0.28);
+  opacity: calc(1 - var(--g, 0) * 0.92);
+  pointer-events: none;
+}
+.print {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: calc(2px + 18px * var(--g, 0));
+  background: #e9dfd3;
+}
+.print img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Faces sit in the upper part of most photos: favour it when cropping square. */
+  object-position: 50% 30%;
+}
+.print::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.22), transparent 30%, transparent 72%, rgba(255, 255, 255, 0.08));
+  opacity: calc(1 - var(--g, 0));
+  pointer-events: none;
+}
+.printFoot {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  opacity: calc(1 - var(--g, 0) * 3);
+  pointer-events: none;
+}
+/* The orange date a film camera burned into the corner of a print. */
+.stamp {
+  font-family: var(--l-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #c2703d;
+  white-space: nowrap;
+}
+.printHeart {
+  width: 15px;
+  height: 15px;
+  margin-left: auto;
+  fill: #d2553f;
+}
+
+/* The line about the day. */
+.copy {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 39%;
+  width: min(980px, 92vw);
+  text-align: center;
+  translate: -50% -50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.eyebrow {
+  margin: 0;
+  font-size: clamp(11.5px, 1.1vw, 13.5px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--l-accent);
+}
+.headline {
+  max-width: 12em;
+  margin: clamp(10px, 2vh, 18px) auto 0;
+  font-family: var(--l-serif);
+  font-size: clamp(36px, min(6vw, 10vh), 88px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-wrap: balance;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.35);
+}
+.heroName {
+  margin: clamp(12px, 2.2vh, 22px) 0 0;
+  font-size: clamp(14px, 1.3vw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--l-cream-dim);
+}
+/* Nothing is said until the welcome screen has been tapped away. */
+.stage .copy > *,
+.quietInner > * {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.stage.entered .copy > *,
+.quietInner.entered > * {
+  animation: rise 1.1s var(--l-ease) forwards;
+}
+.stage.entered .copy > *:nth-child(2),
+.quietInner.entered > *:nth-child(2) { animation-delay: 0.15s; }
+.stage.entered .copy > *:nth-child(3),
+.quietInner.entered > *:nth-child(3) { animation-delay: 0.3s; }
+.quietInner.entered > *:nth-child(4) { animation-delay: 0.45s; }
+.quietInner.entered > *:nth-child(5) { animation-delay: 0.6s; }
+
+.cue {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--l-cream-dim);
+  white-space: nowrap;
+  translate: -50% 0;
+  pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+}
+.stage:not(.entered) .cue {
+  visibility: hidden;
+}
+.cue svg {
+  animation: nudge 1.8s ease-in-out infinite;
+}
+@keyframes nudge {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(5px); opacity: 1; }
+}
+
+/* What the page says once the photos have gathered, and its two choices. */
+.copy2 {
+  position: absolute;
+  z-index: 5;
+  left: clamp(24px, 7vw, 120px);
+  top: 50%;
+  width: min(38vw, 480px);
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 -50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.gathered {
+  margin: 14px 0 0;
+  font-family: var(--l-serif);
+  font-size: clamp(30px, min(3.8vw, 7vh), 56px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.06;
+  color: #fff;
+  text-wrap: balance;
+}
+.openTill {
+  margin: 18px 0 0;
+  font-size: clamp(15px, 1.25vw, 18px);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--l-cream-dim);
+}
+.openTill strong {
+  font-weight: 800;
+  color: #fff;
+}
+.chip {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  color: var(--l-accent);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.choices {
+  margin-top: 26px;
+}
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.btnSolid,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 54px;
+  padding: 0 26px;
+  border-radius: 999px;
+  font-size: 15.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.25s var(--l-ease);
+}
+.btnSolid {
+  background: var(--l-accent);
+  color: var(--l-on-accent);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+.btnGhost {
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+@media (hover: hover) {
+  .btnSolid:hover,
+  .btnGhost:hover {
+    transform: translateY(-2px);
+  }
+}
+.btnSolid:focus-visible,
+.btnGhost:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+.choicesCue {
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--l-cream-dim);
+}
+
+/* No photo at all: the same words and choices on one still screen. */
+.heroQuiet {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 96px 6vw 72px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.quietInner {
+  position: relative;
+  z-index: 2;
+  max-width: 720px;
+  text-align: center;
+}
+.quietInner .choiceRow {
+  justify-content: center;
+}
+
+/* ───────────── THE LINE OF THE DAY ───────────── */
+
+/* Script sets this section's real height: a screen, plus how far the string
+   has to slide. Until it has, it is one screen tall. */
+.walk {
+  position: relative;
+  height: 100vh;
+  height: 100svh;
+  background: var(--l-bg0);
+}
+.walkStage {
+  --hang-h: clamp(170px, 40vh, 400px);
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100svh;
+  min-height: 520px;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* The light of each part of the day, cross-faded as the walk passes through it. */
+.walkTint {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.1s ease;
+}
+.walkTint.on { opacity: 1; }
+.walkTint[data-part="morning"] { background: radial-gradient(90% 70% at 15% 0%, rgba(244, 213, 141, 0.3), transparent 65%); }
+.walkTint[data-part="afternoon"] { background: radial-gradient(100% 70% at 50% 0%, rgba(255, 244, 224, 0.22), transparent 65%); }
+.walkTint[data-part="golden"] { background: radial-gradient(90% 75% at 88% 8%, rgba(247, 178, 122, 0.34), transparent 65%); }
+.walkTint[data-part="night"] {
+  background:
+    radial-gradient(100% 70% at 50% 0%, rgba(72, 84, 140, 0.3), transparent 65%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.34));
+}
+.walkHead {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  padding: clamp(64px, 10svh, 104px) 8vw 0;
+}
+.walkTitle {
+  margin: 0;
+  font-family: var(--l-serif);
+  font-size: clamp(26px, 3.4vw, 44px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fff;
+}
+.walkNow {
+  min-height: 1.3em;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--l-accent);
+}
+.walkTrack {
+  --string-top: clamp(20px, 3.6svh, 40px);
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(26px, 5vw, 64px);
+  width: max-content;
+  padding: var(--string-top) max(8vw, 28px) 0;
+  will-change: transform;
+}
+/* The string, and the small lights along it. */
+.walkString {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--string-top) + 6px);
+  height: 14px;
+  pointer-events: none;
+}
+.walkString::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 1.5px;
+  background: rgba(255, 246, 236, 0.42);
+}
+.walkString::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, var(--l-glow) 0 2.6px, transparent 3.6px) 0 0 / 96px 14px repeat-x;
+  filter: drop-shadow(0 0 6px var(--l-glow));
+  animation: twinkle 3.6s ease-in-out infinite alternate;
+}
+@keyframes twinkle {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+/* A print hangs from its peg and sways a little, each at its own pace. */
+.hang {
+  position: relative;
+  flex: none;
+  margin: 0;
+  padding-top: 16px;
+  transform: rotate(var(--tilt, 0deg));
+  transform-origin: 50% 9px;
+  animation: sway var(--swing, 6s) ease-in-out infinite alternate;
+}
+@keyframes sway {
+  from { transform: rotate(calc(var(--tilt, 0deg) - 0.9deg)); }
+  to { transform: rotate(calc(var(--tilt, 0deg) + 0.9deg)); }
+}
+.peg {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 0;
+  width: 10px;
+  height: 26px;
+  margin-left: -5px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #e9cfa6, #b98a52);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+.hangPaper {
+  padding: 11px 11px 0;
+  border-radius: 4px;
+  background: var(--l-print);
+  box-shadow:
+    0 22px 50px rgba(0, 0, 0, 0.45),
+    0 5px 12px rgba(0, 0, 0, 0.3);
+}
+.hangPhoto {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e9dfd3;
+}
+.hangPhoto img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hangCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 46px;
+  padding: 0 3px;
+  font-family: var(--l-hand);
+  font-size: 20px;
+  font-style: italic;
+  font-weight: 600;
+  color: #5a4a3c;
+}
+.hangHeart {
+  width: 17px;
+  height: 17px;
+  fill: #d2553f;
+}
+/* A paper tag where each part of the day begins. */
+.walkTag {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  margin-top: 13px;
+  padding-top: 24px;
+}
+.walkTag::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1.5px;
+  height: 24px;
+  background: rgba(255, 246, 236, 0.5);
+}
+.walkTag span {
+  display: block;
+  padding: 7px 14px;
+  border-radius: 3px;
+  background: #ead9bd;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+  font-family: var(--l-hand);
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 700;
+  color: #4a3a2c;
+  white-space: nowrap;
+  transform: rotate(-3deg);
+}
+.walkEnd {
+  flex: none;
+  align-self: center;
+  width: min(74vw, 380px);
+  padding: 0 0 8vh 2vw;
+}
+.walkEndLine {
+  margin: 0;
+  font-family: var(--l-serif);
+  font-size: clamp(24px, 3vw, 36px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #fff;
+  text-wrap: balance;
+}
+.walkEndSub {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--l-cream-dim);
+}
+/* The day as one thin line that fills. It leaves room under it for the pill. */
+.walkFoot {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 8vw max(84px, calc(env(safe-area-inset-bottom) + 76px));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--l-cream-dim);
+  white-space: nowrap;
+}
+.walkBar {
+  flex: 1;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 246, 236, 0.18);
+}
+.walkBar i {
+  display: block;
+  height: 100%;
+  background: var(--l-accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+/* Reduced motion: nothing is pinned. The string is an ordinary strip to swipe. */
+.walkPlain {
+  height: auto;
+}
+.walkPlain .walkStage {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  padding-bottom: 48px;
+}
+.walkPlain .walkTrack {
+  width: auto;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 24px;
+  scrollbar-width: none;
+}
+.walkPlain .walkTrack::-webkit-scrollbar { display: none; }
+.walkPlain .walkString,
+.walkPlain .walkFoot { display: none; }
+.walkPlain .walkEnd { padding-bottom: 0; }
+
+/* ───────────── KEEPSAKES ───────────── */
+
+.keepsakes {
+  position: relative;
+  padding: clamp(72px, 12vh, 140px) 6vw clamp(56px, 9vh, 110px);
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--l-bg0), var(--l-bg1) 150%);
+}
+.keepsakesInner {
+  display: grid;
+  gap: clamp(44px, 7vw, 88px);
+  align-items: center;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+.numberList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(24px, 5vw, 56px);
+  margin: 18px 0 0;
+}
+.number {
+  display: flex;
+  flex-direction: column-reverse;
+}
+.number dd {
+  margin: 0;
+  font-size: clamp(52px, 9vw, 104px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.number dt {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--l-cream-dim);
+}
+.span {
+  margin: 22px 0 0;
+  font-family: var(--l-serif);
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-style: italic;
+  color: var(--l-accent);
+}
+.favourite {
+  justify-self: center;
+  margin: 0;
+}
+.favouritePaper {
+  padding: 14px 14px 0;
+  border-radius: 5px;
+  background: var(--l-print);
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.5),
+    0 6px 14px rgba(0, 0, 0, 0.3);
+}
+.favouritePhoto {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e9dfd3;
+}
+.favouritePhoto img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.favouriteCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 60px;
+  padding: 0 4px;
+  font-family: var(--l-hand);
+  font-size: 24px;
+  font-style: italic;
+  font-weight: 700;
+  color: #4a3a2c;
+}
+.hearts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 20px;
+  font-style: normal;
+  color: #c2553f;
+}
+.hearts svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.kept {
+  max-width: 1040px;
+  margin: clamp(56px, 9vh, 96px) auto 0;
+  text-align: center;
+}
+.keptTitle {
+  margin: 0;
+  font-family: var(--l-serif);
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-style: italic;
+  font-weight: 700;
+  color: #fff;
+}
+.fan {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+  padding: 10px 0 20px;
+}
+.fanPrint {
+  flex: none;
+  box-sizing: content-box;
+  width: clamp(78px, 18vw, 150px);
+  aspect-ratio: 1;
+  margin-left: clamp(-34px, -5vw, -18px);
+  padding: 6px 6px 22px;
+  border-radius: 3px;
+  background: var(--l-print);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  transform: rotate(var(--lean, 0deg));
+}
+.fanPrint:first-child {
+  margin-left: 0;
+}
+.fanPrint img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+/* Each part arrives once, as it comes on screen. */
+.keepsakes .numbers,
+.keepsakes .favourite,
+.keepsakes .kept {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.9s var(--l-ease),
+    transform 0.9s var(--l-ease);
+}
+.keepsakes .favourite {
+  transform: translateY(22px) rotate(2deg);
+  transition-delay: 0.15s;
+}
+.keepsakes .kept {
+  transition-delay: 0.3s;
+}
+.keepsakes.seen .numbers,
+.keepsakes.seen .kept {
+  opacity: 1;
+  transform: none;
+}
+.keepsakes.seen .favourite {
+  opacity: 1;
+  transform: rotate(-2.5deg);
+}
+
+/* ───────────── THE NOTE ───────────── */
+
+/* A sheet of paper at the end of the dark page. On a phone it is the full
+   width of the screen with only its top corners rounded, so the pay bar that
+   sticks to the bottom of the screen meets its edges exactly. */
+.note {
+  position: relative;
+  padding: clamp(48px, 9vh, 110px) 0 0;
+  background: linear-gradient(180deg, var(--l-bg1) -60%, var(--l-bg0) 60%);
+}
+.notePaper {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 40px 24px 0;
+  border-radius: 28px 28px 0 0;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.35);
+}
+.notePaperDone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 62svh;
+  padding-bottom: 48px;
+}
+.noteChip {
+  display: inline-block;
+  margin: 0;
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+.noteTitle {
+  margin: 16px 0 0;
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: clamp(30px, 4.2vw, 46px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.noteBody {
+  margin: 16px 0 0;
+  font-size: clamp(16px, 1.3vw, 18px);
+  line-height: 1.6;
+}
+.noteBody strong {
+  font-weight: 800;
+}
+.noteAsk {
+  margin: 30px 0 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ───────────── THE PILL ───────────── */
+
+.pill {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 7px 7px 7px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(20, 12, 10, 0.74);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  opacity: 0;
+  translate: -50% 0;
+  transform: translateY(24px);
+  pointer-events: none;
+  transition:
+    opacity 0.45s var(--l-ease),
+    transform 0.45s var(--l-ease);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+.pillIn {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.pillDate {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.pillDate strong {
+  font-weight: 800;
+}
+.pillDate em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  color: var(--l-accent);
+}
+.pillGo {
+  flex: none;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--l-accent);
+  color: var(--l-on-accent);
+  font-size: 13.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pillGo:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* ───────────── WIDE SCREENS ───────────── */
+
+@media (min-width: 900px) {
+  .keepsakesInner {
+    grid-template-columns: 1fr auto;
+  }
+}
+@media (min-width: 1024px) {
+  .note {
+    padding: clamp(64px, 10vh, 120px) 6vw clamp(72px, 12vh, 140px);
+  }
+  .notePaper {
+    padding: 60px 64px 56px;
+    border-radius: 32px;
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* ───────────── PHONES ───────────── */
+
+/* The same test as isMobileStage in lib/memory-lane.ts, which decides where
+   the prints and the phone go: the two must agree. */
+@media (max-width: 820px), (max-width: 1100px) and (orientation: portrait) {
+  .headline {
+    max-width: none;
+    font-size: clamp(34px, min(10.4vw, 7.4vh), 64px);
+  }
+  /* The words go above the phone and the two choices below it. */
+  .copy2 {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    width: auto;
+    padding: clamp(64px, 9.5svh, 92px) 6vw max(16px, env(safe-area-inset-bottom));
+    text-align: center;
+    translate: none;
+  }
+  .copy2Text .eyebrow {
+    display: none;
+  }
+  .gathered {
+    margin-top: 0;
+    font-size: clamp(21px, 6vw, 30px);
+  }
+  .openTill {
+    margin-top: 8px;
+    font-size: 14.5px;
+  }
+  .choices {
+    margin-top: 0;
+  }
+  .choiceRow {
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .copy2 .btnSolid,
+  .copy2 .btnGhost {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 52px;
+    padding: 0 12px;
+    font-size: 14.5px;
+  }
+  .choicesCue {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+}
+
+/* ───────────── REDUCED MOTION ───────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .specks,
+  .cue svg {
+    display: none;
+  }
+  .thresholdPhoto,
+  .thresholdEnter::after,
+  .walkString::after,
+  .hang {
+    animation: none;
+  }
+  .keepsakes .numbers,
+  .keepsakes .kept {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .keepsakes .favourite {
+    opacity: 1;
+    transform: rotate(-2.5deg);
+    transition: none;
+  }
+}

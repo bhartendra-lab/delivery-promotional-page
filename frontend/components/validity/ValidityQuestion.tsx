@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/plans";
 import { openCheckout } from "@/lib/razorpay";
 import {
   chargedOptionPrice,
+  closesInLabel,
   formatValidityDate,
   guardFollowUp,
   guardSentence,
@@ -20,6 +21,7 @@ import {
 import { IconCheck } from "@/components/ui/icons";
 import { RollingDate } from "./RollingDate";
 import { useInViewOnce, usePrefersReducedMotion } from "./motion";
+import styles from "./lane/lane.module.css";
 
 /** "Did my payment land?" is asked every 2 seconds, 15 times, then the page
  *  stops asking and says the invoice will arrive by email. The server settles
@@ -39,13 +41,20 @@ const paidOf = (option: ValidityOption) => formatPrice(chargedOptionPrice(option
 const STATES = [...GST_STATE_CODES].sort((a, b) => a.name.localeCompare(b.name));
 
 /**
- * The asking half of the Client's validity page: one quiet question, the
+ * The note at the end of the Client's memory lane: one quiet question, the
  * periods on offer, the two details an invoice needs, and the payment.
  *
- * The question and its cards wear the event's own theme (`t`), like the photos
- * above them. The details and the pay bar switch to the Vyavasth platform skin,
- * exactly as the gallery's sign-in and face-scan screens do: from here on the
- * Client is dealing with Vyavasth, and the page should look like it.
+ * After a dark page full of their photos, this is a sheet of plain paper: the
+ * walk is over and something is being said to them. It reads as a short note,
+ * in four moves. How many days are left. When the gallery closes and what
+ * that means, once and plainly. That keeping it is possible, and that not
+ * keeping it is fine too (with the way to save their photos). Then the
+ * periods, each with its price and the date it would run to.
+ *
+ * The paper wears the Vyavasth platform skin (`t`), exactly as the gallery's
+ * sign-in and face-scan screens do: from here on the Client is dealing with
+ * Vyavasth, and the page should look like it. The music steps back while this
+ * is on screen (see MemoryLane).
  *
  * Nothing is preselected, and three things stand between a Client and paying
  * by mistake: the guard rail (if the event was already extended, it says by
@@ -247,19 +256,14 @@ export function ValidityQuestion({
     const newDate = formatValidityDate(doneEndsAt ?? picked?.new_end ?? endsAt);
     const thumbs = (view.reel?.items ?? []).slice(0, 4).map((item) => item.url);
     return (
-      <section className="px-6 py-14 lg:py-24" style={{ background: t.bg }} aria-live="polite">
-        <div className="mx-auto flex max-w-[560px] flex-col items-start">
+      <section id="keep" className={styles.note} aria-live="polite">
+        <div className={`${styles.notePaper} ${styles.notePaperDone}`} style={{ background: t.bg, color: t.text }}>
           {thumbs.length > 0 && <GatherStack t={t} urls={thumbs} reduced={reduced} />}
-          <h2
-            ref={doneHeading}
-            tabIndex={-1}
-            className="mt-7 text-[26px] font-extrabold leading-tight tracking-tight outline-none lg:text-[32px]"
-            style={{ color: t.text }}
-          >
-            Done. It&apos;s staying till <RollingDate value={newDate} from={currentDate} play />.
+          <h2 ref={doneHeading} tabIndex={-1} className={`${styles.noteTitle} outline-none`} style={{ color: t.text }}>
+            It&apos;s staying. Till <RollingDate value={newDate} from={currentDate} play />.
           </h2>
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: t.muted }}>
-            Your invoice is on its way to {maskEmail(email)}.
+            Every photo is right where you left it. Your invoice is on its way to {maskEmail(email)}.
           </p>
           <div className="mt-7 flex w-full flex-col gap-3 sm:flex-row">
             {view.gallery_url && (
@@ -294,20 +298,38 @@ export function ValidityQuestion({
   const canPay = Boolean(picked) && !locked && phase === "idle" && (!needsAgain || again);
 
   return (
-    <section ref={sectionRef} className="px-6 pb-0 pt-12 lg:pb-24 lg:pt-20" style={{ background: t.bg }} aria-labelledby={headingId}>
-      <div className={`validity-reveal mx-auto max-w-[1080px] ${seen ? "is-in" : ""}`}>
-        <div className="max-w-[560px]">
-          {/* The deletion, once, in plain words. Never again on this page. */}
-          <p className="text-[15px] leading-relaxed" style={{ color: t.muted }}>
-            This gallery is live till <strong style={{ color: t.text }}>{currentDate}</strong>. After that it closes and its photos
-            are deleted.
-          </p>
-          <h2 id={headingId} className="mt-3 text-[28px] font-extrabold leading-[1.12] tracking-tight lg:text-[36px]" style={{ color: t.text }}>
-            Keep it a little longer?
+    <section id="keep" ref={sectionRef} className={styles.note} aria-labelledby={headingId}>
+      <div className={`${styles.notePaper} validity-reveal ${seen ? "is-in" : ""}`} style={{ background: t.bg, color: t.text }}>
+        <div className="max-w-[620px]">
+          {endsAt > 0 && (
+            <p className={styles.noteChip} style={{ background: t.accentWash, color: t.brandDeep }}>
+              {closesInLabel(endsAt)}
+            </p>
+          )}
+          <h2 id={headingId} className={styles.noteTitle} style={{ color: t.text }}>
+            Before you go, a small note.
           </h2>
+          {/* The deletion, once, in plain words. Never again on this page. */}
+          <p className={styles.noteBody} style={{ color: t.text }}>
+            This gallery is live till <strong>{currentDate}</strong>. After that it closes and its photos are deleted.
+          </p>
+          <p className={styles.noteBody} style={{ color: t.muted }}>
+            If you would like more time with them, you can keep it open for longer. If not, that is fine too.{" "}
+            {view.gallery_url ? (
+              <a href={view.gallery_url} className="font-bold underline underline-offset-2" style={{ color: t.text }}>
+                Open the gallery
+              </a>
+            ) : (
+              "Open the gallery"
+            )}{" "}
+            and save the ones you love before then.
+          </p>
+          <p className={styles.noteAsk} style={{ color: t.text }}>
+            Keep it open for
+          </p>
         </div>
 
-        <div className="mt-7 lg:grid lg:grid-cols-12 lg:items-start lg:gap-12">
+        <div className="mt-4 lg:grid lg:grid-cols-12 lg:items-start lg:gap-12">
           {/* Left on a wide screen: the guard rail and the periods. */}
           <div className="lg:col-span-7">
             {guardLine && (

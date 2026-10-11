@@ -102,6 +102,10 @@ export type ValidityLinkView = {
   billing: { email: string | null; state_code: string | null };
   gallery_url: string | null;
   key_id: string;
+  /** "Wedding", "Birthday" and so on, as the Studio set it. The page takes its
+   *  words, colours and music from it (lib/memory-lane.ts). Null or absent
+   *  when it was never set, or from an API that does not send it yet. */
+  event_type?: string | null;
 };
 
 /** POST /billing/validity/:token/checkout, and the dashboard's checkout for a validity extension. */
@@ -252,46 +256,16 @@ export function maskEmail(email: string | null | undefined): string {
   return `${value[0]}•••${value.slice(at)}`;
 }
 
-const TINTS = {
-  // Pale gold, warm white, apricot, deep umber.
-  morning: [244, 213, 141],
-  afternoon: [255, 244, 224],
-  golden: [247, 178, 122],
-  night: [59, 42, 32],
-} as const;
-
-/** How strong the wash is. Under a tenth, so it colours the page without ever
- *  fighting the gallery's own theme. */
-export const TIME_TINT_STRENGTH = 0.08;
+/** The four parts of a day the page tells apart. */
+export type PartOfDay = "morning" | "afternoon" | "golden" | "night";
 
 /** Which part of the day an IST hour falls in. */
-export function partOfDay(hour: number): keyof typeof TINTS {
+export function partOfDay(hour: number): PartOfDay {
   const h = ((Math.floor(hour) % 24) + 24) % 24;
   if (h >= 5 && h < 11) return "morning";
   if (h >= 11 && h < 16) return "afternoon";
   if (h >= 16 && h < 19) return "golden";
   return "night";
-}
-
-function parseHex(hex: string): [number, number, number] | null {
-  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match) return null;
-  const digits = match[1].length === 3 ? match[1].replace(/./g, "$&$&") : match[1];
-  return [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16)) as [number, number, number];
-}
-
-/**
- * The page background behind the strip, for the photo in its centre: the
- * theme's own background with a little of that hour's light mixed in. Derived
- * from the theme rather than chosen, so it never fights it. Returns the
- * background unchanged for a colour it cannot read.
- */
-export function timeOfDayTint(hour: number, background: string): string {
-  const base = parseHex(background);
-  if (!base) return background;
-  const tint = TINTS[partOfDay(hour)];
-  const mixed = base.map((channel, i) => Math.round(channel + (tint[i] - channel) * TIME_TINT_STRENGTH));
-  return `rgb(${mixed[0]}, ${mixed[1]}, ${mixed[2]})`;
 }
 
 /**

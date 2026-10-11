@@ -28,6 +28,6 @@ export const metadata: Metadata = {
 export default async function ValidityPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   // No font is loaded here: the page uses the gallery's own type, which the
-  // root layout already provides (see the note in ValidityMemory.tsx).
+  // root layout already provides (see components/validity/lane/lane.module.css).
   return <ValidityExperience token={decodeURIComponent(token)} />;
 }
