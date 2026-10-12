@@ -89,6 +89,27 @@
   width: min(560px, 88vw);
   text-align: center;
 }
+/* A keepsake is the Studio's own page: its mark comes first, before a word is
+   said. The light logo when it has one (this screen is dark), else its name. */
+.thresholdLogo {
+  display: block;
+  max-width: min(60vw, 220px);
+  max-height: 64px;
+  margin: 0 0 26px;
+  object-fit: contain;
+  opacity: 0;
+  animation: rise 1.1s var(--l-ease) 0.05s forwards;
+}
+.thresholdStudio {
+  margin: 0 0 22px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--l-accent);
+  opacity: 0;
+  animation: rise 1.1s var(--l-ease) 0.05s forwards;
+}
 .thresholdLead {
   margin: 0;
   font-size: clamp(15px, 4vw, 18px);
@@ -233,8 +254,18 @@
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
   transition: opacity 0.4s ease;
 }
+/* A keepsake's bar carries the Studio's light logo in place of the words. */
+.barLogo {
+  display: block;
+  max-width: 44vw;
+  max-height: 30px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 10px rgba(0, 0, 0, 0.5));
+  transition: opacity 0.4s ease;
+}
 /* Over the note's pale paper the label would be unreadable, so it steps out. */
-.barOnPaper .barStudio {
+.barOnPaper .barStudio,
+.barOnPaper .barLogo {
   opacity: 0;
 }
 .sound {
@@ -824,7 +855,8 @@
   overflow: hidden;
   isolation: isolate;
 }
-/* The light of each part of the day, cross-faded as the walk passes through it. */
+/* Four lights, morning gold to night, cross-faded as the walk passes along the
+   line. They follow how far the reader has walked, not any clock. */
 .walkTint {
   position: absolute;
   inset: 0;
@@ -857,13 +889,18 @@
   line-height: 1.1;
   color: #fff;
 }
+/* The folder of the print in the middle of the screen. One line, however long
+   a Studio's folder name is. */
 .walkNow {
   min-height: 1.3em;
   margin: 8px 0 0;
+  overflow: hidden;
   font-size: 12.5px;
   font-weight: 800;
   letter-spacing: 0.14em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--l-accent);
 }
 .walkTrack {
@@ -956,24 +993,20 @@
   height: 100%;
   object-fit: cover;
 }
+/* The paper's wide bottom edge. Nothing is written on it. */
 .hangCaption {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   height: 46px;
   padding: 0 3px;
-  font-family: var(--l-hand);
-  font-size: 20px;
-  font-style: italic;
-  font-weight: 600;
-  color: #5a4a3c;
 }
 .hangHeart {
   width: 17px;
   height: 17px;
   fill: #d2553f;
 }
-/* A paper tag where each part of the day begins. */
+/* A paper tag where each of the Studio's folders begins, with its name. */
 .walkTag {
   position: relative;
   flex: none;
@@ -1001,6 +1034,9 @@
   font-style: italic;
   font-weight: 700;
   color: #4a3a2c;
+  max-width: min(62vw, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   transform: rotate(-3deg);
 }
@@ -1027,7 +1063,11 @@
   line-height: 1.5;
   color: var(--l-cream-dim);
 }
-/* The day as one thin line that fills. It leaves room under it for the pill. */
+.walkEndOpen {
+  margin-top: 22px;
+}
+/* The line as one thin bar that fills, from its first folder to its last. It
+   leaves room under it for the pill. */
 .walkFoot {
   position: relative;
   z-index: 2;
@@ -1043,8 +1083,16 @@
   color: var(--l-cream-dim);
   white-space: nowrap;
 }
+/* A long folder name gives way to the bar, never the other way round. */
+.walkFoot span {
+  flex: 0 1 auto;
+  max-width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .walkBar {
   flex: 1;
+  min-width: 48px;
   height: 2px;
   overflow: hidden;
   border-radius: 2px;
@@ -1121,13 +1169,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--l-cream-dim);
-}
-.span {
-  margin: 22px 0 0;
-  font-family: var(--l-serif);
-  font-size: clamp(20px, 2.4vw, 28px);
-  font-style: italic;
-  color: var(--l-accent);
 }
 .favourite {
   justify-self: center;
@@ -1306,6 +1347,104 @@
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+/* A keepsake's note: nothing to pay, two small favours, and the Studio's mark.
+   With no pay bar under it the paper needs its own bottom edge. */
+.notePaperKeepsake {
+  padding-bottom: max(48px, calc(env(safe-area-inset-bottom) + 36px));
+}
+.favours {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 440px));
+  gap: 16px;
+  margin-top: 16px;
+}
+.favour {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 24px 22px;
+  border: 1px solid;
+  border-radius: 22px;
+}
+.favourTitle {
+  margin: 0;
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: clamp(21px, 2vw, 25px);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.18;
+  text-wrap: balance;
+}
+.favourText {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.favourBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  margin-top: 8px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  transition: transform 0.25s var(--l-ease);
+}
+.favourBtnQuiet {
+  border: 1.5px solid;
+  background: transparent;
+}
+@media (hover: hover) {
+  .favourBtn:hover {
+    transform: translateY(-2px);
+  }
+}
+.favourBtn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.studioSign {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: clamp(40px, 7vh, 72px);
+  padding-top: 30px;
+  border-top: 1px solid;
+  text-align: center;
+}
+.studioSignLogo {
+  max-width: min(64vw, 220px);
+  max-height: 60px;
+  object-fit: contain;
+}
+.studioSignName {
+  margin: 0;
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 700;
+}
+.studioSignLine {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.studioSignSite {
+  font-size: 14.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ───────────── THE PILL ───────────── */

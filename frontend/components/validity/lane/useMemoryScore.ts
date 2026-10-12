@@ -20,14 +20,39 @@ import { LANE_TRACKS, SCORES, midiToHz, stepSeconds, type LaneScoreId, type Scor
  * is played instead.
  *
  * A phone on silent stays silent: that switch is respected, not worked around.
+ *
+ * THREE THINGS KEEP IT CLEAN on a page that is busy drawing while it plays:
+ *
+ *   - the browser is asked for its long, safe output buffer (`latencyHint:
+ *     "playback"`). The default is the short one meant for games, which runs
+ *     dry and crackles the moment the device is busy; nothing here needs a
+ *     fast response, so the page trades a tenth of a second of delay for sound
+ *     that does not break up.
+ *   - notes are booked well ahead of the clock (SCHEDULE_AHEAD_SECONDS), so a
+ *     page that stalls for a second while it scrolls does not drop or bunch
+ *     them. The score never changes, so booking early costs nothing.
+ *   - nothing changes the level except the one master gain. There is no
+ *     compressor or limiter: at MASTER_LEVEL the busiest bar of any score
+ *     peaks at about a third of full scale (measured on an offline render of
+ *     all three), so there is nothing to catch, and a gain that follows the
+ *     signal can only add distortion of its own to the low notes.
  */
 
-/** How loud the whole thing is: quiet enough to talk over. */
-const MASTER_LEVEL = 0.2;
+/**
+ * How loud the whole thing is: quiet enough to talk over. If the scores, the
+ * voices or the room below are changed, check the peak again before raising it.
+ */
+const MASTER_LEVEL = 0.244;
 /** Its level while the page asks its question. */
 const DUCKED_LEVEL = 0.4;
 /** A recorded track's volume at full level. */
 const TRACK_LEVEL = 0.55;
+/** How far ahead of the clock notes are booked. Longer than any stall a page that still works has. */
+const SCHEDULE_AHEAD_SECONDS = 1.5;
+/** How often the booking is topped up. A browser may slow this to once a second; that still fits. */
+const SCHEDULE_EVERY_MS = 250;
+/** How long after the fade to silence the audio clock is stopped: time for the fade to reach the speaker. */
+const SUSPEND_AFTER_MS = 800;
 
 type Engine = {
   resume: () => void;
@@ -81,19 +106,20 @@ function createSynth(scoreId: LaneScoreId): Engine | null {
   const Ctor: typeof AudioContext | undefined =
     window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctor) return null;
-  const ctx = new Ctor();
+  // The long output buffer; see the note at the top. A browser too old to
+  // know the option gets its default.
+  let ctx: AudioContext;
+  try {
+    ctx = new Ctor({ latencyHint: "playback" });
+  } catch {
+    ctx = new Ctor();
+  }
   const score = SCORES[scoreId];
   const step = stepSeconds(score);
 
-  // voices -> tone -> (dry + room) -> master -> limiter -> out
+  // voices -> tone -> (dry + room) -> master -> out
   const master = ctx.createGain();
   master.gain.value = 0;
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -18;
-  limiter.knee.value = 24;
-  limiter.ratio.value = 3;
-  limiter.attack.value = 0.01;
-  limiter.release.value = 0.3;
   const tone = ctx.createBiquadFilter();
   tone.type = "lowpass";
   tone.frequency.value = 3400;
@@ -109,8 +135,7 @@ function createSynth(scoreId: LaneScoreId): Engine | null {
   tone.connect(room);
   room.connect(wet);
   wet.connect(master);
-  master.connect(limiter);
-  limiter.connect(ctx.destination);
+  master.connect(ctx.destination);
 
   function pad(hz: number, when: number, seconds: number, vel: number) {
     const gain = ctx.createGain();
@@ -171,12 +196,12 @@ function createSynth(scoreId: LaneScoreId): Engine | null {
   let stepIndex = 0;
   let nextTime = ctx.currentTime + 0.15;
 
-  // Notes are booked a little ahead of the clock, so a busy page never makes
-  // the music stumble.
+  // Notes are booked well ahead of the clock, so a busy page never makes the
+  // music stumble. Only after a stall longer than that does it skip ahead.
   function schedule() {
     if (ctx.state !== "running") return;
     if (nextTime < ctx.currentTime) nextTime = ctx.currentTime + 0.05;
-    while (nextTime < ctx.currentTime + 0.4) {
+    while (nextTime < ctx.currentTime + SCHEDULE_AHEAD_SECONDS) {
       for (const note of bars[barIndex][stepIndex]) {
         // A human hand is never exactly on the beat.
         play(note, nextTime + (note.voice === "bass" || note.voice === "pad" ? 0 : Math.random() * 0.012));
@@ -189,7 +214,7 @@ function createSynth(scoreId: LaneScoreId): Engine | null {
       }
     }
   }
-  const timer = window.setInterval(schedule, 120);
+  const timer = window.setInterval(schedule, SCHEDULE_EVERY_MS);
 
   let level = 1;
   let suspendTimer = 0;
@@ -206,7 +231,7 @@ function createSynth(scoreId: LaneScoreId): Engine | null {
     pause: () => {
       master.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
       window.clearTimeout(suspendTimer);
-      suspendTimer = window.setTimeout(() => void ctx.suspend(), 450);
+      suspendTimer = window.setTimeout(() => void ctx.suspend(), SUSPEND_AFTER_MS);
     },
     setLevel: (next) => {
       level = next;

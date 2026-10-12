@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { DeliveryLandingPageData } from "@/lib/types";
+import { closingCountdownLabel } from "@/lib/gallery-closing";
 import { toCompactMessage } from "@/lib/guest-message";
 import { MessageSheet } from "./MessageSheet";
 import { useIsTruncated } from "./useIsTruncated";
@@ -27,6 +28,11 @@ import { useIsTruncated } from "./useIsTruncated";
  *
  * Opacities sit at 80–85% rather than the old 55–60%: white-on-photo needs
  * more weight than white-on-solid to stay readable over a bright cover.
+ *
+ * An archived gallery stays open for seven days before its photos are deleted,
+ * and for those days this line also carries the countdown ("7 days to
+ * expire"). It lives here so that all three covers show it without each one
+ * having to remember to.
  */
 export function HeroSubtitle({
   event,
@@ -49,6 +55,16 @@ export function HeroSubtitle({
     // lands where they left the cover rather than at the top of the document.
     readMore.current?.focus();
   }, []);
+
+  const closing = closingCountdownLabel(event.closes_at);
+  const countdown = closing ? (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 font-bold text-[#7A2E12] ${size === "desktop" ? "text-[12px]" : "text-[11.5px]"}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-[#D9531E]" aria-hidden />
+      {closing}
+    </span>
+  ) : null;
 
   const proseSize = size === "desktop" ? "text-[16px]" : "text-[14px]";
   const labelSize = size === "desktop" ? "text-[10.5px]" : "text-[10px]";
@@ -85,6 +101,7 @@ export function HeroSubtitle({
         {date && (
           <div className={`mt-1.5 font-medium text-white/80 ${dateSize}`}>{date}</div>
         )}
+        {countdown && <div className="mt-2">{countdown}</div>}
         {open && (
           <MessageSheet
             // Same fallback the Welcome screen's own title uses — the sheet's
@@ -111,6 +128,7 @@ export function HeroSubtitle({
           <span className={`font-medium text-white/80 ${dateSize}`}>{date}</span>
         </>
       )}
+      {countdown}
     </div>
   );
 }

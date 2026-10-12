@@ -51,6 +51,14 @@ const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
  */
 const ALLOWED_PREFIXES = [
   "/event/",
+  // A Client's memory lane page. A storage plan event's page is the Studio's
+  // own (its branding, a review ask, nothing to pay) and is minted on the
+  // Studio's domain when it has one, so the path has to be servable here. The
+  // gate only lets the PAGE through: which event a hostname may show is the
+  // API's decision, and it answers 404 to a Studio's domain for another
+  // Studio's link and for every pay per event link, whose page takes a payment
+  // and stays on ours (backend billing.service.js#memoryLaneOriginAllowed).
+  "/memory-lane/",
   "/_next/static/",
   "/_next/image",
   // Listing-portal marks in the Guest gallery's social row (see

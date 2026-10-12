@@ -908,14 +908,15 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   /* ── archive / restore / clear-data lifecycle ───────────────── */
 
-  // Archiving deactivates + flips status to "archived" in one write; reloading
+  // Archiving flips status to "archived" and starts the 7 day countdown (the
+  // gallery stays open to Guests meanwhile); reloading
   // surfaces the terminal overlay in place (no navigation). Rethrows so the
   // LivePill confirm keeps its modal open on failure.
   const doArchive = useCallback(async () => {
     try {
       await archiveBooking(bookingId);
       await reloadBooking();
-      toast("Event archived — it's hidden from guests.");
+      toast("Event archived. Guests can open it for 7 more days.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not archive the event", "error");
       throw err;
@@ -1320,7 +1321,7 @@ function TerminalOverlay({
         </h2>
         <p className="mx-auto mt-2 max-w-[380px] text-[13.5px] leading-relaxed text-[var(--color-brand-muted)]">
           {archived
-            ? "The gallery is deactivated and hidden from guests. Restore it to edit and go live again, or clear its data to free up storage. It’s cleared automatically 7 days after archiving."
+            ? "Guests can still open the gallery for 7 days after archiving, with a countdown. Then its photos are cleared automatically. Restore it to stop the countdown and edit it again, or clear its data now to free up storage."
             : "This event’s access window has closed and its media has been removed. The cover photo is kept for your records, but the gallery can’t be restored."}
         </p>
 

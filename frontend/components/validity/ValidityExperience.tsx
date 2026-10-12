@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, getValidityLink } from "@/lib/api";
 import { PLATFORM_SKIN, resolveTheme } from "@/lib/client-theme";
 import { formatValidityDate, type ValidityLinkView } from "@/lib/event-validity";
+import { isVyavasthHost } from "@/lib/host-gate";
+import { laneModeOf } from "@/lib/memory-lane";
 import { AmbientBackdrop } from "@/components/event/AmbientBackdrop";
 import { BrandLoader } from "@/components/event/BrandLoader";
 import { eventTitleStyle } from "@/components/event/screens/lounge/eventTitleStyle";
@@ -12,12 +14,14 @@ import { MemoryLane } from "./lane/MemoryLane";
 type Status = "loading" | "ready" | "invalid" | "error";
 
 /**
- * The Client's validity extension page: `/validity/<token>`.
+ * A Client's memory lane page: `/memory-lane/<token>`.
  *
  * This file is only the way in: it reads the link, and shows the loader, the
  * "not valid" and "try again" notices, and the closed page. A live link is
  * handed to MemoryLane (components/validity/lane), which is the page itself:
- * a walk back through the day, and then one quiet question.
+ * a walk back through the day, and then one quiet note. What the note asks
+ * depends on the event's plan: more time, paid for (a renewal), or a review
+ * and a referral for the Studio (a keepsake).
  *
  * PUBLIC, and reached only from a link sent to one Client. There is no
  * sign-in: the token in the URL is the whole of their authority, the API
@@ -92,7 +96,10 @@ export function ValidityExperience({ token }: { token: string }) {
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: theme.muted }}>
             {view.ends_at ? `It was live till ${formatValidityDate(view.ends_at)}. ` : ""}
-            Its photos are being deleted and it can no longer be extended. Any photos you saved are yours to keep.
+            {/* Only a renewal was ever something a Client could extend. */}
+            {laneModeOf(view) === "keepsake"
+              ? "Its photos have been deleted. Any photos you saved are yours to keep."
+              : "Its photos are being deleted and it can no longer be extended. Any photos you saved are yours to keep."}
           </p>
         </div>
       </main>
@@ -104,7 +111,8 @@ export function ValidityExperience({ token }: { token: string }) {
 
 /** A full-screen message on the Vyavasth platform skin: a bad link, or a page
  *  that would not load. The same trust-layer look as the gallery's own
- *  not-found screen. */
+ *  not-found screen. On a Studio's own domain it carries no Vyavasth mark: a
+ *  page there is the Studio's, and at this point nothing is known about which. */
 function ValidityNotice({
   heading,
   body,
@@ -115,14 +123,25 @@ function ValidityNotice({
   action?: { label: string; onClick: () => void };
 }) {
   const t = PLATFORM_SKIN;
+  // Read after mount: the server renders this for every host alike.
+  const [ourHost, setOurHost] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the hostname only exists in the browser
+    setOurHost(isVyavasthHost(window.location.host));
+  }, []);
   return (
     <main
       className="relative isolate flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center"
       style={{ background: t.bg, fontFamily: t.font }}
     >
       <AmbientBackdrop a={t.cover[0]} b={t.cover[1]} />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/vyavasth-icon.svg" alt="Vyavasth" className="mb-2 h-12 w-12 opacity-90" />
+      {/* The slot keeps its height either way, so the words never jump. */}
+      <div className="mb-2 h-12 w-12">
+        {ourHost && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/vyavasth-icon.svg" alt="Vyavasth" className="h-12 w-12 opacity-90" />
+        )}
+      </div>
       <h1 className="text-[22px] font-extrabold tracking-tight" style={{ color: t.text }}>
         {heading}
       </h1>

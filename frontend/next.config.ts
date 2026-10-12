@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
       "lucide-react",
     ],
   },
+  // The Client's memory lane page used to live at /validity/<token>. Links
+  // already sent on WhatsApp keep working: they land on the new address.
+  async redirects() {
+    return [{ source: "/validity/:token", destination: "/memory-lane/:token", permanent: true }];
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "media.vyavasth.in" },

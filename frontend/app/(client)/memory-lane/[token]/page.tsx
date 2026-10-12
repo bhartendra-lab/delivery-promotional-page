@@ -14,12 +14,17 @@ export const metadata: Metadata = {
 };
 
 /**
- * A Client's validity extension page — `/validity/<token>`.
+ * A Client's memory lane page — `/memory-lane/<token>`.
  *
- * Opened from the WhatsApp reminder a Client is sent a week before their pay
- * per event gallery closes. Always on the Vyavasth domain, never a studio's
- * custom one: it is not on the host gate's allow list (lib/host-gate.ts), so a
- * custom hostname answers 404 for it.
+ * Opened from the WhatsApp message every event's Clients are sent: a week
+ * before a pay per event gallery closes, or, for a storage plan event, the day
+ * it is archived or two months after it was created. The first ends by asking
+ * the Client to extend and is always on the Vyavasth domain; the second is the
+ * Studio's own page and is on the Studio's domain when it has one. The host
+ * gate lets the path through on both (lib/host-gate.ts) and the API decides
+ * which link a hostname may show.
+ *
+ * It used to be `/validity/<token>`, which now redirects here (next.config.ts).
  *
  * Everything is fetched in the browser (ValidityExperience), so the brand
  * loader can run while it resolves and so nothing about the event is ever in

@@ -706,7 +706,7 @@ export function getDlpUsage() {
 
 /* ── A Client's validity extension link (public, no account) ───────
  *
- * The page at /validity/<token>. A Client has no sign-in: the token in the URL
+ * The page at /memory-lane/<token>. A Client has no sign-in: the token in the URL
  * is all the authority there is, so none of these send an Authorization
  * header (`auth: false`), exactly like the public gallery read.
  */

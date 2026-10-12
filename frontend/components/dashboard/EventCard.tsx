@@ -273,7 +273,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
           requireTyping={false}
           busy={acting === "archive"}
           title="Archive this event?"
-          description="This will deactivate the gallery and hide it from guests. You can restore it later, within 7 days, before its media is permanently cleared."
+          description="This starts a 7 day countdown. Guests can still open the gallery and see how many days are left, and its Clients are sent their memory lane link at 9 PM. After the 7 days its photos are permanently cleared, unless you restore it first."
           onConfirm={() => void runConfirmed("archive")}
           onCancel={() => setConfirm(null)}
         />

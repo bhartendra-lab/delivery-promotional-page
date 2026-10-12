@@ -28,7 +28,7 @@ export function useBookingLifecycle(reload: () => Promise<void> | void) {
       try {
         await archiveBooking(row._id);
         await reload();
-        notify("Event archived — it's hidden from guests.");
+        notify("Event archived. Guests can open it for 7 more days.");
       } catch (err) {
         notify(err instanceof Error ? err.message : "Could not archive the event", "error");
         throw err;

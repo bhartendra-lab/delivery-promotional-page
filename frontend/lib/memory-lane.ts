@@ -8,8 +8,16 @@
 //
 // The components under components/validity/lane only draw what is decided
 // here, so every rule on this page can be read, and is tested, in one place.
+//
+// NO CAMERA TIME, ANYWHERE. A camera's clock is whatever its owner last set it
+// to, so this page prints no date or time read from a photo. The one date it
+// shows is the event's own (`event_date`: what the Studio entered, or failing
+// that the day the photos were uploaded), and the line of photos is labelled
+// with the Studio's folder names.
 
-import type { ValidityLinkView, ValidityReel } from "./event-validity.ts";
+import type { MemoryLaneMode, ValidityLinkView, ValidityReel, ValidityReelItem, ValidityStudio } from "./event-validity.ts";
+import { resolveGoogleReviewUrl } from "./google-review.ts";
+import { formatCount } from "./plans.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -108,6 +116,72 @@ export function laneSpecOf(eventType: string | null | undefined): LaneSpec {
   };
 }
 
+/* ── Two endings ──────────────────────────────────────────────────────────── */
+
+/**
+ * Which page this link opens: a renewal (the walk ends by asking the Client to
+ * pay for more time) or a keepsake (it ends with a review ask and a referral
+ * nudge, under the Studio's branding). An API that predates the keepsake sends
+ * no mode, and every link it serves is a renewal.
+ */
+export function laneModeOf(view: Pick<ValidityLinkView, "mode"> | null | undefined): MemoryLaneMode {
+  return view?.mode === "keepsake" ? "keepsake" : "renew";
+}
+
+/**
+ * What the button that jumps to the end of the page says (beside "Open the
+ * gallery" on the first screen, and on the pill that follows the walk).
+ */
+export function laneAskLabel(mode: MemoryLaneMode): string {
+  return mode === "keepsake" ? "A small favour" : "Keep it longer";
+}
+
+/** How a Studio is named in a sentence when it has no name on record. */
+export const studioNameOr = (name: string | null | undefined) => (name ?? "").trim() || "your photographer";
+
+/**
+ * The Google review link a keepsake may show, or null when it shows none. The
+ * gallery's own rule decides (lib/google-review.ts), from the same four
+ * inputs, so this page never asks for a review the gallery would not.
+ */
+export function keepsakeReviewUrl(studio: ValidityStudio | null | undefined): string | null {
+  if (!studio) return null;
+  return resolveGoogleReviewUrl({
+    placeId: studio.google_place_id,
+    gmbLink: studio.gmb_link,
+    enabledGlobally: studio.google_review_enabled,
+    enabledForEvent: studio.show_google_review !== false,
+  });
+}
+
+/**
+ * A link that opens a WhatsApp chat with the Studio, with `text` already
+ * typed and waiting to be sent. Null when the Studio has no usable number, so
+ * the caller can leave the button out.
+ */
+export function studioWhatsAppUrl(number: string | null | undefined, text: string): string | null {
+  const digits = String(number ?? "").replace(/\D/g, "");
+  if (digits.length < 8) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+/** What a Client's chat with the Studio opens with when they tap the referral nudge. */
+export function referralMessage(studioName: string | null | undefined, eventName: string | null | undefined): string {
+  const studio = (studioName ?? "").trim();
+  const event = (eventName ?? "").trim();
+  const hello = studio ? `Hi ${studio}, ` : "Hi, ";
+  const loved = event ? `we loved our photos from ${event}. ` : "we loved our photos. ";
+  return `${hello}${loved}I know someone who is looking for a photographer.`;
+}
+
+/** What it opens with when they ask for the gallery to be kept open longer. */
+export function moreTimeMessage(studioName: string | null | undefined, eventName: string | null | undefined): string {
+  const studio = (studioName ?? "").trim();
+  const event = (eventName ?? "").trim();
+  const hello = studio ? `Hi ${studio}, ` : "Hi, ";
+  return `${hello}could you keep ${event ? `the gallery for ${event}` : "our gallery"} open a little longer?`;
+}
+
 /* ── How long ago ─────────────────────────────────────────────────────────── */
 
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
@@ -150,19 +224,32 @@ export type LanePhoto = {
   ratio: number;
   /** The Client liked this one in their gallery. */
   liked: boolean;
-  /** Epoch ms it was taken, when known. */
-  capturedAt: number | null;
-  /** Only a camera's own time is ever printed. */
-  timeReliable: boolean;
+  /** The Studio's folder it is filed in, or null for none. */
+  folder: string | null;
 };
 
 const ratioOf = (width: number | null | undefined, height: number | null | undefined) =>
   width && height ? width / height : 3 / 2;
 
+const lanePhotoOf = (item: ValidityReelItem): LanePhoto => ({
+  url: item.url,
+  ratio: ratioOf(item.width, item.height),
+  liked: item.liked_by_client,
+  folder: (item.folder ?? "").trim() || null,
+});
+
+/** A photo that is not one of the reel's: the favourite's larger copy, the welcome strip, the cover. */
+const loosePhoto = (url: string, ratio: number, liked: boolean): LanePhoto => ({ url, ratio, liked, folder: null });
+
 /** The most photos that float over the first screen. */
 export const HERO_PHOTO_MAX = 12;
-/** The most photos that hang on the line. More would make the walk a hike. */
-export const WALK_PHOTO_MAX = 10;
+/**
+ * The most photos that hang on the line: twenty, and never more. The line is
+ * a taste of the day, and the gallery is where all of it is. The reel the API
+ * sends is capped at the same number (VALIDITY_REEL_SIZE in the backend's
+ * media.service.js), so the line shows every photo it is given.
+ */
+export const WALK_PHOTO_MAX = 20;
 /** Fewer than this and there is no line to walk: the page goes straight on. */
 export const WALK_PHOTO_MIN = 3;
 
@@ -203,44 +290,82 @@ export function heroPhotos(
   if (reel) {
     if (reel.favourite) {
       const fav = reel.favourite;
-      add({ url: fav.url, ratio: ratioOf(fav.width, fav.height), liked: fav.liked_by_client, capturedAt: null, timeReliable: false });
+      add(loosePhoto(fav.url, ratioOf(fav.width, fav.height), fav.liked_by_client));
     }
-    const items = reel.items.map(
-      (item): LanePhoto => ({
-        url: item.url,
-        ratio: ratioOf(item.width, item.height),
-        liked: item.liked_by_client,
-        capturedAt: item.captured_at,
-        timeReliable: item.time_reliable,
-      }),
-    );
+    const items = reel.items.map(lanePhotoOf);
     for (const item of items) if (item.liked) add(item);
-    // The rest, spread across the day rather than its first few minutes.
+    // The rest, spread across the day rather than its first few photos.
     const rest = items.filter((item) => !item.liked);
     for (const item of sampleEvenly(rest, Math.max(0, max - out.length))) add(item);
     for (const item of rest) add(item);
   }
   if (out.length === 0) {
-    for (const url of view.fallback_photos ?? []) add({ url, ratio: 3 / 2, liked: false, capturedAt: null, timeReliable: false });
+    for (const url of view.fallback_photos ?? []) add(loosePhoto(url, 3 / 2, false));
   }
-  if (out.length === 0 && view.cover) add({ url: view.cover, ratio: 3 / 2, liked: false, capturedAt: null, timeReliable: false });
+  if (out.length === 0 && view.cover) add(loosePhoto(view.cover, 3 / 2, false));
   return out;
 }
 
 /**
- * The photos that hang on the line, in the order the day happened. Empty when
- * there are too few to walk past.
+ * The photos that hang on the line, in the order the reel tells them: folder
+ * by folder, and as they were taken inside each. Never more than `max`, and
+ * empty when there are too few to walk past.
  */
 export function walkPhotos(reel: ValidityReel | null | undefined, max: number = WALK_PHOTO_MAX): LanePhoto[] {
   const items = reel?.items ?? [];
   if (items.length < WALK_PHOTO_MIN) return [];
-  return sampleEvenly(items, max).map((item) => ({
-    url: item.url,
-    ratio: ratioOf(item.width, item.height),
-    liked: item.liked_by_client,
-    capturedAt: item.captured_at,
-    timeReliable: item.time_reliable,
-  }));
+  return sampleEvenly(items, max).map(lanePhotoOf);
+}
+
+/**
+ * The paper tag that hangs before each photo on the line: its folder's name
+ * where a new folder begins, and null everywhere else. A photo in no folder
+ * gets no tag, and does not end the folder before it for the photos after.
+ */
+export function walkTags(photos: readonly Pick<LanePhoto, "folder">[]): Array<string | null> {
+  let hanging: string | null = null;
+  return photos.map((photo) => {
+    if (!photo.folder || photo.folder === hanging) return null;
+    hanging = photo.folder;
+    return photo.folder;
+  });
+}
+
+/**
+ * What the two ends of the line's thin progress bar say: the first folder and
+ * the last, when the line runs from one to another, and plain words when it
+ * does not (one folder, or none).
+ */
+export function walkEnds(photos: readonly Pick<LanePhoto, "folder">[]): { start: string; end: string } {
+  const first = photos[0]?.folder ?? null;
+  const last = photos[photos.length - 1]?.folder ?? null;
+  return first && last && first !== last ? { start: first, end: last } : { start: "The start", end: "The end" };
+}
+
+/** The four lights the line passes through, in order. */
+export const WALK_LIGHTS = ["morning", "afternoon", "golden", "night"] as const;
+export type WalkLight = (typeof WALK_LIGHTS)[number];
+
+/**
+ * The light behind the photo in the middle of the screen. It turns from
+ * morning gold to night across the length of the line, a quarter at a time:
+ * it follows how far the reader has walked, not any clock.
+ */
+export function walkLight(index: number, count: number): WalkLight {
+  if (count <= 1) return WALK_LIGHTS[0];
+  const along = clamp(index / (count - 1), 0, 1);
+  return WALK_LIGHTS[Math.min(WALK_LIGHTS.length - 1, Math.floor(along * WALK_LIGHTS.length))];
+}
+
+/**
+ * The words after the last photo on the line. The line holds twenty photos at
+ * most, so when the event has more it says so and points at the gallery.
+ */
+export function walkEndWords(shown: number, total: number): { line: string; sub: string } {
+  if (total > shown) {
+    return { line: "And there are so many more.", sub: `All ${formatCount(total)} photos are waiting in your gallery.` };
+  }
+  return { line: "And that was the last one.", sub: "Every one of them is still in your gallery." };
 }
 
 /** The photos the Client liked, for the small fan near the end. Not the favourite itself. */
@@ -250,18 +375,13 @@ export function keptClosePhotos(reel: ValidityReel | null | undefined, max = 5):
   return reel.items
     .filter((item) => item.liked_by_client && item.url !== favouriteUrl)
     .slice(0, max)
-    .map((item) => ({
-      url: item.url,
-      ratio: ratioOf(item.width, item.height),
-      liked: true,
-      capturedAt: item.captured_at,
-      timeReliable: item.time_reliable,
-    }));
+    .map(lanePhotoOf);
 }
 
 /**
- * The date as a film camera would burn it into the corner of a print:
- * "14 02 '26". Always the day in India, whatever zone the reader is in.
+ * A date as a film camera would burn it into the corner of a print:
+ * "14 02 '26". Always the day in India, whatever zone the reader is in. The
+ * page only ever hands it the event's own date, never a photo's.
  */
 export function filmStamp(ms: number | null | undefined): string | null {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return null;

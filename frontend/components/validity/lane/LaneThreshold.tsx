@@ -18,6 +18,7 @@ import styles from "./lane.module.css";
  * "Enter quietly" is the same door without the music, for someone on a bus.
  */
 export function LaneThreshold({
+  studioMark,
   lead,
   eventName,
   eventDay,
@@ -26,10 +27,15 @@ export function LaneThreshold({
   canPlaySound,
   onEnter,
 }: {
+  /** A keepsake only: the Studio whose page this is, shown above everything
+   *  else. Its light logo when it has one, otherwise its name. Null on a
+   *  renewal, which carries no Studio mark here. */
+  studioMark: { logo: string | null; name: string | null } | null;
   /** "Aanya, it has been two months since" */
   lead: string;
   eventName: string;
-  /** "Saturday, 14 February 2026", or null when the day is not known. */
+  /** "Saturday, 14 February 2026": the event's own date, never a photo's.
+   *  Null when the day is not known. */
   eventDay: string | null;
   /** A photo of theirs for the blurred backdrop, or null. */
   backdrop: string | null;
@@ -52,6 +58,12 @@ export function LaneThreshold({
       )}
       <div className={styles.thresholdWash} />
       <div className={styles.thresholdInner}>
+        {studioMark?.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element -- the Studio's own logo, served as it is
+          <img className={styles.thresholdLogo} src={studioMark.logo} alt={studioMark.name ?? "Your photographer"} draggable={false} />
+        ) : (
+          studioMark?.name && <p className={styles.thresholdStudio}>{studioMark.name}</p>
+        )}
         <p className={styles.thresholdLead}>{lead}</p>
         <h1 className={styles.thresholdName} style={eventTitleStyle("mobile")}>
           {eventName}

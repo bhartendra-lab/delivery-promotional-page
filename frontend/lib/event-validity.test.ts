@@ -5,8 +5,6 @@ import {
   formatValidityDate,
   formatShortDay,
   formatEventDay,
-  formatClockTime,
-  istHour,
   validityDaysLeft,
   closesInLabel,
   VALIDITY_CLOSING_SOON_DAYS,
@@ -14,14 +12,10 @@ import {
   guardSentence,
   guardFollowUp,
   maskEmail,
-  partOfDay,
-  daySpanLabel,
   reelPhotoAlt,
-  lastPhotoLine,
   favouriteCaption,
   looksLikeEmail,
   type ValidityGuard,
-  type ValidityReel,
 } from "./event-validity.ts";
 
 const ist = (iso: string) => Date.parse(`${iso}+05:30`);
@@ -42,21 +36,12 @@ test("formatValidityDate: the IST day, whatever zone the reader is in", () => {
   assert.equal(formatValidityDate(ist("2027-01-07T12:00:00")), "7 Jan 2027");
 });
 
-test("formatShortDay / formatEventDay / formatClockTime: how the page says a moment", () => {
+test("formatShortDay / formatEventDay: how the page says a day", () => {
   assert.equal(formatShortDay(ist("2026-10-03T09:00:00")), "3 Oct");
   assert.equal(formatEventDay(ist("2026-02-14T18:30:00")), "Saturday, 14 February 2026");
-  assert.equal(formatClockTime(ist("2026-02-14T16:12:00")), "4:12 PM");
-  assert.equal(formatClockTime(ist("2026-02-14T23:48:00")), "11:48 PM");
-  assert.equal(formatClockTime(ist("2026-02-14T09:05:00")), "9:05 AM");
-  assert.equal(formatClockTime(ist("2026-02-14T00:07:00")), "12:07 AM");
-  assert.equal(formatClockTime(ist("2026-02-14T12:00:00")), "12:00 PM");
-});
-
-test("istHour: the hour on India's clock", () => {
-  assert.equal(istHour(ist("2026-02-14T00:10:00")), 0);
-  assert.equal(istHour(ist("2026-02-14T16:12:00")), 16);
-  assert.equal(istHour(ist("2026-02-14T23:59:00")), 23);
-  assert.equal(istHour(Date.UTC(2026, 1, 14, 20, 0)), 1);
+  // India's calendar decides the day, whatever zone the reader is in.
+  assert.equal(formatEventDay(Date.UTC(2026, 1, 14, 18, 29)), "Saturday, 14 February 2026");
+  assert.equal(formatEventDay(Date.UTC(2026, 1, 14, 18, 30)), "Sunday, 15 February 2026");
 });
 
 test("validityDaysLeft / closesInLabel: whole days before the closing day, which is itself 'today'", () => {
@@ -129,53 +114,12 @@ test("maskEmail: enough to recognise your own address", () => {
   assert.equal(maskEmail(null), "");
 });
 
-test("partOfDay: morning, afternoon, golden hour and night", () => {
-  assert.deepEqual([5, 10].map(partOfDay), ["morning", "morning"]);
-  assert.deepEqual([11, 15].map(partOfDay), ["afternoon", "afternoon"]);
-  assert.deepEqual([16, 18].map(partOfDay), ["golden", "golden"]);
-  assert.deepEqual([19, 23, 0, 4].map(partOfDay), ["night", "night", "night", "night"]);
-  // Hours are taken round the clock rather than trusted to be 0 to 23.
-  assert.equal(partOfDay(24 + 9), "morning");
-  assert.equal(partOfDay(-1), "night");
-});
-
-test("daySpanLabel: only a span worth saying", () => {
-  const start = ist("2026-02-14T14:48:00");
-  assert.equal(daySpanLabel(start, ist("2026-02-14T23:48:00")), "9 hours, start to finish");
-  assert.equal(daySpanLabel(start, ist("2026-02-14T15:50:00")), "1 hour, start to finish");
-  assert.equal(daySpanLabel(start, ist("2026-02-16T20:00:00")), "3 days, start to finish");
-  // Under an hour says nothing; over a week is a camera with the wrong date.
-  assert.equal(daySpanLabel(start, ist("2026-02-14T15:00:00")), null);
-  assert.equal(daySpanLabel(start, ist("2026-03-14T15:00:00")), null);
-  assert.equal(daySpanLabel(null, start), null);
-  assert.equal(daySpanLabel(start, null), null);
-  assert.equal(daySpanLabel(start, start), null);
-});
-
-const reelOf = (items: ValidityReel["items"]): ValidityReel => ({
-  items,
-  favourite: null,
-  stats: { photos: items.length, people: 0, first_at: null, last_at: null, times_reliable: false },
-});
-const item = (over: Partial<ValidityReel["items"][number]> = {}) => ({
-  url: "https://media.example/teaser/b1/validity/a.webp",
-  width: 640,
-  height: 427,
-  captured_at: ist("2026-02-14T16:12:00"),
-  time_reliable: true,
-  liked_by_client: false,
-  ...over,
-});
-
-test("reelPhotoAlt / lastPhotoLine: a clock time only when it came from the camera", () => {
-  assert.equal(reelPhotoAlt("Aanya & Rohan", item()), "Photo from Aanya & Rohan, 4:12 PM");
-  assert.equal(reelPhotoAlt("Aanya & Rohan", item({ time_reliable: false })), "Photo from Aanya & Rohan");
-  assert.equal(reelPhotoAlt(null, item({ captured_at: null })), "Photo from the event");
-
-  assert.equal(lastPhotoLine(reelOf([item(), item({ captured_at: ist("2026-02-14T23:48:00") })])), "And that was the last one, at 11:48 PM.");
-  assert.equal(lastPhotoLine(reelOf([item({ time_reliable: false })])), "And that was the last one.");
-  assert.equal(lastPhotoLine(reelOf([])), null);
-  assert.equal(lastPhotoLine(null), null);
+test("reelPhotoAlt: where the photo is from, and its folder when it has one", () => {
+  assert.equal(reelPhotoAlt("Aanya & Rohan", "Haldi"), "Photo from Aanya & Rohan, Haldi");
+  assert.equal(reelPhotoAlt("Aanya & Rohan", "  Sangeet "), "Photo from Aanya & Rohan, Sangeet");
+  assert.equal(reelPhotoAlt("Aanya & Rohan", null), "Photo from Aanya & Rohan");
+  assert.equal(reelPhotoAlt("Aanya & Rohan"), "Photo from Aanya & Rohan");
+  assert.equal(reelPhotoAlt(null, "   "), "Photo from the event");
 });
 
 test("favouriteCaption: everyone's, theirs too, or only theirs", () => {
@@ -204,9 +148,7 @@ test("nothing this module says to a person carries an em dash or an en dash", ()
     guardSentence(guard("client", "Aanya"), "studio"),
     guardSentence(guard("studio"), "studio"),
     guardFollowUp(guard("you")),
-    daySpanLabel(ist("2026-02-14T14:48:00"), ist("2026-02-14T23:48:00")),
-    lastPhotoLine(reelOf([item()])),
-    reelPhotoAlt("Aanya & Rohan", item()),
+    reelPhotoAlt("Aanya & Rohan", "Haldi"),
     favouriteCaption({ url: "u", width: 1, height: 1, hearts: 3, liked_by_client: true }),
   ];
   for (const line of said) assert.doesNotMatch(String(line), DASHES);

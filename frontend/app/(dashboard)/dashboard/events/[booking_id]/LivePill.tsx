@@ -41,7 +41,8 @@ type Props = {
   serviceType?: ServiceType | null;
   onActivate: () => Promise<void>;
   onDeactivate: () => Promise<void>;
-  /** Archive this booking (deactivate + start the 7-day expiry countdown). */
+  /** Archive this booking: start the 7-day countdown to clearing it. The
+   *  gallery stays open to Guests until then. */
   onArchive?: () => Promise<void>;
   /** Pay per event only: adds the "Extend validity" row to the menu. */
   validity?: LivePillValidity | null;
@@ -118,7 +119,7 @@ export function LivePill({
       <span className="flex-1">
         <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Archive</span>
         <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">
-          Hide from guests and start the 7-day countdown to clear
+          Start the 7-day countdown. Guests keep the gallery until it clears
         </span>
       </span>
     </button>
@@ -264,7 +265,7 @@ const CONFIRM_COPY: Record<ConfirmAction, { title: string; description: string; 
   archive: {
     title: "Archive this event?",
     description:
-      "This deactivates the gallery and hides it from guests. You can restore it later, within 7 days, before its media is permanently cleared.",
+      "This starts a 7 day countdown. Guests can still open the gallery and see how many days are left, and its Clients are sent their memory lane link at 9 PM. After the 7 days its photos are permanently cleared, unless you restore it first.",
     warning: null,
   },
   // Not triggered from the pill, but present so the copy map stays exhaustive.

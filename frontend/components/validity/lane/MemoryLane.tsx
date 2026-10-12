@@ -3,11 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PLATFORM_SKIN } from "@/lib/client-theme";
 import { closesInLabel, formatEventDay, formatValidityDate, type ValidityLinkView } from "@/lib/event-validity";
-import { filmStamp, heroPhotos, keptClosePhotos, laneSpecOf, thresholdLead, timeSinceLabel, walkPhotos } from "@/lib/memory-lane";
+import {
+  filmStamp,
+  heroPhotos,
+  keptClosePhotos,
+  laneAskLabel,
+  laneModeOf,
+  laneSpecOf,
+  thresholdLead,
+  timeSinceLabel,
+  walkPhotos,
+} from "@/lib/memory-lane";
 import { usePrefersReducedMotion } from "../motion";
 import { ValidityQuestion } from "../ValidityQuestion";
 import { LaneHero } from "./LaneHero";
 import { LaneKeepsakes } from "./LaneKeepsakes";
+import { LaneStudioNote } from "./LaneStudioNote";
 import { LaneThreshold } from "./LaneThreshold";
 import { LaneWalk } from "./LaneWalk";
 import { useMemoryScore } from "./useMemoryScore";
@@ -19,23 +30,34 @@ const LIFT_MS = 1300;
 type Door = "closed" | "opening" | "open";
 
 /**
- * The Client's validity page, as a walk down memory lane.
+ * A Client's memory lane: a walk back through the day in their own photos.
  *
  * It is opened about two months after the day, from a WhatsApp message, by
  * someone who has mostly stopped opening the gallery. So before it asks for
  * anything it gives the day back, in five beats:
  *
- *   1. The door      one still screen: how long it has been, the day's name,
- *                    one button. The tap starts the music.
+ *   1. The door      one still screen: how long it has been, the day's name
+ *                    and date, one button. The tap starts the music.
  *   2. The flood     their photos floating as prints around one line about
  *                    the day; scrolling gathers them into a phone, beside the
  *                    date the gallery is live till and two plain choices.
- *   3. The lane      the day in order, prints pegged to a string of lights
- *                    that slides past as the page scrolls.
+ *   3. The lane      up to twenty prints pegged to a string of lights that
+ *                    slides past as the page scrolls, named by the Studio's
+ *                    folders.
  *   4. Keepsakes     a few true numbers, the favourite, the ones they liked.
- *   5. The note      the question itself, on paper, with the music turned
- *                    down: when it closes, what that means, what it costs to
- *                    keep it, and that not keeping it is fine too.
+ *   5. The note      on paper, with the music turned down. What it says
+ *                    depends on the event's plan (`view.mode`):
+ *                      renew     a pay per event event. When it closes, what
+ *                                that means, what it costs to keep it, and
+ *                                that not keeping it is fine too.
+ *                      keepsake  a storage plan event. Nothing to pay: when
+ *                                the gallery closes if it is closing, then a
+ *                                review ask and a referral nudge from the
+ *                                Studio (LaneStudioNote).
+ *
+ * A keepsake is the Studio's own page. It carries the Studio's mark on the
+ * welcome screen and in the top bar, is served on the Studio's domain when it
+ * has one, and never mentions Vyavasth. A renewal looks as it always has.
  *
  * The mood (words, colours, what drifts in the air, which score plays) follows
  * the kind of event the Studio set: a wedding is not a birthday.
@@ -43,11 +65,22 @@ type Door = "closed" | "opening" | "open";
  * The date the gallery is live till is never out of reach: it is in beat 2,
  * on a small pill that follows the walk, and at the top of the note.
  *
+ * The only other date on the page is the event's own (`view.event_date`: what
+ * the Studio entered, or failing that the day the photos were uploaded). No
+ * date or time read from a photo is shown anywhere: a camera's clock is
+ * whatever its owner last set it to.
+ *
  * PUBLIC, and reached only from a link sent to one Client. Every photo here is
  * one of the reel's own small copies, never a gallery photo's address.
  */
 export function MemoryLane({ token, view, onRefresh }: { token: string; view: ValidityLinkView; onRefresh: () => Promise<void> }) {
   const reduced = usePrefersReducedMotion();
+  const mode = laneModeOf(view);
+  const keepsake = mode === "keepsake";
+  const askLabel = laneAskLabel(mode);
+  // On the dark page only a light logo reads; without one the Studio's name does the job.
+  const studioLogo = keepsake ? view.studio?.logo_light || null : null;
+  const studioName = view.studio_name?.trim() || null;
   const spec = useMemo(() => laneSpecOf(view.event_type), [view.event_type]);
   const photos = useMemo(() => heroPhotos(view), [view]);
   const walk = useMemo(() => walkPhotos(view.reel), [view.reel]);
@@ -138,6 +171,7 @@ export function MemoryLane({ token, view, onRefresh }: { token: string; view: Va
     <main className={styles.lane} style={vars} data-mood={spec.mood}>
       {door !== "open" && (
         <LaneThreshold
+          studioMark={keepsake ? { logo: studioLogo, name: studioName } : null}
           lead={lead}
           eventName={eventName}
           eventDay={eventDay}
@@ -153,7 +187,12 @@ export function MemoryLane({ token, view, onRefresh }: { token: string; view: Va
 
       {/* Who made the photos, and the one control the music has. */}
       <div className={`${styles.bar} ${entered ? styles.barIn : ""} ${noteInView ? styles.barOnPaper : ""}`}>
-        <p className={styles.barStudio}>{view.studio_name ? `Photos by ${view.studio_name}` : " "}</p>
+        {studioLogo ? (
+          // eslint-disable-next-line @next/next/no-img-element -- the Studio's own logo, served as it is
+          <img className={styles.barLogo} src={studioLogo} alt={studioName ?? "Your photographer"} draggable={false} />
+        ) : (
+          <p className={styles.barStudio}>{studioName ? `Photos by ${studioName}` : " "}</p>
+        )}
         {score.available && (
           <button
             type="button"
@@ -191,15 +230,28 @@ export function MemoryLane({ token, view, onRefresh }: { token: string; view: Va
         hasWalk={walk.length > 0}
         entered={entered}
         reduced={reduced}
+        askLabel={askLabel}
         onKeep={goToNote}
       />
       <div ref={heroEnd} className={styles.marker} aria-hidden="true" />
 
-      {view.reel && walk.length > 0 && <LaneWalk photos={walk} reel={view.reel} eventName={eventName} reduced={reduced} />}
+      {walk.length > 0 && (
+        <LaneWalk
+          photos={walk}
+          photoCount={view.reel?.stats.photos ?? 0}
+          galleryUrl={view.gallery_url}
+          eventName={eventName}
+          reduced={reduced}
+        />
+      )}
       {view.reel && <LaneKeepsakes reel={view.reel} eventName={eventName} kept={kept} />}
 
       <div ref={note}>
-        <ValidityQuestion t={PLATFORM_SKIN} token={token} view={view} eventName={eventName} onRefresh={onRefresh} />
+        {keepsake ? (
+          <LaneStudioNote t={PLATFORM_SKIN} view={view} />
+        ) : (
+          <ValidityQuestion t={PLATFORM_SKIN} token={token} view={view} eventName={eventName} onRefresh={onRefresh} />
+        )}
       </div>
 
       {/* The date, within reach for the whole walk. It steps aside once the note is on screen. */}
@@ -212,7 +264,7 @@ export function MemoryLane({ token, view, onRefresh }: { token: string; view: Va
             <em>{closesInLabel(view.ends_at)}</em>
           </span>
           <button type="button" className={styles.pillGo} onClick={goToNote} tabIndex={showPill ? 0 : -1}>
-            Keep it longer
+            {askLabel}
           </button>
         </div>
       )}

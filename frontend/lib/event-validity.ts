@@ -48,14 +48,19 @@ export type ValidityExtensionRecord = {
   by_name: string | null;
 };
 
+/**
+ * One photo of the reel. It carries no date and no time: a camera's clock is
+ * whatever its owner last set it to, so the page shows nothing read from one.
+ * The reel arrives folder by folder, in the Studio's own order of folders, and
+ * in the order the photos were taken inside each.
+ */
 export type ValidityReelItem = {
   url: string;
   width: number | null;
   height: number | null;
-  /** Epoch ms the photo was taken, when known. */
-  captured_at: number | null;
-  /** True only for a camera's own time. Only then is a clock time printed. */
-  time_reliable: boolean;
+  /** The name of the folder the Studio filed it in ("Haldi", "Reception").
+   *  Null for a photo in no folder; absent from an API that does not send it yet. */
+  folder?: string | null;
   liked_by_client: boolean;
 };
 
@@ -73,20 +78,54 @@ export type ValidityReel = {
   stats: {
     photos: number;
     people: number;
-    first_at: number | null;
-    last_at: number | null;
-    times_reliable: boolean;
   };
+};
+
+/**
+ * Which memory lane page a link opens. It follows the event's own plan.
+ *
+ *   "renew"     a pay per event event: the page ends by asking the Client to
+ *               pay for more time.
+ *   "keepsake"  a storage plan event: nothing is on sale. The page ends with a
+ *               review ask and a referral nudge, under the Studio's branding.
+ */
+export type MemoryLaneMode = "renew" | "keepsake";
+
+/** A Studio as its Clients' keepsake page shows it. Sent for "keepsake" only. */
+export type ValidityStudio = {
+  /** The default (dark) logo, for light surfaces. */
+  logo: string | null;
+  /** The light logo, for dark surfaces. Often absent. */
+  logo_light: string | null;
+  website: string | null;
+  /** Profile and listing links, keyed by platform (lib/social-platforms.ts). */
+  social_links: Record<string, string>;
+  /** The number a WhatsApp chat with the Studio opens on. */
+  whatsapp_number: string | null;
+  /** The four inputs of the gallery's own review rule (lib/google-review.ts),
+   *  so this page asks for a review exactly when the gallery would. */
+  google_place_id: string | null;
+  gmb_link: string | null;
+  google_review_enabled: boolean;
+  show_google_review: boolean;
 };
 
 /** GET /billing/validity/:token */
 export type ValidityLinkView = {
   status: "active" | "expired";
+  /** Absent from an API that predates storage plan pages: every link was a renewal. */
+  mode?: MemoryLaneMode;
+  /** The Studio's branding and contact, on a keepsake. */
+  studio?: ValidityStudio;
   event_name: string | null;
   studio_name: string | null;
+  /** Epoch ms. The event's own date, as the Studio entered it; with none
+   *  entered, the day its photos were first uploaded. Never a camera's date. */
   event_date: number | null;
   client_first_name: string | null;
-  /** Epoch ms: the last moment the event is live. Always the end of an IST day. */
+  /** Epoch ms: the last moment the gallery is open. On a renewal, the end of
+   *  the event's validity (always the end of an IST day). On a keepsake, when
+   *  the gallery closes, or null when no end is in sight. */
   ends_at: number | null;
   /** The gallery's style variant, for resolveTheme. */
   theme: string | null;
@@ -101,7 +140,8 @@ export type ValidityLinkView = {
   lock_held_by_other: boolean;
   billing: { email: string | null; state_code: string | null };
   gallery_url: string | null;
-  key_id: string;
+  /** The Razorpay key a renewal pays with. Null on a keepsake, which takes no payment. */
+  key_id: string | null;
   /** "Wedding", "Birthday" and so on, as the Studio set it. The page takes its
    *  words, colours and music from it (lib/memory-lane.ts). Null or absent
    *  when it was never set, or from an API that does not send it yet. */
@@ -151,17 +191,6 @@ export function formatShortDay(ms: number): string {
 export function formatEventDay(ms: number): string {
   const p = istParts(ms, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   return `${p.weekday}, ${p.day} ${p.month} ${p.year}`;
-}
-
-/** "4:12 PM": when a photo was taken. */
-export function formatClockTime(ms: number): string {
-  const p = istParts(ms, { hour: "numeric", minute: "2-digit", hour12: true });
-  return `${p.hour}:${p.minute} ${String(p.dayPeriod ?? "").toUpperCase()}`;
-}
-
-/** The hour (0 to 23) the IST wall clock read when a photo was taken. */
-export function istHour(ms: number): number {
-  return Number(istParts(ms, { hour: "numeric", hourCycle: "h23" }).hour) % 24;
 }
 
 /**
@@ -256,46 +285,11 @@ export function maskEmail(email: string | null | undefined): string {
   return `${value[0]}•••${value.slice(at)}`;
 }
 
-/** The four parts of a day the page tells apart. */
-export type PartOfDay = "morning" | "afternoon" | "golden" | "night";
-
-/** Which part of the day an IST hour falls in. */
-export function partOfDay(hour: number): PartOfDay {
-  const h = ((Math.floor(hour) % 24) + 24) % 24;
-  if (h >= 5 && h < 11) return "morning";
-  if (h >= 11 && h < 16) return "afternoon";
-  if (h >= 16 && h < 19) return "golden";
-  return "night";
-}
-
-/**
- * "9 hours, start to finish", from the first photo to the last. Null unless
- * both times are known, and for anything under an hour (a number that small
- * says nothing) or over a week (a stray camera clock, not a celebration).
- */
-export function daySpanLabel(firstAt: number | null | undefined, lastAt: number | null | undefined): string | null {
-  if (typeof firstAt !== "number" || typeof lastAt !== "number" || lastAt <= firstAt) return null;
-  const hours = Math.round((lastAt - firstAt) / (60 * 60 * 1000));
-  if (hours < 1) return null;
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}, start to finish`;
-  const days = Math.ceil((lastAt - firstAt) / (24 * 60 * 60 * 1000));
-  if (days > 7) return null;
-  return `${days} days, start to finish`;
-}
-
-/** Alt text for one photo of the reel. */
-export function reelPhotoAlt(eventName: string | null | undefined, item: Pick<ValidityReelItem, "captured_at" | "time_reliable">): string {
+/** Alt text for one photo of the reel: where it is from, and its folder when it has one. */
+export function reelPhotoAlt(eventName: string | null | undefined, folder?: string | null): string {
   const from = eventName ? `Photo from ${eventName}` : "Photo from the event";
-  return item.time_reliable && typeof item.captured_at === "number" ? `${from}, ${formatClockTime(item.captured_at)}` : from;
-}
-
-/** The line after the last photo of the strip. */
-export function lastPhotoLine(reel: ValidityReel | null | undefined): string | null {
-  const last = reel?.items[reel.items.length - 1];
-  if (!last) return null;
-  return last.time_reliable && typeof last.captured_at === "number"
-    ? `And that was the last one, at ${formatClockTime(last.captured_at)}.`
-    : "And that was the last one.";
+  const name = (folder ?? "").trim();
+  return name ? `${from}, ${name}` : from;
 }
 
 /** The caption under the favourite photo. */

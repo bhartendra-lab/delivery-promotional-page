@@ -287,11 +287,16 @@ export function tomorrowIstDateInput(nowMs: number = Date.now()): string {
  * The line under the expiry control: what will actually happen, named with a
  * real date, so "3 months" is never left for the Studio to work out.
  * `at` null is "never".
+ *
+ * Archiving does not close a gallery. It starts a 7 day countdown that Guests
+ * can see, and the event's Clients are sent their memory lane link in that
+ * evening's 9 PM run. An event that never expires sends it two months after
+ * it was created, or when it is archived if that comes first.
  */
 export function expiryOutcomeLine(at: number | null): string {
   return at == null
-    ? "This gallery stays live until you archive it."
-    : `Guests can open this gallery until ${formatExpiryDay(at)}. It is then archived, and its photos are deleted 7 days later unless you restore it.`;
+    ? "This gallery stays live until you archive it. Its Clients are sent their memory lane link two months after the event is created, or the evening you archive it if that comes first."
+    : `This gallery is archived on ${formatExpiryDay(at)}. Guests keep it for 7 more days, with a countdown, and its Clients are sent their memory lane link that evening. Its photos are then deleted unless you restore it.`;
 }
 
 /** The outcome line for an answer still being chosen, or null when there is

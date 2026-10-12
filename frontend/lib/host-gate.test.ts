@@ -66,13 +66,25 @@ test("isGuestSurfacePath: the gallery and its sub-paths are allowed", () => {
   assert.equal(isGuestSurfacePath("/event/riya-and-arjun/auth/callback"), true);
 });
 
-test("a Client's validity extension page is served on the Vyavasth domain only, never on a studio's own", () => {
-  // The page takes a payment for Vyavasth, so its links are always minted on
-  // deliver.vyavasth.in. It is deliberately NOT on the guest surface: a custom
-  // hostname answers 404 for it.
-  assert.equal(isGuestSurfacePath("/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), false);
-  assert.equal(isRequestAllowed("gallery.studioxyz.com", "/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), false);
-  assert.equal(isRequestAllowed("deliver.vyavasth.in", "/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn"), true);
+test("a Client's memory lane page can be served on a studio's own domain", () => {
+  // A storage plan event's page is the Studio's own and is minted on its
+  // domain. Whether a given link may be shown there is the API's decision.
+  const path = "/memory-lane/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn";
+  assert.equal(isGuestSurfacePath(path), true);
+  assert.equal(isRequestAllowed("gallery.studioxyz.com", path), true);
+  assert.equal(isRequestAllowed("deliver.vyavasth.in", path), true);
+  // The bare word is not a path under it.
+  assert.equal(isGuestSurfacePath("/memory-lane"), false);
+  assert.equal(isGuestSurfacePath("/dashboard/memory-lane/abc"), false);
+});
+
+test("the page's old address is never served on a studio's own domain", () => {
+  // /validity/<token> only ever existed on the Vyavasth domain, where it now
+  // redirects. No link was ever minted with it on a custom hostname.
+  const path = "/validity/k3J9xQm2Vb7nRt5wYp1aZc0dAbCdEfGhIjKlMn";
+  assert.equal(isGuestSurfacePath(path), false);
+  assert.equal(isRequestAllowed("gallery.studioxyz.com", path), false);
+  assert.equal(isRequestAllowed("deliver.vyavasth.in", path), true);
 });
 
 test("isGuestSurfacePath: the QR error screens are allowed", () => {

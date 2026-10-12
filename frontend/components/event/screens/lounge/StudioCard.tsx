@@ -17,10 +17,18 @@ export function initials(name: string): string {
 
 export type StudioLink = { platform: SocialPlatformKey; label: string; url: string };
 
+/** The three fields a Studio's links are read from. The gallery hands over its
+ *  whole event; a Client's memory lane page, which has no event document,
+ *  hands over just these. */
+export type StudioLinkSource = Pick<
+  DeliveryLandingPageData,
+  "company_social_links" | "company_instagram_link" | "company_facebook_link"
+>;
+
 /** The studio's social and portal links in display order. Shared so callers
  *  can ask whether any exist (e.g. whether a menu is worth opening) without
  *  duplicating the legacy-field fallbacks. */
-export function socialLinksFor(event: DeliveryLandingPageData): StudioLink[] {
+export function socialLinksFor(event: StudioLinkSource): StudioLink[] {
   const sl = event.company_social_links ?? {};
   // Legacy single-platform fields exist for these two only, on pages published
   // before `social_links`. No other platform has (or gets) a fallback.
@@ -128,7 +136,7 @@ export function SocialRow({
   align = "center",
 }: {
   t: ClientTheme;
-  event: DeliveryLandingPageData;
+  event: StudioLinkSource;
   size?: number;
   align?: "center" | "start";
 }) {

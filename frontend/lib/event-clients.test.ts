@@ -273,18 +273,18 @@ test("tomorrowIstDateInput: the earliest custom date is tomorrow in IST", () => 
 test("expiryOutcomeLine: names the real outcome, with a date or without one", () => {
   assert.equal(
     expiryOutcomeLine(endOfIstDay("2027-01-07")),
-    "Guests can open this gallery until 7 Jan 2027. It is then archived, and its photos are deleted 7 days later unless you restore it.",
+    "This gallery is archived on 7 Jan 2027. Guests keep it for 7 more days, with a countdown, and its Clients are sent their memory lane link that evening. Its photos are then deleted unless you restore it.",
   );
-  assert.equal(expiryOutcomeLine(null), "This gallery stays live until you archive it.");
+  assert.equal(expiryOutcomeLine(null), "This gallery stays live until you archive it. Its Clients are sent their memory lane link two months after the event is created, or the evening you archive it if that comes first.");
 });
 
 test("eventExpiryPreview: the line for the answer being chosen, and nothing while it is incomplete", () => {
   const nowMs = ist("2026-10-07T10:00:00");
   assert.equal(
     eventExpiryPreview({ choice: "3m", nowMs }),
-    "Guests can open this gallery until 7 Jan 2027. It is then archived, and its photos are deleted 7 days later unless you restore it.",
+    "This gallery is archived on 7 Jan 2027. Guests keep it for 7 more days, with a countdown, and its Clients are sent their memory lane link that evening. Its photos are then deleted unless you restore it.",
   );
-  assert.equal(eventExpiryPreview({ choice: "never", nowMs }), "This gallery stays live until you archive it.");
+  assert.equal(eventExpiryPreview({ choice: "never", nowMs }), "This gallery stays live until you archive it. Its Clients are sent their memory lane link two months after the event is created, or the evening you archive it if that comes first.");
   assert.equal(eventExpiryPreview({ choice: null, nowMs }), null);
   assert.equal(eventExpiryPreview({ choice: "custom", date: "", nowMs }), null);
   assert.equal(eventExpiryPreview({ choice: "custom", date: "2026-10-07", nowMs }), null);

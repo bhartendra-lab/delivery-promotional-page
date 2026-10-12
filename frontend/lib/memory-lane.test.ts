@@ -8,12 +8,20 @@ import {
   SCATTER_DESKTOP,
   SCATTER_MOBILE,
   SCORES,
+  WALK_LIGHTS,
   WALK_PHOTO_MAX,
   filmStamp,
   heroPhotos,
   isMobileStage,
+  keepsakeReviewUrl,
   keptClosePhotos,
+  laneAskLabel,
+  laneModeOf,
   laneSpecOf,
+  moreTimeMessage,
+  referralMessage,
+  studioNameOr,
+  studioWhatsAppUrl,
   midiToHz,
   phoneBox,
   phoneSlotCount,
@@ -24,11 +32,15 @@ import {
   stepSeconds,
   thresholdLead,
   timeSinceLabel,
+  walkEndWords,
+  walkEnds,
   walkIndex,
+  walkLight,
   walkPhotos,
+  walkTags,
   walkTravel,
 } from "./memory-lane.ts";
-import type { ValidityReel, ValidityReelItem } from "./event-validity.ts";
+import type { ValidityReel, ValidityReelItem, ValidityStudio } from "./event-validity.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const DASHES = /[–—]/;
@@ -37,8 +49,7 @@ const item = (n: number, over: Partial<ValidityReelItem> = {}): ValidityReelItem
   url: `https://cdn.test/reel/${n}.webp`,
   width: 1200,
   height: 800,
-  captured_at: 1_760_000_000_000 + n * 60_000,
-  time_reliable: true,
+  folder: null,
   liked_by_client: false,
   ...over,
 });
@@ -46,7 +57,7 @@ const item = (n: number, over: Partial<ValidityReelItem> = {}): ValidityReelItem
 const reelOf = (items: ValidityReelItem[], favourite: ValidityReel["favourite"] = null): ValidityReel => ({
   items,
   favourite,
-  stats: { photos: 1248, people: 86, first_at: null, last_at: null, times_reliable: true },
+  stats: { photos: 1248, people: 86 },
 });
 
 /* ── Mood ─────────────────────────────────────────────────────────────────── */
@@ -167,17 +178,77 @@ test("heroPhotos: with no reel the welcome strip stands in, then the cover, then
   assert.deepEqual(heroPhotos({ reel: null, fallback_photos: [], cover: null }), []);
 });
 
-test("walkPhotos: the day in order, capped, and no line at all for fewer than three photos", () => {
-  const items = Array.from({ length: 18 }, (_, i) => item(i));
-  const walk = walkPhotos(reelOf(items));
-  assert.equal(walk.length, WALK_PHOTO_MAX);
+test("walkPhotos: the reel in the order it is told, twenty at the very most, and no line at all for fewer than three", () => {
+  assert.equal(WALK_PHOTO_MAX, 20);
+  // A full reel is shown whole, in order.
+  const full = Array.from({ length: 20 }, (_, i) => item(i));
+  assert.deepEqual(walkPhotos(reelOf(full)).map((p) => p.url), full.map((p) => p.url));
+  // More than twenty can never hang, whatever the API sends.
+  const many = Array.from({ length: 45 }, (_, i) => item(i));
+  const walk = walkPhotos(reelOf(many));
+  assert.equal(walk.length, 20);
   assert.equal(walk[0].url, item(0).url);
-  assert.equal(walk[walk.length - 1].url, item(17).url);
-  const times = walk.map((p) => p.capturedAt ?? 0);
-  assert.deepEqual([...times].sort((a, b) => a - b), times);
+  assert.equal(walk[19].url, item(44).url);
+  const order = walk.map((p) => many.findIndex((m) => m.url === p.url));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.equal(new Set(order).size, 20);
+
   assert.deepEqual(walkPhotos(reelOf([item(0), item(1)])), []);
   assert.deepEqual(walkPhotos(null), []);
   assert.equal(walkPhotos(reelOf([item(0), item(1), item(2)])).length, 3);
+});
+
+test("walkPhotos: each print carries its folder's name, and nothing about when it was taken", () => {
+  const walk = walkPhotos(reelOf([item(0, { folder: "Haldi" }), item(1, { folder: "  Sangeet " }), item(2, { folder: "   " }), item(3)]));
+  assert.deepEqual(walk.map((p) => p.folder), ["Haldi", "Sangeet", null, null]);
+  // An API that does not send folders yet: no names, and nothing breaks.
+  const bare: ValidityReelItem = { url: item(4).url, width: 1200, height: 800, liked_by_client: false };
+  assert.equal(walkPhotos(reelOf([bare, bare, bare]))[0].folder, null);
+  for (const photo of walk) assert.deepEqual(Object.keys(photo).sort(), ["folder", "liked", "ratio", "url"]);
+});
+
+test("walkTags: a tag where each folder begins, and nowhere else", () => {
+  const folders = ["Haldi", "Haldi", "Sangeet", "Sangeet", "Sangeet", "Wedding", null, null];
+  assert.deepEqual(walkTags(folders.map((folder) => ({ folder }))), ["Haldi", null, "Sangeet", null, null, "Wedding", null, null]);
+  // No folders at all: no tags at all.
+  assert.deepEqual(walkTags([{ folder: null }, { folder: null }]), [null, null]);
+  // A photo in no folder does not make the next one announce its folder again.
+  assert.deepEqual(walkTags([{ folder: "Haldi" }, { folder: null }, { folder: "Haldi" }]), ["Haldi", null, null]);
+  assert.deepEqual(walkTags([]), []);
+});
+
+test("walkEnds: from the first folder to the last, or plain words when there is no such journey", () => {
+  const of = (...folders: Array<string | null>) => walkEnds(folders.map((folder) => ({ folder })));
+  assert.deepEqual(of("Haldi", "Sangeet", "Reception"), { start: "Haldi", end: "Reception" });
+  assert.deepEqual(of("Haldi", "Haldi"), { start: "The start", end: "The end" });
+  assert.deepEqual(of("Haldi", "Sangeet", null), { start: "The start", end: "The end" });
+  assert.deepEqual(of(null, null), { start: "The start", end: "The end" });
+  assert.deepEqual(of(), { start: "The start", end: "The end" });
+});
+
+test("walkLight: morning to night across the line, by how far along it the reader is", () => {
+  assert.deepEqual([...WALK_LIGHTS], ["morning", "afternoon", "golden", "night"]);
+  const twenty = Array.from({ length: 20 }, (_, i) => walkLight(i, 20));
+  assert.equal(twenty[0], "morning");
+  assert.equal(twenty[19], "night");
+  // It only ever moves forward, and every light gets its turn.
+  const steps = twenty.map((light) => WALK_LIGHTS.indexOf(light));
+  assert.deepEqual([...steps].sort((a, b) => a - b), steps);
+  assert.equal(new Set(twenty).size, 4);
+  assert.deepEqual([0, 1, 2].map((i) => walkLight(i, 3)), ["morning", "golden", "night"]);
+  assert.equal(walkLight(0, 1), "morning");
+  assert.equal(walkLight(0, 0), "morning");
+  assert.equal(walkLight(99, 20), "night");
+});
+
+test("walkEndWords: points at the gallery when the event holds more than the line shows", () => {
+  assert.deepEqual(walkEndWords(20, 1248), { line: "And there are so many more.", sub: "All 1,248 photos are waiting in your gallery." });
+  assert.deepEqual(walkEndWords(7, 7), { line: "And that was the last one.", sub: "Every one of them is still in your gallery." });
+  // A count that was never taken (0) claims nothing.
+  assert.equal(walkEndWords(12, 0).line, "And that was the last one.");
+  for (const words of [walkEndWords(20, 1248), walkEndWords(7, 7)]) {
+    assert.doesNotMatch(words.line + words.sub, DASHES);
+  }
 });
 
 test("keptClosePhotos: what the Client liked, without the favourite, at most five", () => {
@@ -335,4 +406,66 @@ test("filmStamp: the date as a film camera prints it, on India's calendar", () =
   assert.equal(filmStamp(Date.UTC(2026, 1, 14, 18, 30)), "15 02 '26");
   assert.equal(filmStamp(null), null);
   assert.equal(filmStamp(NaN), null);
+});
+
+/* ── Two endings ──────────────────────────────────────────────────────────── */
+
+const studio = (over: Partial<ValidityStudio> = {}): ValidityStudio => ({
+  logo: "https://cdn.test/logo.png",
+  logo_light: null,
+  website: "https://lumen.example",
+  social_links: { instagram: "https://instagram.com/lumen" },
+  whatsapp_number: "919876543210",
+  google_place_id: "ChIJ-place",
+  gmb_link: null,
+  google_review_enabled: true,
+  show_google_review: true,
+  ...over,
+});
+
+test("laneModeOf: a keepsake only when the API says so, a renewal for everything else", () => {
+  assert.equal(laneModeOf({ mode: "keepsake" }), "keepsake");
+  assert.equal(laneModeOf({ mode: "renew" }), "renew");
+  // An API that predates the keepsake sends no mode: every link was a renewal.
+  assert.equal(laneModeOf({}), "renew");
+  assert.equal(laneModeOf(null), "renew");
+  assert.equal(laneAskLabel("renew"), "Keep it longer");
+  assert.equal(laneAskLabel("keepsake"), "A small favour");
+});
+
+test("keepsakeReviewUrl: asks exactly when the gallery would", () => {
+  assert.equal(keepsakeReviewUrl(studio()), "https://search.google.com/local/writereview?placeid=ChIJ-place");
+  assert.equal(keepsakeReviewUrl(studio({ google_place_id: null, gmb_link: "https://g.page/lumen" })), "https://g.page/lumen");
+  // Either switch off, or no listing at all: no ask.
+  assert.equal(keepsakeReviewUrl(studio({ google_review_enabled: false })), null);
+  assert.equal(keepsakeReviewUrl(studio({ show_google_review: false })), null);
+  assert.equal(keepsakeReviewUrl(studio({ google_place_id: null, gmb_link: null })), null);
+  assert.equal(keepsakeReviewUrl(null), null);
+  assert.equal(keepsakeReviewUrl(undefined), null);
+});
+
+test("studioWhatsAppUrl: a chat with the Studio, the message already typed", () => {
+  assert.equal(studioWhatsAppUrl("919876543210", "Hi there"), "https://wa.me/919876543210?text=Hi%20there");
+  // However the number was stored, only its digits go in the link.
+  assert.equal(studioWhatsAppUrl("+91 98765-43210", "Hi"), "https://wa.me/919876543210?text=Hi");
+  // The message is encoded whole: an ampersand in an event's name must not cut it short.
+  const url = studioWhatsAppUrl("919876543210", referralMessage("Lumen Studio", "Aanya & Rohan"));
+  assert.equal(new URL(url ?? "").searchParams.get("text"), referralMessage("Lumen Studio", "Aanya & Rohan"));
+  for (const none of [null, undefined, "", "12345", "no number"]) assert.equal(studioWhatsAppUrl(none, "Hi"), null);
+});
+
+test("referralMessage / moreTimeMessage: what the chat opens with, with or without the names", () => {
+  assert.equal(
+    referralMessage("Lumen Studio", "Aanya & Rohan"),
+    "Hi Lumen Studio, we loved our photos from Aanya & Rohan. I know someone who is looking for a photographer.",
+  );
+  assert.equal(referralMessage(null, null), "Hi, we loved our photos. I know someone who is looking for a photographer.");
+  assert.equal(moreTimeMessage("Lumen Studio", "Aanya & Rohan"), "Hi Lumen Studio, could you keep the gallery for Aanya & Rohan open a little longer?");
+  assert.equal(moreTimeMessage("  ", ""), "Hi, could you keep our gallery open a little longer?");
+  assert.equal(studioNameOr("Lumen Studio"), "Lumen Studio");
+  assert.equal(studioNameOr("  "), "your photographer");
+  assert.equal(studioNameOr(null), "your photographer");
+  for (const line of [referralMessage("S", "E"), referralMessage(null, null), moreTimeMessage("S", "E"), moreTimeMessage(null, null), laneAskLabel("keepsake")]) {
+    assert.doesNotMatch(line, DASHES);
+  }
 });

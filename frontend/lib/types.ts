@@ -833,6 +833,10 @@ export type DeliveryLandingPageData = {
   company_watermark_url?: string;
   /** Activation toggle from the booking — false = studio has temporarily paused the gallery. */
   is_active?: boolean;
+  /** Epoch ms. Sent only for an ARCHIVED gallery: the moment its photos become
+   *  due for deletion, seven days after it was archived. The gallery stays open
+   *  till then and counts down to this (lib/gallery-closing.ts). */
+  closes_at?: number;
   /** Publish state from the booking — "expired" means the gallery's access window has closed. */
   gallery_publish_status?: GalleryPublishStatus;
   /** Total media count for the booking — not folder-scoped, just a number, safe pre-auth. */

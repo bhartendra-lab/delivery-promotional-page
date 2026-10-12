@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { daySpanLabel, favouriteCaption, type ValidityReel } from "@/lib/event-validity";
+import { favouriteCaption, type ValidityReel } from "@/lib/event-validity";
 import type { LanePhoto } from "@/lib/memory-lane";
 import { formatCount } from "@/lib/plans";
 import { useCountUp, useInViewOnce } from "../motion";
@@ -17,16 +17,16 @@ const FAN = [-9, -4, 2, 7, 12];
  * everyone loved, and the ones the Client liked themselves.
  *
  * Nothing here is decoration. The numbers are the event's own (how many
- * photos, how many people the camera found, how long the day ran), the big
- * print is the photo with the most hearts in the gallery, and the small fan
- * under it is what this Client tapped a heart on. Any part with nothing true
- * to show is simply not there.
+ * photos, how many people have been to the gallery), the big print is the
+ * photo with the most hearts in the gallery, and the small fan under it is
+ * what this Client tapped a heart on. Any part with nothing true to show is
+ * simply not there. How long the day ran is not among the numbers: it could
+ * only come from the cameras' clocks, and those are not to be trusted.
  */
 export function LaneKeepsakes({ reel, eventName, kept }: { reel: ValidityReel; eventName: string; kept: LanePhoto[] }) {
   const [ref, seen] = useInViewOnce<HTMLElement>({ threshold: 0.18 });
   const photos = useCountUp(reel.stats.photos, seen, 1400);
   const people = useCountUp(reel.stats.people, seen, 1400);
-  const span = reel.stats.times_reliable ? daySpanLabel(reel.stats.first_at, reel.stats.last_at) : null;
   const favourite = reel.favourite;
   const showNumbers = reel.stats.photos > 0;
   if (!showNumbers && !favourite && kept.length < 2) return null;
@@ -51,7 +51,6 @@ export function LaneKeepsakes({ reel, eventName, kept }: { reel: ValidityReel; e
                 </div>
               )}
             </dl>
-            {span && <p className={styles.span}>{span}.</p>}
           </div>
         )}
 

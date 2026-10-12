@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties } from "react";
-import { closesInLabel, formatClockTime, formatValidityDate } from "@/lib/event-validity";
+import { closesInLabel, formatValidityDate } from "@/lib/event-validity";
 import { phoneSlotCount, type LanePhoto, type LaneSpec } from "@/lib/memory-lane";
 import { formatCount } from "@/lib/plans";
 import { LaneAtmosphere } from "./LaneAtmosphere";
@@ -45,13 +45,15 @@ export function LaneHero({
   hasWalk,
   entered,
   reduced,
+  askLabel,
   onKeep,
 }: {
   spec: LaneSpec;
   photos: LanePhoto[];
   eventName: string;
   eventDay: string | null;
-  /** The day as a film camera stamps it, for prints with no clock time. */
+  /** The event's day as a film camera stamps it, in the corner of every print.
+   *  The same day on all of them: no photo's own date or time is ever shown. */
   eventStamp: string | null;
   studioName: string | null;
   photoCount: number;
@@ -63,6 +65,9 @@ export function LaneHero({
   /** The welcome screen has been tapped away. */
   entered: boolean;
   reduced: boolean;
+  /** What the button that jumps to the end of the page says: "Keep it longer"
+   *  on a renewal, "A small favour" on a keepsake (laneAskLabel). */
+  askLabel: string;
   onKeep: () => void;
 }) {
   const heroRef = useRef<HTMLElement | null>(null);
@@ -125,7 +130,7 @@ export function LaneHero({
           </a>
         )}
         <button type="button" className={styles.btnSolid} onClick={onKeep}>
-          Keep it longer
+          {askLabel}
         </button>
       </div>
       {hasWalk && <p className={styles.choicesCue}>Or keep scrolling to walk through the day</p>}
@@ -202,27 +207,24 @@ export function LaneHero({
         </div>
 
         <div className={styles.objs} ref={objsRef} aria-hidden="true">
-          {photos.map((photo) => {
-            const stamp = photo.timeReliable && photo.capturedAt != null ? formatClockTime(photo.capturedAt) : eventStamp;
-            return (
-              <div key={photo.url} className={styles.tile} data-tile="" style={{ "--w": `${PRINT_WIDTH}px` } as CSSProperties}>
-                <div className={styles.paper}>
-                  <div className={styles.print}>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- the reel's own small copy, served as it is */}
-                    <img src={photo.url} alt="" draggable={false} decoding="async" />
-                  </div>
-                  <div className={styles.printFoot}>
-                    {stamp && <span className={styles.stamp}>{stamp}</span>}
-                    {photo.liked && (
-                      <svg className={styles.printHeart} viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 21s-7.500-4.700-9.600-9.300C.9 8.300 2.700 4.500 6.300 4.500c2.100 0 3.700 1.200 5.700 3.500 2-2.300 3.600-3.500 5.700-3.500 3.600 0 5.400 3.800 3.900 7.200C19.500 16.300 12 21 12 21z" />
-                      </svg>
-                    )}
-                  </div>
+          {photos.map((photo) => (
+            <div key={photo.url} className={styles.tile} data-tile="" style={{ "--w": `${PRINT_WIDTH}px` } as CSSProperties}>
+              <div className={styles.paper}>
+                <div className={styles.print}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the reel's own small copy, served as it is */}
+                  <img src={photo.url} alt="" draggable={false} decoding="async" />
+                </div>
+                <div className={styles.printFoot}>
+                  {eventStamp && <span className={styles.stamp}>{eventStamp}</span>}
+                  {photo.liked && (
+                    <svg className={styles.printHeart} viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 21s-7.500-4.700-9.600-9.300C.9 8.300 2.700 4.500 6.300 4.500c2.100 0 3.700 1.200 5.700 3.500 2-2.300 3.600-3.500 5.700-3.500 3.600 0 5.400 3.800 3.900 7.200C19.500 16.300 12 21 12 21z" />
+                    </svg>
+                  )}
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
         <div className={styles.copy} ref={copyRef}>
