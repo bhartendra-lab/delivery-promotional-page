@@ -12,7 +12,7 @@ import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, saveIntake, searchSelfie, unlikePhoto } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
-import { nameFromUrl } from "@/lib/media-actions";
+import { failedPhotoUrl, nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import { describeError, type DownloadFailure } from "@/lib/download/failure";
@@ -1175,6 +1175,7 @@ export function LoungeGallery({
         kind: "single",
         stage: "save",
         error: describeError(err),
+        url: failedPhotoUrl(err),
         method: mode === "share" ? "share sheet" : mode === "hold" ? "press and hold" : "browser download",
       });
     },

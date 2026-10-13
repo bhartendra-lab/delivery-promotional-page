@@ -28,3 +28,16 @@ test("the share sheet is the save only on an iOS device that can share files", (
   assert.equal(resolveSaveCapability({}, { ios: false, sharesFiles: true }), "memoryZip");
   assert.equal(resolveSaveCapability(picker, { ios: false, sharesFiles: true }), "directory");
 });
+
+test("cacheKeyed gives a download its own cache entry, and leaves signed URLs alone", async () => {
+  const { cacheKeyed } = await import("../media-actions.ts");
+  assert.equal(
+    cacheKeyed("https://media.example/a/b.jpg", "deliver.example"),
+    "https://media.example/a/b.jpg?o=deliver.example",
+  );
+  // Already has a query: possibly signed, so never touched.
+  const signed = "https://media.example/a/b.jpg?X-Amz-Signature=abc";
+  assert.equal(cacheKeyed(signed, "deliver.example"), signed);
+  assert.equal(cacheKeyed("not a url", "deliver.example"), "not a url");
+  assert.equal(cacheKeyed("https://media.example/a/b.jpg", ""), "https://media.example/a/b.jpg");
+});

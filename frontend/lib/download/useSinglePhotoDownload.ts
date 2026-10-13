@@ -16,7 +16,7 @@
  * See `share.ts` for why an iPhone cannot simply download.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { singleSaveMode, type SingleSaveMode } from "./capability.ts";
 import { fetchImageFile, canShareThese, shareFiles, type ShareOutcome } from "./share.ts";
 import { triggerBlobDownload } from "../media-actions.ts";
@@ -97,9 +97,18 @@ export function useSinglePhotoDownload({
   // iOS, no share sheet: the photo to show for press-and-hold saving.
   const [holdUrl, setHoldUrl] = useState<string | null>(null);
 
+  // A share-sheet save from its tap until the sheet closes. A second tap in
+  // that window would start a second share while the first is still opening,
+  // which iOS rejects — and which used to surface as "Download failed".
+  const sharing = useRef(false);
+
   const save = useCallback(
     (photo: SinglePhotoSource, tier: SinglePhotoTier) => {
       const mode = singleSaveMode();
+      if (mode === "share") {
+        if (sharing.current) return;
+        sharing.current = true;
+      }
 
       const viaShare: SinglePhotoSaver = async (url, filename) => {
         const file = await fetchImageFile(url, filename);
@@ -130,6 +139,9 @@ export function useSinglePhotoDownload({
         .catch((err: unknown) => {
           if (err === DISMISSED) onDismissed?.();
           else onError?.(err, mode);
+        })
+        .finally(() => {
+          if (mode === "share") sharing.current = false;
         });
     },
     [resolveArchiveUrl, onStart, onDone, onFellBack, onDismissed, onError],

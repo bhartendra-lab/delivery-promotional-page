@@ -61,6 +61,65 @@ function hostFrom(value: string | undefined): string | null {
  */
 export const coldFallback = (url: string): string => url.replace(`//${HOT}/`, `//${COLD}/`);
 
+/**
+ * Pure. The same photo under a URL the page's own `<img>` tags never use.
+ *
+ * A photo shown in the gallery is fetched by an `<img>` WITHOUT an `Origin`
+ * header, so storage answers without CORS headers, and the browser caches that
+ * answer for a year (the objects are `immutable`). A later `fetch` of the very
+ * same URL that is served from that cache is refused — "Failed to fetch" —
+ * because the cached answer never said this page may read it. `no-store` is
+ * supposed to keep the download off that cache; this is for wherever it doesn't.
+ * The query string is ignored by storage and gives the download a cache entry
+ * no `<img>` can have got to first. Per host, because the CORS answer names
+ * the origin it was given to.
+ *
+ * A URL that already has a query is left alone: it may be signed, and a signed
+ * URL with an extra parameter is a broken one.
+ */
+export function cacheKeyed(url: string, host: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.search || !host) return url;
+    parsed.searchParams.set("o", host);
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
+
+/** The photo URL a thrown fetch error belongs to, when `fetchPhoto` threw it. */
+export function failedPhotoUrl(err: unknown): string | undefined {
+  const url = (err as { photoUrl?: unknown } | null)?.photoUrl;
+  return typeof url === "string" ? url : undefined;
+}
+
+/**
+ * Fetch a photo for saving. One request normally; when that request is refused
+ * outright (a thrown `TypeError`, as opposed to an HTTP error), one more under
+ * `cacheKeyed`. The error that finally escapes carries the URL, so a failure
+ * report can say which photo and probe why.
+ */
+export async function fetchPhoto(url: string, signal?: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(url, { cache: "no-store", signal });
+  } catch (err) {
+    if (signal?.aborted || isAbort(err)) throw err;
+    const alternate = typeof location === "undefined" ? url : cacheKeyed(url, location.host);
+    if (alternate !== url) {
+      try {
+        return await fetch(alternate, { cache: "no-store", signal });
+      } catch {
+        /* the first error is the one worth reporting */
+      }
+    }
+    if (err && typeof err === "object") Object.assign(err, { photoUrl: url });
+    throw err;
+  }
+}
+
 /** Grid source for a media item: the 480px thumbnail when one exists, else the
  *  2560px delivery copy. Legacy media, videos, and uploads whose thumbnail step
  *  failed all have no thumbnail and fall back transparently. */
@@ -105,7 +164,7 @@ export function degradeGridSrc(
  *  (see coldFallback). */
 export async function downloadImage(url: string, filename?: string): Promise<void> {
   const name = filename ?? nameFromUrl(url);
-  let res = await fetch(url, { cache: "no-store" });
+  let res = await fetchPhoto(url);
   if (!res.ok) {
     const fallback = coldFallback(url);
     if (fallback !== url) res = await fetch(fallback, { cache: "no-store" });
@@ -151,7 +210,7 @@ export async function fetchImageBlob(
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
     if (signal?.aborted) return null;
     try {
-      const res = await fetch(url, { cache: "no-store", signal });
+      const res = await fetchPhoto(url, signal);
       if (res.ok) {
         // `.blob()` reads the FULL body here — a cut stream throws and we retry.
         const blob = await res.blob();

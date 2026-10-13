@@ -13,7 +13,7 @@
 
 import { guestFetch } from "@/lib/guest-api";
 import { saveCapability } from "./capability";
-import { describeBrowser, describeDevice, type DownloadFailure } from "./failure";
+import { describeBrowser, describeDevice, describeError, type DownloadFailure } from "./failure";
 
 const DEDUPE_MS = 30_000;
 const recent = new Map<string, number>();
@@ -42,7 +42,7 @@ type HintedNavigator = Navigator & {
   userAgentData?: {
     getHighEntropyValues?: (hints: string[]) => Promise<{ model?: string }>;
   };
-  connection?: { effectiveType?: string; saveData?: boolean };
+  connection?: { effectiveType?: string; saveData?: boolean; type?: string };
   deviceMemory?: number;
 };
 
@@ -53,6 +53,52 @@ async function hintedModel(nav: HintedNavigator): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+const PROBE_TIMEOUT_MS = 6000;
+
+/**
+ * Work out what a refused photo fetch actually was. The browser reports every
+ * kind — no network, a blocked host, a response the page isn't allowed to read
+ * — as the same "Failed to fetch", so the error alone cannot say.
+ *
+ * A `no-cors` request can be SENT wherever the host is reachable; the page just
+ * can't read the answer. So if it succeeds, the photo was reachable and the
+ * download was refused permission to read it; if it also fails, the request
+ * never got through at all. The browser's own timing entry adds the protocol
+ * and how long the failed attempt took (instant means it never left the phone).
+ */
+async function diagnose(url: string | undefined): Promise<string | undefined> {
+  if (!url) return undefined;
+  const notes: string[] = [];
+  try {
+    const timeout = new Promise<string>((resolve) =>
+      window.setTimeout(() => resolve("probe timed out"), PROBE_TIMEOUT_MS),
+    );
+    const probe = fetch(url, { mode: "no-cors", cache: "no-store" }).then(
+      () => "host reachable, so the response was refused to the page (CORS or a blocked response)",
+      (err: unknown) => `host unreachable from this page (${describeError(err)})`,
+    );
+    notes.push(await Promise.race([probe, timeout]));
+    const attempts = performance
+      .getEntriesByName(url)
+      .filter((entry): entry is PerformanceResourceTiming => entry.entryType === "resource");
+    const failed = attempts.filter((entry) => entry.initiatorType === "fetch").pop();
+    if (failed) {
+      const status = (failed as PerformanceResourceTiming & { responseStatus?: number }).responseStatus;
+      notes.push(
+        `failed attempt took ${Math.round(failed.duration)} ms` +
+          (failed.nextHopProtocol ? ` over ${failed.nextHopProtocol}` : "") +
+          (status ? `, status ${status}` : ""),
+      );
+    }
+    notes.push(`shown as an image first: ${attempts.some((entry) => entry.initiatorType === "img") ? "yes" : "no"}`);
+    notes.push(`tab ${document.visibilityState}`);
+    notes.push(`photo ${url}`);
+  } catch {
+    /* a diagnosis is a bonus; never let it stop the report */
+  }
+  return notes.join("; ") || undefined;
 }
 
 function counts(failure: DownloadFailure): string | undefined {
@@ -82,9 +128,13 @@ export async function reportDownloadFailure(uid: string, failure: DownloadFailur
 
     const nav = window.navigator as HintedNavigator;
     const ua = nav.userAgent ?? "";
+    const diagnosis = await diagnose(failure.url);
     const network = [
       nav.onLine === false ? "offline" : "online",
-      nav.connection?.effectiveType,
+      // `type` is the real link (wifi / cellular); `effectiveType` is only a
+      // speed estimate, and says "4g" on any fast connection, wi-fi included.
+      nav.connection?.type,
+      nav.connection?.effectiveType ? `${nav.connection.effectiveType}-speed` : undefined,
       nav.connection?.saveData ? "data saver on" : undefined,
     ]
       .filter(Boolean)
@@ -96,7 +146,8 @@ export async function reportDownloadFailure(uid: string, failure: DownloadFailur
       body: JSON.stringify({
         kind: failure.kind === "single" ? "Single photo" : "Multiple photos",
         stage: failure.stage,
-        error: failure.error,
+        // Carried in the error field so the backend needs no change to show it.
+        error: [failure.error, diagnosis && `Diagnosis: ${diagnosis}`].filter(Boolean).join(" — ") || undefined,
         reasons: failure.reasons,
         // A single photo has no planned method; say what this browser can do
         // instead, which is what decides the method for a bulk run.

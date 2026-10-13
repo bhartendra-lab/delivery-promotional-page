@@ -21,7 +21,7 @@
  * No aliased imports — unit-tested under `node --test`.
  */
 
-import { coldFallback, nameFromUrl } from "../media-actions.ts";
+import { coldFallback, fetchPhoto, nameFromUrl } from "../media-actions.ts";
 
 export type ShareOutcome =
   /** The Guest picked something in the sheet — almost always "Save Image". */
@@ -69,6 +69,9 @@ export async function shareFiles(files: File[]): Promise<ShareOutcome> {
     return "shared";
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") return "dismissed";
+    // A second tap while the sheet is still opening. The first share is the
+    // one that counts; this one has nothing to report.
+    if (err instanceof DOMException && err.name === "InvalidStateError") return "dismissed";
     if (err instanceof DOMException && err.name === "NotAllowedError") return "blocked";
     throw err;
   }
@@ -106,7 +109,7 @@ export function toShareFile(blob: Blob, name: string): File {
  */
 export async function fetchImageFile(url: string, filename?: string): Promise<File> {
   const name = filename ?? nameFromUrl(url);
-  let res = await fetch(url, { cache: "no-store" });
+  let res = await fetchPhoto(url);
   if (!res.ok) {
     const fallback = coldFallback(url);
     if (fallback !== url) res = await fetch(fallback, { cache: "no-store" });

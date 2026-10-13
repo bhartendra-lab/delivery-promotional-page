@@ -29,6 +29,9 @@ export type DownloadFailure = {
   error?: string;
   /** Distinct per-photo reasons from a run that lost some of its photos. */
   reasons?: string[];
+  /** One photo that could not be fetched. The reporter probes it to tell a
+   *  blocked response from an unreachable host — the error alone cannot. */
+  url?: string;
   method?: string;
   tier?: string;
   total?: number;

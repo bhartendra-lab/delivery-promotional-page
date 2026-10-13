@@ -14,7 +14,7 @@
  *   share       — fetch one set of photos as files for the native share sheet
  */
 
-import { coldFallback, fetchImageBlob, triggerBlobDownload } from "../media-actions.ts";
+import { coldFallback, fetchImageBlob, fetchPhoto, triggerBlobDownload } from "../media-actions.ts";
 import { describeError, noteFailureReason } from "./failure.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
 import { toShareFile } from "./share.ts";
@@ -91,6 +91,8 @@ export type EngineResult = {
   folderName?: string;
   /** Why the `failed` photos failed — a few distinct reasons, for reporting. */
   failureReasons?: string[];
+  /** One photo that failed, so a report can probe why. */
+  failedUrl?: string;
 };
 
 /**
@@ -352,6 +354,7 @@ export async function runDirectoryDownload({
   let skipped = 0;
   let failed = 0;
   const failureReasons: string[] = [];
+  let failedUrl: string | undefined;
 
   async function writeOne(item: PlanItem): Promise<void> {
     if (signal.aborted) throw ABORTED;
@@ -363,7 +366,7 @@ export async function runDirectoryDownload({
     const into = await targetDir(item.folderName);
     let writable: FsWritable | null = null;
     try {
-      let res = await fetch(item.url, { cache: "no-store", signal });
+      let res = await fetchPhoto(item.url, signal);
       if (!res.ok || !res.body) {
         // A migrated booking serves its web copies from the cold host, and an
         // archive object lives there too — the same single retry the ZIP path
@@ -388,6 +391,7 @@ export async function runDirectoryDownload({
         throw ABORTED;
       }
       failed += 1;
+      failedUrl ??= item.url;
       noteFailureReason(failureReasons, describeError(err));
       progress.advance(0, false);
     }
@@ -409,11 +413,11 @@ export async function runDirectoryDownload({
     );
   } catch (err) {
     if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
-      return { saved, skipped, failed, aborted: true, folderName: dir.name, failureReasons };
+      return { saved, skipped, failed, aborted: true, folderName: dir.name, failureReasons, failedUrl };
     }
     throw err;
   }
-  return { saved, skipped, failed, folderName: dir.name, failureReasons };
+  return { saved, skipped, failed, folderName: dir.name, failureReasons, failedUrl };
 }
 
 /* ── 2. streamZip / memoryZip ────────────────────────────────────────────── */
@@ -493,6 +497,7 @@ export async function runZipDownload({
   let saved = 0;
   let failed = 0;
   const failureReasons: string[] = [];
+  let failedUrl: string | undefined;
   async function* members(): AsyncGenerator<{ name: string; input: Blob }> {
     // Sliding window of in-flight downloads — each resolves to a fully-buffered
     // Blob (or null), so what `client-zip` is handed is always complete.
@@ -504,9 +509,10 @@ export async function runZipDownload({
         pending.push({
           name: paths[next],
           bytes: item.bytes,
-          blob: fetchImageBlob(item.url, signal, (reason) =>
-            noteFailureReason(failureReasons, reason),
-          ),
+          blob: fetchImageBlob(item.url, signal, (reason) => {
+            failedUrl ??= item.url;
+            noteFailureReason(failureReasons, reason);
+          }),
         });
         next++;
       }
@@ -541,11 +547,11 @@ export async function runZipDownload({
   } catch (err) {
     if (target) await target.abort(err).catch(() => {});
     if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
-      return { saved, skipped: 0, failed, aborted: true, failureReasons };
+      return { saved, skipped: 0, failed, aborted: true, failureReasons, failedUrl };
     }
     throw err;
   }
-  return { saved, skipped: 0, failed, failureReasons };
+  return { saved, skipped: 0, failed, failureReasons, failedUrl };
 }
 
 /* ── 3. batchedZip ───────────────────────────────────────────────────────── */
@@ -596,15 +602,17 @@ export async function fetchShareSet({
   const failureReasons: string[] = [];
   const slots: (File | null)[] = resolved.map(() => null);
   let failed = 0;
+  let failedUrl: string | undefined;
 
   let next = 0;
   const worker = async () => {
     for (;;) {
       const index = next++;
       if (index >= resolved.length || signal.aborted) return;
-      const blob = await fetchImageBlob(resolved[index].url, signal, (reason) =>
-        noteFailureReason(failureReasons, reason),
-      );
+      const blob = await fetchImageBlob(resolved[index].url, signal, (reason) => {
+        failedUrl ??= resolved[index].url;
+        noteFailureReason(failureReasons, reason);
+      });
       if (signal.aborted) return;
       progress.advance(blob?.size ?? 0);
       if (blob) slots[index] = toShareFile(blob, names[index]);
@@ -618,7 +626,7 @@ export async function fetchShareSet({
   if (signal.aborted) {
     return { saved: 0, skipped: 0, failed, aborted: true, failureReasons, files: [] };
   }
-  return { saved: files.length, skipped: 0, failed, failureReasons, files };
+  return { saved: files.length, skipped: 0, failed, failureReasons, failedUrl, files };
 }
 
 /* ── 5. Shared: wake lock ────────────────────────────────────────────────── */
