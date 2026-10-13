@@ -55,7 +55,8 @@ export function useSinglePhotoDownload({
    * left believing a 2560px file is their original.
    */
   onFellBack?: () => void;
-  onError?: () => void;
+  /** Fired when nothing could be saved, with whatever was thrown. */
+  onError?: (err: unknown) => void;
 }): SinglePhotoDownload {
   // The photo awaiting a quality choice, plus the tier it can offer. Held
   // together so the sheet can never render against a stale pairing.
@@ -72,7 +73,7 @@ export function useSinglePhotoDownload({
           if (delivered !== tier) onFellBack?.();
           else onDone?.();
         })
-        .catch(() => onError?.());
+        .catch((err: unknown) => onError?.(err));
     },
     [resolveArchiveUrl, onStart, onDone, onFellBack, onError],
   );

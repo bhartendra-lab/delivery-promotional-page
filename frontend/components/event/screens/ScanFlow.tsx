@@ -107,9 +107,6 @@ export function ScanFlow({
       // Raise the blocking permission pop-up — there is no way past it but to
       // grant camera access (or switch browsers, for the unsupported case).
       setCamGate(reason === "unsupported" ? { kind: "unsupported" } : { kind: "blocked", reason, name });
-      // If this bug appears again, report it — covers the Realme/ColorOS case
-      // where the permission prompt is suppressed and the camera never starts.
-      void reportCameraFailure(reason, err, { event: uniqueIdentifier, booking: bookingId });
     };
 
     (async () => {
@@ -142,7 +139,7 @@ export function ScanFlow({
       if (stream) stream.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
     };
-  }, [agreed, phase, camAttempt, uniqueIdentifier, bookingId]);
+  }, [agreed, phase, camAttempt]);
 
   function resetProgress() {
     setPct(0);
@@ -533,25 +530,6 @@ function gateContent(gate: Exclude<CamGate, null>): { title: string; body: strin
         : "Finding your photos needs camera access, and it’s blocked right now.",
     steps: enableSteps,
   };
-}
-
-/** Read the camera permission state (best-effort) and report the failure. */
-async function reportCameraFailure(reason: CameraFailReason, err: unknown, ids: { event: string; booking: string }) {
-  let permission: string | undefined;
-  try {
-    const status = await navigator.permissions?.query({ name: "camera" as PermissionName });
-    permission = status?.state;
-  } catch {
-    /* Permissions API not available (e.g. Firefox/Safari camera query) */
-  }
-  void reportBug(`Face scan — camera unavailable (${reason})`, {
-    Event: ids.event,
-    Booking: ids.booking,
-    "Camera permission": permission,
-    "Error name": err instanceof Error ? err.name : undefined,
-    "Error message": err instanceof Error ? err.message : err ? String(err) : undefined,
-    "mediaDevices present": typeof navigator !== "undefined" ? String(!!navigator.mediaDevices) : undefined,
-  });
 }
 
 /** Dig a human-readable reason out of the worker's (possibly nested) error body. */

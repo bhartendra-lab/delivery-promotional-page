@@ -10,6 +10,8 @@
  * for the single-photo and grid paths.
  */
 
+import { describeError } from "./download/failure.ts";
+
 export function nameFromUrl(url: string): string {
   try {
     const path = new URL(url).pathname;
@@ -137,9 +139,15 @@ const FETCH_ATTEMPTS = 4;
  * `client-zip` is fed a live network stream that dies mid-read.
  *
  * Returns null when the image can't be fetched after every attempt; the caller
- * skips it and keeps zipping the rest.
+ * skips it and keeps zipping the rest. `onFailure` is told why, once, for a
+ * photo that is given up on — never for a cancelled download.
  */
-export async function fetchImageBlob(url: string, signal?: AbortSignal): Promise<Blob | null> {
+export async function fetchImageBlob(
+  url: string,
+  signal?: AbortSignal,
+  onFailure?: (reason: string) => void,
+): Promise<Blob | null> {
+  let reason = "no response";
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
     if (signal?.aborted) return null;
     try {
@@ -148,13 +156,18 @@ export async function fetchImageBlob(url: string, signal?: AbortSignal): Promise
         // `.blob()` reads the FULL body here — a cut stream throws and we retry.
         const blob = await res.blob();
         if (blob.size > 0) return blob;
-      } else if (res.status !== 429 && res.status < 500) {
-        break; // a genuine 4xx (missing/forbidden) won't improve on retry — but
-        // it's also exactly what a migrated-and-purged original looks like, so
-        // fall through to the one cold-host attempt below instead of bailing.
+        reason = "empty response body";
+      } else {
+        reason = `HTTP ${res.status}`;
+        if (res.status !== 429 && res.status < 500) {
+          break; // a genuine 4xx (missing/forbidden) won't improve on retry — but
+          // it's also exactly what a migrated-and-purged original looks like, so
+          // fall through to the one cold-host attempt below instead of bailing.
+        }
       }
-    } catch {
+    } catch (err) {
       /* network / HTTP2 stream error — fall through to backoff + retry */
+      reason = describeError(err);
     }
     if (attempt < FETCH_ATTEMPTS - 1) await delay(500 * 2 ** attempt); // 0.5s, 1s, 2s
   }
@@ -165,16 +178,18 @@ export async function fetchImageBlob(url: string, signal?: AbortSignal): Promise
   // single extra attempt, not a loop, so a genuinely missing object still fails
   // fast.
   const fallback = coldFallback(url);
-  if (fallback === url) return null;
-  try {
-    const res = await fetch(fallback, { cache: "no-store", signal });
-    if (res.ok) {
-      const blob = await res.blob();
-      if (blob.size > 0) return blob;
+  if (fallback !== url) {
+    try {
+      const res = await fetch(fallback, { cache: "no-store", signal });
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 0) return blob;
+      }
+    } catch {
+      /* fall through to null — the first host's reason is the one worth keeping */
     }
-  } catch {
-    /* fall through to null */
   }
+  if (!signal?.aborted) onFailure?.(reason);
   return null;
 }
 

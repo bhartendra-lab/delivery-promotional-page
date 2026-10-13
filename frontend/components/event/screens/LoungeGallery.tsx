@@ -15,6 +15,8 @@ import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
+import { describeError, type DownloadFailure } from "@/lib/download/failure";
+import { reportDownloadFailure } from "@/lib/download/report-failure";
 import { QualityChoiceSheet } from "@/components/event/download/QualityChoiceSheet";
 import type { PlanSource } from "@/lib/download/plan";
 import type { ArchiveUrlResolver } from "@/lib/download/engines";
@@ -441,7 +443,14 @@ export function LoungeGallery({
    * chosen and progress lives, so there is no separate progress toast any more.
    * Single-photo downloads still bypass it entirely.
    */
-  const downloadFlow = useDownloadFlow();
+  /** Email the team when a download fails. Guests have been hitting failures we
+   *  can't reproduce, so every one is reported with the browser, the phone and
+   *  the reason; the backend adds who the Guest is from their token. */
+  const reportFailure = useCallback(
+    (failure: DownloadFailure) => void reportDownloadFailure(uniqueIdentifier, failure),
+    [uniqueIdentifier],
+  );
+  const downloadFlow = useDownloadFlow({ onFailure: reportFailure });
   const zipping = downloadFlow.state.open;
   /** Server-derived: may this viewer pick an unwatermarked archive tier? Comes
    *  back on the first page of get-media. Advisory only — the URL endpoint
@@ -1149,7 +1158,10 @@ export function LoungeGallery({
       setToast("Full-size copy unavailable — saved the web version");
       triggerNudge("download");
     },
-    onError: () => setToast("Download failed — please try again"),
+    onError: (err) => {
+      setToast("Download failed — please try again");
+      reportFailure({ kind: "single", stage: "save", error: describeError(err) });
+    },
   });
 
   const downloadOne = useCallback(

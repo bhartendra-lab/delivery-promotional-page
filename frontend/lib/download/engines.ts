@@ -14,6 +14,7 @@
  */
 
 import { coldFallback, fetchImageBlob, triggerBlobDownload } from "../media-actions.ts";
+import { describeError, noteFailureReason } from "./failure.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
 
 /* ── File System Access types ────────────────────────────────────────────────
@@ -86,6 +87,8 @@ export type EngineResult = {
   aborted?: boolean;
   /** Name of the folder written into (directory only). */
   folderName?: string;
+  /** Why the `failed` photos failed — a few distinct reasons, for reporting. */
+  failureReasons?: string[];
 };
 
 /**
@@ -346,6 +349,7 @@ export async function runDirectoryDownload({
   let saved = 0;
   let skipped = 0;
   let failed = 0;
+  const failureReasons: string[] = [];
 
   async function writeOne(item: PlanItem): Promise<void> {
     if (signal.aborted) throw ABORTED;
@@ -382,6 +386,7 @@ export async function runDirectoryDownload({
         throw ABORTED;
       }
       failed += 1;
+      noteFailureReason(failureReasons, describeError(err));
       progress.advance(0, false);
     }
   }
@@ -402,11 +407,11 @@ export async function runDirectoryDownload({
     );
   } catch (err) {
     if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
-      return { saved, skipped, failed, aborted: true, folderName: dir.name };
+      return { saved, skipped, failed, aborted: true, folderName: dir.name, failureReasons };
     }
     throw err;
   }
-  return { saved, skipped, failed, folderName: dir.name };
+  return { saved, skipped, failed, folderName: dir.name, failureReasons };
 }
 
 /* ── 2. streamZip / memoryZip ────────────────────────────────────────────── */
@@ -485,6 +490,7 @@ export async function runZipDownload({
 
   let saved = 0;
   let failed = 0;
+  const failureReasons: string[] = [];
   async function* members(): AsyncGenerator<{ name: string; input: Blob }> {
     // Sliding window of in-flight downloads — each resolves to a fully-buffered
     // Blob (or null), so what `client-zip` is handed is always complete.
@@ -496,7 +502,9 @@ export async function runZipDownload({
         pending.push({
           name: paths[next],
           bytes: item.bytes,
-          blob: fetchImageBlob(item.url, signal),
+          blob: fetchImageBlob(item.url, signal, (reason) =>
+            noteFailureReason(failureReasons, reason),
+          ),
         });
         next++;
       }
@@ -531,11 +539,11 @@ export async function runZipDownload({
   } catch (err) {
     if (target) await target.abort(err).catch(() => {});
     if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
-      return { saved, skipped: 0, failed, aborted: true };
+      return { saved, skipped: 0, failed, aborted: true, failureReasons };
     }
     throw err;
   }
-  return { saved, skipped: 0, failed };
+  return { saved, skipped: 0, failed, failureReasons };
 }
 
 /* ── 3. batchedZip ───────────────────────────────────────────────────────── */

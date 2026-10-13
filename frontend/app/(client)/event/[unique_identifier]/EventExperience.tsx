@@ -12,6 +12,7 @@ import { EventFlow } from "@/components/event/EventFlow";
 import { PolicyProvider } from "@/components/event/policy/PolicyContext";
 import { PolicyOverlay } from "@/components/event/policy/PolicyOverlay";
 import { GuestInspectDeterrent } from "@/components/event/GuestInspectDeterrent";
+import { InAppBrowserGate } from "@/components/event/InAppBrowserGate";
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
@@ -65,6 +66,9 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
         {/* Guest routes only — a casual-inspection deterrent, see the file. */}
         <GuestInspectDeterrent />
         <EventFlow />
+        {/* Moves a Guest out of Instagram's / Facebook's own browser, where
+            downloads silently fail. Renders nothing in a real browser. */}
+        <InAppBrowserGate />
         <PolicyOverlay />
       </PolicyProvider>
     </EventThemeProvider>

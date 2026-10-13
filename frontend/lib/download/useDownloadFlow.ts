@@ -46,6 +46,7 @@ import {
   type PlanSource,
 } from "./plan.ts";
 import { downloadEnvironment, type DownloadEnvironment } from "./capability.ts";
+import { describeError, type DownloadFailure } from "./failure.ts";
 
 export type DownloadRequest = {
   /** Booking this download belongs to — keys the remembered target folder. */
@@ -112,7 +113,16 @@ function hasAnyArchive(sources: PlanSource[]): boolean {
   );
 }
 
-export function useDownloadFlow() {
+export function useDownloadFlow({
+  onFailure,
+}: {
+  /**
+   * Told about every way a run can go wrong: the selection failing to resolve,
+   * a run that throws, and a run that finishes having lost some photos. Never
+   * told about a cancel — stopping a download is an outcome, not a failure.
+   */
+  onFailure?: (failure: DownloadFailure) => void;
+} = {}) {
   const [request, setRequest] = useState<DownloadRequest | null>(null);
   const [sources, setSources] = useState<PlanSource[] | null>(null);
   const [tier, setTier] = useState<DownloadTier>("2560");
@@ -131,6 +141,12 @@ export function useDownloadFlow() {
   const releaseWakeLock = useRef<(() => void) | null>(null);
   // Running totals across batched parts, which are separate engine runs.
   const totals = useRef({ saved: 0, skipped: 0, failed: 0 });
+  // Read through a ref so a caller passing an inline function doesn't rebuild
+  // every callback below on each render.
+  const onFailureRef = useRef(onFailure);
+  useEffect(() => {
+    onFailureRef.current = onFailure;
+  }, [onFailure]);
 
   const offersArchive = useMemo(
     () => Boolean(request?.archiveAccess && sources && hasAnyArchive(sources)),
@@ -201,6 +217,7 @@ export function useDownloadFlow() {
       } catch (err) {
         if (ctrl.signal.aborted) return;
         console.warn("[download] could not resolve the selection", err);
+        onFailureRef.current?.({ kind: "bulk", stage: "prepare", error: describeError(err) });
         setError("Couldn't prepare this download. Please try again.");
         setSources([]);
         setPhase("plan");
@@ -212,15 +229,43 @@ export function useDownloadFlow() {
   /** Run one engine invocation and fold its counters into the running totals. */
   const runEngine = useCallback(
     async (run: () => Promise<EngineResult>): Promise<EngineResult> => {
-      const outcome = await run();
+      let outcome: EngineResult;
+      try {
+        outcome = await run();
+      } catch (err) {
+        // A cancel that surfaces as a throw is still a cancel.
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        onFailureRef.current?.({
+          kind: "bulk",
+          stage: "run",
+          error: describeError(err),
+          method: plan?.method,
+          tier: plan?.tier,
+          total: plan?.items.length,
+        });
+        throw err;
+      }
       totals.current = {
         saved: totals.current.saved + outcome.saved,
         skipped: totals.current.skipped + outcome.skipped,
         failed: totals.current.failed + outcome.failed,
       };
+      if (outcome.failed > 0 && !outcome.aborted) {
+        onFailureRef.current?.({
+          kind: "bulk",
+          stage: "partial",
+          reasons: outcome.failureReasons,
+          method: plan?.method,
+          tier: plan?.tier,
+          total: outcome.saved + outcome.skipped + outcome.failed,
+          saved: outcome.saved,
+          skipped: outcome.skipped,
+          failed: outcome.failed,
+        });
+      }
       return outcome;
     },
-    [],
+    [plan],
   );
 
   const finish = useCallback(
