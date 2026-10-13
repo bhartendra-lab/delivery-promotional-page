@@ -2,15 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  clearCompany,
-  clearToken,
-  isAuthenticated,
-  needsOnboarding,
-  needsPlan,
-  setCompany,
-  PLAN_STEP_PATH,
-} from "@/lib/auth";
+import { isAuthenticated, needsOnboarding, needsPlan, setCompany, PLAN_STEP_PATH } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
 import { getCompanyDetails } from "@/lib/api";
 import {
@@ -45,14 +37,13 @@ type Gate =
   | { status: "error"; message: string };
 
 /**
- * The compulsory last step of onboarding (/checkout?onboarding=1): a studio
- * that has finished its details, WhatsApp code and Google Business step must
- * buy events or a storage plan before the dashboard opens.
+ * The plan selection flow for a studio that has not paid yet
+ * (/checkout?onboarding=1), opened from the dashboard's welcome dialog. Paying
+ * here is optional: "Not now" leads back to the dashboard, where the studio
+ * can do everything except create an event.
  *
  * Not a second purchase flow. It is the same chooser, billing form, summary,
- * coupon field and useCheckoutFlow the upgrade modal runs, laid out as a page
- * with no way around it: the only exits are paying, logging out, and asking
- * for help on WhatsApp.
+ * coupon field and useCheckoutFlow the upgrade modal runs, laid out as a page.
  *
  * Whether the studio belongs here is decided from a FRESH company, never the
  * cached one. A studio that paid on another device, or whose payment landed
@@ -179,9 +170,7 @@ export function OnboardingPlanStep() {
           ? `${selection.quantity} event${selection.quantity === 1 ? "" : "s"}`
           : planLabel(selection.plan),
       before: snapshot,
-      // Only read by the "payment wasn't completed" screen, which this step
-      // replaces with its own wording (hideDashboardExit).
-      currentPlanName: "",
+      currentPlanName: snapshot?.service?.name || snapshot?.service?.service_type || "your current plan",
       prefill: company
         ? { name: company.name, email: company.business_email, contact: company.whatsapp_number }
         : undefined,
@@ -191,9 +180,9 @@ export function OnboardingPlanStep() {
   }
 
   /**
-   * The cached company still says "plan required" at this point, and the
-   * dashboard gate reads the cache, so it is refreshed BEFORE navigating or the
-   * studio would be sent straight back here.
+   * After a payment. The cached company still says "plan required" at this
+   * point, and the dashboard's first-purchase prompts read the cache, so it is
+   * refreshed BEFORE navigating or the studio would be asked to buy again.
    */
   async function openDashboard() {
     try {
@@ -205,15 +194,14 @@ export function OnboardingPlanStep() {
         return;
       }
     } catch {
-      /* Fall through: the dashboard gate re-checks against the server. */
+      /* Fall through: the dashboard re-reads the company from the server. */
     }
     router.replace("/dashboard");
   }
 
-  function logOut() {
-    clearToken();
-    clearCompany();
-    router.replace("/login");
+  /** "Not now": back to the dashboard without paying. */
+  function skip() {
+    router.replace("/dashboard");
   }
 
   if (gate.status === "checking") {
@@ -226,12 +214,12 @@ export function OnboardingPlanStep() {
 
   if (gate.status === "error" || gate.status === "no_access") {
     return (
-      <Shell onLogOut={logOut}>
+      <Shell onSkip={skip}>
         <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 text-center">
           {gate.status === "no_access" ? (
             <p className="text-sm text-[var(--color-brand-ink)]">
-              Your studio has not chosen a plan yet. Ask your studio admin to sign in and choose one, and the
-              dashboard will open for everyone.
+              Your studio has not chosen a plan yet. Only your studio admin can buy events or a plan. Ask them to
+              sign in and choose one.
             </p>
           ) : (
             <>
@@ -282,7 +270,7 @@ export function OnboardingPlanStep() {
   const showingFlow = state.phase !== "idle" && state.phase !== "processing";
 
   return (
-    <Shell onLogOut={logOut}>
+    <Shell onSkip={skip}>
       <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-6 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-8">
         {showingFlow ? (
           <>
@@ -297,8 +285,9 @@ export function OnboardingPlanStep() {
                 setActivationPending(false);
                 reset();
               }}
-              onGoToDashboard={() => void openDashboard()}
-              hideDashboardExit
+              // An abandoned payment has nothing to wait for; only a
+              // completed one needs the fresh company first.
+              onGoToDashboard={() => (state.phase === "dismissed" ? skip() : void openDashboard())}
             />
           </>
         ) : step === "billing" ? (
@@ -399,10 +388,10 @@ export function OnboardingPlanStep() {
 }
 
 /**
- * The step's frame: logo, "Step 4 of 4", the heading, and the two exits that
- * are not paying. Deliberately no close button and no link to the dashboard.
+ * The flow's frame: logo, the heading, and the two exits that are not paying
+ * (help on WhatsApp, and "Not now" back to the dashboard).
  */
-function Shell({ children, onLogOut }: { children: React.ReactNode; onLogOut?: () => void }) {
+function Shell({ children, onSkip }: { children: React.ReactNode; onSkip?: () => void }) {
   return (
     <main className="flex min-h-screen flex-1 justify-center bg-[var(--color-brand-bg)] px-6 py-12">
       <div className="w-full max-w-xl dash-rise">
@@ -410,25 +399,9 @@ function Shell({ children, onLogOut }: { children: React.ReactNode; onLogOut?: (
           <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={80} />
         </div>
 
-        <div className="mb-4">
-          <p className="mb-1.5 text-xs text-[var(--color-brand-muted)]">Step 4 of 4</p>
-          <div
-            role="progressbar"
-            aria-valuenow={4}
-            aria-valuemin={1}
-            aria-valuemax={4}
-            aria-label="Studio setup progress"
-            className="flex gap-1.5"
-          >
-            {[1, 2, 3, 4].map((n) => (
-              <span key={n} className="h-1 flex-1 rounded-full bg-[var(--color-brand-navy)]" />
-            ))}
-          </div>
-        </div>
-
         <h1 className="text-2xl font-bold text-[var(--color-brand-ink)]">Choose how you want to pay</h1>
         <p className="mb-6 mt-1.5 text-sm text-[var(--color-brand-muted)]">
-          Pick one to open your dashboard. You can switch to a storage plan later.
+          Pick one to start creating events. You can switch to a storage plan later.
         </p>
 
         {children}
@@ -442,13 +415,13 @@ function Shell({ children, onLogOut }: { children: React.ReactNode; onLogOut?: (
           >
             Chat with us on WhatsApp
           </a>
-          {onLogOut && (
+          {onSkip && (
             <button
               type="button"
-              onClick={onLogOut}
+              onClick={onSkip}
               className="brand-focus rounded-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
             >
-              Log out
+              Not now
             </button>
           )}
         </div>

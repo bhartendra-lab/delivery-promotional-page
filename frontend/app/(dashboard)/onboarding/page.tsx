@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated, getCompany, setCompany, needsOnboarding, needsPlan, PLAN_STEP_PATH } from "@/lib/auth";
+import { isAuthenticated, getCompany, setCompany, needsOnboarding } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { StudioDetailsStep } from "@/components/onboarding/StudioDetailsStep";
@@ -13,14 +13,15 @@ type Step = "details" | "otp" | "google";
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready" };
 
 const STEP_INDEX: Record<Step, number> = { details: 1, otp: 2, google: 3 };
+const TOTAL_STEPS = 3;
 
 /**
- * `total` is 4 for a studio that still has to choose a plan: the compulsory
- * payment step at /checkout?onboarding=1 is the fourth and carries the same
- * indicator. A studio that already has a plan sees the three steps here only.
+ * Paying is not a step here. A studio that has not paid yet is offered a plan
+ * on the dashboard (WelcomeDialog) and can say not now.
  */
-function OnboardingProgress({ step, total }: { step: Step; total: number }) {
+function OnboardingProgress({ step }: { step: Step }) {
   const current = STEP_INDEX[step];
+  const total = TOTAL_STEPS;
   return (
     <div className="mb-4">
       <p className="mb-1.5 text-xs text-[var(--color-brand-muted)]">Step {current} of {total}</p>
@@ -63,8 +64,7 @@ export default function OnboardingPage() {
     // right step instead of restarting at "details" or bouncing to /dashboard.
     function proceed(c: Company) {
       if (!needsOnboarding(c)) {
-        // Onboarded but not yet paid: straight to the plan step, never the dashboard.
-        router.replace(needsPlan(c) ? PLAN_STEP_PATH : "/dashboard");
+        router.replace("/dashboard");
         return;
       }
       setStep(c.whatsapp_verified ? "google" : "details");
@@ -124,7 +124,7 @@ export default function OnboardingPage() {
           <img src="/vyavasth-full-logo.svg" alt="Vyavasth" height={80} />
         </div>
 
-        <OnboardingProgress step={step} total={needsPlan(company) ? 4 : 3} />
+        <OnboardingProgress step={step} />
 
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "details" ? (
@@ -150,7 +150,7 @@ export default function OnboardingPage() {
             <GoogleBusinessStep
               onDone={(updatedCompany) => {
                 setCompany(updatedCompany);
-                router.replace(needsPlan(updatedCompany) ? PLAN_STEP_PATH : "/dashboard");
+                router.replace("/dashboard");
               }}
             />
           )}

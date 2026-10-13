@@ -87,19 +87,23 @@ export function needsOnboarding(company: Company): boolean {
 }
 
 /**
- * The studio has finished onboarding but has not paid yet: it must buy events
- * or a storage plan (the compulsory step at /checkout?onboarding=1) before it
- * may see the dashboard. Decided by the API (`plan_required` on the company).
+ * The studio has finished onboarding but has not paid yet. It can use the
+ * dashboard and finish its profile, but it cannot create an event until it
+ * buys events or a storage plan. Decided by the API (`plan_required` on the
+ * company).
+ *
+ * Paying is never forced: the dashboard offers it (WelcomeDialog once, then
+ * FirstPurchaseNotice until the first payment), and the studio can say not now.
  *
  * An absent value is false on purpose. A company cached before this field
- * existed has none, and reading that as "must pay" would trap every signed-in
- * studio on the payment step.
+ * existed has none, and reading that as "has not paid" would show the
+ * first-purchase prompts to every signed-in studio.
  */
 export function needsPlan(company: Company): boolean {
   return company.plan_required === true;
 }
 
-/** Where a studio that still has to choose a plan is sent. */
+/** The plan selection flow a studio that has not paid yet is offered. */
 export const PLAN_STEP_PATH = "/checkout?onboarding=1";
 
 /**

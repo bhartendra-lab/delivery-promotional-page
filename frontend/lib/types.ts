@@ -217,9 +217,10 @@ export type Company = {
   /** One-shot flag for the post-onboarding welcome dialog. */
   welcome_dialog_seen_at?: number | null;
   /**
-   * True when the studio has not paid yet: it must buy events or a storage
-   * plan before it can use the dashboard. Read through needsPlan() in
-   * lib/auth.ts, which treats an absent value (an older cached company) as false.
+   * True when the studio has not paid yet: it can use the dashboard, but must
+   * buy events or a storage plan before it can create an event. Read through
+   * needsPlan() in lib/auth.ts, which treats an absent value (an older cached
+   * company) as false.
    */
   plan_required?: boolean;
   /* ── Custom gallery domain ────────────────────────────────────────────

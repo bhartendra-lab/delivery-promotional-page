@@ -15,6 +15,8 @@ import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { WelcomeDialog } from "@/components/onboarding/WelcomeDialog";
+import { FirstPurchaseNotice } from "@/components/billing/FirstPurchaseNotice";
+import { useAwaitingFirstPayment } from "@/components/billing/useFirstPurchase";
 import {
   IconArchive,
   IconPlus,
@@ -34,6 +36,7 @@ export default function DashboardHomePage() {
   const { dlpUsage, dlpLoading } = useChrome();
   const { openUpgradeModal } = useUpgradeModal();
   const company = useCompany();
+  const awaitingFirstPayment = useAwaitingFirstPayment();
   // Session-only (not localStorage) — the nudge should come back next visit
   // until the studio actually links a Google listing.
   const [gmbNudgeDismissed, setGmbNudgeDismissed] = useState(false);
@@ -159,8 +162,12 @@ export default function DashboardHomePage() {
         </div>
       )}
 
+      {/* Before the first payment the studio has not run out of anything: it is
+          told about its first purchase instead of a used-up limit. */}
+      <FirstPurchaseNotice />
+
       {/* Limit exhausted disclaimer (count-based plans only) */}
-      {!dlpLoading && createBlocked && (
+      {!dlpLoading && createBlocked && !awaitingFirstPayment && (
         <div
           role="alert"
           className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-4 py-3 text-sm text-[var(--color-brand-danger)]"

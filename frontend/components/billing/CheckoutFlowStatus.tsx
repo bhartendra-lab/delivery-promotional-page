@@ -13,16 +13,10 @@ export function CheckoutFlowStatus({
   state,
   onRetry,
   onGoToDashboard,
-  hideDashboardExit = false,
 }: {
   state: CheckoutFlowState;
   onRetry: () => void;
   onGoToDashboard: () => void;
-  /**
-   * The compulsory choose-a-plan step has no way back to the dashboard until
-   * the studio has paid, so an abandoned payment offers "Try again" only.
-   */
-  hideDashboardExit?: boolean;
 }) {
   if (state.phase === "confirming") {
     // The two per-event purchases are confirmed by whatever started them,
@@ -69,9 +63,7 @@ export function CheckoutFlowStatus({
           Payment wasn&apos;t completed.
         </p>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          {hideDashboardExit
-            ? "You have not been charged. Choose how you want to pay to open your dashboard."
-            : `You're still on ${state.planName}.`}
+          You&apos;re still on {state.planName}.
         </p>
         <div className="mt-2 flex items-center gap-3">
           <button
@@ -81,15 +73,13 @@ export function CheckoutFlowStatus({
           >
             Try again
           </button>
-          {!hideDashboardExit && (
-            <button
-              type="button"
-              onClick={onGoToDashboard}
-              className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
-            >
-              Back to dashboard
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onGoToDashboard}
+            className="brand-focus inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-brand-border)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
+          >
+            Back to dashboard
+          </button>
         </div>
       </div>
     );

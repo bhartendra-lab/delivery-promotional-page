@@ -31,9 +31,10 @@ export default function CheckoutPage() {
 }
 
 /**
- * `?onboarding=1` is the compulsory choose-a-plan step a new studio lands on
- * after onboarding. Same route and the same purchase pieces, but a different
- * frame: no plan is pre-chosen, and there is no way out except paying.
+ * `?onboarding=1` is the plan selection flow a new studio opens from the
+ * dashboard's welcome dialog. Same route and the same purchase pieces, but a
+ * different frame: no plan is pre-chosen, and "Not now" leads back to the
+ * dashboard.
  */
 function CheckoutRoute() {
   const search = useSearchParams();

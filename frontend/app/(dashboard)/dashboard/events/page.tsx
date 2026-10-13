@@ -12,6 +12,7 @@ import { useBookingLifecycle } from "@/components/dashboard/useBookingLifecycle"
 import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
+import { FirstPurchaseNotice } from "@/components/billing/FirstPurchaseNotice";
 import {
   IconPlus,
   IconSearch,
@@ -114,6 +115,8 @@ export default function EventsListPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
+      <FirstPurchaseNotice />
+
       {/* Hero — a short title plus a live usage summary. Scrolls away normally
           with the rest of the page; only the filter bar below stays sticky. */}
       <section className="dash-rise flex flex-col gap-4 pb-6 sm:flex-row sm:items-center sm:justify-between">
