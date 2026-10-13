@@ -43,6 +43,9 @@ export type SingleArchiveUrlResolver = (
   mediaId: string,
 ) => Promise<{ url: string; filename: string } | null>;
 
+/** Saves the photo at `url`, under `filename` where the method has a say. */
+export type SinglePhotoSaver = (url: string, filename?: string) => Promise<void>;
+
 /**
  * The archive tier to OFFER for this photo, or null for no choice at all.
  *
@@ -87,14 +90,21 @@ export async function downloadSinglePhoto(
   photo: SinglePhotoSource,
   tier: SinglePhotoTier,
   resolveArchiveUrl?: SingleArchiveUrlResolver,
+  /**
+   * How a URL becomes a saved photo. The browser's own download by default; an
+   * iPhone passes the share sheet instead (see `useSinglePhotoDownload`). Which
+   * copy to save is decided here either way, so the tier rules cannot drift
+   * between the two.
+   */
+  save: SinglePhotoSaver = downloadImage,
 ): Promise<SinglePhotoTier> {
   if (tier !== "2560" && resolveArchiveUrl) {
     const archive = await resolveArchiveUrl(photo.mediaId);
     if (archive) {
-      await downloadImage(archive.url, archive.filename);
+      await save(archive.url, archive.filename);
       return tier;
     }
   }
-  await downloadImage(photo.url, photo.name);
+  await save(photo.url, photo.name);
   return "2560";
 }

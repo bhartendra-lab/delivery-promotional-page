@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   batchPartName,
   countSkippable,
+  fetchShareSet,
   holdWakeLock,
   openDirectoryTarget,
   openZipTarget,
@@ -47,6 +48,7 @@ import {
 } from "./plan.ts";
 import { downloadEnvironment, type DownloadEnvironment } from "./capability.ts";
 import { describeError, type DownloadFailure } from "./failure.ts";
+import { shareFiles } from "./share.ts";
 
 export type DownloadRequest = {
   /** Booking this download belongs to — keys the remembered target folder. */
@@ -65,7 +67,9 @@ export type DownloadRequest = {
   resolveArchiveUrls?: ArchiveUrlResolver;
 };
 
-export type PartState = "pending" | "active" | "done" | "failed";
+/** `ready` is `share` only: the set is fetched and waiting for the tap that
+ *  opens the share sheet. */
+export type PartState = "pending" | "active" | "ready" | "done" | "failed";
 
 export type DownloadFlowState = {
   open: boolean;
@@ -143,6 +147,8 @@ export function useDownloadFlow({
   const totals = useRef({ saved: 0, skipped: 0, failed: 0 });
   // Read through a ref so a caller passing an inline function doesn't rebuild
   // every callback below on each render.
+  // `share` only: each fetched set, held until the Guest taps to save it.
+  const readySets = useRef(new Map<number, File[]>());
   const onFailureRef = useRef(onFailure);
   useEffect(() => {
     onFailureRef.current = onFailure;
@@ -171,6 +177,7 @@ export function useDownloadFlow({
   const close = useCallback(() => {
     abort.current?.abort();
     abort.current = null;
+    readySets.current.clear();
     stopWakeLock();
     setRequest(null);
     setSources(null);
@@ -192,6 +199,7 @@ export function useDownloadFlow({
       const ctrl = new AbortController();
       abort.current = ctrl;
       totals.current = { saved: 0, skipped: 0, failed: 0 };
+      readySets.current.clear();
       setRequest(next);
       setSources(null);
       setTier("2560");
@@ -275,6 +283,105 @@ export function useDownloadFlow({
       setPhase("finished");
     },
     [stopWakeLock],
+  );
+
+  /**
+   * `share`: fetch one set and park it as `ready`. Nothing is saved yet — the
+   * share sheet needs its own tap (see `share.ts`), which `saveShareSet` takes.
+   */
+  const prepareShareSet = useCallback(
+    async (index: number, signal: AbortSignal) => {
+      if (!plan || !request || plan.method !== "share") return;
+      setError(null);
+      setPartStates((prev) => prev.map((s, i) => (i === index ? "active" : s)));
+      try {
+        const outcome = await fetchShareSet({
+          items: plan.batches[index],
+          concurrency: concurrencyForTier(plan.tier),
+          resolveArchiveUrls: plan.tier === "2560" ? undefined : request.resolveArchiveUrls,
+          onProgress: setProgress,
+          signal,
+        });
+        if (outcome.aborted || signal.aborted) return;
+        totals.current.failed += outcome.failed;
+        if (outcome.failed > 0) {
+          onFailureRef.current?.({
+            kind: "bulk",
+            stage: "partial",
+            reasons: outcome.failureReasons,
+            method: plan.method,
+            tier: plan.tier,
+            total: plan.batches[index].length,
+            saved: outcome.saved,
+            failed: outcome.failed,
+          });
+        }
+        if (outcome.files.length === 0) {
+          setPartStates((prev) => prev.map((s, i) => (i === index ? "failed" : s)));
+          setError("Couldn't fetch these photos — try again.");
+          return;
+        }
+        readySets.current.set(index, outcome.files);
+        setPartStates((prev) => prev.map((s, i) => (i === index ? "ready" : s)));
+      } catch (err) {
+        if (signal.aborted) return;
+        console.warn("[download] share set failed", err);
+        onFailureRef.current?.({
+          kind: "bulk",
+          stage: "run",
+          error: describeError(err),
+          method: plan.method,
+          tier: plan.tier,
+          total: plan.batches[index].length,
+        });
+        setPartStates((prev) => prev.map((s, i) => (i === index ? "failed" : s)));
+        setError("Couldn't fetch these photos — try again.");
+      }
+    },
+    [plan, request],
+  );
+
+  /**
+   * `share`: the tap on a `ready` set. `shareFiles` is reached with no `await`
+   * in front of it, which is the whole reason the set was fetched beforehand.
+   */
+  const saveShareSet = useCallback(
+    async (index: number) => {
+      const files = readySets.current.get(index);
+      if (!plan || plan.method !== "share" || !files) return;
+      const signal = (abort.current ??= new AbortController()).signal;
+      setError(null);
+      try {
+        const outcome = await shareFiles(files);
+        // Closing the sheet keeps the set ready for another go.
+        if (outcome === "dismissed") return;
+        if (outcome === "blocked") throw new Error("Share sheet refused the tap");
+      } catch (err) {
+        console.warn("[download] share sheet failed", err);
+        onFailureRef.current?.({
+          kind: "bulk",
+          stage: "run",
+          error: describeError(err),
+          method: plan.method,
+          tier: plan.tier,
+          total: files.length,
+        });
+        setError("Couldn't open the save sheet — tap to try again.");
+        return;
+      }
+      readySets.current.delete(index);
+      totals.current.saved += files.length;
+      const nextStates = partStates.map((s, i): PartState => (i === index ? "done" : s));
+      setPartStates(nextStates);
+      if (nextStates.every((s) => s === "done")) {
+        finish({ saved: 0, skipped: 0, failed: 0 });
+        return;
+      }
+      // Fetch the next set while the Guest is still looking at this one.
+      const upcoming = nextStates.findIndex((s) => s === "pending");
+      if (upcoming !== -1 && !nextStates.includes("active")) void prepareShareSet(upcoming, signal);
+    },
+    [plan, partStates, finish, prepareShareSet],
   );
 
   /**
@@ -391,6 +498,16 @@ export function useDownloadFlow({
       return;
     }
 
+    if (plan.method === "share") {
+      // The first set starts fetching on this click; every set after it is
+      // fetched as the one before is saved, and each is saved by its own tap.
+      setPartStates(plan.batches.map(() => "pending"));
+      setPhase("running");
+      releaseWakeLock.current = holdWakeLock();
+      void prepareShareSet(0, ctrl.signal);
+      return;
+    }
+
     if (plan.method === "batchedZip") {
       // Parts are never chained automatically: browsers block repeated
       // automatic downloads, and a guest who did not click loses track of what
@@ -399,15 +516,23 @@ export function useDownloadFlow({
       setPhase("running");
       releaseWakeLock.current = holdWakeLock();
     }
-  }, [plan, request, rememberedFolder, runEngine, finish, stopWakeLock]);
+  }, [plan, request, rememberedFolder, runEngine, finish, stopWakeLock, prepareShareSet]);
 
   /** "Choose a different folder" — drops the remembered target for this run
    *  only. The handle stays in IndexedDB until a new one replaces it. */
   const forgetRememberedFolder = useCallback(() => setRememberedFolder(null), []);
 
-  /** Download one part of a `batchedZip` run. */
+  /** Download one part of a `batchedZip` run, or act on one set of a `share`
+   *  run: save it when it is ready, fetch it again when it failed. */
   const downloadPart = useCallback(
     async (index: number) => {
+      if (plan?.method === "share") {
+        if (partStates[index] === "ready") await saveShareSet(index);
+        else if (partStates[index] === "failed" || partStates[index] === "pending") {
+          await prepareShareSet(index, (abort.current ??= new AbortController()).signal);
+        }
+        return;
+      }
       if (!plan || !request || plan.method !== "batchedZip") return;
       if (partStates[index] === "active" || partStates[index] === "done") return;
       const ctrl = abort.current ?? new AbortController();
@@ -436,11 +561,12 @@ export function useDownloadFlow({
         setError("That part failed — try it again.");
       }
     },
-    [plan, request, partStates, runEngine, finish],
+    [plan, request, partStates, runEngine, finish, saveShareSet, prepareShareSet],
   );
 
   const cancel = useCallback(() => {
     abort.current?.abort();
+    readySets.current.clear();
     stopWakeLock();
     if (phase === "running") {
       setResult({ ...totals.current, aborted: true, partial: true });

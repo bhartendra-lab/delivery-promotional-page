@@ -89,17 +89,36 @@ export function describeBrowser(ua: string): string {
 }
 
 /**
+ * Pure. The iOS version behind a user agent, with a leading space.
+ *
+ * Since iOS 26 the "OS 18_x" token is FROZEN — an iPhone on iOS 27 still says
+ * 18_7 — so it cannot be trusted on its own. Safari's own "Version/" number
+ * kept moving and has matched the iOS version since then, so it wins where it
+ * is present. Other iOS browsers carry no such number: for them a frozen-range
+ * token is reported as a floor rather than as a fact.
+ */
+function iosVersion(ua: string): string {
+  const token = /OS (\d+)_(\d+)(?:_(\d+))?/i.exec(ua);
+  const safari = /Version\/(\d+)\.(\d+)/i.exec(ua);
+  if (safari && Number(safari[1]) >= 26) return ` ${safari[1]}.${safari[2]}`;
+  if (!token) return "";
+  const stated = ` ${token.slice(1).filter(Boolean).join(".")}`;
+  const frozen = Number(token[1]) === 18 && Number(token[2]) >= 6;
+  return frozen && !safari ? `${stated} or later` : stated;
+}
+
+/**
  * Pure. The phone (or computer) a user agent belongs to. `model` is the Client
  * Hints answer where the browser offers one: Chrome on Android has frozen the
  * model in its user agent to the letter "K", so the hint is the only way to
  * learn the handset there.
  */
 export function describeDevice(ua: string, maxTouchPoints = 0, model?: string): string {
-  if (/iPhone|iPod/i.test(ua)) return `iPhone, iOS${version(ua, /OS (\d+(?:_\d+)*)/i)}`;
+  if (/iPhone|iPod/i.test(ua)) return `iPhone, iOS${iosVersion(ua)}`;
   // iPadOS 13+ reports a desktop Mac user agent; a Mac with a touchscreen is
   // the giveaway (see `isIOSFrom`).
   if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && maxTouchPoints > 1)) {
-    return `iPad, iPadOS${version(ua, /OS (\d+(?:_\d+)*)/i)}`;
+    return `iPad, iPadOS${/iPad/i.test(ua) ? iosVersion(ua) : ""}`;
   }
   if (/Android/i.test(ua)) {
     const fromUa = /Android [\d.]+; ([^;)]+?)(?: Build\/[^;)]*)?[;)]/i.exec(ua)?.[1]?.trim();

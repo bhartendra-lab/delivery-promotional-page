@@ -41,6 +41,17 @@ test("describeDevice reads the iOS version and tells an iPad from a Mac", () => 
   assert.equal(describeDevice(IPAD_AS_MAC, 0), "Mac");
 });
 
+test("describeDevice does not trust the iOS version Apple froze at 18", () => {
+  const frozen = (rest: string) =>
+    `Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) ${rest}`;
+  // Safari 26+ keeps counting in "Version/", which is the real iOS version.
+  assert.equal(describeDevice(frozen("Version/27.2 Mobile/15E148 Safari/604.1")), "iPhone, iOS 27.2");
+  // Safari 18 on a real iOS 18.7 says so itself.
+  assert.equal(describeDevice(frozen("Version/18.7 Mobile/15E148 Safari/604.1")), "iPhone, iOS 18.7");
+  // Chrome on iOS has no such number: the token is only a floor.
+  assert.equal(describeDevice(frozen("CriOS/140.0.0.0 Mobile/15E148 Safari/604.1")), "iPhone, iOS 18.7 or later");
+});
+
 test("describeDevice prefers the Client Hints model over a frozen user agent", () => {
   assert.equal(describeDevice(ANDROID_CHROME_FROZEN), "Android phone, Android 10");
   assert.equal(describeDevice(ANDROID_CHROME_FROZEN, 5, "Pixel 8"), "Pixel 8, Android 10");

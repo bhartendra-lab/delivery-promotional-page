@@ -18,6 +18,7 @@ import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import { describeError, type DownloadFailure } from "@/lib/download/failure";
 import { reportDownloadFailure } from "@/lib/download/report-failure";
 import { QualityChoiceSheet } from "@/components/event/download/QualityChoiceSheet";
+import { SavePhotoSheet } from "@/components/event/download/SavePhotoSheet";
 import type { PlanSource } from "@/lib/download/plan";
 import type { ArchiveUrlResolver } from "@/lib/download/engines";
 import { DownloadPlanModal } from "@/components/event/download/DownloadPlanModal";
@@ -1147,20 +1148,35 @@ export function LoungeGallery({
   const singleDownload = useSinglePhotoDownload({
     archiveAccess,
     resolveArchiveUrl: resolveOneArchiveUrl,
-    onStart: () => setToast("Downloading 1 photo…"),
-    onDone: () => {
-      setToast("Download started");
-      triggerNudge("download");
+    // An iPhone saves through the share sheet (or a press-and-hold view), not
+    // a download, so the wording follows the mode the hook reports.
+    onStart: (mode) =>
+      setToast(mode === "download" ? "Downloading 1 photo…" : mode === "share" ? "Getting your photo ready…" : null),
+    onDone: (mode) => {
+      // The press-and-hold view is still open and says what to do next.
+      setToast(mode === "download" ? "Download started" : mode === "share" ? "Photo saved" : null);
+      if (mode !== "hold") triggerNudge("download");
     },
     // The photo saved, just not at the tier they picked. Said out loud rather
     // than left to look like a successful full-size download.
-    onFellBack: () => {
-      setToast("Full-size copy unavailable — saved the web version");
-      triggerNudge("download");
+    onFellBack: (mode) => {
+      setToast(
+        mode === "hold"
+          ? "Full-size copy unavailable — showing the web version"
+          : "Full-size copy unavailable — saved the web version",
+      );
+      if (mode !== "hold") triggerNudge("download");
     },
-    onError: (err) => {
+    // Closed the save sheet without saving: not a failure, nothing to say.
+    onDismissed: () => setToast(null),
+    onError: (err, mode) => {
       setToast("Download failed — please try again");
-      reportFailure({ kind: "single", stage: "save", error: describeError(err) });
+      reportFailure({
+        kind: "single",
+        stage: "save",
+        error: describeError(err),
+        method: mode === "share" ? "share sheet" : mode === "hold" ? "press and hold" : "browser download",
+      });
     },
   });
 
@@ -1409,7 +1425,12 @@ export function LoungeGallery({
    * and the sheet the Guest was owed finally appears.
    */
   const friendsBlocked =
-    loungeModalOpen || nudge !== null || zipping || singleDownload.sheet.open;
+    loungeModalOpen ||
+    nudge !== null ||
+    zipping ||
+    singleDownload.sheet.open ||
+    singleDownload.saveSheet.ready ||
+    singleDownload.saveSheet.holdUrl !== null;
   useEffect(() => {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -2095,6 +2116,9 @@ export function LoungeGallery({
           otherwise the tile, chip and one-item selection all save straight away
           as they always did. */}
       <QualityChoiceSheet {...singleDownload.sheet} audience="guest" theme={t} />
+      {/* iPhone only: the second tap the share sheet sometimes needs, and the
+          press-and-hold view for a browser with no share sheet. */}
+      <SavePhotoSheet {...singleDownload.saveSheet} theme={t} />
 
       {/* toast */}
       {toast && (

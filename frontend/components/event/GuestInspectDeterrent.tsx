@@ -21,13 +21,16 @@ import { useEffect } from "react";
  * Mounted by EventExperience only: the Studio dashboard is never affected.
  */
 const EDITABLE = "input, textarea, [contenteditable]:not([contenteditable='false'])";
+/** The press-and-hold save view (see SavePhotoSheet): there the system menu is
+ *  how the Guest saves the photo, so it must not be swallowed. */
+const SAVEABLE = "[data-allow-save]";
 /** Matched on `code`, not `key`: on a Mac, Option changes `key` (⌥I is "ˆ"). */
 const INSPECT_KEYS = ["KeyI", "KeyJ", "KeyC"];
 
 export function GuestInspectDeterrent() {
   useEffect(() => {
     const onContextMenu = (e: MouseEvent) => {
-      if ((e.target as Element | null)?.closest?.(EDITABLE)) return;
+      if ((e.target as Element | null)?.closest?.(`${EDITABLE}, ${SAVEABLE}`)) return;
       e.preventDefault();
     };
     const onKeyDown = (e: KeyboardEvent) => {

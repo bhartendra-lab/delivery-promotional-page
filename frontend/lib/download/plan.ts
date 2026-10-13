@@ -65,6 +65,9 @@ export type DownloadMethod =
   | "memoryZip"
   /** N ZIPs in RAM, each under the cap, one click each. */
   | "batchedZip"
+  /** No ZIP: photos handed to the native share sheet in small sets, one tap
+   *  each, and saved straight to Photos. */
+  | "share"
   /** Cannot proceed on this device. */
   | "blocked";
 
@@ -139,7 +142,7 @@ export type DownloadPlan = {
   method: DownloadMethod;
   items: PlanItem[];
   totalBytes: number;
-  /** Length 1 unless `method === "batchedZip"`. */
+  /** Length 1 unless `method` is `"batchedZip"` or `"share"`. */
   batches: PlanItem[][];
   /**
    * Which archive tiers this download actually includes, distinct and ordered
@@ -172,6 +175,19 @@ export type PlanInput = {
  * comfortably above any guest's matched set, comfortably below a whole gallery.
  */
 export const MAX_BATCHES = 8;
+
+/**
+ * The share sheet's limits. One set is what a Guest saves with a single "Save
+ * N Images": past ~20 files iOS gets slow to open the sheet and has been seen
+ * to drop it, and the files are all held in memory until it does.
+ */
+export const SHARE_SET_FILES = 20;
+export const SHARE_SET_BYTES = 120 * 1024 * 1024;
+/**
+ * Above this many photos, a tap per set of 20 is a chore and a ZIP is the
+ * lesser evil — the same judgement MAX_BATCHES makes for ZIP parts.
+ */
+export const SHARE_MAX_ITEMS = 200;
 
 /** Threshold for the "this will take a while, stay on wi-fi" warning. */
 export const LARGE_DOWNLOAD_BYTES = 500 * 1024 * 1024;
@@ -284,13 +300,20 @@ export function dedupeName(taken: Set<string>, name: string): string {
  * Such an item gets a batch to itself instead — there is nothing else to do
  * with it, and the caller is better off attempting one oversized part than
  * being told nothing can be downloaded.
+ *
+ * `maxCount` additionally closes a batch at that many items — the share sheet
+ * is bounded by how many files it will take as well as by how much they weigh.
  */
-export function packBatches(items: PlanItem[], cap: number): PlanItem[][] {
+export function packBatches(
+  items: PlanItem[],
+  cap: number,
+  maxCount = Number.POSITIVE_INFINITY,
+): PlanItem[][] {
   const batches: PlanItem[][] = [];
   let batch: PlanItem[] = [];
   let bytes = 0;
   for (const item of items) {
-    if (batch.length > 0 && bytes + item.bytes > cap) {
+    if (batch.length > 0 && (bytes + item.bytes > cap || batch.length >= maxCount)) {
       batches.push(batch);
       batch = [];
       bytes = 0;
@@ -373,10 +396,23 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
   // parts than that ratio implies (three 200 MB items under a 300 MB cap are
   // three parts, not two), and the number the guest will actually click through
   // is the one MAX_BATCHES has to bound.
-  const packed = capability === "memoryZip" ? packBatches(planned, memoryCap) : [planned];
+  //
+  // A share-capable device that is asked for more than SHARE_MAX_ITEMS falls
+  // back to building ZIPs in memory, exactly as if it could not share.
+  const shares = capability === "share" && planned.length <= SHARE_MAX_ITEMS;
+  const zipsInMemory = capability === "memoryZip" || (capability === "share" && !shares);
+  const packed = shares
+    ? packBatches(planned, SHARE_SET_BYTES, SHARE_SET_FILES)
+    : zipsInMemory
+      ? packBatches(planned, memoryCap)
+      : [planned];
 
   let method: DownloadMethod;
-  if (capability === "directory") {
+  if (shares) {
+    // No size limit to enforce: each set is bounded on its own, and only one
+    // is ever held in memory.
+    method = "share";
+  } else if (capability === "directory") {
     // No size limit: files stream one at a time and peak memory is one file
     // regardless of selection size.
     method = "directory";
@@ -391,7 +427,7 @@ export function planDownload({ items, tier, capability, memoryCap }: PlanInput):
     method = "blocked";
   }
 
-  const batches = method === "batchedZip" ? packed : [planned];
+  const batches = method === "batchedZip" || method === "share" ? packed : [planned];
 
   const alerts: DownloadAlert[] = [];
   if (method === "blocked") alerts.push({ id: "TOO_LARGE_FOR_DEVICE", severity: "blocking" });
@@ -488,6 +524,10 @@ export function methodCopy(method: DownloadMethod, partCount: number): string | 
       return "Downloads as a ZIP file.";
     case "batchedZip":
       return `Downloads as ${partCount.toLocaleString("en-IN")} ZIP files, one at a time.`;
+    case "share":
+      return partCount <= 1
+        ? "Saves straight to your Photos."
+        : `Saves straight to your Photos, in ${partCount.toLocaleString("en-IN")} sets.`;
     case "blocked":
       // No method line: the blocking alert carries the whole explanation.
       return null;

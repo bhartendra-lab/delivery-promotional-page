@@ -1,5 +1,5 @@
 /**
- * The four download engines. DUMB EXECUTORS — not one of them contains a
+ * The download engines. DUMB EXECUTORS — not one of them contains a
  * conditional about platform, tier or capability. They receive a plan (and,
  * where behaviour must vary, an explicit argument computed by `planDownload`)
  * and carry it out.
@@ -11,11 +11,13 @@
  *   streamZip   — one ZIP streamed to disk
  *   memoryZip   — one ZIP built in RAM
  *   batchedZip  — memoryZip, once per part, each part user-initiated
+ *   share       — fetch one set of photos as files for the native share sheet
  */
 
 import { coldFallback, fetchImageBlob, triggerBlobDownload } from "../media-actions.ts";
 import { describeError, noteFailureReason } from "./failure.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
+import { toShareFile } from "./share.ts";
 
 /* ── File System Access types ────────────────────────────────────────────────
  *
@@ -566,7 +568,60 @@ export function batchPartName(base: string, index: number, count: number): strin
   return `${base} - part ${index + 1} of ${count}.zip`;
 }
 
-/* ── 4. Shared: wake lock ────────────────────────────────────────────────── */
+/* ── 4. share ────────────────────────────────────────────────────────────── */
+
+/**
+ * Fetch one set of photos as files, ready to hand to the share sheet.
+ *
+ * This engine stops short of saving anything: the share sheet needs a tap, so
+ * the caller holds the files and opens it from a button. `saved` here therefore
+ * counts photos FETCHED; whether they were kept is the share's outcome.
+ *
+ * Folders are not mirrored — Photos has no folders to mirror them into — so
+ * names are made unique across the whole set instead.
+ */
+export async function fetchShareSet({
+  items,
+  concurrency,
+  resolveArchiveUrls,
+  onProgress,
+  signal,
+}: RunOptions): Promise<EngineResult & { files: File[] }> {
+  const resolved = await withResolvedUrls(items, signal, resolveArchiveUrls);
+  if (signal.aborted) return { saved: 0, skipped: 0, failed: 0, aborted: true, files: [] };
+
+  const progress = progressTracker(resolved, onProgress);
+  const taken = new Set<string>();
+  const names = resolved.map((item) => dedupeName(taken, item.name));
+  const failureReasons: string[] = [];
+  const slots: (File | null)[] = resolved.map(() => null);
+  let failed = 0;
+
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= resolved.length || signal.aborted) return;
+      const blob = await fetchImageBlob(resolved[index].url, signal, (reason) =>
+        noteFailureReason(failureReasons, reason),
+      );
+      if (signal.aborted) return;
+      progress.advance(blob?.size ?? 0);
+      if (blob) slots[index] = toShareFile(blob, names[index]);
+      else failed += 1;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, resolved.length) }, () => worker()));
+
+  // Order preserved, so the set lands in Photos in gallery order.
+  const files = slots.filter((file): file is File => file !== null);
+  if (signal.aborted) {
+    return { saved: 0, skipped: 0, failed, aborted: true, failureReasons, files: [] };
+  }
+  return { saved: files.length, skipped: 0, failed, failureReasons, files };
+}
+
+/* ── 5. Shared: wake lock ────────────────────────────────────────────────── */
 
 type WakeLockSentinel = { released: boolean; release(): Promise<void> };
 

@@ -18,6 +18,26 @@ import { describeBrowser, describeDevice, type DownloadFailure } from "./failure
 const DEDUPE_MS = 30_000;
 const recent = new Map<string, number>();
 
+/**
+ * Whether the page is on its way out. A navigation kills every request still
+ * in flight, and each one rejects with the same "Load failed" a real network
+ * failure would — so a Guest who merely left mid-download looked exactly like
+ * a Guest whose download broke. Anything that fails while leaving is noise.
+ */
+let leaving = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    leaving = true;
+  });
+  // Restored from the back/forward cache: the page is live again.
+  window.addEventListener("pageshow", () => {
+    leaving = false;
+  });
+}
+
+/** Long enough for `pagehide` to land when the failure was the navigation's doing. */
+const SETTLE_MS = 400;
+
 type HintedNavigator = Navigator & {
   userAgentData?: {
     getHighEntropyValues?: (hints: string[]) => Promise<{ model?: string }>;
@@ -52,6 +72,8 @@ function counts(failure: DownloadFailure): string | undefined {
 export async function reportDownloadFailure(uid: string, failure: DownloadFailure): Promise<void> {
   try {
     if (typeof window === "undefined") return;
+    await new Promise((resolve) => window.setTimeout(resolve, SETTLE_MS));
+    if (leaving) return;
     const key = `${failure.kind}|${failure.stage}|${failure.error ?? failure.reasons?.join(",") ?? ""}`;
     const now = Date.now();
     const prev = recent.get(key);

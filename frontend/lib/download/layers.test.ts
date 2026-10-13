@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Z_DOWNLOAD_CONFIRM, Z_DOWNLOAD_MODAL, Z_QUALITY_SHEET } from "./layers.ts";
+import {
+  Z_DOWNLOAD_CONFIRM,
+  Z_DOWNLOAD_MODAL,
+  Z_QUALITY_SHEET,
+  Z_SAVE_SHEET,
+} from "./layers.ts";
 
 /**
  * The two photo viewers a download can be started from. Mirrored here as
@@ -15,7 +20,7 @@ const STUDIO_LIGHTBOX_Z = 210;
 test("every download surface clears BOTH photo viewers", () => {
   // The bug this guards: 90 cleared the guest viewer and rendered behind the
   // studio's, so the quality sheet was invisible until the preview was closed.
-  for (const z of [Z_DOWNLOAD_MODAL, Z_DOWNLOAD_CONFIRM, Z_QUALITY_SHEET]) {
+  for (const z of [Z_DOWNLOAD_MODAL, Z_DOWNLOAD_CONFIRM, Z_QUALITY_SHEET, Z_SAVE_SHEET]) {
     assert.ok(z > GUEST_PHOTO_VIEWER_Z, `${z} must clear the guest viewer`);
     assert.ok(z > STUDIO_LIGHTBOX_Z, `${z} must clear the studio lightbox`);
   }
@@ -26,12 +31,14 @@ test("the download surfaces are ordered among themselves", () => {
   // opened from a viewer and can sit above everything else.
   assert.ok(Z_DOWNLOAD_CONFIRM > Z_DOWNLOAD_MODAL);
   assert.ok(Z_QUALITY_SHEET > Z_DOWNLOAD_CONFIRM);
+  // Saving follows choosing a quality, so the save surfaces sit above it.
+  assert.ok(Z_SAVE_SHEET > Z_QUALITY_SHEET);
 });
 
 test("no two download surfaces share a level", () => {
   // Equal z-index would leave the winner to DOM order and to whichever
   // ancestor happens to create a stacking context — the thing these constants
   // exist to stop being load-bearing.
-  const levels = [Z_DOWNLOAD_MODAL, Z_DOWNLOAD_CONFIRM, Z_QUALITY_SHEET];
+  const levels = [Z_DOWNLOAD_MODAL, Z_DOWNLOAD_CONFIRM, Z_QUALITY_SHEET, Z_SAVE_SHEET];
   assert.equal(new Set(levels).size, levels.length);
 });

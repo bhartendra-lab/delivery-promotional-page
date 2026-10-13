@@ -656,3 +656,43 @@ test("formatBytes: readable at every scale, and safe on nonsense", () => {
   assert.equal(formatBytes(1.4 * GB), "1.4 GB");
   assert.equal(formatBytes(75 * GB), "75 GB");
 });
+
+/* ── share (iPhone / iPad) ───────────────────────────────────────────────── */
+
+test("a share-capable device saves through the share sheet, in sets of 20", () => {
+  const plan = planDownload({
+    items: sources(45),
+    tier: "2560",
+    capability: "share",
+    memoryCap: MEMORY_ZIP_CAP_MOBILE,
+  });
+  assert.equal(plan.method, "share");
+  assert.deepEqual(plan.batches.map((b) => b.length), [20, 20, 5]);
+  assert.equal(plan.canProceed, true);
+  // Nothing is being split into ZIP parts, so nothing says so.
+  assert.equal(plan.alerts.some((a) => a.id === "SPLIT_INTO_PARTS"), false);
+});
+
+test("a share set is bounded by weight as well as by count", () => {
+  // 20 originals of 30 MB would be 600 MB in one sheet; the byte cap closes
+  // each set at four.
+  const plan = planDownload({
+    items: sources(8, { archiveBytes: 30 * MB }),
+    tier: "archive",
+    capability: "share",
+    memoryCap: MEMORY_ZIP_CAP_MOBILE,
+  });
+  assert.equal(plan.method, "share");
+  assert.deepEqual(plan.batches.map((b) => b.length), [4, 4]);
+});
+
+test("past the share ceiling an iPhone falls back to a ZIP, as before", () => {
+  const plan = planDownload({
+    items: sources(201, { bytes: 1 * MB }),
+    tier: "2560",
+    capability: "share",
+    memoryCap: MEMORY_ZIP_CAP_MOBILE,
+  });
+  assert.equal(plan.method, "memoryZip");
+  assert.equal(plan.batches.length, 1);
+});

@@ -299,9 +299,10 @@ export function DownloadPlanModal({
               {plan.method === "batchedZip" && (
                 <>
                   <PartList
-                    parts={plan.batches.map((batch) =>
-                      batch.reduce((n, item) => n + item.bytes, 0),
-                    )}
+                    parts={plan.batches.map((batch, index) => ({
+                      label: `Part ${index + 1}`,
+                      detail: formatBytes(batch.reduce((n, item) => n + item.bytes, 0)),
+                    }))}
                     states={partStates}
                     onDownload={downloadPart}
                     theme={t}
@@ -309,6 +310,30 @@ export function DownloadPlanModal({
                   <p className="text-[11.5px] font-semibold" style={{ color: t.muted }}>
                     Don&apos;t refresh until all parts are saved.
                   </p>
+                </>
+              )}
+              {/* `share`: the same list, but each row is a set of photos that
+                  is fetched first and then saved by a tap of its own — the
+                  share sheet will not open without one. */}
+              {plan.method === "share" && (
+                <>
+                  <PartList
+                    parts={shareSetRows(plan.batches.map((batch) => batch.length))}
+                    states={partStates}
+                    onDownload={downloadPart}
+                    theme={t}
+                    idleLabel="Save to Photos"
+                    activeLabel="Getting ready…"
+                  />
+                  <p className="text-[11.5px] font-semibold" style={{ color: t.muted }}>
+                    Tap “Save to Photos”, then choose “Save{" "}
+                    {plan.batches[0]?.length === 1 ? "Image" : "Images"}” in the sheet that opens.
+                  </p>
+                  {state.error && (
+                    <p className="text-[12.5px] font-bold" style={{ color: t.error }}>
+                      {state.error}
+                    </p>
+                  )}
                 </>
               )}
               <AlertList alerts={alerts} ios={env.ios} audience={audience} theme={t} />
@@ -548,22 +573,43 @@ function Progress({
   );
 }
 
+/** Row labels for a `share` run: "Photos 1–20", "Photos 21–40", … */
+function shareSetRows(sizes: number[]): { label: string; detail: string }[] {
+  let from = 1;
+  return sizes.map((size) => {
+    const to = from + size - 1;
+    const label = size === 1 ? `Photo ${from}` : `Photos ${from}–${to}`;
+    from = to + 1;
+    return { label, detail: "" };
+  });
+}
+
 function PartList({
   parts,
   states,
   onDownload,
   theme: t,
+  idleLabel = "Download",
+  activeLabel = "Downloading…",
 }: {
-  parts: number[];
+  parts: { label: string; detail: string }[];
   states: string[];
   onDownload: (index: number) => void;
   theme: DownloadModalTheme;
+  /** The button on a row that can be acted on. */
+  idleLabel?: string;
+  /** The status on a row that is being fetched. */
+  activeLabel?: string;
 }) {
   return (
     <ul className="flex flex-col gap-1.5">
-      {parts.map((bytes, index) => {
+      {parts.map((part, index) => {
         const state = states[index] ?? "pending";
-        const isNext = state === "pending" && states.slice(0, index).every((s) => s === "done");
+        // `ready` is a `share` set that has been fetched and is waiting for its
+        // tap, so it is always actionable.
+        const isNext =
+          state === "ready" ||
+          (state === "pending" && states.slice(0, index).every((s) => s === "done"));
         return (
           <li
             key={index}
@@ -571,10 +617,12 @@ function PartList({
             style={{ background: t.sunken }}
           >
             <span className="text-[12.5px] font-bold" style={{ color: t.text }}>
-              Part {index + 1}
-              <span className="ml-1.5 font-semibold" style={{ color: t.muted }}>
-                {formatBytes(bytes)}
-              </span>
+              {part.label}
+              {part.detail && (
+                <span className="ml-1.5 font-semibold" style={{ color: t.muted }}>
+                  {part.detail}
+                </span>
+              )}
             </span>
             {state === "done" ? (
               <span className="text-[12px] font-bold" style={{ color: t.muted }}>
@@ -582,7 +630,7 @@ function PartList({
               </span>
             ) : state === "active" ? (
               <span className="text-[12px] font-bold" style={{ color: t.muted }}>
-                Downloading…
+                {activeLabel}
               </span>
             ) : (
               <button
@@ -592,7 +640,7 @@ function PartList({
                 className="cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-extrabold disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ background: t.brand, color: t.onBrand }}
               >
-                {state === "failed" ? "Retry" : "Download"}
+                {state === "failed" ? "Retry" : idleLabel}
               </button>
             )}
           </li>

@@ -31,3 +31,10 @@ export const Z_DOWNLOAD_CONFIRM = 310;
  * on screen.
  */
 export const Z_QUALITY_SHEET = 320;
+
+/**
+ * The iOS save surfaces — "your photo is ready" and the press-and-hold view.
+ * They follow the quality chooser (pick a quality, then save), so they sit
+ * above it.
+ */
+export const Z_SAVE_SHEET = 330;

@@ -9,6 +9,7 @@ import type { PlanSource } from "@/lib/download/plan";
 import type { ArchiveUrlResolver } from "@/lib/download/engines";
 import { DownloadPlanModal, type DownloadModalTheme } from "@/components/event/download/DownloadPlanModal";
 import { QualityChoiceSheet } from "@/components/event/download/QualityChoiceSheet";
+import { SavePhotoSheet } from "@/components/event/download/SavePhotoSheet";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import type { SinglePhotoSource } from "@/lib/download/single";
 import { useEvent } from "./EventContext";
@@ -327,7 +328,11 @@ export function MediaGrid({
   const singleDownload = useSinglePhotoDownload({
     archiveAccess: true,
     resolveArchiveUrl: resolveOneArchiveUrl,
-    onStart: () => notify?.("Downloading 1 photo…"),
+    // On an iPhone the photo goes through the share sheet rather than a
+    // download; the press-and-hold view explains itself.
+    onStart: (mode) => {
+      if (mode !== "hold") notify?.(mode === "share" ? "Getting your photo ready…" : "Downloading 1 photo…");
+    },
     // The photo saved, just not at the tier they picked. Said out loud rather
     // than left to look like a successful full-resolution download.
     onFellBack: () =>
@@ -693,6 +698,7 @@ export function MediaGrid({
       {/* Quality choice for a SINGLE photo — opens only when the photo has an
           unwatermarked copy, otherwise every affordance saves straight away. */}
       <QualityChoiceSheet {...singleDownload.sheet} audience="studio" theme={DASHBOARD_MODAL_THEME} />
+      <SavePhotoSheet {...singleDownload.saveSheet} theme={DASHBOARD_MODAL_THEME} />
 
       <DownloadPlanModal
         flow={downloadFlow}

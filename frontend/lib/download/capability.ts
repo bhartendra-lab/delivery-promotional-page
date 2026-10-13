@@ -14,9 +14,19 @@
  * ONLY two `navigator.userAgent` reads in the whole feature, and feed nothing
  * but copy selection and a memory constant.
  *
+ * ONE EXCEPTION, deliberate and contained to `resolveSaveCapability`: the
+ * `"share"` capability is only chosen on iOS. The share sheet exists on Android
+ * and desktop too, where an ordinary download already works and the sheet would
+ * be a worse save. What makes it the right save on iOS is not something a
+ * feature probe can see: an `<a download>` click there succeeds as far as
+ * script can tell, and then either files the photo under Downloads or navigates
+ * the gallery away to a bare file page (see `share.ts`).
+ *
  * No aliased imports: `lib/download/*.test.ts` runs under `node --test`, which
  * cannot resolve `@/`.
  */
+
+import { canShareFiles } from "./share.ts";
 
 export type SaveCapability =
   /** File System Access directory picker: write each file into a chosen folder,
@@ -24,6 +34,9 @@ export type SaveCapability =
   | "directory"
   /** File System Access save picker: one ZIP streamed to disk. Also bounded. */
   | "streamZip"
+  /** iPhone / iPad with a share sheet that takes files: photos are handed to
+   *  the sheet in small sets and saved straight to Photos, no ZIP. */
+  | "share"
   /** Neither: a ZIP has to be built in RAM before it can be handed to the
    *  browser, so the selection size is bounded by what the tab can hold. */
   | "memoryZip";
@@ -49,6 +62,18 @@ export function probeSaveCapability(host: PickerHost | undefined | null): SaveCa
   return "memoryZip";
 }
 
+/**
+ * Pure. The probe's answer, overridden on an iOS device that can share files —
+ * the module comment explains why this one decision reads the platform.
+ */
+export function resolveSaveCapability(
+  host: PickerHost | undefined | null,
+  { ios, sharesFiles }: { ios: boolean; sharesFiles: boolean },
+): SaveCapability {
+  if (ios && sharesFiles) return "share";
+  return probeSaveCapability(host);
+}
+
 let memoised: SaveCapability | null = null;
 
 /**
@@ -58,7 +83,12 @@ let memoised: SaveCapability | null = null;
  */
 export function saveCapability(): SaveCapability {
   if (typeof window === "undefined") return "memoryZip";
-  if (memoised === null) memoised = probeSaveCapability(window as unknown as PickerHost);
+  if (memoised === null) {
+    memoised = resolveSaveCapability(window as unknown as PickerHost, {
+      ios: isIOS(),
+      sharesFiles: canShareFiles(),
+    });
+  }
   return memoised;
 }
 
@@ -120,6 +150,23 @@ export type DownloadEnvironment = {
   /** Copy selection only. */
   ios: boolean;
 };
+
+/**
+ * How ONE photo is saved here. Bulk downloads are planned by `planDownload`;
+ * a single photo has no plan, only this.
+ *
+ *  - `share`     iOS with a share sheet: straight to Photos.
+ *  - `hold`      iOS without one (an old iOS, a stripped web view): show the
+ *                photo and let the Guest press and hold to save it. Anything
+ *                rather than the `<a download>` click that navigates away.
+ *  - `download`  everywhere else: the browser's own download.
+ */
+export type SingleSaveMode = "share" | "hold" | "download";
+
+export function singleSaveMode(): SingleSaveMode {
+  if (!isIOS()) return "download";
+  return saveCapability() === "share" ? "share" : "hold";
+}
 
 export function downloadEnvironment(): DownloadEnvironment {
   return {
