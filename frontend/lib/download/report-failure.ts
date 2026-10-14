@@ -72,17 +72,19 @@ async function diagnose(url: string | undefined): Promise<string | undefined> {
   if (!url) return undefined;
   const notes: string[] = [];
   try {
+    // Read BEFORE probing: the probe is a fetch of the same URL and would
+    // otherwise be the entry reported as "the failed attempt".
+    const attempts = performance
+      .getEntriesByName(url)
+      .filter((entry): entry is PerformanceResourceTiming => entry.entryType === "resource");
     const timeout = new Promise<string>((resolve) =>
       window.setTimeout(() => resolve("probe timed out"), PROBE_TIMEOUT_MS),
     );
     const probe = fetch(url, { mode: "no-cors", cache: "no-store" }).then(
-      () => "host reachable, so the response was refused to the page (CORS or a blocked response)",
+      () => "host reachable, so the photo was refused or cut off on its way into the page",
       (err: unknown) => `host unreachable from this page (${describeError(err)})`,
     );
     notes.push(await Promise.race([probe, timeout]));
-    const attempts = performance
-      .getEntriesByName(url)
-      .filter((entry): entry is PerformanceResourceTiming => entry.entryType === "resource");
     const failed = attempts.filter((entry) => entry.initiatorType === "fetch").pop();
     if (failed) {
       const status = (failed as PerformanceResourceTiming & { responseStatus?: number }).responseStatus;

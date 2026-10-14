@@ -75,6 +75,10 @@ export function describeBrowser(ua: string): string {
   const inApp = detectInAppBrowser(ua);
   if (inApp?.app) return inApp.app === "Google app" ? "Google app browser" : `${inApp.app} in-app browser`;
 
+  // OEM browsers built on Chromium carry a "Chrome/" token of their own, so
+  // they have to be named before Chrome is.
+  if (/HeyTapBrowser/i.test(ua)) return `HeyTap Browser (OPPO)${version(ua, /HeyTapBrowser\/([\d.]+)/i)}`;
+  if (/VivoBrowser/i.test(ua)) return `vivo Browser${version(ua, /VivoBrowser\/([\d.]+)/i)}`;
   if (/CriOS/i.test(ua)) return `Chrome (iOS)${version(ua, /CriOS\/([\d.]+)/i)}`;
   if (/FxiOS/i.test(ua)) return `Firefox (iOS)${version(ua, /FxiOS\/([\d.]+)/i)}`;
   if (/EdgiOS|EdgA|Edg\//i.test(ua)) return `Edge${version(ua, /Edg(?:iOS|A)?\/([\d.]+)/i)}`;
@@ -111,6 +115,24 @@ function iosVersion(ua: string): string {
 }
 
 /**
+ * The handset model in an Android user agent, or "". Segments after the
+ * Android version are walked rather than the first one taken: older and OEM
+ * browsers put a "U" security flag and a locale ("en-us") in front of the
+ * model, and Chrome's reduced agent has only the placeholder "K".
+ */
+function androidModelFromUa(ua: string): string {
+  const inside = /\(([^)]*Android[^)]*)\)/i.exec(ua)?.[1] ?? "";
+  const segments = inside.split(";").map((s) => s.trim().replace(/\s+Build\/.*$/i, ""));
+  const start = segments.findIndex((s) => /^Android\b/i.test(s));
+  for (const segment of segments.slice(start + 1)) {
+    if (!segment || segment === "K" || segment === "U" || segment === "wv") continue;
+    if (/^[a-z]{2,3}([-_][a-z]{2,4})?$/i.test(segment)) continue; // a locale
+    return segment;
+  }
+  return "";
+}
+
+/**
  * Pure. The phone (or computer) a user agent belongs to. `model` is the Client
  * Hints answer where the browser offers one: Chrome on Android has frozen the
  * model in its user agent to the letter "K", so the hint is the only way to
@@ -124,8 +146,7 @@ export function describeDevice(ua: string, maxTouchPoints = 0, model?: string): 
     return `iPad, iPadOS${/iPad/i.test(ua) ? iosVersion(ua) : ""}`;
   }
   if (/Android/i.test(ua)) {
-    const fromUa = /Android [\d.]+; ([^;)]+?)(?: Build\/[^;)]*)?[;)]/i.exec(ua)?.[1]?.trim();
-    const handset = model?.trim() || (fromUa && fromUa !== "K" ? fromUa : "");
+    const handset = model?.trim() || androidModelFromUa(ua);
     return `${handset || "Android phone"}, Android${version(ua, /Android ([\d.]+)/i)}`;
   }
   if (/Windows/i.test(ua)) return "Windows computer";

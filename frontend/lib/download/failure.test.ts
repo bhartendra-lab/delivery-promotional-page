@@ -59,6 +59,13 @@ test("describeDevice prefers the Client Hints model over a frozen user agent", (
   assert.equal(describeDevice(ANDROID_WEBVIEW), "RMX3085, Android 12");
 });
 
+test("an OPPO phone's own browser is named, and its locale is not taken for the model", () => {
+  const heytap =
+    "Mozilla/5.0 (Linux; U; Android 12; en-us; CPH2477 Build/SP1A.210812.016) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.72 Mobile Safari/537.36 HeyTapBrowser/45.13.6.1";
+  assert.equal(describeBrowser(heytap), "HeyTap Browser (OPPO) 45.13.6.1");
+  assert.equal(describeDevice(heytap), "CPH2477, Android 12");
+});
+
 test("describeError flattens whatever was thrown", () => {
   assert.equal(describeError(new TypeError("Load failed")), "TypeError: Load failed");
   assert.equal(describeError("HTTP 403"), "HTTP 403");

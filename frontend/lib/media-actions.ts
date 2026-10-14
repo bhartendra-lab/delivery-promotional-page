@@ -64,15 +64,15 @@ export const coldFallback = (url: string): string => url.replace(`//${HOT}/`, `/
 /**
  * Pure. The same photo under a URL the page's own `<img>` tags never use.
  *
- * A photo shown in the gallery is fetched by an `<img>` WITHOUT an `Origin`
- * header, so storage answers without CORS headers, and the browser caches that
- * answer for a year (the objects are `immutable`). A later `fetch` of the very
- * same URL that is served from that cache is refused — "Failed to fetch" —
- * because the cached answer never said this page may read it. `no-store` is
- * supposed to keep the download off that cache; this is for wherever it doesn't.
- * The query string is ignored by storage and gives the download a cache entry
- * no `<img>` can have got to first. Per host, because the CORS answer names
- * the origin it was given to.
+ * On many Android phones the first `fetch` of a photo the gallery has already
+ * shown is refused ("Failed to fetch") even with `no-store`, while the same
+ * photo under this URL goes through: Cloudflare's logs for the 13–14 Oct
+ * failures show exactly that pairing, guest after guest. The likeliest cause
+ * is the `<img>` copy — fetched WITHOUT an `Origin` header, so stored without
+ * CORS headers, and `immutable` for a year — being handed to the download
+ * anyway. The query string is ignored by storage and gives the download a
+ * cache entry no `<img>` can have got to first. Per host, because the CORS
+ * answer names the origin it was given to.
  *
  * A URL that already has a query is left alone: it may be signed, and a signed
  * URL with an extra parameter is a broken one.
@@ -90,27 +90,47 @@ export function cacheKeyed(url: string, host: string): string {
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
-/** The photo URL a thrown fetch error belongs to, when `fetchPhoto` threw it. */
+/** `cacheKeyed` for this page, or the URL unchanged outside a browser. */
+export const keyedForThisPage = (url: string): string =>
+  typeof location === "undefined" ? url : cacheKeyed(url, location.host);
+
+/** The photo URL a thrown error belongs to, when `fetchPhotoBlob` threw it. */
 export function failedPhotoUrl(err: unknown): string | undefined {
   const url = (err as { photoUrl?: unknown } | null)?.photoUrl;
   return typeof url === "string" ? url : undefined;
 }
 
+/** One complete read of a photo: headers AND body, cold host on an HTTP error. */
+async function readPhoto(url: string, signal?: AbortSignal): Promise<Blob> {
+  let res = await fetch(url, { cache: "no-store", signal });
+  if (!res.ok) {
+    const fallback = coldFallback(url);
+    if (fallback !== url) res = await fetch(fallback, { cache: "no-store", signal });
+  }
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  // The body is part of the attempt, not an afterthought: some Android
+  // browsers (OPPO's HeyTap among them) accept the response and then fail
+  // while reading it, with the same "Failed to fetch" a refused request gives.
+  const blob = await res.blob();
+  if (blob.size === 0) throw new Error("Download failed: empty response");
+  return blob;
+}
+
 /**
- * Fetch a photo for saving. One request normally; when that request is refused
- * outright (a thrown `TypeError`, as opposed to an HTTP error), one more under
- * `cacheKeyed`. The error that finally escapes carries the URL, so a failure
- * report can say which photo and probe why.
+ * Fetch a photo all the way into memory, for saving. One read normally; when
+ * it fails for any reason other than a cancel, one more under `cacheKeyed`.
+ * The error that finally escapes carries the URL, so a failure report can say
+ * which photo and probe why.
  */
-export async function fetchPhoto(url: string, signal?: AbortSignal): Promise<Response> {
+export async function fetchPhotoBlob(url: string, signal?: AbortSignal): Promise<Blob> {
   try {
-    return await fetch(url, { cache: "no-store", signal });
+    return await readPhoto(url, signal);
   } catch (err) {
     if (signal?.aborted || isAbort(err)) throw err;
-    const alternate = typeof location === "undefined" ? url : cacheKeyed(url, location.host);
+    const alternate = keyedForThisPage(url);
     if (alternate !== url) {
       try {
-        return await fetch(alternate, { cache: "no-store", signal });
+        return await readPhoto(alternate, signal);
       } catch {
         /* the first error is the one worth reporting */
       }
@@ -160,17 +180,9 @@ export function degradeGridSrc(
 }
 
 /** Download one photo by fetching from its public URL and saving locally.
- *  Retries once against the cold-storage host if the primary fetch fails
- *  (see coldFallback). */
+ *  Retries as `fetchPhotoBlob` does (cold host, then a cache-keyed URL). */
 export async function downloadImage(url: string, filename?: string): Promise<void> {
-  const name = filename ?? nameFromUrl(url);
-  let res = await fetchPhoto(url);
-  if (!res.ok) {
-    const fallback = coldFallback(url);
-    if (fallback !== url) res = await fetch(fallback, { cache: "no-store" });
-  }
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-  triggerBlobDownload(await res.blob(), name);
+  triggerBlobDownload(await fetchPhotoBlob(url), filename ?? nameFromUrl(url));
 }
 
 /** A photo to place in a browser-built ZIP: source URL + the entry name to use. */
@@ -207,10 +219,13 @@ export async function fetchImageBlob(
   onFailure?: (reason: string) => void,
 ): Promise<Blob | null> {
   let reason = "no response";
+  // First attempt on the URL the gallery shows; every retry on the cache-keyed
+  // one (see `cacheKeyed`), which is the attempt that tends to get through.
+  const alternate = keyedForThisPage(url);
   for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
     if (signal?.aborted) return null;
     try {
-      const res = await fetchPhoto(url, signal);
+      const res = await fetch(attempt === 0 ? url : alternate, { cache: "no-store", signal });
       if (res.ok) {
         // `.blob()` reads the FULL body here — a cut stream throws and we retry.
         const blob = await res.blob();

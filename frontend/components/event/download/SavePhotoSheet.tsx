@@ -9,13 +9,15 @@
  *    longer honoured the original tap, and the share sheet will not open
  *    without one. This asks for it.
  *  - Press and hold: there is no share sheet here at all (an old iOS, a
- *    stripped-down web view), so the photo is shown full-screen and the Guest
- *    saves it with the system's own long-press menu.
+ *    stripped-down web view), or an Android browser refused the download, so
+ *    the photo is shown full-screen and the Guest saves it with the system's
+ *    own long-press menu.
  *
  * See `lib/download/share.ts` for why an iPhone cannot simply download.
  */
 
 import { createPortal } from "react-dom";
+import { isIOS } from "@/lib/download/capability";
 import { Z_SAVE_SHEET } from "@/lib/download/layers";
 import type { DownloadModalTheme } from "./DownloadPlanModal";
 
@@ -49,7 +51,10 @@ export function SavePhotoSheet({
         aria-label="Save this photo"
       >
         <p className="shrink-0 px-6 pb-3 pt-6 text-center text-[14px] font-bold leading-[1.45] text-white">
-          Press and hold the photo, then tap “Save to Photos”.
+          {/* Wording only — see capability.ts on what the platform may decide. */}
+          {isIOS()
+            ? "Press and hold the photo, then tap “Save to Photos”."
+            : "Press and hold the photo, then tap “Download image”."}
         </p>
         <div className="flex min-h-0 flex-1 items-center justify-center px-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}

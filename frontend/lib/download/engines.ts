@@ -14,7 +14,12 @@
  *   share       — fetch one set of photos as files for the native share sheet
  */
 
-import { coldFallback, fetchImageBlob, fetchPhoto, triggerBlobDownload } from "../media-actions.ts";
+import {
+  coldFallback,
+  fetchImageBlob,
+  keyedForThisPage,
+  triggerBlobDownload,
+} from "../media-actions.ts";
 import { describeError, noteFailureReason } from "./failure.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
 import { toShareFile } from "./share.ts";
@@ -364,32 +369,52 @@ export async function runDirectoryDownload({
       return;
     }
     const into = await targetDir(item.folderName);
-    let writable: FsWritable | null = null;
-    try {
-      let res = await fetchPhoto(item.url, signal);
-      if (!res.ok || !res.body) {
-        // A migrated booking serves its web copies from the cold host, and an
-        // archive object lives there too — the same single retry the ZIP path
-        // has always made.
-        const fallback = coldFallback(item.url);
-        if (fallback !== item.url) res = await fetch(fallback, { cache: "no-store", signal });
+
+    /** One complete attempt: fetch, then stream into a fresh file. */
+    const writeFrom = async (url: string): Promise<void> => {
+      let writable: FsWritable | null = null;
+      try {
+        let res = await fetch(url, { cache: "no-store", signal });
+        if (!res.ok || !res.body) {
+          // A migrated booking serves its web copies from the cold host, and an
+          // archive object lives there too — the same single retry the ZIP path
+          // has always made.
+          const fallback = coldFallback(url);
+          if (fallback !== url) res = await fetch(fallback, { cache: "no-store", signal });
+        }
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        const handle = await into.getFileHandle(item.name, { create: true });
+        writable = await handle.createWritable();
+        await res.body.pipeTo(writable);
+        writable = null; // pipeTo closes it on success
+      } catch (err) {
+        // A truncated file left behind looks complete to the guest, so abort the
+        // writable and remove the entry. The size-matching resume check is the
+        // backstop if removal fails.
+        if (writable) await writable.abort(err).catch(() => {});
+        await into.removeEntry(item.name).catch(() => {});
+        throw err;
       }
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const handle = await into.getFileHandle(item.name, { create: true });
-      writable = await handle.createWritable();
-      await res.body.pipeTo(writable);
-      writable = null; // pipeTo closes it on success
+    };
+
+    const isCancel = (err: unknown) =>
+      signal.aborted || (err instanceof DOMException && err.name === "AbortError");
+    try {
+      try {
+        await writeFrom(item.url);
+      } catch (err) {
+        // Once more under the cache-keyed URL — see `cacheKeyed` for why that
+        // is the attempt that tends to get through on Android.
+        const alternate = keyedForThisPage(item.url);
+        if (isCancel(err) || alternate === item.url) throw err;
+        await writeFrom(alternate).catch(() => {
+          throw err; // the first error is the one worth reporting
+        });
+      }
       saved += 1;
       progress.advance(item.bytes);
     } catch (err) {
-      // A truncated file left behind looks complete to the guest, so abort the
-      // writable and remove the entry. The size-matching resume check is the
-      // backstop if removal fails.
-      if (writable) await writable.abort(err).catch(() => {});
-      await into.removeEntry(item.name).catch(() => {});
-      if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
-        throw ABORTED;
-      }
+      if (isCancel(err)) throw ABORTED;
       failed += 1;
       failedUrl ??= item.url;
       noteFailureReason(failureReasons, describeError(err));

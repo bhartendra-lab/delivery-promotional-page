@@ -1169,6 +1169,18 @@ export function LoungeGallery({
     },
     // Closed the save sheet without saving: not a failure, nothing to say.
     onDismissed: () => setToast(null),
+    // The browser refused the file, so the photo is on screen for a long-press
+    // save instead. The view says what to do; the team still hears about it.
+    onRecovered: (err) => {
+      setToast(null);
+      reportFailure({
+        kind: "single",
+        stage: "save",
+        error: describeError(err),
+        url: failedPhotoUrl(err),
+        method: "browser download, then press and hold",
+      });
+    },
     onError: (err, mode) => {
       setToast("Download failed — please try again");
       reportFailure({

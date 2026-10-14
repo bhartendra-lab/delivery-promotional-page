@@ -21,7 +21,7 @@
  * No aliased imports — unit-tested under `node --test`.
  */
 
-import { coldFallback, fetchPhoto, nameFromUrl } from "../media-actions.ts";
+import { fetchPhotoBlob, nameFromUrl } from "../media-actions.ts";
 
 export type ShareOutcome =
   /** The Guest picked something in the sheet — almost always "Save Image". */
@@ -104,16 +104,10 @@ export function toShareFile(blob: Blob, name: string): File {
 }
 
 /**
- * Fetch one photo as a shareable file. Retries once against the cold-storage
- * host, exactly as `downloadImage` does. Throws when it cannot be fetched.
+ * Fetch one photo as a shareable file, with the same retries as
+ * `downloadImage`. Throws when it cannot be fetched.
  */
 export async function fetchImageFile(url: string, filename?: string): Promise<File> {
   const name = filename ?? nameFromUrl(url);
-  let res = await fetchPhoto(url);
-  if (!res.ok) {
-    const fallback = coldFallback(url);
-    if (fallback !== url) res = await fetch(fallback, { cache: "no-store" });
-  }
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-  return toShareFile(await res.blob(), name);
+  return toShareFile(await fetchPhotoBlob(url), name);
 }

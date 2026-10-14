@@ -19,7 +19,7 @@
 import { useCallback, useRef, useState } from "react";
 import { singleSaveMode, type SingleSaveMode } from "./capability.ts";
 import { fetchImageFile, canShareThese, shareFiles, type ShareOutcome } from "./share.ts";
-import { triggerBlobDownload } from "../media-actions.ts";
+import { downloadImage, triggerBlobDownload } from "../media-actions.ts";
 import {
   downloadSinglePhoto,
   offeredTierForPhoto,
@@ -61,6 +61,7 @@ export function useSinglePhotoDownload({
   onDone,
   onFellBack,
   onDismissed,
+  onRecovered,
   onError,
 }: {
   /** Server-derived: may this viewer have the unwatermarked copy at all? */
@@ -79,6 +80,12 @@ export function useSinglePhotoDownload({
   onFellBack?: (mode: SingleSaveMode) => void;
   /** Fired when the viewer closed the save sheet without saving. */
   onDismissed?: () => void;
+  /**
+   * Fired when the browser could not save the file and the photo was shown
+   * for press-and-hold saving instead. Not `onError`: the viewer still has a
+   * way to keep the photo. Carries what went wrong, for reporting.
+   */
+  onRecovered?: (err: unknown, mode: SingleSaveMode) => void;
   /** Fired when nothing could be saved, with whatever was thrown. */
   onError?: (err: unknown, mode: SingleSaveMode) => void;
 }): SinglePhotoDownload {
@@ -128,12 +135,26 @@ export function useSinglePhotoDownload({
       // Nothing to fetch: the browser loads the image itself, and the viewer
       // saves it with the system's own press-and-hold menu.
       const viaHold: SinglePhotoSaver = async (url) => setHoldUrl(url);
-      const saver = mode === "share" ? viaShare : mode === "hold" ? viaHold : undefined;
+      // The browser's own download, with the press-and-hold view behind it. A
+      // handful of Android browsers refuse every photo this way however often
+      // it is retried, while still displaying the photo perfectly well — so
+      // the photo is shown and its long-press "Download image" does the save.
+      let recoveredFrom: unknown = null;
+      const viaDownload: SinglePhotoSaver = async (url, filename) => {
+        try {
+          await downloadImage(url, filename);
+        } catch (err) {
+          recoveredFrom = err;
+          setHoldUrl(url);
+        }
+      };
+      const saver = mode === "share" ? viaShare : mode === "hold" ? viaHold : viaDownload;
 
       onStart?.(mode);
       void downloadSinglePhoto(photo, tier, resolveArchiveUrl, saver)
         .then((delivered) => {
-          if (delivered !== tier) onFellBack?.(mode);
+          if (recoveredFrom !== null) onRecovered?.(recoveredFrom, mode);
+          else if (delivered !== tier) onFellBack?.(mode);
           else onDone?.(mode);
         })
         .catch((err: unknown) => {
@@ -144,7 +165,7 @@ export function useSinglePhotoDownload({
           if (mode === "share") sharing.current = false;
         });
     },
-    [resolveArchiveUrl, onStart, onDone, onFellBack, onDismissed, onError],
+    [resolveArchiveUrl, onStart, onDone, onFellBack, onDismissed, onRecovered, onError],
   );
 
   const request = useCallback(
