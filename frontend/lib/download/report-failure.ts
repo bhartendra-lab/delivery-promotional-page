@@ -147,6 +147,7 @@ export async function reportDownloadFailure(uid: string, failure: DownloadFailur
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind: failure.kind === "single" ? "Single photo" : "Multiple photos",
+        outcome: failure.recovered ? "recovered" : "failed",
         stage: failure.stage,
         // Carried in the error field so the backend needs no change to show it.
         error: [failure.error, diagnosis && `Diagnosis: ${diagnosis}`].filter(Boolean).join(" — ") || undefined,

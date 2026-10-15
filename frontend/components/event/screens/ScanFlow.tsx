@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
-import { presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
+import { GuestAuthError, presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
+import { whenVisible } from "@/lib/media-actions";
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
@@ -83,6 +84,16 @@ export function ScanFlow({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  /**
+   * The policy version of a consent that ticked but could not be logged yet.
+   * Logged again before the selfie is uploaded — the one moment the
+   * connection is known to be needed and working — so the audit record exists
+   * before anything is processed, even when the tick itself coincided with a
+   * dropped request (the camera permission prompt opens at that same instant).
+   */
+  const pendingConsent = useRef<{ policyVersion: string; attempts: number } | null>(null);
+  /** The tick's own logging, while it is still retrying. */
+  const consentInFlight = useRef<Promise<void> | null>(null);
 
   // Smoothly climb the displayed percentage toward the current stage target.
   useEffect(() => {
@@ -147,10 +158,62 @@ export function ScanFlow({
     setStatus("Uploading your selfie…");
   }
 
+  /**
+   * Log a consent, retrying a dropped request twice (after 1 s and 3 s, and
+   * only while the tab is visible). An answer from the server — an auth or
+   * validation error — is not retried: asking again would get the same answer.
+   * What could not be logged stays pending for `runPipeline`.
+   */
+  async function logConsent(policyVersion: string): Promise<void> {
+    let lastErr: unknown;
+    const previous = pendingConsent.current?.attempts ?? 0;
+    for (let attempt = 0; attempt < CONSENT_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, CONSENT_RETRY_MS[attempt - 1]));
+        await whenVisible();
+      }
+      try {
+        await recordConsent(uniqueIdentifier, { policy_version: policyVersion });
+        pendingConsent.current = null;
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (err instanceof ApiError || err instanceof GuestAuthError) break;
+      }
+    }
+    pendingConsent.current = { policyVersion, attempts: previous + CONSENT_ATTEMPTS };
+    throw lastErr;
+  }
+
+  /** The last chance for a pending consent, just before the selfie goes up.
+   *  Never blocks the scan; a consent still unlogged after this is reported. */
+  async function flushPendingConsent(): Promise<void> {
+    // A quick capture can land while the tick's own retries are still going;
+    // let them finish first, so a failure there isn't missed.
+    await consentInFlight.current;
+    consentInFlight.current = null;
+    const pending = pendingConsent.current;
+    if (!pending) return;
+    try {
+      await logConsent(pending.policyVersion);
+    } catch (err) {
+      void reportBug("Face scan — consent log failed", {
+        Event: uniqueIdentifier,
+        Booking: bookingId,
+        "Error message": err instanceof Error ? err.message : String(err),
+        Attempts: pendingConsent.current?.attempts,
+        Online: typeof navigator !== "undefined" ? String(navigator.onLine) : undefined,
+        Tab: typeof document !== "undefined" ? document.visibilityState : undefined,
+      });
+      pendingConsent.current = null; // reported once; don't report it again on a retake
+    }
+  }
+
   async function runPipeline(blob: Blob, previewUrl: string) {
     setPreview(previewUrl);
     setPhase("processing");
     resetProgress();
+    await flushPendingConsent();
     try {
       setTarget(35);
       setStatus("Uploading your selfie…");
@@ -222,21 +285,15 @@ export function ScanFlow({
    * consent event.
    */
   function toggleAgreed() {
-    setAgreed((a) => {
-      const next = !a;
-      if (next) {
-        void recordConsent(uniqueIdentifier, {
-          policy_version: friendsNotice ? POLICY_VERSION_FRIENDS : POLICY_VERSION,
-        }).catch((err) => {
-          void reportBug("Face scan — consent log failed", {
-            Event: uniqueIdentifier,
-            Booking: bookingId,
-            "Error message": err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-      return next;
-    });
+    // The request is sent from the handler, not from inside a state updater:
+    // React may call an updater more than once, and each call was a POST.
+    const next = !agreed;
+    setAgreed(next);
+    if (next) {
+      // A failure here is not reported yet: it stays pending and is retried
+      // before the selfie is uploaded (see `pendingConsent`).
+      consentInFlight.current = logConsent(friendsNotice ? POLICY_VERSION_FRIENDS : POLICY_VERSION).catch(() => {});
+    }
   }
 
   /* ── views ──────────────────────────────────────────────────────────── */
@@ -447,6 +504,13 @@ export function ScanFlow({
     </Shell>
   );
 }
+
+/* ── consent logging ────────────────────────────────────────────────────── */
+
+/** Tries per consent log: the first, then two retries. */
+const CONSENT_ATTEMPTS = 3;
+/** Waits before each retry. */
+const CONSENT_RETRY_MS = [1_000, 3_000];
 
 /* ── camera access ──────────────────────────────────────────────────────── */
 

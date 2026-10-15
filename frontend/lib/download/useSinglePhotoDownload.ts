@@ -19,7 +19,14 @@
 import { useCallback, useRef, useState } from "react";
 import { singleSaveMode, type SingleSaveMode } from "./capability.ts";
 import { fetchImageFile, canShareThese, shareFiles, type ShareOutcome } from "./share.ts";
-import { downloadImage, triggerBlobDownload } from "../media-actions.ts";
+import {
+  NATIVE_PHOTO_DOWNLOAD,
+  PhotoHttpError,
+  downloadImage,
+  triggerBlobDownload,
+  triggerNativeDownload,
+} from "../media-actions.ts";
+import { detectInAppBrowser } from "../in-app-browser.ts";
 import {
   downloadSinglePhoto,
   offeredTierForPhoto,
@@ -32,6 +39,26 @@ import {
 
 /** Thrown to unwind a save the viewer backed out of. Not a failure. */
 const DISMISSED = new DOMException("Save dismissed", "AbortError");
+
+/**
+ * After this many refused downloads in a row, stop trying the in-page download
+ * for the rest of the visit and go straight to the fallback. Some browsers
+ * (OPPO's HeyTap among them) refuse every photo however it is asked for — each
+ * attempt costs the Guest two full downloads before the fallback appears, and
+ * the team a mail about something already known.
+ */
+const REFUSALS_BEFORE_GIVING_UP = 2;
+let refusedInARow = 0;
+
+/** How a refused download was rescued. */
+export type RecoveredVia = "native" | "hold";
+
+/** Whether the browser's own download manager can take this photo. An
+ *  in-app web view hands downloads to its host app, which may drop them. */
+function canDownloadNatively(): boolean {
+  if (!NATIVE_PHOTO_DOWNLOAD || typeof navigator === "undefined") return false;
+  return detectInAppBrowser(navigator.userAgent ?? "") === null;
+}
 
 export type SinglePhotoDownload = {
   /** Save this photo, asking for a quality first when there is a choice. */
@@ -81,11 +108,12 @@ export function useSinglePhotoDownload({
   /** Fired when the viewer closed the save sheet without saving. */
   onDismissed?: () => void;
   /**
-   * Fired when the browser could not save the file and the photo was shown
-   * for press-and-hold saving instead. Not `onError`: the viewer still has a
-   * way to keep the photo. Carries what went wrong, for reporting.
+   * Fired when the page could not read the photo and the save was rescued
+   * another way: handed to the browser's own download manager (`native`), or
+   * the photo shown for a press-and-hold save (`hold`). Not `onError`: the
+   * viewer still gets the photo. Carries what went wrong, for reporting.
    */
-  onRecovered?: (err: unknown, mode: SingleSaveMode) => void;
+  onRecovered?: (err: unknown, mode: SingleSaveMode, via: RecoveredVia) => void;
   /** Fired when nothing could be saved, with whatever was thrown. */
   onError?: (err: unknown, mode: SingleSaveMode) => void;
 }): SinglePhotoDownload {
@@ -135,17 +163,41 @@ export function useSinglePhotoDownload({
       // Nothing to fetch: the browser loads the image itself, and the viewer
       // saves it with the system's own press-and-hold menu.
       const viaHold: SinglePhotoSaver = async (url) => setHoldUrl(url);
-      // The browser's own download, with the press-and-hold view behind it. A
-      // handful of Android browsers refuse every photo this way however often
-      // it is retried, while still displaying the photo perfectly well — so
-      // the photo is shown and its long-press "Download image" does the save.
-      let recoveredFrom: unknown = null;
+      // The in-page download first — it is what works for nearly everyone,
+      // and the only path that can tell whether it worked. When the page
+      // cannot read the photo (a few Android browsers refuse every one; a weak
+      // network or a hidden tab kills the transfer), the save is rescued:
+      // handed to the browser's own download manager where that is switched
+      // on, otherwise the photo is shown for its long-press "Download image".
+      let outcome:
+        | { kind: "saved" }
+        | { kind: "shown" }
+        | { kind: "recovered"; via: RecoveredVia; err: unknown } = { kind: "saved" };
+      const rescue = (url: string): RecoveredVia => {
+        if (canDownloadNatively()) {
+          triggerNativeDownload(url);
+          return "native";
+        }
+        setHoldUrl(url);
+        return "hold";
+      };
       const viaDownload: SinglePhotoSaver = async (url, filename) => {
+        // This browser has refused every recent download: skip straight to
+        // the rescue, without another doomed attempt or report. Still inside
+        // the tap here, which is what a download manager hand-off wants.
+        if (refusedInARow >= REFUSALS_BEFORE_GIVING_UP) {
+          if (rescue(url) === "hold") outcome = { kind: "shown" };
+          return;
+        }
         try {
           await downloadImage(url, filename);
+          refusedInARow = 0;
         } catch (err) {
-          recoveredFrom = err;
-          setHoldUrl(url);
+          // Storage said the photo isn't there: a real failure, not one the
+          // download manager or a long-press could get round.
+          if (err instanceof PhotoHttpError) throw err;
+          refusedInARow += 1;
+          outcome = { kind: "recovered", via: rescue(url), err };
         }
       };
       const saver = mode === "share" ? viaShare : mode === "hold" ? viaHold : viaDownload;
@@ -153,7 +205,9 @@ export function useSinglePhotoDownload({
       onStart?.(mode);
       void downloadSinglePhoto(photo, tier, resolveArchiveUrl, saver)
         .then((delivered) => {
-          if (recoveredFrom !== null) onRecovered?.(recoveredFrom, mode);
+          if (outcome.kind === "recovered") onRecovered?.(outcome.err, mode, outcome.via);
+          // The press-and-hold view is up and says what to do: nothing to add.
+          else if (outcome.kind === "shown") return;
           else if (delivered !== tier) onFellBack?.(mode);
           else onDone?.(mode);
         })

@@ -19,6 +19,7 @@ import {
   fetchImageBlob,
   keyedForThisPage,
   triggerBlobDownload,
+  whenVisible,
 } from "../media-actions.ts";
 import { describeError, noteFailureReason } from "./failure.ts";
 import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
@@ -407,6 +408,7 @@ export async function runDirectoryDownload({
         // is the attempt that tends to get through on Android.
         const alternate = keyedForThisPage(item.url);
         if (isCancel(err) || alternate === item.url) throw err;
+        await whenVisible();
         await writeFrom(alternate).catch(() => {
           throw err; // the first error is the one worth reporting
         });

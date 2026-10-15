@@ -90,6 +90,27 @@ export function cacheKeyed(url: string, host: string): string {
 
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
+/**
+ * Resolves once the page is visible again (at once if it already is, or
+ * outside a browser). Phone browsers pause or kill a hidden tab's downloads —
+ * a Guest who switches to WhatsApp while a photo is coming down on a slow
+ * connection comes back to a failure — so a retry waits for them to return
+ * rather than burning itself on a tab the browser is not serving.
+ */
+export function whenVisible(): Promise<void> {
+  if (typeof document === "undefined" || document.visibilityState === "visible") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const onChange = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", onChange);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", onChange);
+  });
+}
+
 /** `cacheKeyed` for this page, or the URL unchanged outside a browser. */
 export const keyedForThisPage = (url: string): string =>
   typeof location === "undefined" ? url : cacheKeyed(url, location.host);
@@ -100,6 +121,22 @@ export function failedPhotoUrl(err: unknown): string | undefined {
   return typeof url === "string" ? url : undefined;
 }
 
+/**
+ * Storage answered, and the answer was an error (a missing or forbidden photo).
+ * Kept apart from a refused or broken transfer because no fallback can help:
+ * the browser's download manager would only save the error page.
+ */
+export class PhotoHttpError extends Error {
+  // A plain field, not a constructor parameter property: this module runs
+  // under `node --test`, whose type stripping cannot rewrite those.
+  readonly status: number;
+  constructor(status: number) {
+    super(`Download failed: ${status}`);
+    this.name = "PhotoHttpError";
+    this.status = status;
+  }
+}
+
 /** One complete read of a photo: headers AND body, cold host on an HTTP error. */
 async function readPhoto(url: string, signal?: AbortSignal): Promise<Blob> {
   let res = await fetch(url, { cache: "no-store", signal });
@@ -107,7 +144,7 @@ async function readPhoto(url: string, signal?: AbortSignal): Promise<Blob> {
     const fallback = coldFallback(url);
     if (fallback !== url) res = await fetch(fallback, { cache: "no-store", signal });
   }
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  if (!res.ok) throw new PhotoHttpError(res.status);
   // The body is part of the attempt, not an afterthought: some Android
   // browsers (OPPO's HeyTap among them) accept the response and then fail
   // while reading it, with the same "Failed to fetch" a refused request gives.
@@ -130,6 +167,7 @@ export async function fetchPhotoBlob(url: string, signal?: AbortSignal): Promise
     const alternate = keyedForThisPage(url);
     if (alternate !== url) {
       try {
+        await whenVisible();
         return await readPhoto(alternate, signal);
       } catch {
         /* the first error is the one worth reporting */
@@ -177,6 +215,52 @@ export function degradeGridSrc(
   if (next >= chain.length) return;
   el.dataset.srcStep = String(next);
   el.src = chain[next];
+}
+
+/**
+ * Whether a single photo the page could NOT read is handed to the browser's
+ * own download manager (rather than shown for a press-and-hold save). The
+ * in-page download is always tried first. OFF until media.vyavasth.in sends
+ * `Content-Disposition: attachment` for `?dl=1` (a Cloudflare response-header
+ * rule): without that header the hand-off opens the photo in place of the
+ * gallery. Turn it on with NEXT_PUBLIC_NATIVE_PHOTO_DOWNLOAD=1 once the rule
+ * is live.
+ */
+export const NATIVE_PHOTO_DOWNLOAD = process.env.NEXT_PUBLIC_NATIVE_PHOTO_DOWNLOAD === "1";
+
+/**
+ * Pure. The photo's URL asking storage to send it as a download. A URL that
+ * already has a query is returned unchanged, as in `cacheKeyed`.
+ */
+export function nativeDownloadUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.search) return url;
+    parsed.searchParams.set("dl", "1");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Hand one photo to the browser's own download manager: no `fetch`, no CORS,
+ * nothing read into the page. The download manager carries on in the
+ * background, resumes a dropped connection, and puts the file where the phone
+ * keeps downloads — everything the in-page path cannot do on a weak network or
+ * in a browser that won't let a page read a photo. The page cannot see how it
+ * goes; the browser's own download notification is the progress and the result.
+ */
+export function triggerNativeDownload(url: string): void {
+  const a = document.createElement("a");
+  a.href = nativeDownloadUrl(url);
+  a.rel = "noopener";
+  // Ignored cross-origin (the response header is what makes it a download),
+  // but harmless, and correct if storage is ever served from this origin.
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /** Download one photo by fetching from its public URL and saving locally.
@@ -243,7 +327,10 @@ export async function fetchImageBlob(
       /* network / HTTP2 stream error — fall through to backoff + retry */
       reason = describeError(err);
     }
-    if (attempt < FETCH_ATTEMPTS - 1) await delay(500 * 2 ** attempt); // 0.5s, 1s, 2s
+    if (attempt < FETCH_ATTEMPTS - 1) {
+      await delay(500 * 2 ** attempt); // 0.5s, 1s, 2s
+      await whenVisible();
+    }
   }
   if (signal?.aborted) return null;
 

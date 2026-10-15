@@ -1169,16 +1169,19 @@ export function LoungeGallery({
     },
     // Closed the save sheet without saving: not a failure, nothing to say.
     onDismissed: () => setToast(null),
-    // The browser refused the file, so the photo is on screen for a long-press
-    // save instead. The view says what to do; the team still hears about it.
-    onRecovered: (err) => {
-      setToast(null);
+    // The page couldn't read the photo, so it went to the browser's own
+    // download manager or onto the screen for a long-press save. The guest is
+    // told where to look; the team still hears about it.
+    onRecovered: (err, _mode, via) => {
+      setToast(via === "native" ? "Downloading with your browser — check your notifications" : null);
+      if (via === "native") triggerNudge("download");
       reportFailure({
         kind: "single",
         stage: "save",
         error: describeError(err),
         url: failedPhotoUrl(err),
-        method: "browser download, then press and hold",
+        method: via === "native" ? "in-page download, then browser download manager" : "in-page download, then press and hold",
+        recovered: true,
       });
     },
     onError: (err, mode) => {

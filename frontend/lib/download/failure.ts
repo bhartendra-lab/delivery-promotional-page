@@ -32,6 +32,8 @@ export type DownloadFailure = {
   /** One photo that could not be fetched. The reporter probes it to tell a
    *  blocked response from an unreachable host — the error alone cannot. */
   url?: string;
+  /** The Guest was given another way to save it (the press-and-hold view). */
+  recovered?: boolean;
   method?: string;
   tier?: string;
   total?: number;

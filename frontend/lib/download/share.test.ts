@@ -41,3 +41,18 @@ test("cacheKeyed gives a download its own cache entry, and leaves signed URLs al
   assert.equal(cacheKeyed("not a url", "deliver.example"), "not a url");
   assert.equal(cacheKeyed("https://media.example/a/b.jpg", ""), "https://media.example/a/b.jpg");
 });
+
+test("nativeDownloadUrl asks for a download and leaves signed URLs alone", async () => {
+  const { nativeDownloadUrl } = await import("../media-actions.ts");
+  assert.equal(nativeDownloadUrl("https://media.example/a/b.JPG"), "https://media.example/a/b.JPG?dl=1");
+  const signed = "https://media.example/a/b.JPG?X-Amz-Signature=abc";
+  assert.equal(nativeDownloadUrl(signed), signed);
+});
+
+test("a missing photo is told apart from a refused one", async () => {
+  const { PhotoHttpError } = await import("../media-actions.ts");
+  const err = new PhotoHttpError(404);
+  assert.equal(err.status, 404);
+  assert.equal(err.message, "Download failed: 404");
+  assert.ok(err instanceof Error);
+});
