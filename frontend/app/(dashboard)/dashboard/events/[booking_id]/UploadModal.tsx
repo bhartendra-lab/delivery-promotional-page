@@ -11,7 +11,7 @@ import {
   type ArchiveTier,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
-import { DeliveryPreferencesPanel } from "./DeliveryPreferencesPanel";
+import { DeliveryPreferencesPanel, ToggleRow } from "./DeliveryPreferencesPanel";
 import { useCompany } from "@/lib/useCompany";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
 import { getUploadedMediaIds } from "@/lib/api";
@@ -36,6 +36,8 @@ export type UploadPlan = (
 ) & {
   /** The run's quality tier. Fixed for the whole run once it starts. */
   variant: UploadVariant;
+  /** Stamp the studio's default watermark on this run's photos. Fixed for the whole run once it starts. */
+  watermark: boolean;
 };
 
 /** GB of plan storage a company needs before ORIGINAL-file uploads unlock.
@@ -90,6 +92,16 @@ const QUALITY_TIERS: Array<{
     requiresLargePlan: true,
   },
 ];
+
+/** What the "Allow watermark" switch covers at each quality tier. The 4K copy
+ *  is marked along with the photos guests see; an original is the studio's file
+ *  byte for byte, so it never is, whatever the switch says. */
+const WATERMARK_HINT: Record<UploadVariant, string> = {
+  "2560": "Adds your default watermark to the photos guests see.",
+  "4096": "Adds your default watermark to the photos guests see, and to the 4K copy.",
+  original:
+    "Adds your default watermark to the photos guests see. The original file is never watermarked.",
+};
 
 /** A destination folder the picker can send photos to. */
 export type UploadFolderOption = { id: string; name: string };
@@ -154,6 +166,12 @@ type Props = {
   photoCap: PhotoCap | null;
   /** Re-reads the cap from the server; resolves with the fresh value. */
   refreshPhotoCap: () => Promise<PhotoCap | null>;
+  /**
+   * The "Allow watermark" choice of this event's unfinished upload, kept in
+   * IndexedDB so it survives a reload; null when none is in progress. Seeds the
+   * toggle so continuing an interrupted upload does not start from "on" again.
+   */
+  sessionWatermark?: boolean | null;
 };
 
 type Analysis = {
@@ -183,6 +201,7 @@ export function UploadModal({
   bookingId,
   photoCap,
   refreshPhotoCap,
+  sessionWatermark = null,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
   // modal that unmounted to make way for this one — that double backdrop
@@ -218,6 +237,23 @@ export function UploadModal({
   const [draftPrefs, setDraftPrefs] = useState<DeliveryPreferences>(preferences);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefError, setPrefError] = useState<string | null>(null);
+  /**
+   * Step 2's "Allow watermark" switch: whether this run stamps the studio's
+   * default watermark.
+   *
+   * Until the studio flips it, it shows what the event's unfinished upload was
+   * started with (`sessionWatermark`), else on. That keeps the choice across a
+   * reload: re-selecting the folder to resume must not silently put the mark
+   * back on photos whose earlier batch went up without one. Derived rather than
+   * seeded in an effect because `sessionWatermark` is read from IndexedDB and
+   * can arrive after the dialog is already open. `watermarkOverride` is the
+   * studio's own pick this time, and is cleared on open: leaving a mark off is a
+   * decision about one upload session, not a standing setting, so it must not
+   * carry into the next one by surprise (a finished or cancelled session leaves
+   * nothing in IndexedDB, so the next dialog starts from on).
+   */
+  const [watermarkOverride, setWatermarkOverride] = useState<boolean | null>(null);
+  const allowWatermark = watermarkOverride ?? sessionWatermark ?? true;
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // <input webkitdirectory> (the one-shot folder flow) isn't supported on mobile
@@ -362,6 +398,7 @@ export function UploadModal({
     setDraftPrefs(preferences);
     setSavingPrefs(false);
     setPrefError(null);
+    setWatermarkOverride(null);
     setEstimateGB(null);
     setEstimating(false);
     setSelectedVariant("2560");
@@ -691,13 +728,14 @@ export function UploadModal({
         targetFolderId: target.id,
         targetFolderName: target.name,
         variant,
+        watermark: allowWatermark,
       });
       onClose();
       return;
     }
     if (resolvedGroups) {
       // The `mixed` case, already answered on step 1.
-      onStart({ mode: "grouped", groups: resolvedGroups, variant });
+      onStart({ mode: "grouped", groups: resolvedGroups, variant, watermark: allowWatermark });
       onClose();
       return;
     }
@@ -706,12 +744,13 @@ export function UploadModal({
         mode: "grouped",
         groups: [{ name: directName ?? defaultFolderName(), files: analysis.looseFiles }],
         variant,
+        watermark: allowWatermark,
       });
       onClose();
       return;
     }
     // grouped → every photo already belongs to a named folder.
-    onStart({ mode: "grouped", groups: analysis.subGroups, variant });
+    onStart({ mode: "grouped", groups: analysis.subGroups, variant, watermark: allowWatermark });
     onClose();
   }
 
@@ -842,6 +881,28 @@ export function UploadModal({
                   archiveAllowed={archiveAllowed}
                   originalAllowed={originalAllowed}
                 />
+              </StepSection>
+
+              {/* Second, straight under quality: both decide what is written
+                  for THIS run, and neither can be changed on the photos once
+                  they have landed (the mark is baked in as they upload). */}
+              <StepSection
+                title="Watermark"
+                description=""
+              >
+                <div className="overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
+                  <ToggleRow
+                    label="Allow watermark"
+                    hint={`${WATERMARK_HINT[variant]} It is applied as the photos upload and cannot be added to them afterwards.${
+                      sessionWatermark === false && watermarkOverride === null
+                        ? " Kept off, as in your unfinished upload on this event."
+                        : ""
+                    }`}
+                    checked={allowWatermark}
+                    onChange={setWatermarkOverride}
+                    disabled={savingPrefs}
+                  />
+                </div>
               </StepSection>
 
               <StepSection

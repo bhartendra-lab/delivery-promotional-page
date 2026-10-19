@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel } from "@/lib/api";
@@ -9,6 +9,7 @@ import type { CustomFolder, Guest } from "@/lib/types";
 import {
   accessActionsFor,
   fullAccessIsRedundant,
+  guestMatchesQuery,
   levelOf,
   sortGuestsForList,
   type GuestAccessAction,
@@ -39,9 +40,11 @@ import {
   IconQrCode,
   IconRefresh,
   IconScanFace,
+  IconSearch,
   IconShieldCheck,
   IconUsers,
   IconWhatsApp,
+  IconX,
 } from "./icons";
 
 /**
@@ -285,6 +288,7 @@ function GuestsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<GuestFilter>("all");
+  const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -337,10 +341,22 @@ function GuestsPanel({
     }
   };
 
+  // Search narrows what the level filter already loaded, in the browser: the
+  // whole list is one unpaginated response, so there is nothing to ask the
+  // server for. The order is untouched.
+  const query = search.trim();
+  const visibleGuests = useMemo(
+    () => (guests ? guests.filter((g) => guestMatchesQuery(g, query)) : guests),
+    [guests, query],
+  );
+
   // Clients always lead the list (see compareGuestsForList), so under "All"
   // the first non-Client row is where everyone else begins. The divider is
   // shown only when BOTH groups have rows; a list of one kind needs no label.
-  const firstOtherIndex = filter === "all" && guests ? guests.findIndex((g) => levelOf(g) !== "client") : -1;
+  // Read off the rows on screen, so a search that leaves only Guests (or only
+  // Clients) drops it too.
+  const firstOtherIndex =
+    filter === "all" && visibleGuests ? visibleGuests.findIndex((g) => levelOf(g) !== "client") : -1;
   const showDivider = firstOtherIndex > 0;
 
   return (
@@ -371,6 +387,33 @@ function GuestsPanel({
           <IconDownload size={13} />
           {exporting ? "Exporting…" : "Export"}
         </button>
+      </div>
+
+      <div className="border-b border-[#ECE5D8] px-4 py-2.5">
+        <div className="relative">
+          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
+            <IconSearch size={14} />
+          </span>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, email or phone"
+            aria-label="Search guests"
+            autoComplete="off"
+            className="brand-focus h-9 w-full rounded-lg border border-[var(--color-brand-border)] bg-white pl-9 pr-8 text-[13px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="brand-focus absolute inset-y-0 right-1.5 my-auto flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-border)]"
+            >
+              <IconX size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Four pills. On the narrowest phones they scroll sideways inside this
@@ -424,9 +467,21 @@ function GuestsPanel({
             {EMPTY_LABEL[filter]}
           </div>
         )}
+        {!loading && !error && (guests?.length ?? 0) > 0 && (visibleGuests?.length ?? 0) === 0 && (
+          <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
+            No one matches &ldquo;{query}&rdquo;.
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="brand-focus mt-1 block w-full font-semibold text-[var(--color-brand-navy)] hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
         {!loading &&
           !error &&
-          guests?.map((g, index) => (
+          visibleGuests?.map((g, index) => (
             <div key={g._id}>
               {showDivider && index === firstOtherIndex && (
                 <div className="border-b border-[#F1ECE2] bg-[var(--color-brand-bg)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">

@@ -99,6 +99,17 @@ export type UploadRecord = {
    *  multipart-create time. Persisted so a resumed run can carry on with — and
    *  a cancelled one can abort — an upload it did not itself start. */
   archiveKey?: string;
+  /** Whether the run that wrote this record stamps the studio's watermark: the
+   *  "Allow watermark" choice on the upload dialog's second step.
+   *
+   *  PERSISTED so the choice outlives a reload. The engine's own copy lives in
+   *  memory and is gone with the tab, and the File is gone too, so resuming
+   *  means re-selecting the folder and opening the dialog again, which would
+   *  otherwise start from "on" and mark the rest of a gallery that was begun
+   *  without a mark. Records are wiped when the session ends (all saved, or
+   *  cancelled), so the choice goes with them. Absent on records written before
+   *  this existed, which every reader treats as "no choice recorded". */
+  watermark?: boolean;
   attempts: number;
   lastError?: string;
   updatedAt: number;

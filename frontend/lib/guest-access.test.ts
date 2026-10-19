@@ -5,6 +5,7 @@ import {
   allMediaIsPublic,
   compareGuestsForList,
   fullAccessIsRedundant,
+  guestMatchesQuery,
   levelOf,
   sortGuestsForList,
 } from "./guest-access.ts";
@@ -96,6 +97,45 @@ test("sortGuestsForList: returns a copy and leaves its input alone", () => {
   const sorted = sortGuestsForList(rows);
   assert.notEqual(sorted, rows);
   assert.deepEqual(rows.map((g) => g.name), ["B", "A"]);
+});
+
+/* ── search ─────────────────────────────────────────────────────────────── */
+
+const priya = { name: "Priya Sharma", email: "Priya.S@example.com", phone: "+91 98765 43210" };
+const phoneOnly = { name: "Guest", phone: "+91 91234 56789" };
+
+test("guestMatchesQuery: an empty or blank query matches everyone", () => {
+  assert.equal(guestMatchesQuery(priya, ""), true);
+  assert.equal(guestMatchesQuery(priya, "   "), true);
+  assert.equal(guestMatchesQuery({ name: "" }, ""), true);
+});
+
+test("guestMatchesQuery: name and email match as a case-insensitive substring", () => {
+  assert.equal(guestMatchesQuery(priya, "priya"), true);
+  assert.equal(guestMatchesQuery(priya, "SHARMA"), true);
+  assert.equal(guestMatchesQuery(priya, "  sha  "), true);
+  assert.equal(guestMatchesQuery(priya, "@example.com"), true);
+  assert.equal(guestMatchesQuery(priya, "rahul"), false);
+});
+
+test("guestMatchesQuery: a phone is found by digits however it was typed or stored", () => {
+  assert.equal(guestMatchesQuery(priya, "98765"), true);
+  assert.equal(guestMatchesQuery(priya, "98765 43210"), true);
+  assert.equal(guestMatchesQuery(priya, "9876543210"), true);
+  assert.equal(guestMatchesQuery(priya, "+91-98765"), true);
+  assert.equal(guestMatchesQuery(priya, "11111"), false);
+});
+
+test("guestMatchesQuery: digits typed into the box are not matched against a name or email", () => {
+  // "a1" is not number-shaped, so it must not fall through to the phone digits.
+  assert.equal(guestMatchesQuery(phoneOnly, "a1"), false);
+  assert.equal(guestMatchesQuery(phoneOnly, "91234"), true);
+});
+
+test("guestMatchesQuery: a Guest with no email or phone is still found by name, and never throws", () => {
+  assert.equal(guestMatchesQuery({ name: "Anita" }, "anit"), true);
+  assert.equal(guestMatchesQuery({ name: "Anita" }, "98765"), false);
+  assert.equal(guestMatchesQuery({ name: "Anita", email: undefined, phone: undefined }, "x"), false);
 });
 
 /* ── the menu ───────────────────────────────────────────────────────────── */

@@ -322,6 +322,13 @@ export class UploadEngineCore {
    */
   private variant: UploadVariant = "2560";
   /**
+   * Whether this run stamps the studio's default watermark. The studio decides
+   * on the upload dialog's second step and it is fixed for the whole run, like
+   * `variant`: a retried file follows the choice its run was started with, so a
+   * gallery never ends up half marked. On unless the studio turned it off.
+   */
+  private watermarkEnabled = true;
+  /**
    * recordId → the source File, held ONLY for an "original" run, where the
    * archive object IS the source bytes and the uploader needs the handle long
    * after compression finished.
@@ -432,8 +439,11 @@ export class UploadEngineCore {
    * a run has started. A run that mixed tiers would produce a gallery whose
    * archive coverage nobody could reason about, and there is no way to express
    * "some of these have originals" in the UI.
+   *
+   * `watermark` is fixed for the run too. False skips the studio's watermark
+   * for every photo in it (see `prepareWatermark`).
    */
-  async run(inputs: UploadInput[], variant: UploadVariant = "2560"): Promise<void> {
+  async run(inputs: UploadInput[], variant: UploadVariant = "2560", watermark = true): Promise<void> {
     if (this.state.isUploading || this.cancelling) return;
     // Arm the completion barrier before any `await` so a concurrent `cancel()`
     // waits for this run's `finally` rather than racing it.
@@ -444,6 +454,7 @@ export class UploadEngineCore {
     this.paused = false;
     this.stopping = false;
     this.variant = variant;
+    this.watermarkEnabled = watermark;
     this.inputs = inputs;
     this.inputCursor = 0;
     this.startedAt = Date.now();
@@ -705,6 +716,10 @@ export class UploadEngineCore {
   async retryFailed(recordId: string, file: File): Promise<void> {
     const rec = this.records.get(recordId);
     if (!rec) return;
+    // A retried file follows the choice its run was started with. After a
+    // reload this engine has no run and `watermarkEnabled` is back at its
+    // default, so the record is the only place that choice still lives.
+    if (typeof rec.watermark === "boolean") this.watermarkEnabled = rec.watermark;
     this.queueIdbUpdate(recordId, {
       status: "pending",
       attempts: 0,
@@ -823,6 +838,14 @@ export class UploadEngineCore {
    * and cannot be added afterwards.
    */
   private async prepareWatermark(): Promise<void> {
+    // The studio switched the watermark off for this run. A choice, not a
+    // misconfiguration: nothing to resolve, and no "uploading without a
+    // watermark" notice to raise about it.
+    if (!this.watermarkEnabled) {
+      this.disposeWatermark();
+      this.setWatermarkWarning(null);
+      return;
+    }
     // A preset with no `image_url` has nothing to stamp — treat it as absent.
     let preset: (WatermarkPreset & { image_url: string }) | null = null;
     try {
@@ -2366,6 +2389,10 @@ export class UploadEngineCore {
         // Always written, never inherited: a record re-queued for upload must
         // not keep a `dedupeMatch` left over from an earlier selection.
         dedupeMatch: match ?? undefined,
+        // The run's watermark choice rides on the record because it is all that
+        // survives a reload (see UploadRecord#watermark). Written on every
+        // record this run owns, so a re-queued one follows THIS run's choice.
+        watermark: this.watermarkEnabled,
         attempts: 0,
         lastError: undefined,
         updatedAt: Date.now(),

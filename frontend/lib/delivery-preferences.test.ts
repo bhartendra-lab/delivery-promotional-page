@@ -32,7 +32,7 @@ const archiveRow = (value: DeliveryPreferences, ...archiveTiers: ArchiveTier[]) 
 
 test("a HD-only event shows no archive download row — there is nothing to govern", () => {
   assert.deepEqual(keys(prefs()), ["allow_download", "show_google_review"]);
-  // Even with the preference set to its most permissive value: no unwatermarked
+  // Even with the preference set to its most permissive value: no archive
   // copy exists, so the control would govern nothing.
   assert.deepEqual(keys(prefs({ archive_download_access: "all_guests" })), ["allow_download", "show_google_review"]);
 });
@@ -84,18 +84,30 @@ test("no surface calls a 4K file an original, or vice versa", () => {
   assert.ok(/original camera files|Original file/.test(originalCopy));
 });
 
-test("the permissive option states the consequence bluntly, at both tiers", () => {
-  // A studio must not enable this believing it is the same file at a larger
-  // size — these copies carry no watermark. It is the ONE option that keeps a
+test("the permissive option states the consequence bluntly, wherever originals are involved", () => {
+  // A studio must not enable this believing an original is the same file at a
+  // larger size — it carries no watermark. It is the ONE option that keeps a
   // line, shown under the control while it is selected.
-  for (const tier of ["4096", "original"] as ArchiveTier[]) {
-    const row = archiveRow(prefs(), tier)!;
+  for (const tiers of [["original"], ["original", "4096"]] as ArchiveTier[][]) {
+    const row = archiveRow(prefs(), ...tiers)!;
     const allGuests = row.options!.find((o) => o.value === "all_guests")!;
-    assert.equal(allGuests.note, "These files have no watermark.");
+    assert.equal(allGuests.note, "Original files have no watermark.");
     for (const other of row.options!.filter((o) => o.value !== "all_guests")) {
       assert.equal(other.note, undefined, `${other.value} is label-only`);
     }
-    assert.match(row.description, /unwatermarked/);
+  }
+});
+
+test("a 4K-only event carries no watermark warning: the 4K file is watermarked like the rest", () => {
+  const row = archiveRow(prefs(), "4096")!;
+  for (const option of row.options!) assert.equal(option.note, undefined, `${option.value} is label-only`);
+});
+
+test("no archive row copy calls a file unwatermarked, at any tier", () => {
+  for (const tiers of [["4096"], ["original"], ["original", "4096"]] as ArchiveTier[][]) {
+    const row = archiveRow(prefs(), ...tiers)!;
+    const copy = [row.label, row.description, ...row.options!.flatMap((o) => [o.label, o.note ?? ""])].join(" ");
+    assert.ok(!/unwatermarked/i.test(copy), `${tiers.join("+")} copy must not claim unwatermarked`);
   }
 });
 

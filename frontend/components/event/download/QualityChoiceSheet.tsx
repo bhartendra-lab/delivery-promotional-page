@@ -99,13 +99,15 @@ export function QualityChoiceSheet({
       // The guest's note is deliberately identical for both tiers. A note that
       // said "the full-size file" for one and "print resolution" for the other
       // would tell them which tier this photo happens to be — the distinction
-      // they are never shown and cannot act on.
+      // they are never shown and cannot act on. It makes no claim about a
+      // watermark either: a 4K copy carries the studio's, an original does not,
+      // and one line cannot be true of both.
       note:
         audience === "guest"
-          ? "The best quality available, with no watermark."
+          ? "The best quality available."
           : archiveTier === "original"
             ? "The full-size file, with no watermark."
-            : "Print resolution, with no watermark.",
+            : "Print resolution.",
     },
   ];
 

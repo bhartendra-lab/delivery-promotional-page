@@ -228,21 +228,25 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
           // equally.
           "Full-resolution downloads",
     // Tier-aware even in one line, for the same honesty reason as the label.
-    description: (ctx) => `Who gets the unwatermarked ${archiveFilesPhrase(ctx.archiveTiers)}.`,
+    // Says nothing about a watermark: a 4K file carries the studio's and an
+    // original does not, so the line that matters is the option's note below.
+    description: (ctx) => `Who gets the ${archiveFilesPhrase(ctx.archiveTiers)}.`,
     // Two independent reasons this row can be meaningless, and both hide it
     // rather than showing a control that governs nothing:
-    //  - the event is HD-only, so no unwatermarked copy exists at all;
+    //  - the event is HD-only, so there is no archive copy at all;
     //  - downloads are switched off outright, which overrides this setting
     //    anyway (see the endpoint's authorisation order).
     isRelevant: (ctx, value) => value.allow_download && ctx.archiveTiers.length > 0,
-    options: () => [
+    options: (ctx) => [
       { value: "host_only", label: "Only the family (passcode holders)" },
       {
         value: "all_guests",
         label: "Every guest",
         // Blunt on purpose, and the one line this row keeps. A studio must not
-        // enable this believing it is the same file at a larger size.
-        note: "These files have no watermark.",
+        // enable this believing an original is the same file at a larger size.
+        // Only originals: a 4K file is watermarked like the photos guests
+        // already see, so there is nothing to warn about for it.
+        ...(ctx.archiveTiers.includes("original") ? { note: "Original files have no watermark." } : {}),
       },
       { value: "none", label: "Nobody" },
     ],

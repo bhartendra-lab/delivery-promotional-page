@@ -110,9 +110,11 @@ export type CompressResult = {
   blob: Blob;
   /** 480px grid thumbnail, derived from the watermarked view. Every variant. */
   thumbBlob?: Blob;
-  /** 4096px UNWATERMARKED archive copy — only for variant "4096". The
-   *  "original" variant has none: the engine streams the raw File to B2 itself
-   *  and this function never touches those bytes. */
+  /** 4096px archive copy — only for variant "4096", and watermarked like the
+   *  delivery view whenever the run has a watermark. The "original" variant has
+   *  none: the engine streams the raw File to B2 itself and this function never
+   *  touches those bytes, so an original is the one archive that is never
+   *  watermarked. */
   archiveBlob?: Blob;
   width?: number;
   height?: number;
@@ -232,24 +234,29 @@ export async function compressWithExif(
  * 2560 path produces — same 2560px long edge, same q0.80, same watermark, same
  * thumbnail derived from the watermarked view.
  *
+ * The 4K archive carries the watermark too. Only the "original" variant is
+ * ever unwatermarked, because that one is the studio's file byte for byte and
+ * never passes through here.
+ *
  * The order here is load-bearing:
  *
  *   1. downscale the source to 4096 -> this IS the archive blob
- *   2. splice the source EXIF into it
- *   3. decode it once and draw a 2560px canvas from that bitmap -> the view
- *   4. watermark the view (never fails the upload)
- *   5. thumbnail from the WATERMARKED view
- *   6. splice the source EXIF into the view
+ *   2. watermark the archive (never fails the upload)
+ *   3. splice the source EXIF into it (the watermark re-encode drops it)
+ *   4. decode it once and draw a 2560px canvas from that bitmap -> the view
+ *   5. watermark the view, unless step 4 inherited the archive's mark
+ *   6. thumbnail from the WATERMARKED view
+ *   7. splice the source EXIF into the view
  *
- * Step 3 costs one extra decode against the 2560 path (~190 ms, entirely hidden
- * behind the 4096 object's own upload time). Do NOT try to save it by drawing
- * the thumbnail from the archive bitmap: the archive is unwatermarked by
- * definition, so 4096 runs would produce unwatermarked thumbnails while every
- * other run produced watermarked ones — a visible inconsistency in a gallery
- * that mixes them, and one nobody would think to look for.
+ * Step 4 costs one extra decode against the 2560 path (~190 ms, entirely hidden
+ * behind the 4096 object's own upload time). The view is drawn FROM the
+ * watermarked archive, so the mark is composited once and scaled down with the
+ * picture; stamping the view again would put it on twice. It is only stamped
+ * separately when it did NOT inherit one: the archive's own watermark failed,
+ * or the view had to be rebuilt from the source.
  *
- * The archive copy is never watermarked and never gets a thumbnail of its own.
- * It is the studio's copy, not a delivery object.
+ * The archive never gets a thumbnail of its own. It is the studio's copy, not
+ * a delivery object.
  */
 async function compressHighRes(
   file: File,
@@ -267,8 +274,22 @@ async function compressHighRes(
     initialQuality: QUALITY,
   });
 
-  // 2. Re-inject the source metadata, exactly as the 2560 path does, and with
-  //    the same tolerance: losing metadata beats losing the photo.
+  // 2. Watermark the archive. The same never-fail-the-upload contract as the
+  //    delivery view: if compositing throws, the photo ships unmarked and the
+  //    view below gets its own attempt.
+  let archiveMarked = false;
+  if (watermark) {
+    try {
+      archiveBlob = await watermark.apply(archiveBlob);
+      archiveMarked = true;
+    } catch (err) {
+      console.error("[upload:watermark] compositing the 4K archive failed; uploading it without watermark", err);
+    }
+  }
+
+  // 3. Re-inject the source metadata, exactly as the 2560 path does, and with
+  //    the same tolerance: losing metadata beats losing the photo. After the
+  //    watermark, which re-encodes through a canvas and drops it.
   if (exifSegmentBytes) {
     try {
       const bytes = new Uint8Array(await archiveBlob.arrayBuffer());
@@ -278,9 +299,10 @@ async function compressHighRes(
     }
   }
 
-  // 3. The delivery view, drawn from the 4096 bitmap rather than re-decoding
-  //    the (much larger) source a second time.
+  // 4. The delivery view, drawn from the 4096 bitmap rather than re-decoding
+  //    the (much larger) source a second time. It inherits the archive's mark.
   let viewBlob = await downscaleToView(archiveBlob);
+  let viewMarked = archiveMarked;
   if (!viewBlob) {
     // The 4096 blob wouldn't decode. Rather than fail the photo, fall back to
     // compressing the source straight to 2560 — the delivery pair is never
@@ -292,10 +314,13 @@ async function compressHighRes(
       fileType: "image/jpeg",
       initialQuality: QUALITY,
     });
+    // Built from the unmarked source, so nothing was inherited.
+    viewMarked = false;
   }
 
-  // 4. Watermark the VIEW only. Same never-fail-the-upload contract as 2560.
-  if (watermark) {
+  // 5. Watermark the view when it did not inherit a mark. Same
+  //    never-fail-the-upload contract as 2560.
+  if (watermark && !viewMarked) {
     try {
       viewBlob = await watermark.apply(viewBlob);
     } catch (err) {
@@ -303,10 +328,10 @@ async function compressHighRes(
     }
   }
 
-  // 5. Dimensions + thumbnail from the watermarked view, unchanged.
+  // 6. Dimensions + thumbnail from the watermarked view, unchanged.
   const { width, height, thumbBlob } = await measureAndThumbnail(viewBlob);
 
-  // 6. Source EXIF into the view, last, exactly as the 2560 path does.
+  // 7. Source EXIF into the view, last, exactly as the 2560 path does.
   if (exifSegmentBytes) {
     try {
       const bytes = new Uint8Array(await viewBlob.arrayBuffer());

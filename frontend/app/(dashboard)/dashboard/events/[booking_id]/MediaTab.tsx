@@ -579,6 +579,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         bookingId={ctxBookingId}
         photoCap={photoCap}
         refreshPhotoCap={refreshPhotoCap}
+        sessionWatermark={engine.sessionWatermark}
         onStart={(plan) => {
           if (plan.mode === "single") {
             void engine.startUpload({
@@ -586,11 +587,13 @@ export function MediaTab({ loading }: { loading: boolean }) {
               targetFolderId: plan.targetFolderId,
               targetFolderName: plan.targetFolderName,
               variant: plan.variant,
+              watermark: plan.watermark,
             });
           } else {
             void engine.startUpload({
               groups: plan.groups,
               variant: plan.variant,
+              watermark: plan.watermark,
               existingFolders: folders.map((f) => ({ name: f.name, id: f._id })),
               onFoldersEnsured: (ensured) => {
                 setFolders((prev) => {

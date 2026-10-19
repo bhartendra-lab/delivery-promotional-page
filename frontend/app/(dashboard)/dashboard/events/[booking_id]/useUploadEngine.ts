@@ -5,6 +5,7 @@ import { ensureFolders, listResumableRecords } from "@/lib/r2-upload/engine";
 import { getUploadEngine } from "@/lib/r2-upload/registry";
 import type { EngineProgress, UploadInput, UploadRecord } from "@/lib/r2-upload/types";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
+import { sessionWatermarkOf } from "@/lib/r2-upload/session-watermark";
 
 export type UploadEngineHook = {
   progress: EngineProgress;
@@ -12,6 +13,13 @@ export type UploadEngineHook = {
   failed: UploadRecord[];
   /** Records that uploaded successfully but whose metadata save errored. */
   resumableRecords: UploadRecord[];
+  /**
+   * The "Allow watermark" choice of this event's unfinished upload, read from
+   * the records it left in IndexedDB so it survives a reload; null when nothing
+   * is unfinished (or the records predate the choice). The upload dialog opens
+   * on it, so continuing a session does not quietly switch the mark back on.
+   */
+  sessionWatermark: boolean | null;
   /**
    * Start a fresh run. Three modes:
    *  - `groups`: pre-resolved `{ name, files }[]` — folders auto-created by name.
@@ -28,6 +36,8 @@ export type UploadEngineHook = {
     targetFolderName?: string;
     /** The run's quality tier, chosen in the upload modal. Fixed for the run. */
     variant?: UploadVariant;
+    /** Stamp the studio's default watermark on this run's photos. On unless false. Fixed for the run. */
+    watermark?: boolean;
     /**
      * Fired synchronously once folder ids are resolved (created or reused),
      * before the (potentially long) upload run itself. Lets the caller merge
@@ -81,6 +91,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
   const [progress, setProgress] = useState<EngineProgress>(engine.getState());
   const [failed, setFailed] = useState<UploadRecord[]>([]);
   const [resumableRecords, setResumableRecords] = useState<UploadRecord[]>([]);
+  const [sessionWatermark, setSessionWatermark] = useState<boolean | null>(null);
   const externalListenerRef = useRef<((url: string, cf: string) => void) | null>(null);
   const metadataSavedListenerRef = useRef<((count: number) => void) | null>(null);
 
@@ -127,6 +138,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
         const uploaded = list.filter((r) => r.status === "uploaded");
         setResumableRecords(uploaded);
         setFailed(list.filter((r) => r.status === "failed"));
+        setSessionWatermark(sessionWatermarkOf(list));
         const state = engine.getState();
         if (uploaded.length > 0 && !state.isUploading && !state.isSavingMetadata) {
           autoResumeStartedRef.current = true;
@@ -136,6 +148,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
         if (!alive) return;
         setResumableRecords([]);
         setFailed([]);
+        setSessionWatermark(null);
       }
     })();
     return () => {
@@ -153,11 +166,13 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
           if (!alive) return;
           setResumableRecords(list.filter((r) => r.status === "uploaded"));
           setFailed(list.filter((r) => r.status === "failed"));
+          setSessionWatermark(sessionWatermarkOf(list));
         })
         .catch(() => {
           if (!alive) return;
           setResumableRecords([]);
           setFailed([]);
+          setSessionWatermark(null);
         });
     };
 
@@ -237,6 +252,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       targetFolderId,
       targetFolderName,
       variant = "2560",
+      watermark = true,
       onFoldersEnsured,
     }: {
       files?: File[];
@@ -245,6 +261,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       targetFolderId?: string;
       targetFolderName?: string;
       variant?: UploadVariant;
+      watermark?: boolean;
       onFoldersEnsured?: (folders: Array<{ id: string; name: string }>) => void;
     }) => {
       console.log("[upload:start] plan", {
@@ -254,6 +271,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
         targetFolderId,
         targetFolderName,
         variant,
+        watermark,
       });
 
       // Single-folder mode: every image goes to one already-created folder,
@@ -267,7 +285,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
           customFolderId: targetFolderId,
           folderName: targetFolderName ?? "Folder",
         }));
-        await engine.run(inputs, variant);
+        await engine.run(inputs, variant, watermark);
         return;
       }
 
@@ -308,7 +326,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
           inputs.push({ file, customFolderId: cfId, folderName: g.name });
         }
       }
-      await engine.run(inputs, variant);
+      await engine.run(inputs, variant, watermark);
     },
     [engine, bookingId],
   );
@@ -369,6 +387,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       progress,
       failed,
       resumableRecords,
+      sessionWatermark,
       startUpload,
       cancelUpload,
       pause,
@@ -383,7 +402,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
       onMediaUploaded,
       onMetadataSaved,
     }),
-    [progress, failed, resumableRecords, startUpload, cancelUpload, pause, resume, uploadCover, setOutOfSync, resumePendingMetadata, retryMetadataSave, resumeAfterPhotoCap, retryFailed, resetPersisted, onMediaUploaded, onMetadataSaved],
+    [progress, failed, resumableRecords, sessionWatermark, startUpload, cancelUpload, pause, resume, uploadCover, setOutOfSync, resumePendingMetadata, retryMetadataSave, resumeAfterPhotoCap, retryFailed, resetPersisted, onMediaUploaded, onMetadataSaved],
   );
 }
 

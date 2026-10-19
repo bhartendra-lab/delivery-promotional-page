@@ -65,6 +65,37 @@ export function sortGuestsForList<T extends ListFields>(guests: T[]): T[] {
   return [...guests].sort(compareGuestsForList);
 }
 
+type SearchFields = Pick<Guest, "name" | "email" | "phone">;
+
+/** Digits and the punctuation people type inside a phone number. */
+const PHONE_LIKE = /^[\d\s()+-]+$/;
+
+/**
+ * Whether a Guest belongs in the list for what is typed in its search box: a
+ * case-insensitive match on name, email or phone. A phone is stored the way
+ * the Guest signed in with it ("+91 98765 43210"), so a query that looks like
+ * a number is compared by digits alone and "98765 43210" still finds it. An
+ * empty query matches everyone.
+ *
+ * Search narrows the list already loaded for the level filter; it never
+ * changes the order, which stays `compareGuestsForList`.
+ */
+export function guestMatchesQuery(guest: SearchFields, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const phone = guest.phone ?? "";
+  if (
+    (guest.name ?? "").toLowerCase().includes(needle) ||
+    (guest.email ?? "").toLowerCase().includes(needle) ||
+    phone.toLowerCase().includes(needle)
+  ) {
+    return true;
+  }
+  if (!PHONE_LIKE.test(needle)) return false;
+  const digits = needle.replace(/\D/g, "");
+  return digits.length > 0 && phone.replace(/\D/g, "").includes(digits);
+}
+
 /* ── which changes to offer ─────────────────────────────────────────────── */
 
 export type GuestAccessAction = {

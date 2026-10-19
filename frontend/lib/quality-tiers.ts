@@ -11,10 +11,10 @@
  *    the file they selected is the whole point.
  *
  *  - A GUEST never chose anything and has no use for the distinction. Both
- *    unwatermarked tiers are simply "High Resolution", and a gallery that has
- *    none of them shows no quality choice at all — not a disabled one. A guest
- *    should never be able to tell that something exists which they are not
- *    being given.
+ *    archive tiers are simply "High Resolution", and a gallery that has none of
+ *    them shows no quality choice at all — not a disabled one. A guest should
+ *    never be able to tell that something exists which they are not being
+ *    given.
  *
  * WHAT "Original file" IS NOT: a RAW negative. The uploader accepts only
  * image/jpeg, png, webp and heic/heif — `.CR3`, `.NEF` and friends are not
@@ -24,7 +24,8 @@
  * must not imply negatives.
  */
 
-/** The archive (unwatermarked) tiers a photo can carry. */
+/** The archive tiers a photo can carry. The 4K one carries the studio's
+ *  watermark when the run had one; the original never does. */
 export type ArchiveTier = "4096" | "original";
 
 /** Who is reading the label. */
@@ -58,9 +59,9 @@ export const DELIVERY_TIER_LABEL: Record<TierAudience, string> = {
   guest: "Web (2560px)",
 };
 
-/** What a guest is offered when anything in their selection is unwatermarked —
- *  one name covering both tiers, since they cannot choose between them and the
- *  download gives each photo the best copy it has. */
+/** What a guest is offered when anything in their selection has an archive
+ *  copy — one name covering both tiers, since they cannot choose between them
+ *  and the download gives each photo the best copy it has. */
 export const GUEST_ARCHIVE_LABEL = "High Resolution";
 
 /**
