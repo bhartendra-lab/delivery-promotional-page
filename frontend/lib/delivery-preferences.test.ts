@@ -213,6 +213,7 @@ test("the access surface carries EVERY row — it is the one place a Studio sets
       "show_google_review",
       "require_social_visit",
       "face_search_enabled",
+      "face_filter_enabled",
     ],
   );
 });
@@ -223,6 +224,7 @@ test("the upload dialog's surface stays the smaller set", () => {
   const gallery = keys(prefs(), "original");
   assert.deepEqual(gallery, ["allow_download", "archive_download_access", "show_google_review"]);
   assert.ok(!gallery.includes("face_search_enabled"));
+  assert.ok(!gallery.includes("face_filter_enabled"));
   assert.ok(!gallery.includes("require_social_visit"));
 });
 
@@ -359,6 +361,51 @@ test("normalizeDeliveryPreferences: a non-boolean face_search_enabled reads as O
   }
 });
 
+/* ── Face filter ─────────────────────────────────────────────────────────── */
+
+const faceFilterRow = (value: DeliveryPreferences = prefs()) =>
+  accessRows(value).find((f) => f.key === "face_filter_enabled")!;
+
+test("the face filter row is a toggle under face search, on the access surface only", () => {
+  const keys = accessRows().map((f) => f.key);
+  assert.equal(keys.indexOf("face_filter_enabled"), keys.indexOf("face_search_enabled") + 1);
+  const row = faceFilterRow();
+  assert.equal(row.type, "toggle");
+  assert.equal(row.label, "Face filter");
+  assert.equal(row.description, "Guests can filter their photos by the people in them. Hosts can filter the whole gallery.");
+});
+
+test("the face filter row is live while face search is on, whatever its own value", () => {
+  for (const on of [true, false]) {
+    assert.equal(faceFilterRow(prefs({ face_filter_enabled: on })).locked, undefined);
+  }
+});
+
+test("face search off locks the face filter OFF and says why: it is not hidden", () => {
+  for (const eventValue of [true, false]) {
+    const row = faceFilterRow(prefs({ face_search_enabled: false, face_filter_enabled: eventValue }));
+    assert.ok(row, "the row must still render");
+    assert.deepEqual(row.locked, { value: false, note: "Turned off while Selfie search is off." });
+  }
+});
+
+test("normalizeDeliveryPreferences: the face filter defaults to ON", () => {
+  assert.equal(DELIVERY_PREFERENCE_DEFAULTS.face_filter_enabled, true);
+  assert.equal(normalizeDeliveryPreferences({}).face_filter_enabled, true);
+  assert.equal(normalizeDeliveryPreferences(undefined).face_filter_enabled, true);
+});
+
+test("normalizeDeliveryPreferences: a stored face_filter_enabled false survives, junk reads as ON", () => {
+  assert.equal(normalizeDeliveryPreferences({ face_filter_enabled: false }).face_filter_enabled, false);
+  for (const bogus of ["false", 0, 1, null, {}]) {
+    assert.equal(normalizeDeliveryPreferences({ face_filter_enabled: bogus as never }).face_filter_enabled, true);
+  }
+});
+
+test("turning the face filter off is a change a save sends", () => {
+  assert.deepEqual(changedPreferenceKeys(prefs(), prefs({ face_filter_enabled: false })), ["face_filter_enabled"]);
+});
+
 /* ── New preferences on old events ───────────────────────────────────────── */
 
 test("an event created before the new preferences reads both as on", () => {
@@ -377,7 +424,10 @@ test("every row is a label plus at most one short hint, and no copy uses an em o
   ).concat(resolveDeliveryPreferenceFields(prefs(), { archiveTiers: ["4096"], requiredVisitLabel: "Instagram" }, "access"));
   for (const row of rows) {
     const words = row.description.trim() ? row.description.trim().split(/\s+/).length : 0;
-    assert.ok(words <= 10, `${row.key} hint is ${words} words: ${row.description}`);
+    // The face filter's hint is the Studio's approved two-sentence wording,
+    // kept whole on purpose. Every other row keeps to ten words.
+    const cap = row.key === "face_filter_enabled" ? 16 : 10;
+    assert.ok(words <= cap, `${row.key} hint is ${words} words: ${row.description}`);
     const all = [row.label, row.description, row.consequence ?? "", row.warning ?? "", ...(row.options ?? []).flatMap((o) => [o.label, o.note ?? ""])];
     for (const line of all) {
       assert.ok(!line.includes("\u2014") && !line.includes("\u2013"), `${row.key}: ${line}`);

@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * My People's face filter: narrow the feed to photos with SPECIFIC people.
+ * The face filter bar: narrow a grid to photos with SPECIFIC people.
  *
- * Purely local. It never changes who is in the group and never calls the
- * backend: the directory payload the guest already holds sends every person's
- * `shared` photos, and filtering is that same data run back through
- * `buildGroupFeed` with fewer people. Zero requests per tap, and nothing it
- * can show that the guest could not already see. Selection lives in
- * FriendsSurface (which builds the feed); this component only renders it.
+ * Presentational only. The caller owns the selection and what it does: the
+ * gallery's face filter (faces/useFaceFilter.ts, which asks the server for
+ * the selection's photos) and, before it, My People (friends/FriendsSurface,
+ * which filtered locally). Faces only: there are no names on screen, so each
+ * face carries the label a screen reader announces.
  *
  * TWO SHAPES, ONE OBJECT. A one-line bar (the filter icon, then the faces at
  * 36px, scrolling sideways) that expands into a box of bigger faces overlaying
@@ -38,9 +37,11 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ClientTheme } from "@/lib/client-theme";
-import type { FriendPerson } from "@/lib/friend-finder/types";
 import { IconFunnel } from "@/components/ui/icons";
-import { Avatar } from "./Avatar";
+
+/** One face on the bar. `thumb_url` is a square crop (the backend's 256px
+ *  WebP); null or a failed load shows a plain disc instead. */
+export type FaceFilterFace = { id: string; thumb_url: string | null; label: string };
 
 const DURATION_MS = 280;
 const EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
@@ -75,20 +76,53 @@ function measure(refs: Map<string, HTMLElement>): Map<string, DOMRect> {
   return out;
 }
 
+/**
+ * One face, as an image. Taken from friends/Avatar.tsx rather than imported, so
+ * the gallery does not pull in the friends chunk: fixed size so the bar
+ * reserves its box before the image lands, lazy so a long bar does not fetch
+ * every crop at once, and a ring in the accent colour when selected.
+ */
+function FaceThumb({ t, url, size, ringed }: { t: ClientTheme; url: string | null; size: number; ringed: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = !!url && !failed;
+  return (
+    <span
+      aria-hidden
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full"
+      style={{ width: size, height: size, background: t.sunken, boxShadow: ringed ? `0 0 0 2px ${t.brand}` : undefined }}
+    >
+      {showImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      )}
+    </span>
+  );
+}
+
 export function FaceFilterBar({
   t,
-  members,
+  faces,
   selected,
   onToggle,
   onClear,
   desktop,
 }: {
   t: ClientTheme;
-  /** Connected (`in_group`) members only: a requested person has no shared
-   *  photos, so selecting them could only empty the grid. */
-  members: FriendPerson[];
+  /** In chip order. Only faces that can narrow the grid: each one is in at
+   *  least one photo the viewer can open. */
+  faces: FaceFilterFace[];
   selected: ReadonlySet<string>;
-  onToggle: (guestId: string) => void;
+  onToggle: (id: string) => void;
   onClear: () => void;
   desktop: boolean;
 }) {
@@ -249,22 +283,22 @@ export function FaceFilterBar({
     };
   }, [phase, close]);
 
-  const face = (person: FriendPerson, size: number, shape: "bar" | "box") => {
-    const on = selected.has(person.guest_id);
+  const face = (person: FaceFilterFace, size: number, shape: "bar" | "box") => {
+    const on = selected.has(person.id);
     return (
       <button
-        key={person.guest_id}
+        key={person.id}
         type="button"
         // Registers the face under its shape for the FLIP measurements. The
         // map is read here, in the ref callback, never during render.
         ref={(el) => {
           const refs = shape === "bar" ? barFaces.current : boxFaces.current;
-          if (el) refs.set(person.guest_id, el);
-          else refs.delete(person.guest_id);
+          if (el) refs.set(person.id, el);
+          else refs.delete(person.id);
         }}
-        onClick={() => onToggle(person.guest_id)}
-        // Names are not on screen, but a screen reader needs them.
-        aria-label={person.name}
+        onClick={() => onToggle(person.id)}
+        // Nothing is written on screen, but a screen reader needs a label.
+        aria-label={person.label}
         aria-pressed={on}
         className="shrink-0 cursor-pointer rounded-full transition-opacity duration-150"
         style={{
@@ -275,7 +309,7 @@ export function FaceFilterBar({
           transformOrigin: "top left",
         }}
       >
-        <Avatar t={t} guestId={person.guest_id} name={person.name} url={person.avatar_url} size={size} ringed={on} />
+        <FaceThumb t={t} url={person.thumb_url} size={size} ringed={on} />
       </button>
     );
   };
@@ -332,7 +366,7 @@ export function FaceFilterBar({
             WebkitMaskImage: "linear-gradient(to right, #000 calc(100% - 24px), transparent)",
           }}
         >
-          {members.map((person) => face(person, BAR_FACE, "bar"))}
+          {faces.map((person) => face(person, BAR_FACE, "bar"))}
         </div>
         {clear}
       </div>
@@ -383,7 +417,7 @@ export function FaceFilterBar({
                   className="mt-3 grid gap-3 px-1"
                   style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${desktop ? 72 : 64}px, 1fr))`, justifyItems: "center" }}
                 >
-                  {members.map((person) => face(person, desktop ? 72 : 64, "box"))}
+                  {faces.map((person) => face(person, desktop ? 72 : 64, "box"))}
                 </div>
               </div>
             </div>

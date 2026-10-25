@@ -134,7 +134,8 @@ function TermsDoc({ studio, link, muted, text }: DocProps) {
         By submitting a selfie, you consent to it being processed in-session into a one-time
         embedding used to match you to photos. The selfie is discarded after matching. The embedding
         is retained for this gallery&rsquo;s lifetime and used solely to return your photos. You are
-        not required to use face search to access the gallery.
+        not required to use face search to access the gallery. Faces in this gallery&rsquo;s photos,
+        including mine, can be used to filter the photos each guest can already see.
       </P>
       <H color={text}>Content &amp; law</H>
       <P color={muted}>
@@ -155,7 +156,8 @@ function PrivacyDoc({ studio, link, muted, text }: DocProps) {
       <H color={text}>Gallery Privacy</H>
       <P color={muted}>
         <strong style={{ color: text }}>If you use face search:</strong> a temporary embedding is
-        created to match you to photos. Your selfie is not stored.
+        created to match you to photos. Your selfie is not stored. Faces in this gallery&rsquo;s
+        photos, including mine, can be used to filter the photos each guest can already see.
       </P>
       <P color={muted}>
         <strong style={{ color: text }}>If you sign in with Google:</strong> we collect your name and

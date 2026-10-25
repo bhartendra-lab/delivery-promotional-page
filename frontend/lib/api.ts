@@ -3,6 +3,7 @@ import type { DeliveryPreferences } from "./delivery-preferences";
 import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
 import type { GuestAccessLevel } from "./guest-access";
 import type { UploadVariant } from "./r2-upload/compressor";
+import { UPLOAD_CACHE_CONTROL } from "./upload-cache-control";
 import type {
   PlansResponse,
   PublicCoupon,
@@ -1098,6 +1099,9 @@ export type PresignRequest = {
    *  the multipart endpoints below instead. Anything but "2560" is plan-gated
    *  server-side and answers 402 below a 500 GB plan. */
   variant?: UploadVariant;
+  /** A guest selfie's opt-out of caching. The backend honours it for guests
+   *  only, and then answers with the header to send in `cache_control`. */
+  no_store?: boolean;
 };
 export type PresignedUpload = {
   key: string;
@@ -1106,6 +1110,9 @@ export type PresignedUpload = {
   content_type: string;
   filename: string;
   custom_folder_id: string;
+  /** Present only when the request set `no_store` and the backend honoured it:
+   *  the Cache-Control to send on the PUT. Absent means the default. */
+  cache_control?: string;
   /** Present only when the request set `with_thumbnail`. Always image/jpeg. */
   thumb_key?: string;
   thumb_presigned_url?: string;
@@ -1561,21 +1568,25 @@ export class R2PutError extends Error {
  * in the backend's media.service.js, and it MUST be sent on the PUT, or R2
  * rejects the request with SignatureDoesNotMatch. The R2 bucket's CORS policy
  * must also allow `cache-control` as a request header.
+ *
+ * The one exception is a guest selfie presigned with `no_store`. Its presign
+ * answer names a no-cache header as `cache_control`, and the caller passes it
+ * here (see `uploadCacheControlFor` in lib/upload-cache-control.ts). The value
+ * lives there, so both stay in step.
  */
-const UPLOAD_CACHE_CONTROL = "public, max-age=31536000, immutable";
-
 export async function putBlobToPresignedUrl(
   presignedUrl: string,
   blob: Blob,
   contentType: string,
   signal?: AbortSignal,
+  cacheControl: string = UPLOAD_CACHE_CONTROL,
 ): Promise<void> {
   // ContentType MUST match what the URL was signed with — otherwise R2
   // returns SignatureDoesNotMatch. The presign endpoint defaults to
   // image/jpeg; if you change that there, change it here too.
   const res = await fetch(presignedUrl, {
     method: "PUT",
-    headers: { "Content-Type": contentType, "Cache-Control": UPLOAD_CACHE_CONTROL },
+    headers: { "Content-Type": contentType, "Cache-Control": cacheControl },
     body: blob,
     signal,
   });

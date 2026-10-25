@@ -504,6 +504,9 @@ export type Guest = {
   guest_sub_type?: string | null;
   /** Guest's own selfie photo (set once they face-match), if any. */
   selfie_url?: string | null;
+  /** Present only while the backend serves profile faces: the guest's own face
+   *  from a gallery photo, or null until one is found. See lib/profile-face.ts. */
+  profile_face_url?: string | null;
   likes_count?: number;
   /** ISO timestamp. Orders the Client block (bride, groom, then by this). */
   createdAt?: string;
@@ -931,6 +934,13 @@ export type GuestSession = {
   client_role?: EventClientRole | null;
   guest_sub_type: string | null;
   selfie_url: string | null;
+  /**
+   * Present only while the backend serves profile faces (PROFILE_FACE_ENABLED):
+   * the guest's own face cropped from a gallery photo they are matched in, or
+   * null until one is found. Its presence means the selfie is never shown. See
+   * lib/profile-face.ts.
+   */
+  profile_face_url?: string | null;
   has_selfie: boolean;
   /**
    * The validated selfie id. Its presence is what tells the lounge to run

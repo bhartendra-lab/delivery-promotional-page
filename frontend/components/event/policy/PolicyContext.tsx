@@ -15,7 +15,11 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
  *   v1.2  "I agree to let Vyavasth use my selfie to find my photos and save it
  *         to my profile."                                   ← current, base
  *   v1.3  v1.2 continued in the same paragraph: "Other guests here can see my
- *         face picture."                          ← current, Find my people
+ *         face picture." (Find my people events.) No longer recorded: Find my
+ *         people is retired.
+ *   v1.4  v1.2 continued in the same paragraph: "Faces in this gallery’s
+ *         photos, including mine, can be used to filter the photos each guest
+ *         can already see."                       ← current, face filter
  *
  * Old rows keep their meaning; nothing is migrated.
  */
@@ -36,6 +40,15 @@ export const POLICY_VERSION = "v1.2";
  * Bump both of these whenever the selfie-consent copy changes.
  */
 export const POLICY_VERSION_FRIENDS = "v1.3";
+
+/**
+ * The same consent, with the one extra sentence about the face filter: true
+ * only where the backend answers that the face filter is on for the event
+ * (its own switch, the event's Face filter switch and face search). Recorded
+ * instead of `POLICY_VERSION` on exactly those galleries, so a consent row
+ * always names the wording that was on screen.
+ */
+export const POLICY_VERSION_FACE_FILTER = "v1.4";
 
 /** Which guest-facing policy document the overlay is showing. */
 export type PolicyView = "terms" | "privacy" | "cookies";

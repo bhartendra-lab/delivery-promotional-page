@@ -6,6 +6,8 @@ import type { FriendFinderBlock } from "@/lib/friend-finder/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
 import { GuestAuthError, getGuestSession, saveIntake, updateGuestSubType } from "@/lib/guest-api";
+import { clearFaceFilterCache } from "@/lib/face-filter/storage";
+import { profileFaceServed } from "@/lib/profile-face";
 import { reportBug } from "@/lib/report-bug";
 import { BrandLoader } from "./BrandLoader";
 import { useEventTheme } from "./EventThemeContext";
@@ -210,10 +212,6 @@ export function EventFlow() {
           // show it as a name. Only a name they (or Google) actually gave is
           // shown.
           guestName={session?.name && session.name !== "Guest" ? session.name : undefined}
-          // Drives the consent sentence about the face picture (and so the
-          // policy version recorded), not any sheet: the sharing preference is
-          // asked on the My People tab now.
-          friendsNotice={friendFinder?.enabled === true}
           secondary={
             scanOrigin === "gallery"
               ? // Opened from inside the gallery. Backing out records nothing and
@@ -229,7 +227,23 @@ export function EventFlow() {
             // The face search itself (and the matched-photos reveal) now happens
             // in the Lounge, driven by session.selfie_id — mirror it here so that
             // effect can run without waiting for a getGuestSession refetch.
-            setSession((s) => (s ? { ...s, has_selfie: true, selfie_url: selfieUrl, selfie_id: selfieId } : s));
+            //
+            // The selfie's own URL is kept ONLY while the backend serves no
+            // profile faces, so the avatar shows the new selfie exactly as it
+            // always has. Once it serves them, the selfie is never shown and
+            // its URL is not held at all: the profile face goes (a new selfie
+            // clears it on the backend too) and the next search finds the new
+            // one. Nothing here is written to any storage.
+            setSession((s) =>
+              s
+                ? {
+                    ...s,
+                    has_selfie: true,
+                    selfie_id: selfieId,
+                    ...(profileFaceServed(s) ? { selfie_url: null, profile_face_url: null } : { selfie_url: selfieUrl }),
+                  }
+                : s,
+            );
             // No friends sheet follows the scan any more: the preference is
             // asked on the Guest's next visit to the My People tab.
             setStep("lounge");
@@ -256,6 +270,9 @@ export function EventFlow() {
       onFriendFinderChange={(patch) => setFriendFinder((f) => (f ? { ...f, ...patch } : f))}
       onReauth={() => {
         clearGuestToken(uniqueIdentifier);
+        // The face filter's cached chips and picks are this guest's; the next
+        // one to sign in on this tab starts without them.
+        clearFaceFilterCache(uniqueIdentifier);
         setSession(null);
         setStep("login");
       }}
@@ -268,6 +285,7 @@ export function EventFlow() {
       }}
       onSignOut={() => {
         clearGuestToken(uniqueIdentifier);
+        clearFaceFilterCache(uniqueIdentifier);
         setSession(null);
         setFriendFinder(null);
         setStep("login");

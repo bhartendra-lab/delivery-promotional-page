@@ -11,6 +11,7 @@ import { ApiError, type PresignRequest, type PresignedUpload } from "./api";
 import { ensureGuestToken, refreshGuest } from "./guest-auth";
 import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./types";
 import type { FriendFinderBlock } from "./friend-finder/types";
+import type { FaceFilterBlock, FaceFilterMedia } from "./face-filter/types";
 import type { IntakeAnswer } from "./guest-intake";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -78,11 +79,16 @@ export async function guestFetch<T>(uid: string, path: string, init: RequestInit
  * then. Callers that do not know about the feature keep reading `guest` and are
  * unaffected.
  */
-export function getGuestSession(uid: string) {
-  return guestFetch<{ guest: GuestSession; friend_finder?: FriendFinderBlock }>(
-    uid,
-    "/deliverables/get-guest-session",
-  );
+export function getGuestSession(uid: string, opts: { query?: string; signal?: AbortSignal } = {}) {
+  // The face filter rides on this same endpoint (`include=face_filter`, built
+  // in lib/face-filter/query.ts). With no options the request is exactly the
+  // one above: same path, no query string, no extra init.
+  return guestFetch<{
+    guest: GuestSession;
+    friend_finder?: FriendFinderBlock;
+    face_filter?: FaceFilterBlock;
+    face_filter_media?: FaceFilterMedia;
+  }>(uid, `/deliverables/get-guest-session${opts.query ?? ""}`, opts.signal ? { signal: opts.signal } : {});
 }
 
 /**
@@ -194,6 +200,12 @@ export type GuestMediaQuery = {
   customFolderId?: string;
   skip?: number;
   limit?: number;
+  /**
+   * A host paging a face-filtered All Photos: the ids sent are the filter's,
+   * kept inside the booking rather than the matched set. Sent ONLY by a host
+   * on All Photos with a chip selected; never with `mine` or `onlyLiked`.
+   */
+  faceFilter?: boolean;
 };
 
 /**
@@ -225,7 +237,8 @@ export function getGuestMedia(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ media_ids: mediaIds }),
+      // Without the face filter the body is exactly what it always was.
+      body: JSON.stringify(q.faceFilter ? { media_ids: mediaIds, face_filter: true } : { media_ids: mediaIds }),
     },
   );
 }

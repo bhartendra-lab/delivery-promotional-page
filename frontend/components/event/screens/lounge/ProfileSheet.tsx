@@ -3,22 +3,29 @@
 import { useEffect } from "react";
 import { useEventTheme } from "../../EventThemeContext";
 import { IconX, IconScanFace, IconLogout } from "@/components/ui/icons";
+import { GuestPhoto } from "./GuestPhoto";
 
 /**
  * Guest profile sheet — the "DP" viewer opened by tapping the guest avatar.
- * Shows the selfie used for face-matching enlarged, plus the guest's account
- * actions: rescan their face (re-runs the scan flow) or sign out.
+ * Shows the guest's picture enlarged, plus their account actions: rescan their
+ * face (re-runs the scan flow) or sign out.
+ *
+ * The picture is their profile face once the backend serves those (their own
+ * face from a gallery photo they are in), and their selfie before that, as it
+ * always was (see lib/profile-face.ts). The copy follows: a profile face is
+ * never called a selfie.
  *
  * Three states, because a selfie is no longer a given: a Guest may have one, or
  * have skipped the scan, or be in a gallery whose Studio has switched face
  * search off entirely. In that last case the sheet says nothing about selfies
  * at all — offering a scan the event does not do would be a dead end — but it
- * still shows an OLD selfie as the avatar if one exists, since that is simply
- * this Guest's picture and switching face search off deletes nothing.
+ * still shows the Guest's picture if one exists, since switching face search
+ * off deletes nothing.
  */
 export function ProfileSheet({
   name,
-  selfieUrl,
+  photoUrl,
+  profileFace,
   faceSearchOn,
   hasSelfie,
   onRescan,
@@ -26,7 +33,11 @@ export function ProfileSheet({
   onClose,
 }: {
   name?: string;
-  selfieUrl: string | null;
+  /** The guest's picture (lib/profile-face.ts#guestPhotoUrl), or null. */
+  photoUrl: string | null;
+  /** The backend serves profile faces: the picture is a face from the
+   *  gallery, never the selfie, and the copy says so. */
+  profileFace: boolean;
   /** The event's `face_search_enabled` preference. */
   faceSearchOn: boolean;
   /** This Guest has a validated selfie (not merely an image on file). */
@@ -64,19 +75,20 @@ export function ProfileSheet({
           </button>
         </div>
 
-        {/* DP — the selfie used for face-matching */}
+        {/* DP: the profile face, or the selfie before the backend serves those */}
         <div
           className="mx-auto -mt-2 flex h-32 w-32 items-center justify-center overflow-hidden rounded-full"
           style={{ background: t.sunken, border: `3px solid ${t.brand}` }}
         >
-          {selfieUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={selfieUrl} alt="Your selfie" className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-[40px] font-extrabold" style={{ color: t.brand }}>
-              {initial}
-            </span>
-          )}
+          <GuestPhoto
+            url={photoUrl}
+            alt={profileFace ? "Your photo from the gallery" : "Your selfie"}
+            fallback={
+              <span className="text-[40px] font-extrabold" style={{ color: t.brand }}>
+                {initial}
+              </span>
+            }
+          />
         </div>
 
         {name && (
@@ -86,9 +98,13 @@ export function ProfileSheet({
         )}
         {faceSearchOn && (
           <div className="mt-1 text-[12.5px] font-semibold" style={{ color: t.muted }}>
-            {hasSelfie
-              ? "The selfie we use to find your photos"
-              : "Add a selfie to find the photos you’re in"}
+            {!hasSelfie
+              ? "Add a selfie to find the photos you’re in"
+              : !profileFace
+                ? "The selfie we use to find your photos"
+                : photoUrl
+                  ? "Your photo from the gallery"
+                  : "Your photo appears here once you are found in the gallery."}
           </div>
         )}
 

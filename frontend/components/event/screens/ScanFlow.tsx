@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
+import { uploadCacheControlFor } from "@/lib/upload-cache-control";
 import { GuestAuthError, presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
+import { getFaceFilter } from "@/lib/face-filter/api";
 import { whenVisible } from "@/lib/media-actions";
 import { reportBug } from "@/lib/report-bug";
 import { AmbientBackdrop } from "../AmbientBackdrop";
 import { useEventTheme } from "../EventThemeContext";
-import { POLICY_VERSION, POLICY_VERSION_FRIENDS, usePolicy } from "../policy/PolicyContext";
+import { POLICY_VERSION, POLICY_VERSION_FACE_FILTER, usePolicy } from "../policy/PolicyContext";
 import {
   IconScanFace,
   IconCameraOff,
@@ -31,22 +33,10 @@ type Phase = "consent" | "processing" | "error";
  */
 export function ScanFlow({
   guestName,
-  friendsNotice = false,
   secondary,
   onComplete,
 }: {
   guestName?: string;
-  /**
-   * This event has "Find my people" switched ON (the session block's
-   * `enabled`, not merely the block's presence — a studio can have the feature
-   * off for their gallery, and the sentence below would then be false).
-   *
-   * It continues the consent paragraph by ONE sentence, and records the
-   * consent against `v1.3` instead of `v1.2` (see PolicyContext for what each
-   * version showed). Default false, so with the feature off this screen shows
-   * the base sentence alone and records the base version.
-   */
-  friendsNotice?: boolean;
   /**
    * The way off this screen that is not a selfie. Always present: a Guest whose
    * browser cannot reach the camera, or who simply does not want to be
@@ -94,6 +84,42 @@ export function ScanFlow({
   const pendingConsent = useRef<{ policyVersion: string; attempts: number } | null>(null);
   /** The tick's own logging, while it is still retrying. */
   const consentInFlight = useRef<Promise<void> | null>(null);
+
+  /**
+   * The face filter is on for this event, as the BACKEND answers it: its own
+   * switch, the event's Face filter switch and face search, all at once. The
+   * event's switch alone would not do, because it defaults to on everywhere,
+   * long before the backend's is.
+   *
+   * It continues the consent paragraph by ONE sentence, and records the
+   * consent against `v1.4` instead of `v1.2` (see PolicyContext). Asked once,
+   * when this screen opens. Until the answer lands the base sentence shows,
+   * which is still true; and once the Guest has ticked, a late answer changes
+   * nothing, so the version recorded is always the wording that was on screen
+   * at the tick.
+   */
+  const [faceFilterNotice, setFaceFilterNotice] = useState(false);
+  const agreedRef = useRef(false);
+  useEffect(() => {
+    agreedRef.current = agreed;
+  }, [agreed]);
+  useEffect(() => {
+    let cancelled = false;
+    // "mine": a Guest with no selfie gets a cheap answer (no chips are built),
+    // and a host rescanning is asked about their own photos only.
+    getFaceFilter(uniqueIdentifier, { scope: "mine" })
+      .then((res) => {
+        if (cancelled || agreedRef.current) return;
+        const block = res.face_filter;
+        setFaceFilterNotice(!!block && "enabled" in block && block.enabled === true);
+      })
+      .catch(() => {
+        /* no answer: the base sentence stands, and it is true either way */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uniqueIdentifier]);
 
   // Smoothly climb the displayed percentage toward the current stage target.
   useEffect(() => {
@@ -218,11 +244,14 @@ export function ScanFlow({
       setTarget(35);
       setStatus("Uploading your selfie…");
       const selfieId = crypto.randomUUID();
+      // `no_store`: the selfie is deleted once it has been matched, so no cache
+      // may keep a copy. The presign answer names the header to send, and an
+      // older backend that names none gets today's upload unchanged.
       const { uploads } = await presignGuestUploads(uniqueIdentifier, bookingId, [
-        { filename: `${selfieId}.jpeg`, content_type: "image/jpeg" },
+        { filename: `${selfieId}.jpeg`, content_type: "image/jpeg", no_store: true },
       ]);
       const up = uploads[0];
-      await putBlobToPresignedUrl(up.presigned_url, blob, "image/jpeg");
+      await putBlobToPresignedUrl(up.presigned_url, blob, "image/jpeg", undefined, uploadCacheControlFor(up));
 
       setTarget(90);
       setStatus("Checking your photo…");
@@ -292,7 +321,7 @@ export function ScanFlow({
     if (next) {
       // A failure here is not reported yet: it stays pending and is retried
       // before the selfie is uploaded (see `pendingConsent`).
-      consentInFlight.current = logConsent(friendsNotice ? POLICY_VERSION_FRIENDS : POLICY_VERSION).catch(() => {});
+      consentInFlight.current = logConsent(faceFilterNotice ? POLICY_VERSION_FACE_FILTER : POLICY_VERSION).catch(() => {});
     }
   }
 
@@ -338,14 +367,15 @@ export function ScanFlow({
             style={{ background: agreed ? t.accentWash : t.card, border: `1px solid ${agreed ? t.brand : t.border}` }}
           >
             <Checkbox checked={agreed} />
-            {/* ONE paragraph, one colour and weight: the face sentence
+            {/* ONE paragraph, one colour and weight: the face filter sentence
                 continues the consent rather than sitting under it as a muted
                 aside, because it is part of what the Guest agrees to. The
-                exact words are versioned (v1.2 / v1.3, see PolicyContext) —
-                any edit here is a new version in both repositories. */}
+                exact words are versioned (v1.2 / v1.4, see PolicyContext), so
+                any edit here is a new version. */}
             <span className="text-[12.5px] font-semibold leading-[1.45]" style={{ color: t.text }}>
               I agree to let Vyavasth use my selfie to find my photos and save it to my profile.
-              {friendsNotice && " Other guests here can see my face picture."}
+              {faceFilterNotice &&
+                " Faces in this gallery’s photos, including mine, can be used to filter the photos each guest can already see."}
             </span>
           </button>
 

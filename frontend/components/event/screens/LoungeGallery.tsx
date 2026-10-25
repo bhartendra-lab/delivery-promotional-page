@@ -5,6 +5,8 @@ import dynamic from "next/dynamic";
 import type { CustomFolder, GuestMediaItem, GuestSession } from "@/lib/types";
 import type { FriendFinderBlock } from "@/lib/friend-finder/types";
 import type { GroupCursor, GroupFeed } from "@/lib/friend-finder/feed";
+import type { FaceFilterScope } from "@/lib/face-filter/types";
+import { useFaceFilter } from "./faces/useFaceFilter";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { resolveWelcomeBand } from "@/lib/welcome-band";
 import { resolveSocialVisitGate, type SocialPlatformKey } from "@/lib/social-platforms";
@@ -12,6 +14,7 @@ import { resolveGoogleReviewUrl } from "@/lib/google-review";
 import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, saveIntake, searchSelfie, unlikePhoto } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
+import { guestPhotoUrl, PROFILE_FACE_RECHECK_MS, profileFaceServed } from "@/lib/profile-face";
 import { failedPhotoUrl, nameFromUrl } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
@@ -40,21 +43,23 @@ import { StickyControlRow } from "./gallery/StickyControlRow";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./gallery/GalleryControls";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
 
-/**
- * "Find my people", behind a dynamic import.
- *
- * The whole feature — card, sheets, copy, API and storage modules — lives in
- * this one chunk, which is fetched only on a gallery where `friend_finder` came
- * back `enabled`. What the lounge itself carries is this declaration and the
- * conditional render at the bottom of the tree, so the initial JavaScript for
- * every gallery without the feature is what it always was.
- *
- * `ssr: false` because it reads localStorage and the guest token on mount, and
- * there is no server-rendered markup worth producing for a surface that only
- * exists for a signed-in guest.
+/*
+ * "Find my people" is RETIRED, shallowly: nothing of it is rendered or even
+ * imported here any more, whatever the session says, and its files stay in
+ * ./friends/ so parts can come back. The face filter (below) replaced it.
+ * What is left in this screen is the generic half of its plumbing: the feed
+ * paging (`feedView`/`activeFeed`) that the face filter now drives, and the
+ * My People branches that `showPeopleTab` (always false) keeps unreachable.
  */
-const FriendsSurface = dynamic(
-  () => import("./friends/FriendsSurface").then((m) => m.FriendsSurface),
+
+/**
+ * The face filter bar, behind a dynamic import (as the friends surface was):
+ * it renders only on a gallery whose backend has the face filter switched on
+ * and whose viewer has chips, so every other gallery ships exactly the
+ * JavaScript it always did.
+ */
+const FaceFilterBar = dynamic(
+  () => import("./faces/FaceFilterBar").then((m) => m.FaceFilterBar),
   { ssr: false },
 );
 
@@ -97,7 +102,7 @@ const ACCESS_RECHECK_MIN_INTERVAL_MS = 30_000;
 /** What the grid is currently showing, in the shape `getGuestMedia` and the
  *  ZIP paginator both take. Never carries `skip`/`limit` — it describes the
  *  view, not a page of it. */
-type MediaScope = { mine?: boolean; onlyLiked?: boolean; customFolderId?: string };
+type MediaScope = { mine?: boolean; onlyLiked?: boolean; customFolderId?: string; faceFilter?: boolean };
 
 /** Same match set? Positional compare — the backend returns a stable order, and
  *  a false negative only costs one extra page fetch. */
@@ -169,6 +174,11 @@ export function LoungeGallery({
   /** A validated selfie — the thing My Photos is actually built on. A Guest who
    *  skipped the scan has none, and neither has one who never got that far. */
   const hasSelfie = !!session.selfie_id;
+  /** The guest's picture for the top bars and the profile sheet: their profile
+   *  face once the backend serves those, their selfie before (see
+   *  lib/profile-face.ts). */
+  const photoUrl = guestPhotoUrl(session);
+  const profileFace = profileFaceServed(session);
   /**
    * The event has something for a Guest without the passcode to look at.
    *
@@ -308,7 +318,6 @@ export function LoungeGallery({
    * Download and nothing else. With downloads off it is a dead end, so the
    * entry points are hidden and entering it is refused outright.
    */
-  const canSelect = canDownload;
 
   // One value governs every review affordance in the gallery: the pop-up, the
   // top-bar link (both breakpoints) and the outro CTA each render behind a
@@ -373,38 +382,12 @@ export function LoungeGallery({
   const [passcodeOpen, setPasscodeOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   /**
-   * A "Find my people" sheet is on screen. Reported UP from the lazily
-   * loaded surface rather than owned here, so this screen stays ignorant of the
-   * feature's own state while still being able to treat it as an overlay: no
-   * Cmd+A behind it, and no review nudge popping over it.
+   * My People's pager, which the friends surface used to hand over. Nothing
+   * sets it now that My People is retired (see the note at the top), so it
+   * stays null; the paging it shares with the face filter lives on as
+   * `activeFeed`.
    */
-  const [friendsSheetOpen, setFriendsSheetOpen] = useState(false);
-  /**
-   * Where the friends card renders, held as STATE rather than a ref so the
-   * surface re-renders into it the moment the slot mounts. Null whenever the
-   * shell that owns the slot is unmounted — the mobile Gallery tab, say — and
-   * then no card renders at all, which is the intended behaviour rather than a
-   * gap to work around.
-   */
-  const [friendsSlot, setFriendsSlot] = useState<HTMLDivElement | null>(null);
-  /** "Manage my people", My People's empty state and the pending-requests
-   *  banner all come from the friends chunk, through slots of their own. */
-  const [manageSlot, setManageSlot] = useState<HTMLDivElement | null>(null);
-  const [requestsBannerSlot, setRequestsBannerSlot] = useState<HTMLDivElement | null>(null);
-  /** My People's face filter bar, directly under the tabs and above the
-   *  requests banner. From the friends chunk like the rest of that tab. */
-  const [faceFilterSlot, setFaceFilterSlot] = useState<HTMLDivElement | null>(null);
-  const [groupEmptySlot, setGroupEmptySlot] = useState<HTMLDivElement | null>(null);
-  /**
-   * My People's pager, handed over by the friends surface.
-   *
-   * This is the whole seam. The gallery knows how to page a feed and nothing
-   * about how one is built: the ranking, the face filter and the
-   * intersection maths all live on the other side of this type. Null until the friends
-   * payload has resolved, which is why the group tab waits rather than asking
-   * for photos it cannot scope yet.
-   */
-  const [groupFeed, setGroupFeed] = useState<GroupFeed | null>(null);
+  const [groupFeed] = useState<GroupFeed | null>(null);
   /**
    * Whether the friends directory behind the feed is still coming.
    *
@@ -412,7 +395,7 @@ export function LoungeGallery({
    * `groupFeed` null, and the grid renders null as a skeleton. A guest whose
    * directory request failed sat on that skeleton for ever.
    */
-  const [groupState, setGroupState] = useState<"loading" | "ready" | "error">("loading");
+  const [groupState] = useState<"loading" | "ready" | "error">("loading");
   const [groupCursor, setGroupCursor] = useState<GroupCursor | null>(null);
   /**
    * Which bucket each loaded item belongs to, parallel to `items`.
@@ -437,7 +420,7 @@ export function LoungeGallery({
    * consent), and others can only send them a request — `allows()` is false
    * for `choice: null` unless the Guest named that person themselves.
    */
-  const showPeopleTab = faceSearchOn && friendFinder?.enabled === true;
+  const showPeopleTab = false;
   /**
    * The bulk-download pre-flight + progress surface. Every bulk download in this
    * gallery goes through it — the modal is where the plan is shown, the tier is
@@ -501,6 +484,56 @@ export function LoungeGallery({
   const groupView = effTab === "group" && !likedView;
   const loadingMoreRef = useRef(false);
 
+  /* ── the face filter ────────────────────────────────────────────────────
+     A bar of faces under the tabs that narrows the tab to photos with the
+     people picked. Which tab gets one:
+       - My Photos, for anyone with a selfie: people in their own photos;
+       - All Photos, for a host (every Client is one): everyone in the event;
+       - never Liked (a filter that leaves `tab` where it was, hence
+         `likedView` and not `effTab`), never a guest's All Photos
+         (Highlights), never My People, never with face search off.
+     With no chip selected none of this touches the grid: `feedView` stays
+     whatever `groupView` is, and every loader runs exactly as before. */
+
+  /** This visit's `search-selfie` has answered (or there is nothing to
+   *  search). The chips wait for it: the search is where the backend stores
+   *  the viewer's own face, which is what keeps them off their own bar. */
+  const [searchSettled, setSearchSettled] = useState(false);
+  const faceScope: FaceFilterScope | null =
+    !faceSearchOn || likedView || effTab === "group"
+      ? null
+      : effTab === "mine"
+        ? hasSelfie
+          ? "mine"
+          : null
+        : unlocked
+          ? "all"
+          : null;
+  const face = useFaceFilter({
+    uid: uniqueIdentifier,
+    bookingId,
+    enabled: faceSearchOn,
+    searchSettled,
+    scope: faceScope,
+    onReauth,
+    retryKey: reloadKey,
+  });
+  /** A chip is selected on the tab in view. */
+  const faceActive = face.active;
+  /**
+   * Is the grid being driven by a feed (My People's, or the face filter's)
+   * rather than by the gallery loader? Every place that pages, counts or
+   * downloads a feed asks THIS, never `groupView` alone.
+   */
+  const feedView = groupView || faceActive;
+  const activeFeed = groupView ? groupFeed : faceActive ? face.feed : null;
+  /** A feed view whose first answer has not landed yet: the grid shows the
+   *  loading state, and nothing may be selected or downloaded from it. */
+  const feedPending = feedView && !activeFeed;
+  /** Select mode exists solely to download a subset, so with downloads off it
+   *  is a dead end; nor may it start on a grid that is still loading. */
+  const canSelect = canDownload && !feedPending;
+
   /**
    * "Download all", for whom and where.
    *
@@ -523,7 +556,10 @@ export function LoungeGallery({
     canDownload &&
     (unlocked ||
       (!likedView && effTab === "mine" && hasSelfie && totalForView > 0) ||
-      (groupView && (groupFeed?.total ?? 0) > 0));
+      (feedView && (activeFeed?.total ?? 0) > 0)) &&
+    // Never while a feed is still loading: there is nothing on screen to
+    // describe, and the planner would fall back to the unfiltered scope.
+    !feedPending;
 
   // The guest's matched media_ids drive "My Photos" and the match count. They're
   // not stored server-side: the cached set (from a fresh scan or an earlier
@@ -562,11 +598,52 @@ export function LoungeGallery({
   const onSessionChangeRef = useRef(onSessionChange);
   const guestTypeRef = useRef(session.guest_type);
   const onFriendFinderChangeRef = useRef(onFriendFinderChange);
+  const faceRefreshRef = useRef(face.refreshRequest);
+  const sessionRef = useRef(session);
   useEffect(() => {
     onSessionChangeRef.current = onSessionChange;
     guestTypeRef.current = session.guest_type;
     onFriendFinderChangeRef.current = onFriendFinderChange;
+    faceRefreshRef.current = face.refreshRequest;
+    sessionRef.current = session;
   });
+
+  /**
+   * The profile face, right after a first scan.
+   *
+   * The backend crops it after a search answers, so a guest who has just
+   * scanned has none yet. Once per visit, a few seconds after the first search
+   * that found them, the session is read again if the face is still missing.
+   * Otherwise it simply appears on the next visit (or the next focus refresh,
+   * below). One timer, never a polling loop, and only while the backend serves
+   * profile faces at all.
+   */
+  const profileFaceRecheckedRef = useRef(false);
+  const profileFaceTimerRef = useRef<number | null>(null);
+  const recheckProfileFaceSoon = useCallback(() => {
+    if (profileFaceRecheckedRef.current) return;
+    profileFaceRecheckedRef.current = true;
+    const current = sessionRef.current;
+    if (!profileFaceServed(current) || current.profile_face_url) return;
+    profileFaceTimerRef.current = window.setTimeout(async () => {
+      try {
+        const { guest } = await getGuestSession(uniqueIdentifier);
+        if (profileFaceServed(guest)) onSessionChangeRef.current({ profile_face_url: guest.profile_face_url ?? null });
+      } catch {
+        /* a background read nobody asked for: the next visit shows it */
+      }
+    }, PROFILE_FACE_RECHECK_MS);
+  }, [uniqueIdentifier]);
+  const recheckProfileFaceSoonRef = useRef(recheckProfileFaceSoon);
+  useEffect(() => {
+    recheckProfileFaceSoonRef.current = recheckProfileFaceSoon;
+  });
+  useEffect(
+    () => () => {
+      if (profileFaceTimerRef.current) window.clearTimeout(profileFaceTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     // Nothing to search for, and the backend would refuse anyway (it checks the
@@ -578,6 +655,7 @@ export function LoungeGallery({
       if (cancelled) return;
       if (!session.selfie_id) {
         setMediaIds([]); // no selfie to search with → empty matched set
+        setSearchSettled(true);
         return;
       }
       try {
@@ -592,6 +670,8 @@ export function LoungeGallery({
         // identity is a dependency of the media loader below, so swapping in an
         // equal-but-new array would refetch the first page for nothing.
         setMediaIds((prev) => (prev && sameIds(prev, ids) ? prev : ids));
+        setSearchSettled(true);
+        if (ids.length > 0) recheckProfileFaceSoonRef.current();
       } catch (err) {
         if (cancelled) return;
         if (err instanceof GuestAuthError) {
@@ -602,6 +682,7 @@ export function LoungeGallery({
         // empty gallery. Only a cold cache falls back to "no matches", which
         // also unblocks the media loader (it waits on a non-null value).
         setMediaIds((prev) => prev ?? []);
+        setSearchSettled(true);
       }
     })();
     return () => {
@@ -635,11 +716,11 @@ export function LoungeGallery({
     // anyway. The unlock path bumps `reloadKey`, and unlocking also clears
     // `passcodeRequired`, so the first real load happens the moment they are in.
     if (passcodeRequired) return;
-    // My People is paged by its own effect below, against a bucketed feed
-    // rather than a scope. Bailing out HERE rather than branching inside keeps
-    // this effect's dependency list exactly what it was: adding the feed to it
-    // would refetch My Photos every time the friends payload changed.
-    if (groupView) return;
+    // My People and the face filter are paged by their own effect below,
+    // against a feed rather than a scope. Bailing out HERE rather than
+    // branching inside keeps this effect's dependency list about the view:
+    // adding the feed to it would refetch My Photos every time a feed changed.
+    if (feedView) return;
     let cancelled = false;
     (async () => {
       await Promise.resolve(); // defer — no synchronous setState in the effect body
@@ -681,27 +762,27 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, effTab, groupView, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
+  }, [uniqueIdentifier, bookingId, effTab, feedView, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
 
   /**
-   * My People's first page.
+   * A feed's first page: My People's, or the face filter's.
    *
-   * Keyed on `groupFeed?.key` — a signature of the feed's contents — rather
+   * Keyed on `activeFeed?.key` — a signature of the feed's contents — rather
    * than on the feed object: the people screen patches its payload optimistically
    * on every tap, and rebuilding an identical feed must not reload the grid
    * under the guest. The feed itself is read through a ref for the same reason.
    */
-  const groupFeedRef = useRef<GroupFeed | null>(null);
+  const activeFeedRef = useRef<GroupFeed | null>(null);
   useEffect(() => {
-    groupFeedRef.current = groupFeed;
+    activeFeedRef.current = activeFeed;
   });
-  const groupFeedKey = groupFeed?.key ?? null;
+  const activeFeedKey = activeFeed?.key ?? null;
 
   useEffect(() => {
-    if (!groupView) return;
-    const feed = groupFeedRef.current;
-    // The friends payload has not arrived yet. The grid holds its loading
-    // state rather than showing an empty group that is merely unresolved.
+    if (!feedView) return;
+    const feed = activeFeedRef.current;
+    // The feed has not arrived yet (the friends payload, or the answer for a
+    // face selection). The grid holds its loading state meanwhile.
     if (!feed) return;
     let cancelled = false;
     (async () => {
@@ -735,15 +816,15 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [groupView, groupFeedKey, reloadKey, seedLikes, onReauth]);
+  }, [feedView, activeFeedKey, reloadKey, seedLikes, onReauth]);
 
   const loadMore = useCallback(async () => {
     // My People knows it is finished from its CURSOR, not from a count: a photo
     // deleted since the last face scan would leave `items.length` short of
     // `total` for ever, and the grid would keep asking for a page that is not
     // there.
-    if (groupView) {
-      const feed = groupFeedRef.current;
+    if (feedView) {
+      const feed = activeFeedRef.current;
       if (loadingMoreRef.current || !feed || !groupCursor) return;
       loadingMoreRef.current = true;
       setLoadingMore(true);
@@ -795,7 +876,7 @@ export function LoungeGallery({
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [uniqueIdentifier, bookingId, effTab, groupView, folder, likedView, items.length, totalForView, seedLikes, mediaIds, groupCursor]);
+  }, [uniqueIdentifier, bookingId, effTab, feedView, folder, likedView, items.length, totalForView, seedLikes, mediaIds, groupCursor]);
 
   useEffect(() => {
     if (!toast) return;
@@ -823,7 +904,7 @@ export function LoungeGallery({
     ? `All ${selectedCount.toLocaleString("en-IN")} selected`
     : `${selectedCount.toLocaleString("en-IN")} selected`;
   const selectionHint = selectedCount > LARGE_SELECTION ? "This can take a few minutes." : undefined;
-  const hasMore = groupView ? groupCursor !== null : items.length < totalForView;
+  const hasMore = feedView ? groupCursor !== null : items.length < totalForView;
   /**
    * My People is also "loading" while its pager has not arrived.
    *
@@ -832,10 +913,16 @@ export function LoungeGallery({
    * grid's own `loading` only goes true once there is a feed to ask.
    */
   const showLoading =
-    loading || (groupView && !groupFeed && groupState === "loading");
+    loading ||
+    (groupView && !groupFeed && groupState === "loading") ||
+    // A face selection's first answer: the grid waits for it rather than
+    // showing the unfiltered photos under a selected chip.
+    (faceActive && !face.feed && !face.failed);
   /** My People asked for its directory and did not get one. Distinct from an
    *  empty group, which is a real answer with its own empty state. */
   const groupFailed = groupView && !groupFeed && groupState === "error";
+  /** The face selection could not be fetched. Retry (`reloadKey`) asks again. */
+  const faceFailed = faceActive && face.failed;
   const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
 
   /**
@@ -880,12 +967,7 @@ export function LoungeGallery({
     // Nor behind the required passcode sheet: a Guest who has not been let in
     // yet has seen no photos to be delighted by, and cannot dismiss the nudge
     // without first dealing with the sheet under it.
-    !passcodeRequired &&
-    // Nor over a friends sheet. The two never stack, and of the pair the sheet
-    // is the one the Guest's own action just raised. Flipping this false also
-    // CLEARS a pending nudge timer (the effect below cleans up on change), so
-    // the countdown simply restarts once the sheet is done with.
-    !friendsSheetOpen;
+    !passcodeRequired;
   useEffect(() => {
     if (!reviewUrl || !galleryReady || loadNudgeShown.current) return;
     const id = setTimeout(() => {
@@ -1012,8 +1094,21 @@ export function LoungeGallery({
       lastCheckedAt = Date.now();
       inFlight = true;
       try {
-        const { guest, friend_finder } = await getGuestSession(uniqueIdentifier);
+        // The face filter's chips ride along for the tab in view, with
+        // `if_key`, so an unchanged bar costs a few bytes. With nothing to
+        // refresh this is exactly the request it always was.
+        const faceRefresh = faceRefreshRef.current();
+        const { guest, friend_finder, face_filter } = await getGuestSession(
+          uniqueIdentifier,
+          faceRefresh ? { query: faceRefresh.query } : undefined,
+        );
         if (cancelled) return;
+        faceRefresh?.apply(face_filter);
+        // Same free ride for the profile face: one found (or replaced after a
+        // rescan) since this tab last looked shows up here.
+        if (profileFaceServed(guest) && guest.profile_face_url !== sessionRef.current.profile_face_url) {
+          onSessionChangeRef.current({ profile_face_url: guest.profile_face_url ?? null });
+        }
         // Free ride on a request that was already being made: this is what
         // keeps the friends card's "N want to add you" badge current after the
         // Guest has been away in another tab. Applied BEFORE the guest_type
@@ -1248,7 +1343,7 @@ export function LoungeGallery({
       const excludedIds = excluded;
       const scope = currentScope();
       exitSelect();
-      const groupIds = groupView ? groupFeedRef.current?.allIds : undefined;
+      const groupIds = feedView ? activeFeedRef.current?.allIds : undefined;
       startDownload(name, async (signal) => {
         const all = await fetchPlanSources(scope, signal, groupIds);
         return excludedIds.size ? all.filter((e) => !excludedIds.has(e._id)) : all;
@@ -1311,6 +1406,7 @@ export function LoungeGallery({
             mine: scope.mine,
             onlyLiked: scope.onlyLiked,
             customFolderId: scope.customFolderId,
+            faceFilter: scope.faceFilter,
             skip,
             limit: PAGE_SIZE,
           },
@@ -1343,9 +1439,14 @@ export function LoungeGallery({
     // No folder ever narrows it: the feed is grouped by who is in each photo,
     // and the folder pills are hidden while it is showing.
     if (effTab === "group") return { mine: true };
+    // The face filter walks its own id list (see `downloadGalleryZipNow`):
+    // My Photos stays `mine`, so the server keeps only the viewer's photos; a
+    // host's All Photos sends `faceFilter`, which keeps them in the booking.
+    // No folder narrows it: the pills are hidden while a chip is selected.
+    if (faceActive) return faceScope === "all" ? { faceFilter: true } : { mine: true };
     const mine = effTab === "mine";
     return folder === ALL ? { mine } : { mine, customFolderId: folder };
-  }, [likedView, effTab, folder]);
+  }, [likedView, effTab, folder, faceActive, faceScope]);
 
   /** Base name for the active view's download, naming the scope and the count.
    *  The engines append ".zip" (or " - part i of n.zip"). */
@@ -1357,15 +1458,17 @@ export function LoungeGallery({
       if (effTab === "group") {
         // The face filter narrows what "all" means here, and the file should
         // say so rather than look like the whole group.
-        return groupFeedRef.current?.filtered ? `${base} - my people (filtered) ${n}` : `${base} - my people ${n}`;
+        return activeFeedRef.current?.filtered ? `${base} - my people (filtered) ${n}` : `${base} - my people ${n}`;
       }
+      // Filtered by face: the file says so, and which tab it came from.
+      if (faceActive) return `${base} - ${faceScope === "all" ? "all photos" : "my photos"} (filtered) ${n}`;
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
         return `${base} - ${folderName} ${n}`;
       }
       return `${base} ${n}`;
     },
-    [event.event_name, likedView, folder, folders, effTab],
+    [event.event_name, likedView, folder, folders, effTab, faceActive, faceScope],
   );
 
   // Gallery header "Download": the whole active view. This used to fall through
@@ -1374,15 +1477,15 @@ export function LoungeGallery({
   // single source of truth for both this and the select-all download.
   const downloadGalleryZipNow = useCallback(() => {
     const scope = currentScope();
-    // My People passes its OWN id list into the same planner every other view
-    // uses. `allIds` is the feed in order, so the ZIP holds exactly the photos
-    // the tab is showing and nothing else.
-    const groupIds = groupView ? groupFeedRef.current?.allIds : undefined;
+    // A feed (My People, or the face filter) passes its OWN id list into the
+    // same planner every other view uses. `allIds` is the feed in order, so
+    // the ZIP holds exactly the photos the tab is showing and nothing else.
+    const groupIds = feedView ? activeFeedRef.current?.allIds : undefined;
     startDownload(nameForScope(totalForView), (signal) => fetchPlanSources(scope, signal, groupIds));
-    // `groupView` replaces `effTab` here: it is what decides whether the group
+    // `feedView` replaces `effTab` here: it is what decides whether a feed's
     // id list is passed, and `currentScope`/`nameForScope` already carry the
     // tab itself.
-  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, groupView]);
+  }, [startDownload, fetchPlanSources, currentScope, nameForScope, totalForView, feedView]);
   /** Download all, behind the required visit (phone menu and laptop row). */
   const downloadGalleryZip = useCallback(
     () => withVisitGate(downloadGalleryZipNow),
@@ -1425,28 +1528,9 @@ export function LoungeGallery({
    *  Guest cannot see anything without it. The intake sheet always comes first,
    *  so a Guest is never asked for a name and a passcode at once. */
   const passcodeSheetOpen = passcodeOpen || (passcodeRequired && !showIntakeSheet);
-  /** The lounge's OWN modals and gates — what this screen showed before the
-   *  friends feature existed. Kept separate from `overlayOpen` below so the
-   *  friends surface can be gated on it without depending on itself. */
-  const loungeModalOpen =
+  /** The lounge's own modals and gates. */
+  const overlayOpen =
     viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet || visitGateOpen;
-  const overlayOpen = loungeModalOpen || friendsSheetOpen;
-  /**
-   * Everything that must finish before a friends sheet may open itself.
-   *
-   * The lounge's modals and gates, plus the two surfaces that are not in
-   * `loungeModalOpen` because nothing else needed them there: the review
-   * pop-up, and either download surface. An automatic trigger QUEUES on this
-   * rather than being dropped — when the last of them closes this goes false
-   * and the sheet the Guest was owed finally appears.
-   */
-  const friendsBlocked =
-    loungeModalOpen ||
-    nudge !== null ||
-    zipping ||
-    singleDownload.sheet.open ||
-    singleDownload.saveSheet.ready ||
-    singleDownload.saveSheet.holdUrl !== null;
   useEffect(() => {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1512,6 +1596,34 @@ export function LoungeGallery({
     const el = e.currentTarget;
     if (hasMore && !loadingMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
   };
+
+  /** A tap on the face filter bar. The grid is about to show a different set,
+   *  so a selection made on the old one goes, and a folder pill with it: the
+   *  filter covers the whole tab and the pills are hidden while it does. */
+  const faceToggle = face.toggle;
+  const faceClear = face.clear;
+  const onFaceToggle = useCallback(
+    (id: string) => {
+      exitSelect();
+      setFolder(ALL);
+      faceToggle(id);
+    },
+    [exitSelect, faceToggle],
+  );
+  const onFaceClear = useCallback(() => {
+    exitSelect();
+    faceClear();
+  }, [exitSelect, faceClear]);
+  const faceBar = face.faces ? (
+    <FaceFilterBar
+      t={t}
+      faces={face.faces}
+      selected={face.selected}
+      onToggle={onFaceToggle}
+      onClear={onFaceClear}
+      desktop={isDesktop}
+    />
+  ) : null;
 
   /** The single teardown for My People's pager. Any view change invalidates the
    *  cursor and the per-item bucket map, so they go together, always. */
@@ -1691,7 +1803,7 @@ export function LoungeGallery({
           onOpenProfile={() => setProfileOpen(true)}
           onResetToTop={resetToTop}
           guestName={session.name}
-          selfieUrl={session.selfie_url}
+          photoUrl={photoUrl}
         />
         <div ref={desktopScrollRef} onScroll={onDesktopScroll} className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
           <DesktopCover
@@ -1721,7 +1833,7 @@ export function LoungeGallery({
             setTab={desktopSetTab}
             showMine={faceSearchOn}
             showGroup={showPeopleTab}
-            showFolders={!groupView}
+            showFolders={!feedView}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
@@ -1752,26 +1864,17 @@ export function LoungeGallery({
             {showMatchBanner && (
               <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
             )}
-            {/* My People's own two controls, both from the friends chunk so
-                none of their copy is in the lounge's own bundle: the requests
-                banner directly under the tabs, and "Manage my people" beside
-                it. On a laptop there is room for them on one line. */}
-            {groupView && <div ref={setFaceFilterSlot} className="mb-4 empty:hidden" />}
-            {groupView && (
-              <div className="mb-5 flex flex-wrap items-center gap-3 empty:hidden">
-                <div ref={setRequestsBannerSlot} className="min-w-[260px] flex-1 empty:hidden" />
-                <div ref={setManageSlot} className="empty:hidden" />
-              </div>
-            )}
+            {/* The face filter bar, directly under the tabs where My People's
+                bar sat. My People's own controls (its requests banner and
+                "Manage my people") went with it. */}
+            {faceBar && <div className="mb-4">{faceBar}</div>}
             {showLoading ? (
               <LoadingSkeleton />
-            ) : (loadError && items.length === 0) || groupFailed ? (
+            ) : (loadError && items.length === 0) || groupFailed || faceFailed ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
-              // My People's empty state names the people who have not answered
-              // yet, so it too comes from the friends chunk through a slot.
-              groupView ? (
-                <div ref={setGroupEmptySlot} />
+              faceActive ? (
+                <FaceFilterEmptyState t={t} onClear={onFaceClear} />
               ) : !likedView && effTab === "mine" ? (
                 // A Guest with no selfie has nothing to have failed at — they
                 // have not searched yet. Invite the scan instead of reporting
@@ -1872,7 +1975,7 @@ export function LoungeGallery({
           onOpenProfile={() => setProfileOpen(true)}
           onResetToTop={resetMobileToTop}
           guestName={session.name}
-          selfieUrl={session.selfie_url}
+          photoUrl={photoUrl}
         />
         {view === "home" ? (
           <div
@@ -1892,7 +1995,6 @@ export function LoungeGallery({
               className="mx-auto w-full max-w-[460px] px-5 pt-6"
               style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
             >
-              {friendFinder?.enabled && <div ref={setFriendsSlot} className="mb-6 empty:hidden" />}
               <PolicyFooter t={t} />
             </div>
           </div>
@@ -1967,11 +2069,10 @@ export function LoungeGallery({
             showGroup={showPeopleTab}
             itemBuckets={itemBuckets}
             groupLabels={groupFeed?.labels ?? []}
-            manageRef={setManageSlot}
-            requestsBannerRef={setRequestsBannerSlot}
-            faceFilterRef={setFaceFilterSlot}
-            groupEmptyRef={setGroupEmptySlot}
-            groupFailed={groupFailed}
+            groupFailed={groupFailed || faceFailed}
+            faceBar={faceBar}
+            filtering={faceActive}
+            onClearFaces={onFaceClear}
             // Only while the tab is offered: the studio switching the feature
             // off mid-visit must take the menu badge with it.
             pendingCount={showPeopleTab ? (friendFinder?.pending_count ?? 0) : 0}
@@ -2103,7 +2204,8 @@ export function LoungeGallery({
       {profileOpen && (
         <ProfileSheet
           name={session.name}
-          selfieUrl={session.selfie_url}
+          photoUrl={photoUrl}
+          profileFace={profileFace}
           faceSearchOn={faceSearchOn}
           hasSelfie={hasSelfie}
           onClose={() => setProfileOpen(false)}
@@ -2143,37 +2245,6 @@ export function LoungeGallery({
             {toast}
           </div>
         </div>
-      )}
-
-      {/* Find my people. Mounted ONCE here rather than inside a shell:
-          the mobile Home and Gallery tabs swap their whole subtree, and a sheet
-          living in one of them would vanish mid-question. It portals its card
-          into whichever slot is currently mounted, and nothing at all is
-          rendered — or even fetched — unless the event has the feature on. */}
-      {friendFinder?.enabled && (
-        <FriendsSurface
-          t={t}
-          uid={uniqueIdentifier}
-          bookingId={bookingId}
-          block={friendFinder}
-          hasSelfie={hasSelfie}
-          guestName={session.name}
-          slot={friendsSlot}
-          manageSlot={manageSlot}
-          requestsBannerSlot={requestsBannerSlot}
-          faceFilterSlot={faceFilterSlot}
-          groupEmptySlot={groupEmptySlot}
-          groupTabActive={groupView}
-          onGroupFeedChange={setGroupFeed}
-          onGroupStateChange={setGroupState}
-          onShowGroup={() => (isDesktop ? desktopSetTab("group") : gotoGallery("group"))}
-          blocked={friendsBlocked}
-          desktop={isDesktop}
-          onOpenChange={setFriendsSheetOpen}
-          onBlockChange={onFriendFinderChange}
-          onRescan={onRescan}
-          onReauth={onReauth}
-        />
       )}
 
       {/* triggered review nudge — mobile bottom sheet, desktop corner card */}
@@ -2249,17 +2320,16 @@ function MobileGalleryView(props: {
   /** Bucket index per item and divider text per bucket, for My People. */
   itemBuckets: number[];
   groupLabels: string[];
-  /** Portal targets for the three My People surfaces the lazily-loaded friends
-   *  chunk renders: the manage entry (inside the overflow menu on a phone),
-   *  the pending-requests banner, and the empty state. */
-  manageRef: (el: HTMLDivElement | null) => void;
-  requestsBannerRef: (el: HTMLDivElement | null) => void;
-  /** The face filter bar's slot, above the requests banner. */
-  faceFilterRef: (el: HTMLDivElement | null) => void;
-  groupEmptyRef: (el: HTMLDivElement | null) => void;
   /** The friends directory failed to load, so My People has no feed and never
-   *  will without a retry — distinct from a group that is simply empty. */
+   *  will without a retry — distinct from a group that is simply empty. Also
+   *  true when a face filter selection could not be fetched. */
   groupFailed: boolean;
+  /** The face filter bar for this tab, or null. Rendered under the tabs. */
+  faceBar: React.ReactNode;
+  /** A face filter chip is selected: the folder pills hide, and an empty grid
+   *  says so rather than reporting no matches. */
+  filtering: boolean;
+  onClearFaces: () => void;
   /** People waiting on this guest. On a phone the badge sits on the overflow
    *  menu button (and on "Manage my people" inside it), not on the tab. */
   pendingCount: number;
@@ -2326,7 +2396,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, manageRef, requestsBannerRef, faceFilterRef, groupEmptyRef, groupFailed } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, onClearFaces } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
@@ -2388,14 +2458,13 @@ function MobileGalleryView(props: {
             unlocked={unlocked}
             onOpenPrivate={onOpenPrivate}
             overflow
-            extraSlotRef={showGroup ? manageRef : undefined}
             menuBadgeCount={showGroup ? props.pendingCount : 0}
           />
         </div>
 
-        {/* Folder pills do not apply to My People: its feed is grouped by who
-            is in each photo, not by folder. */}
-        {!groupView && !likedView && (
+        {/* Folder pills do not apply to My People, nor to a face filter: both
+            feeds are about who is in each photo, not which folder. */}
+        {!groupView && !likedView && !filtering && (
           <FolderPillsRow
             t={t}
             folders={folders}
@@ -2423,15 +2492,14 @@ function MobileGalleryView(props: {
       >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
-          {groupView && <div ref={faceFilterRef} className="mb-4 empty:hidden" />}
-          {groupView && <div ref={requestsBannerRef} className="mb-4 empty:hidden" />}
+          {faceBar && <div className="mb-4">{faceBar}</div>}
           {loading ? (
             <LoadingSkeleton />
           ) : (props.loadError && items.length === 0) || groupFailed ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
-            groupView ? (
-              <div ref={groupEmptyRef} />
+            filtering ? (
+              <FaceFilterEmptyState t={t} onClear={onClearFaces} />
             ) : !likedView && effTab === "mine" ? (
               faceSearchOn && !hasSelfie ? (
                 <ScanPromptState t={t} onRescan={onRescan} onBrowseAll={onBrowseAll} />
@@ -2847,6 +2915,24 @@ function ErrorState({ t, onRetry }: { t: Theme; onRetry: () => void }) {
       </p>
       <button type="button" onClick={onRetry} className="cursor-pointer rounded-full px-5 py-2.5 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
         Try again
+      </button>
+    </div>
+  );
+}
+
+/** A face selection whose photos are all gone: every chip counts photos the
+ *  viewer can open, so this is only a race with a delete since the last sync. */
+function FaceFilterEmptyState({ t, onClear }: { t: Theme; onClear: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.sunken, color: t.muted }}>
+        <IconGrid size={24} />
+      </span>
+      <p className="max-w-[300px] text-[13.5px] font-semibold" style={{ color: t.muted }}>
+        No photos with these people right now.
+      </p>
+      <button type="button" onClick={onClear} className="cursor-pointer rounded-full px-5 py-2.5 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
+        Clear filter
       </button>
     </div>
   );

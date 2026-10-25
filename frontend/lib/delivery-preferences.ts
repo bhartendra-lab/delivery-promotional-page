@@ -38,6 +38,10 @@ export type DeliveryPreferences = {
    *  Photos tab, and every face-search call. Off leaves a Guest browsing the
    *  public folders, or entering the passcode where none is public. */
   face_search_enabled: boolean;
+  /** The face filter: a bar of faces that narrows My Photos (and, for hosts,
+   *  All Photos) to photos with the people picked. Only with face search on,
+   *  and only once the backend's own switch is on. */
+  face_filter_enabled: boolean;
 };
 
 export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
@@ -49,6 +53,9 @@ export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
   // built around face search, and an absent key reading as "off" would take My
   // Photos away from all of them at once.
   face_search_enabled: true,
+  // On by default, like face search: the backend's switch is what holds the
+  // feature back, and a studio opts an event out here.
+  face_filter_enabled: true,
 };
 
 /** Allowed values for each non-boolean preference. `normalizeDeliveryPreferences`
@@ -185,12 +192,13 @@ type DeliveryPreferenceSpec = {
    *  Preferences step. "access" = the Access & Sharing tab. */
   surfaces?: DeliveryPreferenceSurface[];
   /**
-   * The row is overridden from outside this event: return the value it
-   * effectively has and the sentence that says why, or null when it is not.
-   * Use this rather than `isRelevant` for a setting that still EXISTS but is
-   * switched off elsewhere — hiding it would teach the studio it does not exist.
+   * The row is overridden from outside this event, or by another row of the
+   * draft: return the value it effectively has and the sentence that says why,
+   * or null when it is not. Use this rather than `isRelevant` for a setting that
+   * still EXISTS but is switched off elsewhere — hiding it would teach the
+   * studio it does not exist.
    */
-  lock?: (ctx: DeliveryPreferenceContext) => DeliveryPreferenceField["locked"] | null;
+  lock?: (ctx: DeliveryPreferenceContext, value: DeliveryPreferences) => DeliveryPreferenceField["locked"] | null;
 };
 
 /**
@@ -305,6 +313,20 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
         ? "No folder is public, so Guests need the passcode to see photos. Make one public on the Media tab."
         : null,
   },
+  {
+    key: "face_filter_enabled",
+    type: "toggle",
+    surfaces: ["access"],
+    label: () => "Face filter",
+    // The Studio's approved wording, kept whole although it runs past the
+    // ten words the other hints keep to (see the test that allows it).
+    description: () => "Guests can filter their photos by the people in them. Hosts can filter the whole gallery.",
+    // It filters face-matched photos, so without face search there is nothing
+    // for it to do: shown OFF and disabled, never hidden, and the event's own
+    // value is kept for when face search comes back.
+    lock: (_ctx, value) =>
+      value.face_search_enabled ? null : { value: false, note: "Turned off while Selfie search is off." },
+  },
 ];
 
 /**
@@ -323,7 +345,7 @@ export function resolveDeliveryPreferenceFields(
   return DELIVERY_PREFERENCE_SPECS.filter(
     (spec) => (spec.surfaces ?? ["gallery"]).includes(surface) && (spec.isRelevant?.(context, value) ?? true),
   ).map((spec) => {
-    const locked = spec.lock?.(context) ?? null;
+    const locked = spec.lock?.(context, value) ?? null;
     const warning = spec.warning?.(context, value) ?? null;
     return {
       key: spec.key,

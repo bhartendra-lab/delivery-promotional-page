@@ -3,6 +3,7 @@
 import type { DeliveryLandingPageData } from "@/lib/types";
 import type { ClientTheme } from "@/lib/client-theme";
 import { StudioMenu } from "./StudioMenu";
+import { GuestPhoto } from "./GuestPhoto";
 import { IconMegaphone, IconShare } from "@/components/ui/icons";
 
 /** Above this length the studio name crowds the centered event name out. */
@@ -34,7 +35,7 @@ export function MobileTopBar({
   onOpenProfile,
   onResetToTop,
   guestName,
-  selfieUrl,
+  photoUrl,
 }: {
   t: ClientTheme;
   event: DeliveryLandingPageData;
@@ -49,7 +50,9 @@ export function MobileTopBar({
   onOpenProfile: () => void;
   onResetToTop: () => void;
   guestName?: string;
-  selfieUrl: string | null;
+  /** The guest's picture (lib/profile-face.ts#guestPhotoUrl), or null for
+   *  their initial. */
+  photoUrl: string | null;
 }) {
   const studioNameIsShort = (event.company_name?.length ?? 0) <= SHORT_STUDIO_NAME;
   const centerName = showEventName && studioNameIsShort;
@@ -117,12 +120,7 @@ export function MobileTopBar({
             className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
             style={{ background: t.card, color: t.brand }}
           >
-            {selfieUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={selfieUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              (guestName?.[0] ?? "·").toUpperCase()
-            )}
+            <GuestPhoto url={photoUrl} fallback={(guestName?.[0] ?? "·").toUpperCase()} />
           </span>
         </button>
       </div>

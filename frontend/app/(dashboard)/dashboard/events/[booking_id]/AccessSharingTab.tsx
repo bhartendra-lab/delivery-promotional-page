@@ -18,6 +18,7 @@ import {
 import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
+import { guestPhotoUrl } from "@/lib/profile-face";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
   normalizeDeliveryPreferences,
@@ -661,7 +662,7 @@ function GuestRow({
   return (
     <div className="flex flex-col gap-2 border-b border-[#F1ECE2] px-4 py-3 last:border-b-0">
       <div className="flex items-center gap-3">
-        <Avatar name={guest.name} selfieUrl={guest.selfie_url} />
+        <Avatar name={guest.name} photoUrl={guestPhotoUrl(guest)} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{guest.name}</span>
@@ -944,10 +945,24 @@ function RoleBadge({ level }: { level: GuestAccessLevel }) {
   );
 }
 
-function Avatar({ name, selfieUrl }: { name: string; selfieUrl?: string | null }) {
-  if (selfieUrl) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={selfieUrl} alt={name} className="h-9 w-9 shrink-0 rounded-full object-cover" />;
+/**
+ * A guest row's picture: the same face the guest sees in their own gallery
+ * (their profile face once the backend serves those, their selfie before; see
+ * lib/profile-face.ts), else their initial. A picture that fails to load shows
+ * the initial rather than a broken image.
+ */
+function Avatar({ name, photoUrl }: { name: string; photoUrl: string | null }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (photoUrl && failedUrl !== photoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photoUrl}
+        alt={name}
+        onError={() => setFailedUrl(photoUrl)}
+        className="h-9 w-9 shrink-0 rounded-full object-cover"
+      />
+    );
   }
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   return (
@@ -1011,6 +1026,8 @@ function PreferencesCard({
   const chips: { label: string; on: boolean }[] = [
     { label: "Studio profile", on: studioProfileOn },
     { label: "Face search", on: prefs.face_search_enabled },
+    // The EFFECTIVE state, like Reviews: the filter needs face search.
+    { label: "Face filter", on: prefs.face_search_enabled && prefs.face_filter_enabled },
     { label: "Downloads", on: prefs.allow_download },
     { label: "Reviews", on: prefs.show_google_review && reviewsEnabledGlobally },
     ...(requiredVisitLabel

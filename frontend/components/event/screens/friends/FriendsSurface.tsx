@@ -39,7 +39,7 @@ import type {
 } from "@/lib/friend-finder/types";
 import { SIGNAL } from "@/lib/client-theme";
 import { IconUsers } from "@/components/ui/icons";
-import { FaceFilterBar } from "./FaceFilterBar";
+import { FaceFilterBar } from "../faces/FaceFilterBar";
 import { FriendsCard, type FriendsCardState } from "./FriendsCard";
 import { FriendsSheet } from "./FriendsSheet";
 import { FriendsToast, type FriendsToastState } from "./FriendsToast";
@@ -598,7 +598,10 @@ export function FriendsSurface({
         createPortal(
           <FaceFilterBar
             t={t}
-            members={directory.members}
+            // The bar moved to faces/ and takes plain faces now. My People is
+            // being retired, so its members are simply mapped across: a
+            // member without a face picture shows a plain disc.
+            faces={directory.members.map((m) => ({ id: m.guest_id, thumb_url: m.avatar_url ?? null, label: m.name }))}
             selected={activeFilter}
             onToggle={toggleFilter}
             onClear={clearFilter}
