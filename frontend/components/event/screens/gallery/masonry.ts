@@ -284,3 +284,38 @@ export function createMasonryCache<T extends Sized & { _id: string }>(): (items:
     return layout;
   };
 }
+
+/**
+ * Where to scroll so a tile is in view, or null when it already is. For the
+ * return from the viewer: the reel can travel hundreds of photos from where it
+ * was opened, and closing it should land the guest on the photo they were
+ * last looking at rather than where they started.
+ *
+ * `boxTop` is the tile's top in the scroll container's CONTENT coordinates.
+ * The insets are what covers the container's edges without scrolling with it
+ * (the desktop's pinned control row at the top, the phone's bottom nav at the
+ * bottom); a tile under them is not "in view". An out-of-view tile is centred
+ * in what is left, or top-aligned under the inset when it is taller than that.
+ */
+export function revealScrollTop({
+  boxTop,
+  boxHeight,
+  scrollTop,
+  viewportHeight,
+  insetTop = 0,
+  insetBottom = 0,
+}: {
+  boxTop: number;
+  boxHeight: number;
+  scrollTop: number;
+  viewportHeight: number;
+  insetTop?: number;
+  insetBottom?: number;
+}): number | null {
+  const visibleTop = scrollTop + insetTop;
+  const visibleBottom = scrollTop + viewportHeight - insetBottom;
+  if (boxTop >= visibleTop && boxTop + boxHeight <= visibleBottom) return null;
+  const room = viewportHeight - insetTop - insetBottom;
+  const target = boxTop - insetTop - Math.max(0, (room - boxHeight) / 2);
+  return Math.max(0, Math.round(target));
+}

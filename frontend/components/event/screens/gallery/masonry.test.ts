@@ -9,6 +9,7 @@ import {
   masonryLayout,
   masonryWindow,
   radiusFor,
+  revealScrollTop,
   type MasonryLayout,
 } from "./masonry.ts";
 
@@ -217,4 +218,26 @@ test("the cache reuses its last layout only for a same-width prefix", () => {
   assert.notEqual(c.boxes[50], b.boxes[50]);
   // A resize lays out from scratch too.
   assert.deepEqual(layoutFor(swapped, 1116), masonryLayout(swapped, 1116));
+});
+
+test("a tile already fully in view is left where it is", () => {
+  assert.equal(revealScrollTop({ boxTop: 1200, boxHeight: 200, scrollTop: 1000, viewportHeight: 800 }), null);
+  assert.equal(revealScrollTop({ boxTop: 1000, boxHeight: 800, scrollTop: 1000, viewportHeight: 800 }), null);
+});
+
+test("a tile out of view, or under a pinned edge, is centred in what is left", () => {
+  // Far below: centred in the 800px viewport.
+  assert.equal(revealScrollTop({ boxTop: 5000, boxHeight: 200, scrollTop: 0, viewportHeight: 800 }), 4700);
+  // Half under the desktop's 60px pinned row: not in view, centred below the row.
+  assert.equal(
+    revealScrollTop({ boxTop: 1030, boxHeight: 200, scrollTop: 1000, viewportHeight: 800, insetTop: 60 }),
+    1030 - 60 - (800 - 60 - 200) / 2,
+  );
+  // Behind the phone's bottom nav.
+  assert.notEqual(revealScrollTop({ boxTop: 1650, boxHeight: 120, scrollTop: 1000, viewportHeight: 800, insetBottom: 96 }), null);
+});
+
+test("a tile taller than the room is top-aligned, and the target never goes negative", () => {
+  assert.equal(revealScrollTop({ boxTop: 3000, boxHeight: 1200, scrollTop: 0, viewportHeight: 800, insetTop: 60 }), 2940);
+  assert.equal(revealScrollTop({ boxTop: 10, boxHeight: 200, scrollTop: 400, viewportHeight: 800 }), 0);
 });

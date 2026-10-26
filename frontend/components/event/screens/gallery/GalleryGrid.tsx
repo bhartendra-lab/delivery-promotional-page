@@ -6,7 +6,7 @@ import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { degradeGridSrc, gridSrc } from "@/lib/media-actions";
 import { useHoverPointer } from "@/lib/use-media-query";
 import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
-import { createMasonryCache, masonryLayout, masonryWindow, radiusFor } from "./masonry";
+import { createMasonryCache, masonryLayout, masonryWindow, radiusFor, revealScrollTop } from "./masonry";
 import { tileMenuActions } from "./tileMenuActions";
 import { TileMenu, type TileMenuItem } from "./TileMenu";
 import { IconHeart, IconCheck, IconDownload, IconDotsThree, IconPlay, IconPlus, IconShare } from "@/components/ui/icons";
@@ -43,6 +43,8 @@ export function GalleryGrid({
   onShare,
   onCollect,
   scrollRef,
+  reveal,
+  revealInset,
 }: {
   t: ClientTheme;
   layout?: "masonry" | "justified" | "grid";
@@ -69,6 +71,16 @@ export function GalleryGrid({
   onCollect?: (item: GuestMediaItem) => void;
   /** The scroll container this grid sits in, for windowing. */
   scrollRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * "Make sure this photo is in view", sent when the viewer closes so the
+   * guest lands on the photo they were last looking at. Acted on once per
+   * `seq`; a grid that mounts later treats the current one as already done.
+   * Masonry only (the fallback layouts ignore it).
+   */
+  reveal?: { id: string; seq: number } | null;
+  /** What covers the scroll container's edges without scrolling with it (the
+   *  desktop's pinned control row, the phone's bottom nav). */
+  revealInset?: { top: number; bottom: number };
 }) {
   const hoverPointer = useHoverPointer();
   const actions = tileMenuActions({
@@ -116,7 +128,7 @@ export function GalleryGrid({
   } else if (layout === "justified") {
     body = <JustifiedGrid tile={tile} items={items} onOpen={onOpen} />;
   } else {
-    body = <MasonryGrid tile={tile} items={items} onOpen={onOpen} scrollRef={scrollRef} />;
+    body = <MasonryGrid tile={tile} items={items} onOpen={onOpen} scrollRef={scrollRef} reveal={reveal} revealInset={revealInset} />;
   }
 
   return (
@@ -257,11 +269,15 @@ function MasonryGrid({
   items,
   onOpen,
   scrollRef,
+  reveal,
+  revealInset,
 }: {
   tile: TileContext;
   items: GuestMediaItem[];
   onOpen: (index: number) => void;
   scrollRef?: React.RefObject<HTMLElement | null>;
+  reveal?: { id: string; seq: number } | null;
+  revealInset?: { top: number; bottom: number };
 }) {
   const [containerRef, width] = useContainerWidth();
   // Appending a page lays out only the new page (see createMasonryCache).
@@ -273,6 +289,32 @@ function MasonryGrid({
     [layout, band],
   );
   const radius = radiusFor(width);
+
+  // Return from the viewer. The layout knows where every photo is, mounted or
+  // not, so this works however far the reel travelled from the grid's window.
+  const handledReveal = useRef(reveal?.seq ?? 0);
+  const insetTop = revealInset?.top ?? 0;
+  const insetBottom = revealInset?.bottom ?? 0;
+  useEffect(() => {
+    if (!reveal || reveal.seq === handledReveal.current) return;
+    handledReveal.current = reveal.seq;
+    const scroller = scrollRef?.current;
+    const grid = containerRef.current;
+    const i = items.findIndex((m) => m._id === reveal.id);
+    const box = i >= 0 ? layout.boxes[i] : undefined;
+    // Not in this grid (My People renders one grid per run): another has it.
+    if (!scroller || !grid || !box) return;
+    const gridTop = grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    const top = revealScrollTop({
+      boxTop: gridTop + box.top,
+      boxHeight: box.height,
+      scrollTop: scroller.scrollTop,
+      viewportHeight: scroller.clientHeight,
+      insetTop,
+      insetBottom,
+    });
+    if (top != null) scroller.scrollTo({ top, behavior: "auto" });
+  }, [reveal, items, layout, scrollRef, containerRef, insetTop, insetBottom]);
 
   return (
     <div ref={containerRef} className="relative w-full" style={{ height: layout.height, minHeight: width > 0 ? undefined : 1 }}>

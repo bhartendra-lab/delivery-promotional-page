@@ -28,6 +28,8 @@ import { DownloadPlanModal } from "@/components/event/download/DownloadPlanModal
 import { useEventTheme } from "../EventThemeContext";
 import { usePolicy } from "../policy/PolicyContext";
 import { PhotoViewer } from "./lounge/PhotoViewer";
+import { ReelViewer } from "./lounge/ReelViewer";
+import { useViewerHistory } from "./lounge/useViewerHistory";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 import { ProfileSheet } from "./lounge/ProfileSheet";
 import { IntakeSheet } from "./lounge/IntakeSheet";
@@ -79,6 +81,9 @@ function folderNameOf(m: GuestMediaItem, folders: CustomFolder[]): string {
   }
   return "";
 }
+/** How much of the phone's scroll container the bottom nav covers. A photo
+ *  revealed on closing the viewer is placed clear of it. */
+const MOBILE_NAV_CLEARANCE = 96;
 /** Guests who like this many photos in-session get the "loving the gallery?" nudge. */
 const LIKE_NUDGE_THRESHOLD = 3;
 /** Breathing room after the gallery first paints before the gentle load nudge. */
@@ -931,6 +936,21 @@ export function LoungeGallery({
   // Server returns the right set per view, so no client-side filtering.
   const displayed = items;
 
+  /* ── closing the viewer ─────────────────────────────────────────────────
+     Every close goes through here: the viewer's own X / back chevron / Esc,
+     the system back gesture (useViewerHistory), and the bulk download closing
+     it. Two things ride on it: the history entry the viewer pushed is popped
+     (useViewerHistory sees the viewer go to closed), and the grid is asked to
+     bring the photo the guest was last looking at into view, because the reel
+     can travel far from where it was opened. */
+  const [reveal, setReveal] = useState<{ id: string; seq: number } | null>(null);
+  const closeViewer = useCallback(() => {
+    const id = viewerIndex != null ? displayed[viewerIndex]?._id : undefined;
+    setViewerIndex(null);
+    if (id) setReveal((r) => ({ id, seq: (r?.seq ?? 0) + 1 }));
+  }, [viewerIndex, displayed]);
+  useViewerHistory(viewerIndex != null, closeViewer);
+
   /* ── selection, as scope-minus-exclusions ───────────────────────────────
      `isSelected` is threaded down to the grid instead of a Set, so a tile the
      infinite scroll hasn't loaded yet still resolves correctly the moment it
@@ -1282,7 +1302,7 @@ export function LoungeGallery({
       // surface that stays up for the whole run, so leaving a viewer mounted
       // underneath it means cancelling the download drops the guest back into a
       // preview they had forgotten was open.
-      setViewerIndex(null);
+      closeViewer();
       void downloadFlow.start({
         bookingId,
         baseName,
@@ -1291,7 +1311,7 @@ export function LoungeGallery({
         resolveArchiveUrls,
       });
     },
-    [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls],
+    [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls, closeViewer],
   );
 
   /**
@@ -2012,6 +2032,8 @@ export function LoungeGallery({
                     onDownload={canDownload ? requestDownloadOne : undefined}
                     onShare={shareOne}
                     scrollRef={desktopScrollRef}
+                    reveal={reveal}
+                    revealInset={{ top: controlRowH, bottom: 0 }}
                   />
                 ) : (
                 <GalleryGrid
@@ -2027,6 +2049,8 @@ export function LoungeGallery({
                   onDownload={canDownload ? requestDownloadOne : undefined}
                   onShare={shareOne}
                   scrollRef={desktopScrollRef}
+                  reveal={reveal}
+                  revealInset={{ top: controlRowH, bottom: 0 }}
                 />
                 )}
                 {loadingMore && (
@@ -2147,6 +2171,7 @@ export function LoungeGallery({
             onEnterSelectWith={canSelect ? enterSelectWith : undefined}
             onDownload={canDownload ? requestDownloadOne : undefined}
             onShare={shareOne}
+            reveal={reveal}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             canSelect={canSelect}
@@ -2229,12 +2254,32 @@ export function LoungeGallery({
         </div>
       )}
 
-      {/* viewer */}
-      {viewerIndex != null && displayed[viewerIndex] && (
+      {/* viewer: the reel on phones and tablets, the framed viewer on desktop */}
+      {viewerIndex != null && displayed[viewerIndex] && !isDesktop && (
+        <ReelViewer
+          items={displayed}
+          index={viewerIndex}
+          onNav={setViewerIndex}
+          onClose={closeViewer}
+          liked={liked}
+          onToggleLike={toggleLike}
+          selectMode={selectMode}
+          isSelected={isSelected}
+          onToggleSelect={toggleSel}
+          canDownload={canDownload}
+          onDownload={requestDownloadOne}
+          onShare={shareOne}
+          // See onDesktopScroll: no next page while the set is being replaced.
+          hasMore={hasMore && !refreshing}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+        />
+      )}
+      {viewerIndex != null && displayed[viewerIndex] && isDesktop && (
         <PhotoViewer
           items={displayed}
           index={viewerIndex}
-          onClose={() => setViewerIndex(null)}
+          onClose={closeViewer}
           onNav={setViewerIndex}
           liked={liked}
           onToggleLike={toggleLike}
@@ -2340,9 +2385,21 @@ export function LoungeGallery({
       <SavePhotoSheet {...singleDownload.saveSheet} theme={t} />
 
       {/* toast */}
+      {/* Over an open viewer the toast rises above it (the viewer is z-70) and
+          turns light, or a download or share started from the photo would
+          report into the near-black behind it, unseen. On a phone it moves to
+          the top, clear of the reel's side buttons. */}
       {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[150px] z-50 flex justify-center px-5 lg:bottom-8">
-          <div className="rounded-full px-4 py-2.5 text-[12.5px] font-bold text-white shadow-lg" style={{ background: SIGNAL.viewer }}>
+        <div
+          className={`pointer-events-none fixed inset-x-0 flex justify-center px-5 ${
+            viewerIndex != null ? "z-[80] lg:bottom-8 lg:top-auto" : "bottom-[150px] z-50 lg:bottom-8"
+          }`}
+          style={viewerIndex != null && !isDesktop ? { top: "calc(60px + env(safe-area-inset-top))" } : undefined}
+        >
+          <div
+            className="rounded-full px-4 py-2.5 text-[12.5px] font-bold shadow-lg"
+            style={viewerIndex != null ? { background: "rgba(255,253,245,0.95)", color: SIGNAL.viewer } : { background: SIGNAL.viewer, color: "#fff" }}
+          >
             {toast}
           </div>
         </div>
@@ -2473,6 +2530,8 @@ function MobileGalleryView(props: {
   onDownload?: (i: GuestMediaItem) => void;
   /** The tile menu's Share (touch devices only, see gallery/tileMenuActions.ts). */
   onShare?: (i: GuestMediaItem) => void;
+  /** The photo to bring into view as the viewer closes (see closeViewer). */
+  reveal: { id: string; seq: number } | null;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
   /** False hides the Select entry point (its only action is Download). */
@@ -2649,6 +2708,8 @@ function MobileGalleryView(props: {
                   onDownload={props.onDownload}
                   onShare={props.onShare}
                   scrollRef={scrollRef}
+                  reveal={props.reveal}
+                  revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
                 />
               ) : (
               <GalleryGrid
@@ -2664,6 +2725,8 @@ function MobileGalleryView(props: {
                 onDownload={props.onDownload}
                 onShare={props.onShare}
                 scrollRef={scrollRef}
+                reveal={props.reveal}
+                revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
               />
               )}
               {loadingMore && (
@@ -2739,6 +2802,8 @@ function BucketedGrid({
   onShare?: (i: GuestMediaItem) => void;
   /** Each run windows itself against this container. */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
+  reveal?: { id: string; seq: number } | null;
+  revealInset?: { top: number; bottom: number };
 }) {
   // Runs of consecutive items from the same bucket. Pages arrive in bucket
   // order, so in practice there is one run per bucket; building it this way
