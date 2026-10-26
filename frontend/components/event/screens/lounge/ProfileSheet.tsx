@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useEventTheme } from "../../EventThemeContext";
-import { IconX, IconScanFace, IconLogout } from "@/components/ui/icons";
+import { IconX, IconScanFace, IconLogout, IconGear, IconChevronRight } from "@/components/ui/icons";
 import { GuestPhoto } from "./GuestPhoto";
 
 /**
@@ -31,6 +31,7 @@ export function ProfileSheet({
   onRescan,
   onSignOut,
   onClose,
+  onOpenGuestControl,
 }: {
   name?: string;
   /** The guest's picture (lib/profile-face.ts#guestPhotoUrl), or null. */
@@ -45,6 +46,9 @@ export function ProfileSheet({
   onRescan: () => void;
   onSignOut: () => void;
   onClose: () => void;
+  /** A Client's Guest Control (collections on). Absent for everyone else,
+   *  and then the sheet is exactly what it was. */
+  onOpenGuestControl?: () => void;
 }) {
   const { theme: t } = useEventTheme();
 
@@ -108,7 +112,29 @@ export function ProfileSheet({
           </div>
         )}
 
-        <div className="mt-6 flex flex-col gap-2.5">
+        {onOpenGuestControl && (
+          <button
+            type="button"
+            onClick={onOpenGuestControl}
+            className="mt-6 flex w-full cursor-pointer items-center gap-3 rounded-2xl px-4 py-3 text-left transition-transform active:scale-[0.99]"
+            style={{ background: t.sunken }}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: t.accentWash, color: t.brand }}>
+              <IconGear size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-extrabold" style={{ color: t.text }}>
+                Guest Control
+              </span>
+              <span className="block truncate text-[12px] font-semibold" style={{ color: t.muted }}>
+                Share the gallery, passcode and editors
+              </span>
+            </span>
+            <IconChevronRight size={16} style={{ color: t.muted }} />
+          </button>
+        )}
+
+        <div className={`${onOpenGuestControl ? "mt-3" : "mt-6"} flex flex-col gap-2.5`}>
           {faceSearchOn && (
             <button
               type="button"

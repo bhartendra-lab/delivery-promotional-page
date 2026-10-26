@@ -56,3 +56,15 @@ export function galleryUrlFor(
   if (!uniqueIdentifier) return null;
   return `${galleryBaseUrl(company)}/event/${uniqueIdentifier}`;
 }
+
+/**
+ * The gallery URL from a bare domain, as Guest Control's response carries it.
+ * The backend sends `custom_domain` ONLY when it is live (it applies
+ * hasLiveCustomDomain itself), so a non-empty value here is already the rule
+ * above; null means ours.
+ */
+export function galleryUrlForDomain(customDomain: string | null | undefined, uniqueIdentifier: string | null | undefined): string | null {
+  if (!uniqueIdentifier) return null;
+  const domain = (customDomain ?? "").trim();
+  return `${domain ? `https://${domain}` : vyavasthBaseUrl()}/event/${uniqueIdentifier}`;
+}

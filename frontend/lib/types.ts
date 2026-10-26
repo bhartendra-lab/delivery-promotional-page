@@ -932,6 +932,12 @@ export type GuestSession = {
    */
   is_client?: boolean;
   client_role?: EventClientRole | null;
+  /**
+   * The server's verdict: may this guest work with collections (a Client, or
+   * a guest a Client made an editor)? Present only while COLLECTIONS_ENABLED
+   * is on; read through `capabilities` in lib/collections/logic.ts.
+   */
+  can_edit_collections?: boolean;
   guest_sub_type: string | null;
   selfie_url: string | null;
   /**

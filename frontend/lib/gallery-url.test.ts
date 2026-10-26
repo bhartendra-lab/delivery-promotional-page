@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasLiveCustomDomain, galleryBaseUrl, galleryUrlFor } from "./gallery-url.ts";
+import { hasLiveCustomDomain, galleryBaseUrl, galleryUrlFor, galleryUrlForDomain } from "./gallery-url.ts";
 import type { Company } from "./types.ts";
 
 /**
@@ -90,4 +90,11 @@ test("galleryUrlFor: uses /event/<slug>, never the /c/<id> route that never exis
   const url = galleryUrlFor(company(), "riya-and-arjun");
   assert.ok(url!.includes("/event/riya-and-arjun"));
   assert.ok(!url!.includes("/c/"));
+});
+
+test("galleryUrlForDomain: Guest Control's live domain, else ours, and nothing without a slug", () => {
+  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", "abc"), "https://gallery.studioxyz.com/event/abc");
+  assert.equal(galleryUrlForDomain(null, "abc"), galleryUrlFor(null, "abc"));
+  assert.equal(galleryUrlForDomain("  ", "abc"), galleryUrlFor(null, "abc"));
+  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", null), null);
 });

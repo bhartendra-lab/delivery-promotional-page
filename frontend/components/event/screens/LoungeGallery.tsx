@@ -44,6 +44,12 @@ import { GalleryGrid, GallerySkeleton } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./gallery/GalleryControls";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
+import type { CollectionsBlock } from "@/lib/collections/types";
+import { attributionLine, bulkLikeMode, capabilities, studioLabel } from "@/lib/collections/logic";
+import { useCollections } from "./collections/useCollections";
+import { useCuratorActions, type BulkTarget } from "./collections/useCuratorActions";
+import { CuratorSelectionBar } from "./collections/CuratorSelectionBar";
+import type { WorkspaceEntry } from "./collections/SelectionWorkspace";
 
 /*
  * "Find my people" is RETIRED, shallowly: nothing of it is rendered or even
@@ -64,6 +70,17 @@ const FaceFilterBar = dynamic(
   () => import("./faces/FaceFilterBar").then((m) => m.FaceFilterBar),
   { ssr: false },
 );
+
+/**
+ * The curator's screens (collections), dynamically imported for the same
+ * reason: they render only for a Client or an editor while the server's
+ * COLLECTIONS_ENABLED is on, so every other guest's gallery ships exactly the
+ * JavaScript it always did.
+ */
+const SelectionWorkspace = dynamic(() => import("./collections/SelectionWorkspace").then((m) => m.SelectionWorkspace), { ssr: false });
+const SelectionCard = dynamic(() => import("./collections/SelectionCard").then((m) => m.SelectionCard), { ssr: false });
+const ReviewSendSheet = dynamic(() => import("./collections/ReviewSendSheet").then((m) => m.ReviewSendSheet), { ssr: false });
+const GuestControlSheet = dynamic(() => import("./collections/GuestControlSheet").then((m) => m.GuestControlSheet), { ssr: false });
 
 const PAGE = 60;
 /**
@@ -132,6 +149,8 @@ export function LoungeGallery({
   onReauth,
   onRescan,
   onSignOut,
+  collections,
+  onCollectionsChange,
 }: {
   session: GuestSession;
   onSessionChange: (patch: Partial<GuestSession>) => void;
@@ -142,6 +161,11 @@ export function LoungeGallery({
   onReauth: () => void;
   onRescan: () => void;
   onSignOut: () => void;
+  /** The collections switch as the session reports it, or null while the
+   *  server's COLLECTIONS_ENABLED is off. Nothing curator-shaped renders
+   *  without it. */
+  collections: CollectionsBlock | null;
+  onCollectionsChange: (block: CollectionsBlock | null) => void;
 }) {
   const { theme: t, event, uniqueIdentifier } = useEventTheme();
   const bookingId = event.booking_id;
@@ -171,6 +195,18 @@ export function LoungeGallery({
     [event.delivery_preferences],
   );
   const canDownload = prefs.allow_download;
+
+  /* ── collections: is this guest a curator? ──────────────────────────────
+     A Client, or a guest a Client made an editor, while the server's switch
+     is on. Everyone else gets `curator: false`, and with it no request, no
+     timer and no element that was not here before. */
+  const caps = useMemo(
+    () => capabilities({ is_client: session.is_client, can_edit_collections: session.can_edit_collections }, collections),
+    [session.is_client, session.can_edit_collections, collections],
+  );
+  const curator = caps.curator;
+  /** The studio as curator copy names it ("Send to Sharma Films"). */
+  const studio = studioLabel(event.company_name);
 
   /* ── face search, and what a Guest is left with without it ──────────────
      Four flags, derived once here and threaded everywhere, because every one
@@ -461,7 +497,9 @@ export function LoungeGallery({
    *  back on the first page of get-media. Advisory only — the URL endpoint
    *  re-checks and is the real gate. */
   const [archiveAccess, setArchiveAccess] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  /** A plain message, or (collections' reversible actions) one with Undo. */
+  const [toast, setToast] = useState<string | { text: string; undo: () => void } | null>(null);
+  const notify = useCallback((text: string, undo?: () => void) => setToast(undo ? { text, undo } : text), []);
   const [nudge, setNudge] = useState<NudgeReason | null>(null);
   /** One action-triggered nudge (download OR likes) per page load. */
   const actionNudgeShown = useRef(false);
@@ -551,9 +589,11 @@ export function LoungeGallery({
   /** A feed view whose first answer has not landed yet: the grid shows the
    *  loading state, and nothing may be selected or downloaded from it. */
   const feedPending = feedView && !activeFeed;
-  /** Select mode exists solely to download a subset, so with downloads off it
-   *  is a dead end; nor may it start on a grid that is still loading. */
-  const canSelect = canDownload && !feedPending;
+  /** Select mode exists to act on a subset: to download it or, for a
+   *  curator, to like it or save it to a collection. So for anyone else with
+   *  downloads off it is a dead end and has no way in; and nobody may start
+   *  one on a grid that is still loading. */
+  const canSelect = (canDownload || curator) && !feedPending;
   /** The grid's view apart from the face filter. A change here is a new view
    *  (the skeleton); a face filter change on the same base is not. Read by the
    *  loaders through the ref, when their first page lands. */
@@ -639,12 +679,14 @@ export function LoungeGallery({
   const onSessionChangeRef = useRef(onSessionChange);
   const guestTypeRef = useRef(session.guest_type);
   const onFriendFinderChangeRef = useRef(onFriendFinderChange);
+  const onCollectionsChangeRef = useRef(onCollectionsChange);
   const faceRefreshRef = useRef(face.refreshRequest);
   const sessionRef = useRef(session);
   useEffect(() => {
     onSessionChangeRef.current = onSessionChange;
     guestTypeRef.current = session.guest_type;
     onFriendFinderChangeRef.current = onFriendFinderChange;
+    onCollectionsChangeRef.current = onCollectionsChange;
     faceRefreshRef.current = face.refreshRequest;
     sessionRef.current = session;
   });
@@ -929,7 +971,8 @@ export function LoungeGallery({
 
   useEffect(() => {
     if (!toast) return;
-    const id = setTimeout(() => setToast(null), 2600);
+    // Long enough to reach for Undo; a plain message stays as it always did.
+    const id = setTimeout(() => setToast(null), typeof toast === "string" ? 2600 : 5000);
     return () => clearTimeout(id);
   }, [toast]);
 
@@ -1062,12 +1105,16 @@ export function LoungeGallery({
   }, [reviewUrl, galleryReady, isDesktop]);
 
   const toggleLike = useCallback(
-    (item: GuestMediaItem) => {
+    /** `extraBump`: the Selection workspace keeps its own copy of the photo
+     *  and its count. The gallery's own items are kept current either way. */
+    (item: GuestMediaItem, extraBump?: (delta: number) => void) => {
       const wasLiked = liked.has(item._id);
-      const bumpCount = (delta: number) =>
+      const bumpCount = (delta: number) => {
         setItems((prev) =>
           prev.map((m) => (m._id === item._id ? { ...m, likes_count: Math.max(0, (m.likes_count ?? 0) + delta) } : m)),
         );
+        extraBump?.(delta);
+      };
       const setLikedFlag = (on: boolean) =>
         setLiked((prev) => {
           const n = new Set(prev);
@@ -1147,6 +1194,81 @@ export function LoungeGallery({
     setSelectAll(true);
   }, []);
 
+  /* ── collections (curators only; inert for everyone else) ──────────────
+     Liked, for a curator, is the Selection workspace: its own feed, paging,
+     selection and viewer. The gallery's own Liked view, and its loader, are
+     never involved, so a curator going there changes nothing for anyone. */
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  const selectionShown = curator && selectionOpen;
+  const [workspaceEntry, setWorkspaceEntry] = useState<WorkspaceEntry & { seq: number }>({ segment: "liked", collectionId: null, seq: 0 });
+  const [workspaceViewerOpen, setWorkspaceViewerOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [guestControlOpen, setGuestControlOpen] = useState(false);
+  /** onReauth with a stable identity (EventFlow hands a fresh one every
+   *  render), so the collections sheets never refetch on a parent re-render. */
+  const reauth = useCallback(() => onReauthRef.current(), []);
+  const workspaceIdsRef = useRef<string[]>([]);
+  const onWorkspaceIds = useCallback((ids: string[]) => {
+    workspaceIdsRef.current = ids;
+  }, []);
+  const col = useCollections({
+    uid: uniqueIdentifier,
+    bookingId,
+    enabled: curator,
+    caps,
+    live: selectionShown,
+    liveIdsRef: workspaceIdsRef,
+    onReauth: reauth,
+  });
+
+  const likedRef = useRef(liked);
+  useEffect(() => {
+    likedRef.current = liked;
+  }, [liked]);
+  /** Show photos as liked or not, counts included: a bulk like, before (or
+   *  without) the server's answer, and its rollback. */
+  const applyLikes = useCallback((ids: readonly string[], on: boolean) => {
+    const changing = new Set(ids.filter((id) => likedRef.current.has(id) !== on));
+    if (!changing.size) return;
+    setLiked((prev) => {
+      const n = new Set(prev);
+      for (const id of changing) {
+        if (on) n.add(id);
+        else n.delete(id);
+      }
+      return n;
+    });
+    setItems((prev) =>
+      prev.map((m) => (changing.has(m._id) ? { ...m, likes_count: Math.max(0, (m.likes_count ?? 0) + (on ? 1 : -1)) } : m)),
+    );
+  }, []);
+  const curatorActions = useCuratorActions({
+    t,
+    desktop: isDesktop,
+    studio,
+    uid: uniqueIdentifier,
+    col,
+    notify,
+    liked,
+    applyLikes,
+    onReauth: reauth,
+  });
+  const openSave = curatorActions.openSave;
+  const openSaveFor = useCallback((item: GuestMediaItem) => openSave({ ids: [item._id] }), [openSave]);
+  const membership = col.membership;
+  const collectionsById = col.collectionsById;
+  const attributionFor = useCallback(
+    (item: GuestMediaItem) => attributionLine(membership.get(item._id), collectionsById),
+    [membership, collectionsById],
+  );
+  // Which collections each loaded photo is in: one call per new page (only
+  // the photos not known yet), so tiles, the Save sheet and the viewers'
+  // attribution line all read from one map.
+  const ensureMembership = col.ensureMembership;
+  useEffect(() => {
+    if (curator && displayed.length) void ensureMembership(displayed.map((m) => m._id));
+  }, [curator, displayed, ensureMembership]);
+
   /**
    * Full access can change while this tab is open — the Studio can give it from
    * Access & Sharing, or take it back — and nothing pushes that to the browser.
@@ -1181,7 +1303,7 @@ export function LoungeGallery({
         // `if_key`, so an unchanged bar costs a few bytes. With nothing to
         // refresh this is exactly the request it always was.
         const faceRefresh = faceRefreshRef.current();
-        const { guest, friend_finder, face_filter } = await getGuestSession(
+        const { guest, friend_finder, face_filter, collections: collectionsBlock } = await getGuestSession(
           uniqueIdentifier,
           faceRefresh ? { query: faceRefresh.query } : undefined,
         );
@@ -1197,6 +1319,21 @@ export function LoungeGallery({
         // Guest has been away in another tab. Applied BEFORE the guest_type
         // guard below, which returns early on the common no-change path.
         if (friend_finder) onFriendFinderChangeRef.current(friend_finder);
+        // Collections ride along too: the switch, and this guest's own access
+        // (a Client may have made them an editor, or stopped them, since the
+        // page loaded). A change ends any selection made under the old one.
+        onCollectionsChangeRef.current(collectionsBlock ?? null);
+        if (
+          guest.can_edit_collections !== sessionRef.current.can_edit_collections ||
+          guest.is_client !== sessionRef.current.is_client
+        ) {
+          onSessionChangeRef.current({
+            can_edit_collections: guest.can_edit_collections,
+            is_client: guest.is_client,
+            client_role: guest.client_role,
+          });
+          exitSelect();
+        }
         if (guest.guest_type === guestTypeRef.current) return;
         const promoted = guest.guest_type === "host";
         onSessionChangeRef.current({ guest_type: guest.guest_type });
@@ -1593,6 +1730,32 @@ export function LoungeGallery({
       console.warn("[catchGuestBehavior] review failed", e),
     );
   }, [uniqueIdentifier]);
+  /** What the curator bar acts on: the photos in hand or, for a select-all
+   *  with pages still unfetched, the same scope walk the bulk download makes. */
+  const selectionKnown = !(selectAll && hasMore);
+  const selectionTarget = (): BulkTarget => {
+    if (selectAll && hasMore) {
+      const excludedIds = excluded;
+      const scope = currentScope();
+      const groupIds = feedView ? activeFeedRef.current?.allIds : undefined;
+      return {
+        count: selectedCount,
+        resolve: async (signal) =>
+          (await fetchPlanSources(scope, signal, groupIds)).map((e) => e._id).filter((id) => !excludedIds.has(id)),
+      };
+    }
+    return { ids: displayed.filter((i) => isSelected(i._id)).map((i) => i._id) };
+  };
+  /** Into the Selection workspace, at a given place (the lounge card's chips
+   *  open one collection). Remounted, so it starts there. */
+  const openSelection = (entry: WorkspaceEntry) => {
+    setWorkspaceEntry((e) => ({ ...entry, seq: e.seq + 1 }));
+    setSelectionOpen(true);
+    exitSelect();
+    setView("gallery");
+    if (isDesktop) gridSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const onContactClick = useCallback(() => {
     catchGuestBehavior(uniqueIdentifier, { contact_button_clicked: true }).catch((e) =>
       console.warn("[catchGuestBehavior] contact failed", e),
@@ -1624,7 +1787,14 @@ export function LoungeGallery({
   const passcodeSheetOpen = passcodeOpen || (passcodeRequired && !showIntakeSheet);
   /** The lounge's own modals and gates. */
   const overlayOpen =
-    viewerIndex != null || passcodeSheetOpen || profileOpen || showIntakeSheet || visitGateOpen;
+    viewerIndex != null ||
+    passcodeSheetOpen ||
+    profileOpen ||
+    showIntakeSheet ||
+    visitGateOpen ||
+    curatorActions.saveOpen ||
+    reviewOpen ||
+    guestControlOpen;
   useEffect(() => {
     if (!isDesktop) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1687,6 +1857,8 @@ export function LoungeGallery({
   // Desktop's whole page scrolls in one container (the cover flows into the
   // grid), so infinite scroll hangs off that container — not the grid element.
   const onDesktopScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    // The Selection workspace pages its own feed off this same scroller.
+    if (selectionShown) return;
     const el = e.currentTarget;
     // Not while the face filter is replacing the set: a page of the old view
     // would land on the new one.
@@ -1741,6 +1913,7 @@ export function LoungeGallery({
   }, []);
 
   function gotoGallery(nextTab: GalleryTab) {
+    setSelectionOpen(false);
     setTab(nextTab);
     setFolder(ALL);
     setLikedView(false);
@@ -1750,12 +1923,13 @@ export function LoungeGallery({
     gridSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  const navActive = view === "home" ? "home" : likedView ? "liked" : "gallery";
+  const navActive = view === "home" ? "home" : likedView || selectionShown ? "liked" : "gallery";
   const goHome = () => {
     setView("home");
     exitSelect();
   };
   const goGallery = () => {
+    setSelectionOpen(false);
     setLikedView(false);
     // Symmetric with goLiked: the result set changes in BOTH directions, so a
     // cursor and bucket map from before Liked describe nothing on screen.
@@ -1764,6 +1938,10 @@ export function LoungeGallery({
     setView("gallery");
   };
   const goLiked = () => {
+    if (curator) {
+      openSelection({ segment: "liked", collectionId: null });
+      return;
+    }
     setLikedView(true);
     // Liked is its own result set, so whatever My People had paged no longer
     // describes what is on screen.
@@ -1781,6 +1959,10 @@ export function LoungeGallery({
     gridSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const desktopSelectLiked = () => {
+    if (curator) {
+      openSelection({ segment: "liked", collectionId: null });
+      return;
+    }
     setLikedView(true);
     setFolder(ALL);
     resetGroupPaging();
@@ -1791,12 +1973,14 @@ export function LoungeGallery({
     // The pills stay up under a face filter (with All lit: the filter covers
     // the whole tab). Picking one goes back to browsing by folder.
     if (faceActive) faceClear();
+    setSelectionOpen(false);
     setFolder(f);
     setLikedView(false);
     exitSelect();
     scrollToGridTop();
   };
   const desktopSetTab = (k: GalleryTab) => {
+    setSelectionOpen(false);
     setTab(k);
     setFolder(ALL);
     setLikedView(false);
@@ -1894,6 +2078,11 @@ export function LoungeGallery({
     };
   }, []);
 
+  /** The toast rises over whichever viewer is open, and over the
+   *  collections sheets, which sit above the viewer. */
+  const anyViewerOpen = viewerIndex != null || (selectionShown && workspaceViewerOpen);
+  const collectionsSheetOpen = curatorActions.saveOpen || reviewOpen || guestControlOpen;
+
   /* ── render ───────────────────────────────────────────────────────────── */
 
   return (
@@ -1927,6 +2116,23 @@ export function LoungeGallery({
             date={date}
           />
           <div ref={mastheadSentinelRef} />
+          {curator && (
+            <div className="mx-auto w-full max-w-[1440px] px-8 pt-6">
+              <SelectionCard
+                className="mx-auto max-w-[760px]"
+                t={t}
+                studio={studio}
+                col={col}
+                uid={uniqueIdentifier}
+                bookingId={bookingId}
+                onStart={() => gotoGallery("all")}
+                onContinue={() => openSelection({ segment: "liked", collectionId: null })}
+                onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
+                onReview={() => setReviewOpen(true)}
+                onReauth={reauth}
+              />
+            </div>
+          )}
 
           {/* The friends card used to sit here, between the cover and the
               grid's controls. It is gone: it repeated what the My People tab
@@ -1944,16 +2150,17 @@ export function LoungeGallery({
             setTab={desktopSetTab}
             showMine={faceSearchOn}
             showGroup={showPeopleTab}
-            showFolders={!groupView}
+            showFolders={!groupView && !selectionShown}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
             folder={folder}
             setFolder={desktopSelectFolder}
-            likedView={likedView}
+            likedView={likedView || selectionShown}
             onSelectLiked={desktopSelectLiked}
             selectMode={selectMode}
-            canSelect={canSelect}
+            // In Selection the workspace has its own Select and its own scope.
+            canSelect={canSelect && !selectionShown}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             selectAll={selectAll}
             onSelectAll={selectAllInView}
@@ -1961,7 +2168,7 @@ export function LoungeGallery({
             selectionLabel={selectionLabel}
             selectionHint={selectionHint}
             scopeTotal={totalForView}
-            canDownloadAll={canDownloadAll}
+            canDownloadAll={canDownloadAll && !selectionShown}
             zipping={zipping}
             onDownloadAll={downloadGalleryZip}
             downloadCount={totalForView}
@@ -1972,6 +2179,38 @@ export function LoungeGallery({
           {/* scrollMarginTop = the measured pinned control-row height, so
               scrollIntoView lands the first grid row flush beneath it. */}
           <div ref={gridSectionRef} className="mx-auto w-full max-w-[1440px] px-8 pb-16 pt-6" style={{ scrollMarginTop: controlRowH }}>
+            {selectionShown ? (
+              <SelectionWorkspace
+                key={workspaceEntry.seq}
+                entry={workspaceEntry}
+                t={t}
+                desktop={true}
+                uid={uniqueIdentifier}
+                bookingId={bookingId}
+                studio={studio}
+                eventName={event.event_name ?? ""}
+                col={col}
+                folders={folders}
+                liked={liked}
+                toggleLike={toggleLike}
+                applyLikes={applyLikes}
+                seedLikes={seedLikes}
+                canDownload={canDownload}
+                onDownloadOne={requestDownloadOne}
+                onShare={shareOne}
+                onBulkDownload={(name, resolve) => withVisitGate(() => startDownload(name, resolve))}
+                toPlanSource={toPlanSource}
+                notify={notify}
+                onReauth={reauth}
+                scrollRef={desktopScrollRef}
+                stickyTop={controlRowH}
+                contactUrl={contactUrl}
+                onReview={() => setReviewOpen(true)}
+                onViewerOpenChange={setWorkspaceViewerOpen}
+                onLoadedIds={onWorkspaceIds}
+              />
+            ) : (
+            <>
             {showMatchBanner && (
               <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
             )}
@@ -2031,6 +2270,7 @@ export function LoungeGallery({
                     onEnterSelectWith={canSelect ? enterSelectWith : undefined}
                     onDownload={canDownload ? requestDownloadOne : undefined}
                     onShare={shareOne}
+                    onCollect={curator ? openSaveFor : undefined}
                     scrollRef={desktopScrollRef}
                     reveal={reveal}
                     revealInset={{ top: controlRowH, bottom: 0 }}
@@ -2048,6 +2288,7 @@ export function LoungeGallery({
                   onEnterSelectWith={canSelect ? enterSelectWith : undefined}
                   onDownload={canDownload ? requestDownloadOne : undefined}
                   onShare={shareOne}
+                  onCollect={curator ? openSaveFor : undefined}
                   scrollRef={desktopScrollRef}
                   reveal={reveal}
                   revealInset={{ top: controlRowH, bottom: 0 }}
@@ -2070,6 +2311,8 @@ export function LoungeGallery({
                 contactUrl={contactUrl}
                 onContactClick={onContactClick}
               />
+            )}
+            </>
             )}
           </div>
 
@@ -2110,6 +2353,22 @@ export function LoungeGallery({
               onBandAction={onBandAction}
               date={date}
             />
+            {curator && (
+              <div className="mx-auto w-full max-w-[460px] px-5 pt-5">
+                <SelectionCard
+                  t={t}
+                  studio={studio}
+                  col={col}
+                  uid={uniqueIdentifier}
+                  bookingId={bookingId}
+                  onStart={() => gotoGallery("all")}
+                  onContinue={() => openSelection({ segment: "liked", collectionId: null })}
+                  onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
+                  onReview={() => setReviewOpen(true)}
+                  onReauth={reauth}
+                />
+              </div>
+            )}
             <div
               className="mx-auto w-full max-w-[460px] px-5 pt-6"
               style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
@@ -2117,6 +2376,35 @@ export function LoungeGallery({
               <PolicyFooter t={t} />
             </div>
           </div>
+        ) : selectionShown ? (
+          <SelectionWorkspace
+            key={workspaceEntry.seq}
+            entry={workspaceEntry}
+            t={t}
+            desktop={false}
+            uid={uniqueIdentifier}
+            bookingId={bookingId}
+            studio={studio}
+            eventName={event.event_name ?? ""}
+            col={col}
+            folders={folders}
+            liked={liked}
+            toggleLike={toggleLike}
+            applyLikes={applyLikes}
+            seedLikes={seedLikes}
+            canDownload={canDownload}
+            onDownloadOne={requestDownloadOne}
+            onShare={shareOne}
+            onBulkDownload={(name, resolve) => withVisitGate(() => startDownload(name, resolve))}
+            toPlanSource={toPlanSource}
+            notify={notify}
+            onReauth={reauth}
+            stickyTop={0}
+            contactUrl={contactUrl}
+            onReview={() => setReviewOpen(true)}
+            onViewerOpenChange={setWorkspaceViewerOpen}
+            onLoadedIds={onWorkspaceIds}
+          />
         ) : (
           <MobileGalleryView
             t={t}
@@ -2171,6 +2459,7 @@ export function LoungeGallery({
             onEnterSelectWith={canSelect ? enterSelectWith : undefined}
             onDownload={canDownload ? requestDownloadOne : undefined}
             onShare={shareOne}
+            onCollect={curator ? openSaveFor : undefined}
             reveal={reveal}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
@@ -2215,7 +2504,26 @@ export function LoungeGallery({
           also the ONLY action here, which is why select mode is unreachable
           when the studio has downloads off (see `canSelect`); the guard below
           is belt-and-braces for a mode that can no longer be entered. */}
-      {selectMode && (
+      {/* A curator's bar instead: Like, Add to collection, Download. */}
+      {selectMode && curator && !selectionShown && (
+        <CuratorSelectionBar
+          t={t}
+          label={selectionLabel}
+          count={selectedCount}
+          likeMode={bulkLikeMode(displayed.filter((i) => isSelected(i._id)).map((i) => i._id), liked, selectionKnown)}
+          onCancel={exitSelect}
+          onLike={() => {
+            const target = selectionTarget();
+            exitSelect();
+            void curatorActions.bulkLike(target, { known: selectionKnown });
+          }}
+          onCollect={() => openSave(selectionTarget(), exitSelect)}
+          onDownload={canDownload ? downloadSelected : undefined}
+          busy={zipping}
+          aboveNav={!isDesktop}
+        />
+      )}
+      {selectMode && !curator && (
         <div
           // Sits above the bottom nav, which now carries the home-indicator
           // inset — so this has to clear the same inset or the two overlap on a
@@ -2273,6 +2581,8 @@ export function LoungeGallery({
           hasMore={hasMore && !refreshing}
           loadingMore={loadingMore}
           onLoadMore={loadMore}
+          onCollect={curator ? openSaveFor : undefined}
+          attribution={curator ? attributionFor : undefined}
         />
       )}
       {viewerIndex != null && displayed[viewerIndex] && isDesktop && (
@@ -2289,6 +2599,8 @@ export function LoungeGallery({
           onToast={setToast}
           canDownload={canDownload}
           onDownload={requestDownloadOne}
+          onCollect={curator ? openSaveFor : undefined}
+          attribution={curator ? attributionFor : undefined}
         />
       )}
 
@@ -2360,6 +2672,43 @@ export function LoungeGallery({
             onRescan();
           }}
           onSignOut={onSignOut}
+          onOpenGuestControl={
+            caps.canSend
+              ? () => {
+                  setProfileOpen(false);
+                  setGuestControlOpen(true);
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {/* Collections: the Save sheet, Review and send, Guest Control. */}
+      {curator && curatorActions.saveSheet}
+      {curator && reviewOpen && (
+        <ReviewSendSheet
+          t={t}
+          desktop={isDesktop}
+          studio={studio}
+          uid={uniqueIdentifier}
+          bookingId={bookingId}
+          col={col}
+          onClose={() => setReviewOpen(false)}
+          onReauth={reauth}
+        />
+      )}
+      {caps.canSend && guestControlOpen && (
+        <GuestControlSheet
+          t={t}
+          desktop={isDesktop}
+          studio={studio}
+          uid={uniqueIdentifier}
+          bookingId={bookingId}
+          eventName={event.event_name ?? ""}
+          faceSearchOn={faceSearchOn}
+          notify={notify}
+          onClose={() => setGuestControlOpen(false)}
+          onReauth={reauth}
         />
       )}
 
@@ -2392,15 +2741,29 @@ export function LoungeGallery({
       {toast && (
         <div
           className={`pointer-events-none fixed inset-x-0 flex justify-center px-5 ${
-            viewerIndex != null ? "z-[80] lg:bottom-8 lg:top-auto" : "bottom-[150px] z-50 lg:bottom-8"
+            anyViewerOpen ? "z-[80] lg:bottom-8 lg:top-auto" : `bottom-[150px] lg:bottom-8 ${collectionsSheetOpen ? "z-[80]" : "z-50"}`
           }`}
-          style={viewerIndex != null && !isDesktop ? { top: "calc(60px + env(safe-area-inset-top))" } : undefined}
+          style={anyViewerOpen && !isDesktop ? { top: "calc(60px + env(safe-area-inset-top))" } : undefined}
         >
           <div
-            className="rounded-full px-4 py-2.5 text-[12.5px] font-bold shadow-lg"
-            style={viewerIndex != null ? { background: "rgba(255,253,245,0.95)", color: SIGNAL.viewer } : { background: SIGNAL.viewer, color: "#fff" }}
+            className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-[12.5px] font-bold shadow-lg ${typeof toast === "string" ? "" : "pointer-events-auto"}`}
+            style={anyViewerOpen ? { background: "rgba(255,253,245,0.95)", color: SIGNAL.viewer } : { background: SIGNAL.viewer, color: "#fff" }}
           >
-            {toast}
+            {typeof toast === "string" ? toast : toast.text}
+            {typeof toast !== "string" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const undo = toast.undo;
+                  setToast(null);
+                  undo();
+                }}
+                className="-my-1 -mr-1.5 cursor-pointer rounded-full px-2.5 py-1 text-[12.5px] font-extrabold"
+                style={{ color: "inherit", background: anyViewerOpen ? "rgba(20,16,8,0.08)" : "rgba(255,255,255,0.14)" }}
+              >
+                Undo
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2530,6 +2893,8 @@ function MobileGalleryView(props: {
   onDownload?: (i: GuestMediaItem) => void;
   /** The tile menu's Share (touch devices only, see gallery/tileMenuActions.ts). */
   onShare?: (i: GuestMediaItem) => void;
+  /** "Add to collection", for curators only. */
+  onCollect?: (i: GuestMediaItem) => void;
   /** The photo to bring into view as the viewer closes (see closeViewer). */
   reveal: { id: string; seq: number } | null;
   onOpen: (index: number) => void;
@@ -2707,6 +3072,7 @@ function MobileGalleryView(props: {
                   onEnterSelectWith={props.onEnterSelectWith}
                   onDownload={props.onDownload}
                   onShare={props.onShare}
+                  onCollect={props.onCollect}
                   scrollRef={scrollRef}
                   reveal={props.reveal}
                   revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
@@ -2724,6 +3090,7 @@ function MobileGalleryView(props: {
                 onEnterSelectWith={props.onEnterSelectWith}
                 onDownload={props.onDownload}
                 onShare={props.onShare}
+                onCollect={props.onCollect}
                 scrollRef={scrollRef}
                 reveal={props.reveal}
                 revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
@@ -2800,6 +3167,7 @@ function BucketedGrid({
   onEnterSelectWith?: (i: GuestMediaItem) => void;
   onDownload?: (i: GuestMediaItem) => void;
   onShare?: (i: GuestMediaItem) => void;
+  onCollect?: (i: GuestMediaItem) => void;
   /** Each run windows itself against this container. */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   reveal?: { id: string; seq: number } | null;

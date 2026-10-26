@@ -365,6 +365,13 @@ body {
 .sheet-up { animation: sheet-up 0.26s cubic-bezier(0.32, 0.72, 0.32, 1) both; }
 .scrim-in { animation: scrim-in 0.2s ease-out both; }
 
+/* Right-side drawer (Guest Control on desktop). */
+@keyframes drawer-in {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(0); }
+}
+.drawer-in { animation: drawer-in 0.3s cubic-bezier(0.32, 0.72, 0.32, 1) both; }
+
 /* Reel viewer: the heart that bursts where a double tap landed. Centred on
    the tap point by the translate, which every keyframe repeats so the scale
    never knocks it off-centre. */

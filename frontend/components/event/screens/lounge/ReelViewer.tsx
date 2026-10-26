@@ -20,7 +20,7 @@ import {
   type Step,
   type Tap,
 } from "./reelGestures";
-import { IconCheck, IconChevronLeft, IconDownload, IconHeart, IconShare } from "@/components/ui/icons";
+import { IconCheck, IconChevronLeft, IconDownload, IconHeart, IconPlus, IconShare } from "@/components/ui/icons";
 
 /** Ask the gallery for its next page this many photos before the end, so the
  *  guest rarely reaches a slide that is still loading. */
@@ -78,6 +78,8 @@ export function ReelViewer({
   hasMore,
   loadingMore,
   onLoadMore,
+  onCollect,
+  attribution,
 }: {
   items: GuestMediaItem[];
   index: number;
@@ -99,6 +101,11 @@ export function ReelViewer({
   loadingMore: boolean;
   /** The gallery's own `loadMore`; it guards against double requests. */
   onLoadMore: () => void;
+  /** "Add to collection", for curators only. Absent for everyone else, and
+   *  then the rail is exactly what it was. */
+  onCollect?: (item: GuestMediaItem) => void;
+  /** The curator's "Added to Priya’s Side by Manish" line for a photo. */
+  attribution?: (item: GuestMediaItem) => string | null;
 }) {
   const { theme: t } = useEventTheme();
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -346,6 +353,7 @@ export function ReelViewer({
   const likeCount = Math.max(0, item.likes_count ?? 0);
   const slides = [index - 1, index, index + 1].filter((i) => i >= 0 && i < items.length);
   const chromeStyle: React.CSSProperties = { opacity: chrome ? 1 : 0, pointerEvents: chrome ? "auto" : "none" };
+  const attributionText = attribution?.(item) ?? null;
 
   const toggleLike = () => {
     if (!isLiked) {
@@ -470,12 +478,37 @@ export function ReelViewer({
                 <IconDownload size={29} weight="bold" />
               </RailButton>
             )}
+            {onCollect && (
+              <RailButton label="Add" ariaLabel="Add to collection" onClick={() => onCollect(item)}>
+                <IconPlus size={30} weight="bold" />
+              </RailButton>
+            )}
             <RailButton label="Share" onClick={() => onShare(item)}>
               <IconShare size={29} weight="bold" />
             </RailButton>
           </>
         )}
       </div>
+
+      {/* Curators only: which collection this photo is in, and who put it
+          there. Bottom-left, clear of the rail; a tap opens the Save sheet. */}
+      {attributionText && (
+        <button
+          type="button"
+          data-reel-control
+          onClick={() => onCollect?.(item)}
+          className="absolute truncate text-left text-[13px] font-semibold text-white outline-none transition-opacity duration-200 focus-visible:underline"
+          style={{
+            ...chromeStyle,
+            left: "calc(16px + env(safe-area-inset-left))",
+            right: "calc(84px + env(safe-area-inset-right))",
+            bottom: "calc(34px + env(safe-area-inset-bottom))",
+            filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))",
+          }}
+        >
+          {attributionText}
+        </button>
+      )}
 
       {bursts.map((b) => (
         <span

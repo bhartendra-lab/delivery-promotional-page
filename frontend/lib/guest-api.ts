@@ -13,6 +13,7 @@ import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./typ
 import type { FriendFinderBlock } from "./friend-finder/types";
 import type { FaceFilterBlock, FaceFilterMedia } from "./face-filter/types";
 import type { IntakeAnswer } from "./guest-intake";
+import type { CollectionsBlock } from "./collections/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -88,6 +89,8 @@ export function getGuestSession(uid: string, opts: { query?: string; signal?: Ab
     friend_finder?: FriendFinderBlock;
     face_filter?: FaceFilterBlock;
     face_filter_media?: FaceFilterMedia;
+    /** Present only while COLLECTIONS_ENABLED is on (lib/collections). */
+    collections?: CollectionsBlock;
   }>(uid, `/deliverables/get-guest-session${opts.query ?? ""}`, opts.signal ? { signal: opts.signal } : {});
 }
 

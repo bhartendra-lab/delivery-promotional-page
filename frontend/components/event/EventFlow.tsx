@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuestSession } from "@/lib/types";
 import type { FriendFinderBlock } from "@/lib/friend-finder/types";
+import type { CollectionsBlock } from "@/lib/collections/types";
 import { normalizeDeliveryPreferences } from "@/lib/delivery-preferences";
 import { clearGuestToken, getGuestToken } from "@/lib/guest-auth";
 import { GuestAuthError, getGuestSession, saveIntake, updateGuestSubType } from "@/lib/guest-api";
@@ -65,6 +66,10 @@ export function EventFlow() {
    * renders for this feature unless the block is here AND `enabled` is true.
    */
   const [friendFinder, setFriendFinder] = useState<FriendFinderBlock | null>(null);
+  /** The collections switch as the session reports it (absent while the
+   *  server's COLLECTIONS_ENABLED is off, and then nothing curator-shaped
+   *  renders anywhere). */
+  const [collections, setCollections] = useState<CollectionsBlock | null>(null);
 
   // The Studio's per-event switch. Off means this flow has no selfie step at
   // all — see the render guard below, which is what stops a stale `step` from
@@ -100,10 +105,11 @@ export function EventFlow() {
       return;
     }
     try {
-      const { guest, friend_finder } = await getGuestSession(uniqueIdentifier);
+      const { guest, friend_finder, collections: collectionsBlock } = await getGuestSession(uniqueIdentifier);
       if (!mountedRef.current) return;
       setSession(guest);
       setFriendFinder(friend_finder ?? null);
+      setCollections(collectionsBlock ?? null);
       // Arriving at the selfie screen this way is the entry flow, whose way out
       // is "Skip for now" — as opposed to a rescan opened from the gallery.
       setScanOrigin("entry");
@@ -268,6 +274,10 @@ export function EventFlow() {
       onSessionChange={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
       friendFinder={friendFinder}
       onFriendFinderChange={(patch) => setFriendFinder((f) => (f ? { ...f, ...patch } : f))}
+      collections={collections}
+      onCollectionsChange={(block) =>
+        setCollections((prev) => (prev?.enabled === block?.enabled && prev?.max_editors === block?.max_editors ? prev : block))
+      }
       onReauth={() => {
         clearGuestToken(uniqueIdentifier);
         // The face filter's cached chips and picks are this guest's; the next
@@ -288,6 +298,7 @@ export function EventFlow() {
         clearFaceFilterCache(uniqueIdentifier);
         setSession(null);
         setFriendFinder(null);
+        setCollections(null);
         setStep("login");
       }}
     />

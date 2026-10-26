@@ -45,6 +45,7 @@ export function GalleryGrid({
   scrollRef,
   reveal,
   revealInset,
+  badges,
 }: {
   t: ClientTheme;
   layout?: "masonry" | "justified" | "grid";
@@ -67,7 +68,7 @@ export function GalleryGrid({
   onDownload?: (item: GuestMediaItem) => void;
   /** The native share sheet. Offered on touch devices only (see tileMenuActions.ts). */
   onShare?: (item: GuestMediaItem) => void;
-  /** "Add to collection", for curators. Not wired until collections ship. */
+  /** "Add to collection", for curators only (see lib/collections). */
   onCollect?: (item: GuestMediaItem) => void;
   /** The scroll container this grid sits in, for windowing. */
   scrollRef?: React.RefObject<HTMLElement | null>;
@@ -81,6 +82,12 @@ export function GalleryGrid({
   /** What covers the scroll container's edges without scrolling with it (the
    *  desktop's pinned control row, the phone's bottom nav). */
   revealInset?: { top: number; bottom: number };
+  /**
+   * The curator's Selection workspace only: a like-count pill bottom-left and
+   * a brand check when the photo is in a collection. Absent everywhere else,
+   * so every other grid's tiles are exactly as Phase 1 left them.
+   */
+  badges?: (item: GuestMediaItem) => { likes: number; sorted: boolean } | null;
 }) {
   const hoverPointer = useHoverPointer();
   const actions = tileMenuActions({
@@ -114,6 +121,7 @@ export function GalleryGrid({
     onToggleLike,
     onEnterSelectWith,
     onOpenMenu,
+    badges,
   };
 
   let body: React.ReactNode;
@@ -162,6 +170,7 @@ type TileContext = {
   onToggleLike: (item: GuestMediaItem) => void;
   onEnterSelectWith?: (item: GuestMediaItem) => void;
   onOpenMenu?: (item: GuestMediaItem, anchor: HTMLElement) => void;
+  badges?: (item: GuestMediaItem) => { likes: number; sorted: boolean } | null;
 };
 
 /**
@@ -438,6 +447,7 @@ function PhotoTile({
   onToggleLike,
   onEnterSelectWith,
   onOpenMenu,
+  badges,
 }: TileContext & {
   shape: TileShape;
   item: GuestMediaItem;
@@ -447,6 +457,7 @@ function PhotoTile({
   const isSel = isSelected(item._id);
   const isLiked = liked.has(item._id);
   const menuOpen = openMenuId === item._id;
+  const badge = badges?.(item) ?? null;
   const radius = shape.kind === "masonry" ? shape.radius : shape.kind === "justified" ? 10 : 8;
   const pad = selectMode && isSel ? 4 : 0;
   const innerRadius = pad ? Math.max(4, radius - 3) : radius;
@@ -620,6 +631,29 @@ function PhotoTile({
       >
         {isSel && <IconCheck size={14} weight="bold" />}
       </button>
+
+      {/* Curator badges (Selection workspace only). The check gives way to
+          the select badge, which reveals in the same corner on hover. */}
+      {badge?.sorted && !selectMode && (
+        <span
+          aria-label="In a collection"
+          className={`pointer-events-none absolute left-2 top-2 z-[5] flex h-[22px] w-[22px] items-center justify-center rounded-full transition-opacity duration-200 ${
+            onEnterSelectWith ? "can-hover:group-hover:opacity-0" : ""
+          }`}
+          style={{ background: t.brand, color: t.onBrand, boxShadow: "0 1px 4px rgba(0,0,0,0.25)" }}
+        >
+          <IconCheck size={13} weight="bold" />
+        </span>
+      )}
+      {badge && badge.likes > 0 && (
+        <span
+          className="pointer-events-none absolute bottom-2 left-2 z-[5] flex h-7 items-center gap-1 rounded-full px-2 text-[11.5px] font-extrabold tabular-nums text-white"
+          style={CONTROL_TINT}
+        >
+          <IconHeart size={12} filled style={{ color: "#fff" }} />
+          {badge.likes.toLocaleString("en-IN")}
+        </span>
+      )}
 
       {!selectMode && onOpenMenu && (
         <button

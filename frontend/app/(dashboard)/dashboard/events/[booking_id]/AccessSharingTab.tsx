@@ -18,6 +18,7 @@ import {
 import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
+import { galleryInviteMessage } from "@/lib/share-message";
 import { guestPhotoUrl } from "@/lib/profile-face";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
@@ -126,16 +127,8 @@ export function AccessSharingTab({
   const studioProfileOn = meta.includeBranding === true;
   const requiredVisitLabel = studioProfileOn ? visitLabelWhenShown : undefined;
 
-  // Guests sign in with WhatsApp, not Google — the old message said Google, and
-  // rewriting it for the switch is the moment to fix that too.
-  const message = `Namaste! The photos from ${eventName} are ready. 🎉
-
-${
-    faceSearchOn
-      ? "Open the gallery and sign in. Take a quick selfie to see every photo you're in:"
-      : "Open the gallery and sign in to see them:"
-  }
-${shareUrl}`;
+  // Shared with the Client's Guest Control, so both send the same words.
+  const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn });
 
   return (
     // Breakpoints on this tab follow the width the TAB actually gets (a

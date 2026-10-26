@@ -14,6 +14,7 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconPlus,
 } from "@/components/ui/icons";
 
 /**
@@ -35,6 +36,8 @@ export function PhotoViewer({
   onToast,
   canDownload,
   onDownload,
+  onCollect,
+  attribution,
 }: {
   items: GuestMediaItem[];
   index: number;
@@ -59,6 +62,10 @@ export function PhotoViewer({
    * the post-download review nudge.
    */
   onDownload: (item: GuestMediaItem) => void;
+  /** "Add to collection", for curators only (absent for everyone else). */
+  onCollect?: (item: GuestMediaItem) => void;
+  /** The curator's "Added to Priya’s Side by Manish" line for a photo. */
+  attribution?: (item: GuestMediaItem) => string | null;
 }) {
   const { theme: t, event } = useEventTheme();
   const item = items[index];
@@ -83,6 +90,7 @@ export function PhotoViewer({
   const isLiked = liked.has(item._id);
   const isSel = isSelected(item._id);
   const likeCount = Math.max(0, item.likes_count ?? 0);
+  const attributionText = attribution?.(item) ?? null;
 
   async function onShare() {
     const r = await shareImage(item.url, event.event_name);
@@ -125,6 +133,11 @@ export function PhotoViewer({
               <IconHeart size={19} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
               {likeCount > 0 && <span className="text-[13px] font-extrabold tabular-nums">{likeCount.toLocaleString("en-IN")}</span>}
             </button>
+            {onCollect && (
+              <ChipButton label="Add to collection" onClick={() => onCollect(item)}>
+                <IconPlus size={19} />
+              </ChipButton>
+            )}
             {canDownload && (
               <ChipButton label="Download" onClick={() => onDownload(item)}>
                 <IconDownload size={19} />
@@ -152,6 +165,21 @@ export function PhotoViewer({
           </>
         )}
       </div>
+
+      {/* Curators only: which collection this photo is in, and who put it
+          there. One line, bottom-left; a click opens the Save sheet. */}
+      {attributionText && (
+        <div className="flex px-5 pb-5">
+          <button
+            type="button"
+            onClick={() => onCollect?.(item)}
+            className="max-w-[min(560px,70vw)] cursor-pointer truncate rounded-full px-3 py-1.5 text-left text-[12.5px] font-semibold outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60"
+            style={{ color: "rgba(255,253,245,0.82)" }}
+          >
+            {attributionText}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
