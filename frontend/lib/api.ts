@@ -2,6 +2,19 @@ import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFR
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
 import type { GuestAccessLevel } from "./guest-access";
+import type {
+  CollectionList,
+  CuratorFeedPage,
+  CuratorFeedQuery,
+  EditorCount,
+  GuestCollection,
+  GuestControlRow,
+  LocateResponse,
+  MembershipRef,
+  ReviewCollection,
+  WriteResult,
+} from "./collections/types";
+import type { NotificationList } from "./notifications";
 import type { UploadVariant } from "./r2-upload/compressor";
 import { UPLOAD_CACHE_CONTROL } from "./upload-cache-control";
 import type {
@@ -1815,4 +1828,114 @@ export async function trackEvent(
   } catch (err) {
     console.warn(`[trackEvent] ${trackingType} failed`, err);
   }
+}
+
+/* ── Collections, studio side (Smart Selects, Locate, Access & Sharing) ──
+ *
+ * The same /collections routes the guest gallery uses, with the dashboard's
+ * token. Every one of them answers 404 while the server's COLLECTIONS_ENABLED
+ * is off: callers read that as "this studio has no collections" and render
+ * exactly what they rendered before.
+ */
+
+const cb = (bookingId: string) => `/collections/${encodeURIComponent(bookingId)}`;
+const jsonPost = (body: unknown, method = "POST"): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/** Smart Selects' list: empty collections the studio did not make are left out. */
+export function listStudioCollections(bookingId: string) {
+  return request<CollectionList>(`${cb(bookingId)}?visible=studio`);
+}
+
+export function createStudioCollection(bookingId: string, name: string) {
+  return request<{ collection: GuestCollection }>(cb(bookingId), jsonPost({ name }));
+}
+
+/** Rename, set the album size (a whole number, or null to clear it), or both. */
+export function updateStudioCollection(
+  bookingId: string,
+  collectionId: string,
+  patch: { name?: string; target_count?: number | null },
+) {
+  return request<{ collection: GuestCollection }>(`${cb(bookingId)}/${encodeURIComponent(collectionId)}`, jsonPost(patch, "PATCH"));
+}
+
+export function deleteStudioCollection(bookingId: string, collectionId: string) {
+  return request<{ deleted: boolean; removed_items: number }>(`${cb(bookingId)}/${encodeURIComponent(collectionId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Add or remove Media `_id`s (at most 1,000 per call). */
+export function writeStudioCollectionItems(bookingId: string, collectionId: string, action: "add" | "remove", mediaIds: string[]) {
+  return request<WriteResult>(`${cb(bookingId)}/items`, jsonPost({ action, collection_id: collectionId, media_ids: mediaIds }));
+}
+
+/** Which collections each photo is in (at most 200 ids per call). */
+export function getStudioMembership(bookingId: string, mediaIds: string[]) {
+  return request<{ membership: Record<string, MembershipRef[]> }>(`${cb(bookingId)}/membership`, jsonPost({ media_ids: mediaIds }));
+}
+
+function curatorParams(q: CuratorFeedQuery, extra: Record<string, string> = {}): string {
+  const p = new URLSearchParams();
+  p.set("view", q.view);
+  if (q.collectionId) p.set("collection_id", q.collectionId);
+  if (q.inCollection) p.set("in_collection", q.inCollection);
+  if (q.likedBy?.length) p.set("liked_by", q.likedBy.join(","));
+  if (q.folderId) p.set("folder_id", q.folderId);
+  if (q.sort) p.set("sort", q.sort);
+  if (q.skip != null) p.set("skip", String(q.skip));
+  if (q.limit != null) p.set("limit", String(q.limit));
+  for (const [k, v] of Object.entries(extra)) p.set(k, v);
+  return p.toString();
+}
+
+/** A collection's own view (getMedia's item shape, plus collection data and `filename`). */
+export function getStudioCollectionFeed(bookingId: string, q: CuratorFeedQuery) {
+  return request<CuratorFeedPage>(`${cb(bookingId)}/media?${curatorParams(q)}`);
+}
+
+export function getStudioCollectionFeedIds(bookingId: string, q: CuratorFeedQuery) {
+  return request<{ ids: string[]; total: number }>(
+    `${cb(bookingId)}/media?${curatorParams({ ...q, skip: undefined, limit: undefined }, { ids_only: "true" })}`,
+  );
+}
+
+/** Per-collection folder breakdowns (each photo under its primary folder). */
+export function getStudioCollectionReview(bookingId: string) {
+  return request<{ collections: ReviewCollection[] }>(`${cb(bookingId)}/review`);
+}
+
+/** Make sent collections drafts again, so the Client can change them. */
+export function reopenStudioCollections(bookingId: string, collectionIds: string[]) {
+  return request<{ reopened: string[]; already_draft: string[] }>(`${cb(bookingId)}/reopen`, jsonPost({ collection_ids: collectionIds }));
+}
+
+/** Locate Originals: every photo in these collections (and the shortlist), with its placements. */
+export function getLocateTargets(bookingId: string, collectionIds: string[], includeShortlist: boolean) {
+  const p = new URLSearchParams();
+  if (collectionIds.length) p.set("collection_ids", collectionIds.join(","));
+  p.set("include_shortlist", includeShortlist ? "true" : "false");
+  return request<LocateResponse>(`${cb(bookingId)}/locate?${p.toString()}`);
+}
+
+/** Access & Sharing: let a guest edit the album selection, or stop them. */
+export function setStudioCollectionEditor(bookingId: string, guestId: string, enabled: boolean) {
+  return request<{ guest: GuestControlRow; editors: EditorCount }>(
+    `/guest-control/${encodeURIComponent(bookingId)}/editor`,
+    jsonPost({ guest_id: guestId, enabled }),
+  );
+}
+
+/* ── the bell ─────────────────────────────────────────────────────────── */
+
+export function listNotifications(limit = 20) {
+  return request<NotificationList>(`/notifications?limit=${limit}`);
+}
+
+export function markNotificationsRead(target: { ids: string[] } | { all: true }) {
+  return request<{ unread_count: number }>("/notifications/read", jsonPost(target));
 }

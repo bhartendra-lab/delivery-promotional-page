@@ -207,3 +207,79 @@ export function fullAccessIsRedundant({
   const hostOnlyDownloads = allowDownload && archiveTierCount > 0 && archiveDownloadAccess === "host_only";
   return allMediaIsPublic(folders, folderCounts) && !hostOnlyDownloads;
 }
+
+/* ── collection editing (only while collections are switched on) ─────────── */
+
+/** The per-event editor cap, from get-all-guests (absent while switched off). */
+export type EditorCap = { max_editors: number; editors_used: number };
+
+export type EditorAction = {
+  key: "allow_editing" | "stop_editing";
+  label: string;
+  description: string;
+  /** At the cap: shown, with the reason, but cannot be picked. */
+  disabled?: boolean;
+};
+
+type EditorFields = Pick<Guest, "is_client" | "guest_type" | "collection_editor" | "collection_editor_source" | "full_access_source">;
+
+/**
+ * The row menu's collection-editing item, or null: none while collections are
+ * off, and none for a Client (Clients can always edit). The cap applies to
+ * the studio as it does to the Client; an editor can always be stopped, so
+ * the cap can be made room under. Mirrors the backend's planEditorChange.
+ */
+export function editorActionFor(guest: EditorFields, cap: EditorCap | null | undefined): EditorAction | null {
+  if (!cap || guest.is_client === true) return null;
+  if (guest.collection_editor === true) {
+    return {
+      key: "stop_editing",
+      label: "Stop editing selection",
+      description: guest.full_access_source === "client" ? "Also removes the full access the Client gave" : "They keep their full access",
+    };
+  }
+  const full = cap.editors_used >= cap.max_editors;
+  return {
+    key: "allow_editing",
+    label: "Allow editing selection",
+    description: full
+      ? `You can add up to ${cap.max_editors} editors.`
+      : guest.guest_type === "host"
+        ? "They can add photos to the Client's collections"
+        : "Gives full access too, so they can see every photo",
+    ...(full ? { disabled: true } : {}),
+  };
+}
+
+/** The row's quiet line for an editor: who gave it. */
+export function editorLine(guest: EditorFields): string | null {
+  if (guest.is_client === true || guest.collection_editor !== true) return null;
+  return `Can edit selection · ${guest.collection_editor_source === "studio" ? "given by you" : "given by client"}`;
+}
+
+/**
+ * The row as it stands after the studio's change, before the next reload:
+ * exactly what planEditorChange writes. Granting gives full access recorded
+ * as the studio's when the guest had none; stopping takes away only access
+ * the Client gave.
+ */
+export function afterEditorChange<T extends EditorFields>(guest: T, enable: boolean): T {
+  if (enable) {
+    return {
+      ...guest,
+      collection_editor: true,
+      collection_editor_source: "studio",
+      ...(guest.guest_type !== "host" ? { guest_type: "host" as const, full_access_source: "studio" as const } : {}),
+    };
+  }
+  const next: T = { ...guest, collection_editor: false, collection_editor_source: null };
+  if (guest.full_access_source === "client") return { ...next, guest_type: "guest" as const, full_access_source: null };
+  return next;
+}
+
+/** Where a Host's full access came from, as the row's quiet line says it. */
+export function fullAccessSourceLabel(source: Guest["full_access_source"]): string {
+  if (source === "studio") return "given by you";
+  if (source === "client") return "given by client";
+  return "passcode";
+}

@@ -340,3 +340,12 @@ test("no em or en dash in any string a curator reads", () => {
   ];
   for (const s of strings) assert.doesNotMatch(s, NO_DASH, s);
 });
+
+test("the studio's sheet: a sent collection is editable and says when it was sent", () => {
+  const m = new Map([["a", [ref("c1")]]]);
+  const sent = coll({ status: "final", finalized_at: Date.UTC(2026, 9, 26, 6) });
+  const info = sheetRowState(sent, ["a"], m, { studio: "Sharma Films", viewer: "studio" });
+  assert.equal(info.locked, false);
+  assert.equal(info.secondary, "Sent 26 Oct");
+  assert.equal(sheetRowState(sent, ["a"], m, { studio: "Sharma Films" }).locked, true);
+});

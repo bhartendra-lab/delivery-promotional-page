@@ -31,6 +31,7 @@ import {
   type FsDirHandle,
   type SourceFile,
 } from "./fsa";
+import { placementPath } from "./placements";
 
 /** A shortlisted media item, enriched with the fields the matcher/router need. */
 export type ShortlistTarget = {
@@ -40,6 +41,12 @@ export type ShortlistTarget = {
   filename: string;
   filesize: number;
   custom_folder_ids: string[];
+  /**
+   * Locate by collection: every top-level folder this photo goes into (one
+   * per collection it is in, plus the shortlist's). Absent on a run without
+   * collections, which writes the old `{Folder}/{file}` layout exactly.
+   */
+  placements?: string[];
 };
 
 /** One matched target and the disk file(s) that matched it (>1 = conflict). */
@@ -81,7 +88,7 @@ export type IncludedMatch = { target: ShortlistTarget; source: SourceFile };
 
 /** Enrich the raw shortlisted rows into match targets (clean name + size). */
 export function toTargets(
-  items: ShortlistedMediaItem[],
+  items: (ShortlistedMediaItem & { placements?: string[] })[],
   bookingId: string,
 ): ShortlistTarget[] {
   return items.map((it) => ({
@@ -90,6 +97,7 @@ export function toTargets(
     filename: resolveCleanName(it, bookingId),
     filesize: resolveSize(it, bookingId),
     custom_folder_ids: it.custom_folder_ids ?? [],
+    ...(it.placements?.length ? { placements: it.placements } : {}),
   }));
 }
 
@@ -157,7 +165,9 @@ function folderNameFor(
 type DesiredEntry = { relPath: string; file: File };
 
 /** The full desired contents of the output folder for this run: each included
- *  match's photo, plus its CR2 sibling when one was found while scanning. */
+ *  match's photo, plus its CR2 sibling when one was found while scanning.
+ *  With collections, one copy per placement (a photo in two albums lands in
+ *  both), each with its raw sibling. */
 function desiredEntries(
   included: IncludedMatch[],
   rawIndex: Map<string, SourceFile>,
@@ -166,12 +176,12 @@ function desiredEntries(
   const out: DesiredEntry[] = [];
   for (const { target, source } of included) {
     const folder = folderNameFor(target, folderNameById);
-    out.push({ relPath: `${folder}/${target.filename}`, file: source.file });
-
     const raw = rawIndex.get(rawSiblingKey(dirOf(source.path), source.file.name));
-    if (raw) {
-      const rawName = `${stripExtension(target.filename)}${extensionOf(raw.file.name)}`;
-      out.push({ relPath: `${folder}/${rawName}`, file: raw.file });
+    const rawName = raw ? `${stripExtension(target.filename)}${extensionOf(raw.file.name)}` : null;
+    const roots: (string | null)[] = target.placements?.length ? target.placements : [null];
+    for (const root of roots) {
+      out.push({ relPath: placementPath(root, folder, target.filename), file: source.file });
+      if (raw && rawName) out.push({ relPath: placementPath(root, folder, rawName), file: raw.file });
     }
   }
   return out;
@@ -224,13 +234,15 @@ export async function copyToDirectory(
   const alreadyThere =
     mode === "replace" ? await pruneToDesired(outDir, desiredPaths) : new Set<string>();
 
+  // Folders may nest ("Priya's Side/Haldi"): each level is created once.
   const subdirCache = new Map<string, FsDirHandle>();
-  const getSub = async (name: string): Promise<FsDirHandle> => {
-    let h = subdirCache.get(name);
-    if (!h) {
-      h = await outDir.getDirectoryHandle(name, { create: true });
-      subdirCache.set(name, h);
-    }
+  const getSub = async (path: string): Promise<FsDirHandle> => {
+    const cached = subdirCache.get(path);
+    if (cached) return cached;
+    const i = path.lastIndexOf("/");
+    const parent = i >= 0 ? await getSub(path.slice(0, i)) : outDir;
+    const h = await parent.getDirectoryHandle(i >= 0 ? path.slice(i + 1) : path, { create: true });
+    subdirCache.set(path, h);
     return h;
   };
 

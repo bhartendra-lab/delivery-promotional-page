@@ -3,15 +3,20 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel } from "@/lib/api";
+import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel, setStudioCollectionEditor } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { CustomFolder, Guest } from "@/lib/types";
 import {
   accessActionsFor,
+  afterEditorChange,
+  editorActionFor,
+  editorLine,
+  fullAccessSourceLabel,
   fullAccessIsRedundant,
   guestMatchesQuery,
   levelOf,
   sortGuestsForList,
+  type EditorCap,
   type GuestAccessAction,
   type GuestAccessLevel,
 } from "@/lib/guest-access";
@@ -279,6 +284,8 @@ function GuestsPanel({
   fullAccessRedundant: boolean;
 }) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
+  /** The editor cap while collections are on; null while they are off. */
+  const [editorCap, setEditorCap] = useState<EditorCap | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<GuestFilter>("all");
@@ -294,6 +301,7 @@ function GuestsPanel({
       // Already in this order from the server; sorted again here so the list
       // and every later local re-sort go through one comparator.
       setGuests(sortGuestsForList(res.guests ?? []));
+      setEditorCap(res.collections ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load guests");
     } finally {
@@ -485,6 +493,9 @@ function GuestsPanel({
               <GuestRow
                 guest={g}
                 fullAccessRedundant={fullAccessRedundant}
+                bookingId={bookingId}
+                editorCap={editorCap}
+                onEditorsUsed={(used) => setEditorCap((c) => (c ? { ...c, editors_used: used } : c))}
                 onAccessChanged={(updated) => handleAccessChanged(g._id, updated)}
                 // A 404 means another Member already changed this row. The
                 // message is shown inline by the row itself; reloading is what
@@ -596,11 +607,18 @@ function confirmCopyFor(
 function GuestRow({
   guest,
   fullAccessRedundant,
+  bookingId,
+  editorCap,
+  onEditorsUsed,
   onAccessChanged,
   onStale,
 }: {
   guest: Guest;
   fullAccessRedundant: boolean;
+  bookingId: string;
+  /** Collections on: the event's editor cap. Null: no editing item at all. */
+  editorCap: EditorCap | null;
+  onEditorsUsed: (used: number) => void;
   onAccessChanged: (updated: Guest) => void;
   onStale: () => void;
 }) {
@@ -618,6 +636,41 @@ function GuestRow({
   const givenByStudio = guest.full_access_source === "studio";
   const who = addressOf(guest.name);
   const actions = accessActionsFor(level, { fullAccessRedundant });
+  // Collection editing sits with the giving items, before anything that
+  // takes access away.
+  const editorAction = editorActionFor(guest, editorCap);
+  const menuItems: MenuItem[] = (() => {
+    const items: MenuItem[] = [...actions];
+    if (!editorAction) return items;
+    const firstDestructive = items.findIndex((a) => a.destructive);
+    items.splice(firstDestructive < 0 ? items.length : firstDestructive, 0, editorAction);
+    return items;
+  })();
+
+  /** Editing is reversible and gives nothing away the menu does not say, so it
+   *  applies at once (no confirm), with a toast. */
+  const applyEditor = async (enable: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await setStudioCollectionEditor(bookingId, guest._id, enable);
+      onAccessChanged(afterEditorChange(guest, enable));
+      onEditorsUsed(res.editors.used);
+      toast(enable ? `${sentenceStart(who.label)} can now edit the selection` : `${sentenceStart(who.label)} can no longer edit the selection`);
+    } catch (e) {
+      const code = e instanceof ApiError ? (e.body as { code?: string } | null)?.code : undefined;
+      setError(
+        code === "editor_limit"
+          ? `You can add up to ${editorCap?.max_editors ?? 6} editors.`
+          : e instanceof Error
+            ? e.message
+            : "Couldn't change editing",
+      );
+      if (code === "stale" || (e instanceof ApiError && e.status === 404)) onStale();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const apply = async (action: GuestAccessAction) => {
     setBusy(true);
@@ -673,9 +726,10 @@ function GuestRow({
           )}
           {level === "host" && (
             <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
-              Full access · {givenByStudio ? "given by you" : "passcode"}
+              Full access · {fullAccessSourceLabel(guest.full_access_source)}
             </p>
           )}
+          {editorLine(guest) && <p className="truncate text-[11px] text-[var(--color-brand-muted)]">{editorLine(guest)}</p>}
           {/* Someone the Studio added at event setup who has not signed in. */}
           {guest.invite_pending === true && (
             <p className="truncate text-[11px] text-[var(--color-brand-muted)]">Has not opened the gallery yet</p>
@@ -683,7 +737,15 @@ function GuestRow({
         </div>
         {/* Always visible, never a hover-only reveal: this list is used on
             phones. */}
-        <GuestAccessMenu name={who.label} actions={actions} disabled={busy} onSelect={setPending} />
+        <GuestAccessMenu
+          name={who.label}
+          actions={menuItems}
+          disabled={busy}
+          onSelect={(item) => {
+            if (item.key === "allow_editing" || item.key === "stop_editing") void applyEditor(item.key === "allow_editing");
+            else setPending(actions.find((a) => a.key === item.key) ?? null);
+          }}
+        />
       </div>
 
       {pending && confirm && (
@@ -723,6 +785,9 @@ const MENU_OFFSET = 4;
  * Only one can be open at a time, because opening another means pressing
  * outside this one.
  */
+/** One item of a Guest row's menu: an access change, or collection editing. */
+type MenuItem = { key: string; label: string; description: string; destructive?: boolean; disabled?: boolean };
+
 function GuestAccessMenu({
   name,
   actions,
@@ -731,9 +796,9 @@ function GuestAccessMenu({
 }: {
   /** Who the menu is about, for the button's accessible name. */
   name: string;
-  actions: GuestAccessAction[];
+  actions: MenuItem[];
   disabled?: boolean;
-  onSelect: (action: GuestAccessAction) => void;
+  onSelect: (action: MenuItem) => void;
 }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -846,12 +911,16 @@ function GuestAccessMenu({
                 }}
                 type="button"
                 role="menuitem"
+                aria-disabled={action.disabled || undefined}
                 onKeyDown={(e) => onItemKeyDown(e, index)}
                 onClick={() => {
+                  if (action.disabled) return;
                   close();
                   onSelect(action);
                 }}
                 className={`brand-focus flex min-h-11 w-full flex-col justify-center rounded-md px-2.5 py-1.5 text-left ${
+                  action.disabled ? "cursor-not-allowed opacity-50 " : ""
+                }${
                   action.destructive
                     ? "mt-1 border-t border-[var(--color-brand-border)] pt-[9px] hover:bg-[var(--color-brand-danger-soft)]"
                     : "hover:bg-[var(--color-brand-hover)]"

@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   accessActionsFor,
+  afterEditorChange,
+  editorActionFor,
+  editorLine,
+  fullAccessSourceLabel,
   allMediaIsPublic,
   compareGuestsForList,
   fullAccessIsRedundant,
@@ -253,4 +257,50 @@ test("fullAccessIsRedundant: never when a private folder holds photos, whatever 
     fullAccessIsRedundant({ ...mixed, allowDownload: false, archiveDownloadAccess: "none", archiveTierCount: 0 }),
     false,
   );
+});
+
+test("collection editing: no item while switched off or for a Client; disabled with the reason at the cap", () => {
+  const cap = { max_editors: 6, editors_used: 2 };
+  const plain = { guest_type: "guest" as const };
+  assert.equal(editorActionFor(plain, null), null);
+  assert.equal(editorActionFor({ ...plain, is_client: true }, cap), null);
+  assert.deepEqual(editorActionFor(plain, cap), {
+    key: "allow_editing",
+    label: "Allow editing selection",
+    description: "Gives full access too, so they can see every photo",
+  });
+  assert.equal(editorActionFor({ guest_type: "host" }, cap)?.description, "They can add photos to the Client's collections");
+  assert.deepEqual(editorActionFor(plain, { max_editors: 6, editors_used: 6 }), {
+    key: "allow_editing",
+    label: "Allow editing selection",
+    description: "You can add up to 6 editors.",
+    disabled: true,
+  });
+  // An editor can always be stopped, at the cap too.
+  const editor = { guest_type: "host" as const, collection_editor: true, full_access_source: "client" as const };
+  assert.equal(editorActionFor(editor, { max_editors: 6, editors_used: 6 })?.key, "stop_editing");
+  assert.equal(editorActionFor(editor, cap)?.description, "Also removes the full access the Client gave");
+  assert.equal(editorActionFor({ ...editor, full_access_source: "studio" }, cap)?.description, "They keep their full access");
+});
+
+test("collection editing: the row line and the row after a change mirror the backend", () => {
+  assert.equal(editorLine({ guest_type: "host", collection_editor: true, collection_editor_source: "studio" }), "Can edit selection · given by you");
+  assert.equal(editorLine({ guest_type: "host", collection_editor: true, collection_editor_source: "client" }), "Can edit selection · given by client");
+  assert.equal(editorLine({ guest_type: "host", collection_editor: true, is_client: true }), null);
+  assert.equal(editorLine({ guest_type: "guest" }), null);
+
+  const granted = afterEditorChange({ guest_type: "guest" as const }, true);
+  assert.deepEqual(granted, { guest_type: "host", collection_editor: true, collection_editor_source: "studio", full_access_source: "studio" });
+  const passcodeHost = afterEditorChange({ guest_type: "host" as const, full_access_source: "passcode" as const }, true);
+  assert.equal(passcodeHost.full_access_source, "passcode");
+  const clientGiven = afterEditorChange({ guest_type: "host" as const, collection_editor: true, full_access_source: "client" as const }, false);
+  assert.equal(clientGiven.guest_type, "guest");
+  assert.equal(clientGiven.full_access_source, null);
+  const studioGiven = afterEditorChange({ guest_type: "host" as const, collection_editor: true, full_access_source: "studio" as const }, false);
+  assert.equal(studioGiven.guest_type, "host");
+  assert.equal(studioGiven.collection_editor, false);
+
+  assert.equal(fullAccessSourceLabel("studio"), "given by you");
+  assert.equal(fullAccessSourceLabel("client"), "given by client");
+  assert.equal(fullAccessSourceLabel(undefined), "passcode");
 });

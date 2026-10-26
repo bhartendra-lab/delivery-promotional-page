@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconChevronRight, IconBell, IconHelp } from "@/components/ui/icons";
+import { IconChevronRight, IconHelp } from "@/components/ui/icons";
 import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
+import { NotificationBell } from "./NotificationBell";
 
 export type Breadcrumb = {
   label: string;
@@ -82,17 +83,8 @@ export function Topbar({ breadcrumb }: { breadcrumb: Breadcrumb }) {
         {topbarExtra && (
           <div className="mr-1 hidden items-center md:flex">{topbarExtra}</div>
         )}
-        <button
-          type="button"
-          title="Notifications"
-          className="brand-focus relative flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-        >
-          <IconBell size={16} />
-          <span
-            className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[var(--color-brand-navy)] ring-[1.5px] ring-white"
-            aria-hidden
-          />
-        </button>
+        {/* The real bell: no dot unless something is unread. */}
+        <NotificationBell />
         <a
           href="https://wa.me/917581072329"
           target="_blank"

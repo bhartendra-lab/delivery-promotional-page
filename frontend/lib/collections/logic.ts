@@ -102,16 +102,20 @@ export function sheetRowState(
   collection: GuestCollection,
   selectedIds: readonly string[],
   membership: Membership,
-  { studio }: { studio: string },
+  { studio, viewer = "guest" }: { studio: string; viewer?: "guest" | "studio" },
 ): SheetRowInfo {
   let inCount = 0;
   for (const id of selectedIds) if (refIn(membership.get(id), collection._id)) inCount++;
   const state: RowState =
     selectedIds.length > 0 && inCount === selectedIds.length ? "checked" : inCount > 0 ? "indeterminate" : "unchecked";
-  const locked = collection.status === "final";
+  // The studio may change a sent collection without reopening it; it just
+  // sees that it is sent.
+  const sent = collection.status === "final";
+  const locked = sent && viewer === "guest";
 
   let secondary: string | null = null;
   if (locked) secondary = `Sent to ${studio}`;
+  else if (sent) secondary = statusLabel(collection);
   else if (selectedIds.length === 1 && inCount === 1) {
     const ref = refIn(membership.get(selectedIds[0]), collection._id)!;
     secondary = ref.added_by_me ? "Added by you" : ref.added_by_name ? `Added by ${ref.added_by_name}` : null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CustomFolder, MediaItem } from "@/lib/types";
 import { degradeGridSrc, gridSrc, nameFromUrl } from "@/lib/media-actions";
 import { getArchiveDownloadUrls } from "@/lib/api";
@@ -102,6 +102,8 @@ export function MediaGrid({
   coverLocked,
   onSetCover,
   notify,
+  selectionActions,
+  sectionOf,
 }: {
   items: MediaItem[];
   disabled?: boolean;
@@ -152,6 +154,18 @@ export function MediaGrid({
   coverLocked?: boolean;
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
+  /**
+   * More buttons for the selection toolbar, after Download (Smart Selects'
+   * "Add to collection" and "Remove from {collection}"). `ids` is the whole
+   * selection, server-resolved ids included under Select all.
+   */
+  selectionActions?: (ctx: { ids: string[]; clear: () => void }) => React.ReactNode;
+  /**
+   * Group the grid under full-width section headers (a collection's view,
+   * by folder). Items must already arrive grouped; a header is drawn
+   * wherever the key changes. Absent: the grid is exactly as it was.
+   */
+  sectionOf?: (item: MediaItem) => { key: string; label: React.ReactNode } | null;
 }) {
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -527,6 +541,7 @@ export function MediaGrid({
                 {allSelectedShortlisted ? "Remove from shortlist" : "Shortlist"}
               </button>
             )}
+            {selectionActions?.({ ids: Array.from(selected), clear: clearSelection })}
             {allowDelete && onDeleteMany && (
               <button
                 type="button"
@@ -544,9 +559,20 @@ export function MediaGrid({
         {items.map((m, i) => {
           const persisted = isPersisted(m);
           const isSel = selected.has(m._id);
+          const section = sectionOf?.(m) ?? null;
+          const newSection = !!section && (i === 0 || sectionOf?.(items[i - 1])?.key !== section.key);
           return (
+            <Fragment key={m._id}>
+            {newSection && (
+              <h3
+                className={`sticky top-0 z-10 col-span-full -mx-1 bg-[var(--color-brand-bg)] px-1 pb-1 text-[13px] font-semibold text-[var(--color-brand-ink)] ${
+                  i === 0 ? "pt-1" : "pt-4"
+                }`}
+              >
+                {section.label}
+              </h3>
+            )}
             <div
-              key={m._id}
               className={`group relative aspect-square rounded ${
                 isSel ? "ring-2 ring-[var(--color-brand-navy)] ring-offset-1" : ""
               }`}
@@ -647,6 +673,7 @@ export function MediaGrid({
                 </span>
               )}
             </div>
+            </Fragment>
           );
         })}
       </div>

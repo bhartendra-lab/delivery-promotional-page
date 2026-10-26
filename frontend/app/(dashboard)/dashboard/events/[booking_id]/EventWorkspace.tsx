@@ -30,6 +30,7 @@ import type {
 } from "@/lib/types";
 import { knownEventType } from "@/lib/types";
 import { RESTORED_WITH_EXPIRY_RESET, createdEventNoticeKey } from "@/lib/event-clients";
+import { OPEN_COLLECTION_EVENT, smartDeepLink, withoutDeepLink, type OpenCollectionDetail } from "@/lib/notifications";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
   normalizeDeliveryPreferences,
@@ -978,6 +979,34 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [validityEndsAt, validityExtendable, validityLapsed],
   );
 
+  // The bell's notices land on ?tab=smart&collection=<id> (and its email on
+  // the same link): open Smart Selects on that collection, then drop the
+  // parameters, as ?extend=1 is dropped below. Read once on mount; a notice
+  // for this very event while it is open arrives as a window event instead,
+  // since navigating to the same page would not mount it again.
+  const [smartFocus, setSmartFocus] = useState<{ collectionId: string | null; seq: number } | null>(null);
+  useEffect(() => {
+    const open = (collectionId: string | null) => {
+      onTabChange("smart");
+      setSmartFocus((f) => ({ collectionId, seq: (f?.seq ?? 0) + 1 }));
+    };
+    try {
+      const link = smartDeepLink(window.location.search);
+      if (link) {
+        window.history.replaceState(window.history.state, "", withoutDeepLink(window.location.href));
+        open(link.collectionId);
+      }
+    } catch {
+      /* a malformed address: nothing to open */
+    }
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<OpenCollectionDetail>).detail;
+      if (detail?.bookingId === bookingId) open(detail.collectionId);
+    };
+    window.addEventListener(OPEN_COLLECTION_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_COLLECTION_EVENT, onOpen);
+  }, [bookingId, onTabChange]);
+
   // The reminder email's "Open the event" button lands on ?extend=1: open the
   // extend dialog once the event has loaded, then drop the parameter so a
   // refresh (or the back button) does not open it again. Read once, on mount.
@@ -1172,7 +1201,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {effectiveTab === "media" && <MediaTab loading={loading} />}
-            {effectiveTab === "smart" && <SmartSelectsTab loading={loading} />}
+            {effectiveTab === "smart" && <SmartSelectsTab loading={loading} focus={smartFocus} />}
             {effectiveTab === "gallery" && (
               <GalleryDesignTab
                 eventName={ctx.meta.name}

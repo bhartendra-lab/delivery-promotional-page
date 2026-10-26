@@ -485,7 +485,7 @@ export type Guest = {
    * Hosts promoted before this was recorded, which every reader treats as
    * "passcode" — the passcode was the only way in at the time.
    */
-  full_access_source?: "passcode" | "studio" | null;
+  full_access_source?: "passcode" | "studio" | "client" | null;
   /**
    * The Client level. A Client is ALWAYS a Host as well (`guest_type` is
    * "host"), so every full-access check keeps working; this flag says which
@@ -510,10 +510,19 @@ export type Guest = {
   likes_count?: number;
   /** ISO timestamp. Orders the Client block (bride, groom, then by this). */
   createdAt?: string;
+  /**
+   * May edit the album selection (collections). Present only while the
+   * backend's COLLECTIONS_ENABLED is on; read `=== true`. Who gave it:
+   * "client" from the gallery's Guest Control, "studio" from Access & Sharing.
+   */
+  collection_editor?: boolean;
+  collection_editor_source?: "client" | "studio" | null;
 };
 
 export type GetAllGuestsResponse = {
   guests: Guest[];
+  /** Present only while COLLECTIONS_ENABLED is on: the per-event editor cap. */
+  collections?: { max_editors: number; editors_used: number };
 };
 
 /** POST /auth/verify-otp success body. */

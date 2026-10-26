@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { useCompany } from "@/lib/useCompany";
+import { studioLabel } from "@/lib/collections/logic";
 import { MediaGrid } from "./MediaGrid";
 import { LikedFilters } from "./LikedFilters";
 import { LocateOriginals } from "./LocateOriginals";
 import { useEvent, hasActiveLikedFilters, resetLikedScope } from "./EventContext";
-import { IconHeart, IconTarget } from "./icons";
+import { IconHeart, IconPlus, IconTarget } from "./icons";
+import { CollectionsPills, CollectionsRail, type SmartView } from "./CollectionsRail";
+import { CollectionView } from "./CollectionView";
+import { NameDialog, StudioCollectionSheet } from "./CollectionDialogs";
+import { useStudioCollections } from "./useStudioCollections";
 
 /**
  * Smart Selects — a top-level section (sibling of Media / Gallery Design /
@@ -14,12 +20,27 @@ import { IconHeart, IconTarget } from "./icons";
  * downloads. The header stacks a title bar and the filter bar — the Liked /
  * Shortlisted counts live as badges on the filter bar's quick pills rather than
  * a separate full-width stat strip.
+ *
+ * With collections switched on (the server's COLLECTIONS_ENABLED), the tab
+ * gains a left rail on a laptop and a pill row on a phone: All liked,
+ * Shortlisted, the Client's collections and New collection. All liked and
+ * Shortlisted are the same liked feed and filters as always; a collection
+ * opens its own view. With the switch off none of that renders and the tab is
+ * exactly what it was.
  */
-export function SmartSelectsTab({ loading }: { loading: boolean }) {
+export function SmartSelectsTab({
+  loading,
+  focus,
+}: {
+  loading: boolean;
+  /** Open this collection (the bell's deep link). `seq` makes a repeat count. */
+  focus?: { collectionId: string | null; seq: number } | null;
+}) {
   const {
     bookingId,
     meta,
     media,
+    folders,
     likedCount,
     shortlistedCount,
     likedFilters,
@@ -33,13 +54,39 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
     activeLocked,
     toast,
   } = useEvent();
+  const company = useCompany();
+  const studioName = studioLabel(company?.name);
 
   const [locateOpen, setLocateOpen] = useState(false);
+  const studio = useStudioCollections(bookingId);
+  const collectionsOn = studio.status === "on";
+  const [view, setView] = useState<SmartView>({ kind: "liked" });
+  const [adding, setAdding] = useState<{ ids: string[]; done: () => void } | null>(null);
+  const [naming, setNaming] = useState(false);
+
+  // The bell's deep link: open that collection once the list is in hand. A
+  // collection that is no longer there (deleted, or emptied and hidden) leaves
+  // the tab on All liked.
+  const [handledFocus, setHandledFocus] = useState<number | null>(null);
+  if (focus && focus.seq !== handledFocus && studio.status !== "probing" && (studio.loaded || studio.status === "off")) {
+    setHandledFocus(focus.seq);
+    if (focus.collectionId && studio.byId.has(focus.collectionId)) setView({ kind: "collection", id: focus.collectionId });
+    else setView({ kind: "liked" });
+  }
+
+  // A collection deleted, or hidden, while open: back to All liked.
+  const openCollection = view.kind === "collection" ? studio.byId.get(view.id) ?? null : null;
+  if (view.kind === "collection" && studio.loaded && !openCollection) setView({ kind: "liked" });
 
   const filtersActive = hasActiveLikedFilters(likedFilters);
   // "No likes at all" (vs. a filter that simply matched nothing) → the friendly
   // first-run empty state instead of the filter bar.
   const noLikesAtAll = !loading && likedCount === 0 && media.length === 0 && !filtersActive;
+
+  // Locate Originals has work to do when anything is shortlisted, or (with
+  // collections) when any collection has photos.
+  const collectionPhotos = collectionsOn && studio.collections.some((c) => c.count > 0);
+  const canLocate = shortlistedCount > 0 || collectionPhotos;
 
   const emptyMessage: React.ReactNode = !filtersActive
     ? "No liked photos yet."
@@ -60,103 +107,198 @@ export function SmartSelectsTab({ loading }: { loading: boolean }) {
       </div>
     );
 
-  return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {/* 1 — Title bar, locked. */}
-      <div className="flex shrink-0 flex-col items-start justify-between gap-3 px-6 pt-6 sm:flex-row sm:items-center sm:px-10">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Smart Selects
-          </h1>
-          <p className="mt-1 max-w-[560px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-            Every like here comes from a guest who scanned their face to find their own photos — no
-            manual sorting needed. Flag the best with Host picks or Shortlisted, then jump to Locate
-            Originals when you&apos;re ready to edit.
-          </p>
-        </div>
-        {/* Locate Originals walks your whole photo drive and copies files out.
-            Running that against a saturated compressor pool would crawl and
-            slow the upload down with it — so it waits, while everything else
-            on this tab stays usable mid-upload. */}
+  const railProps = {
+    view,
+    shortlistedOnly: likedFilters.shortlistedOnly,
+    likedCount,
+    shortlistedCount,
+    collections: studio.collections,
+    canCreate: studio.collections.length < studio.maxCollections,
+    onAllLiked: () => {
+      setView({ kind: "liked" });
+      setLikedFilters(resetLikedScope);
+    },
+    onShortlisted: () => {
+      setView({ kind: "liked" });
+      setLikedFilters((f) => ({ ...f, shortlistedOnly: true }));
+    },
+    onCollection: (id: string) => setView({ kind: "collection", id }),
+    onNew: () => setNaming(true),
+  };
+
+  /** "Add to collection" in the liked feed's selection bar. */
+  const addAction = collectionsOn
+    ? ({ ids, clear }: { ids: string[]; clear: () => void }) => (
         <button
           type="button"
-          onClick={() => setLocateOpen(true)}
-          disabled={shortlistedCount === 0 || activeLocked}
-          title={
-            activeLocked
-              ? "Available once the upload finishes — scanning your drive mid-upload would slow both down."
-              : shortlistedCount === 0
-                ? "Shortlist photos first to locate their originals."
-                : undefined
-          }
-          className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => setAdding({ ids, done: clear })}
+          className="brand-focus inline-flex items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
         >
-          <IconTarget size={16} />
-          Locate Originals{shortlistedCount > 0 ? ` (${shortlistedCount.toLocaleString("en-IN")})` : ""}
+          <IconPlus size={14} /> Add to collection
         </button>
-      </div>
+      )
+    : undefined;
 
-      {loading && media.length === 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
-          <div className="mt-6">
-            <SkeletonGrid />
-          </div>
+  const likedBody =
+    loading && media.length === 0 ? (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+        <div className="mt-6">
+          <SkeletonGrid />
         </div>
-      ) : noLikesAtAll ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
-          <EmptyState />
-        </div>
-      ) : (
-        <>
-          {/* Locate Originals modal (mounts only while open — everything about a
-              run lives inside it; nothing is persisted once it closes). */}
-          <LocateOriginals
+      </div>
+    ) : noLikesAtAll ? (
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+        <EmptyState />
+      </div>
+    ) : (
+      <>
+        {/* 2 — Filter bar, locked (Liked / Shortlisted counts ride as pill badges). */}
+        <div className="shrink-0 px-6 sm:px-10">
+          <LikedFilters
             bookingId={bookingId}
-            eventName={meta.name}
+            guestTypes={meta.guestTypes}
+            filters={likedFilters}
+            onChange={setLikedFilters}
+            likedCount={likedCount}
             shortlistedCount={shortlistedCount}
-            open={locateOpen}
-            onOpenChange={setLocateOpen}
-            toast={toast}
           />
 
-          {/* 2 — Filter bar, locked (Liked / Shortlisted counts ride as pill badges). */}
-          <div className="shrink-0 px-6 sm:px-10">
-            <LikedFilters
+          {filtersActive && (
+            <p className="-mt-2 mb-3 text-[12px] text-[var(--color-brand-muted)]">
+              {totalForView.toLocaleString("en-IN")} shown
+            </p>
+          )}
+        </div>
+
+        {/* 3 — Grid, its own scroll region below the locked filters. */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
+          <MediaGrid
+            items={media}
+            allowDelete={false}
+            showLikes
+            showShortlist
+            onShortlistMany={setShortlisted}
+            onSelectAll={selectAllIds}
+            totalForView={totalForView}
+            viewKey={`smart:${JSON.stringify(likedFilters)}`}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
+            emptyMessage={emptyMessage}
+            archiveName={`${meta.name || "Gallery"} — Smart Selects`}
+            notify={toast}
+            selectionActions={addAction}
+          />
+        </div>
+      </>
+    );
+
+  return (
+    <section className="flex h-full min-w-0 flex-1 overflow-hidden">
+      {collectionsOn && (
+        <div className="hidden lg:flex">
+          <CollectionsRail {...railProps} />
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* 1 — Title bar, locked. */}
+        <div className="flex shrink-0 flex-col items-start justify-between gap-3 px-6 pt-6 sm:flex-row sm:items-center sm:px-10">
+          <div>
+            <h1 className="text-[22px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+              Smart Selects
+            </h1>
+            <p className="mt-1 max-w-[560px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
+              Every like here comes from a guest who scanned their face to find their own photos — no
+              manual sorting needed. Flag the best with Host picks or Shortlisted, then jump to Locate
+              Originals when you&apos;re ready to edit.
+            </p>
+          </div>
+          {/* Locate Originals walks your whole photo drive and copies files out.
+              Running that against a saturated compressor pool would crawl and
+              slow the upload down with it — so it waits, while everything else
+              on this tab stays usable mid-upload. */}
+          <button
+            type="button"
+            onClick={() => setLocateOpen(true)}
+            disabled={!canLocate || activeLocked}
+            title={
+              activeLocked
+                ? "Available once the upload finishes — scanning your drive mid-upload would slow both down."
+                : !canLocate
+                  ? collectionsOn
+                    ? "Shortlist photos, or wait for the Client to add photos to a collection."
+                    : "Shortlist photos first to locate their originals."
+                  : undefined
+            }
+            className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <IconTarget size={16} />
+            Locate Originals{!collectionPhotos && shortlistedCount > 0 ? ` (${shortlistedCount.toLocaleString("en-IN")})` : ""}
+          </button>
+        </div>
+
+        {collectionsOn && (
+          <div className="shrink-0 px-6 pt-4 sm:px-10 lg:hidden">
+            <CollectionsPills {...railProps} />
+          </div>
+        )}
+
+        {/* Locate Originals modal (mounts only while open — everything about a
+            run lives inside it; nothing is persisted once it closes). */}
+        <LocateOriginals
+          bookingId={bookingId}
+          eventName={meta.name}
+          shortlistedCount={shortlistedCount}
+          collections={collectionsOn ? studio.collections : null}
+          open={locateOpen}
+          onOpenChange={setLocateOpen}
+          toast={toast}
+        />
+
+        {openCollection ? (
+          <div className="flex min-h-0 flex-1 flex-col px-6 pt-5 sm:px-10">
+            <CollectionView
+              key={openCollection._id}
               bookingId={bookingId}
-              guestTypes={meta.guestTypes}
-              filters={likedFilters}
-              onChange={setLikedFilters}
-              likedCount={likedCount}
-              shortlistedCount={shortlistedCount}
-            />
-
-            {filtersActive && (
-              <p className="-mt-2 mb-3 text-[12px] text-[var(--color-brand-muted)]">
-                {totalForView.toLocaleString("en-IN")} shown
-              </p>
-            )}
-          </div>
-
-          {/* 3 — Grid, its own scroll region below the locked filters. */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 sm:px-10">
-            <MediaGrid
-              items={media}
-              allowDelete={false}
-              showLikes
-              showShortlist
-              onShortlistMany={setShortlisted}
-              onSelectAll={selectAllIds}
-              totalForView={totalForView}
-              viewKey={`smart:${JSON.stringify(likedFilters)}`}
-              hasMore={hasMore}
-              loadingMore={loadingMore}
-              onLoadMore={loadMore}
-              emptyMessage={emptyMessage}
-              archiveName={`${meta.name || "Gallery"} — Smart Selects`}
-              notify={toast}
+              eventName={meta.name}
+              collection={openCollection}
+              studio={studio}
+              folders={folders}
+              toast={toast}
+              onAddToCollection={(ids, done) => setAdding({ ids, done })}
+              onDeleted={() => setView({ kind: "liked" })}
             />
           </div>
-        </>
+        ) : (
+          likedBody
+        )}
+      </div>
+
+      {adding && (
+        <StudioCollectionSheet
+          studio={studio}
+          ids={adding.ids}
+          studioName={studioName}
+          onClose={(summary, changed) => {
+            const done = adding.done;
+            setAdding(null);
+            if (changed) done();
+            if (summary) toast(summary);
+          }}
+        />
+      )}
+      {naming && (
+        <NameDialog
+          title="New collection"
+          initial=""
+          action="Create"
+          onClose={() => setNaming(false)}
+          onSubmit={async (name) => {
+            const created = await studio.create(name);
+            setView({ kind: "collection", id: created._id });
+            toast(`Created ${created.name}`);
+          }}
+        />
       )}
     </section>
   );

@@ -55,6 +55,8 @@ export type Membership = ReadonlyMap<string, MembershipRef[]>;
 
 /** A curator feed item: getMedia's item shape plus collection data. */
 export type CuratorItem = GuestMediaItem & {
+  /** The stored original file name (Smart Selects' Copy filenames and CSV). */
+  filename?: string | null;
   collection_refs?: MembershipRef[];
   /** The folder this photo is grouped under in a collection's own view. */
   primary_folder_id?: string | null;
@@ -126,4 +128,21 @@ export type GuestControl = {
   studio_name: string | null;
   guests: GuestControlRow[];
   editors: EditorCount;
+};
+
+/** One photo Locate Originals should find, with every place it goes: one
+ *  per collection it is in, plus the shortlist's (GET /collections/:id/locate). */
+export type LocateItem = {
+  _id: string;
+  media_id: string;
+  url: string;
+  filename: string | null;
+  custom_folder_ids: string[];
+  /** Output folder names, in the collections' order ("Priya's Side", "Shortlisted"). */
+  placements: string[];
+};
+
+export type LocateResponse = {
+  media: LocateItem[];
+  customFolders: { _id: string; name: string }[];
 };
