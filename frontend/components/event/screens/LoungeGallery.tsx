@@ -15,7 +15,7 @@ import { SIGNAL } from "@/lib/client-theme";
 import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMedia, getGuestSession, likePhoto, recordSocialVisit, saveIntake, searchSelfie, unlikePhoto } from "@/lib/guest-api";
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { guestPhotoUrl, PROFILE_FACE_RECHECK_MS, profileFaceServed } from "@/lib/profile-face";
-import { failedPhotoUrl, nameFromUrl } from "@/lib/media-actions";
+import { failedPhotoUrl, nameFromUrl, shareImage } from "@/lib/media-actions";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import { describeError, type DownloadFailure } from "@/lib/download/failure";
@@ -38,7 +38,7 @@ import { CoverMasthead } from "./lounge/CoverMasthead";
 import { DesktopCover } from "./lounge/DesktopCover";
 import { MobileTopBar } from "./lounge/MobileTopBar";
 import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
-import { GalleryGrid } from "./gallery/GalleryGrid";
+import { GalleryGrid, GallerySkeleton } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
 import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./gallery/GalleryControls";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
@@ -1372,6 +1372,16 @@ export function LoungeGallery({
     (item: GuestMediaItem) => withVisitGate(() => downloadOne(item)),
     [withVisitGate, downloadOne],
   );
+  /** The native share sheet for one photo, from a tile's menu. The same call
+   *  the viewer's Share chip makes (`shareImage`), with the same toasts. */
+  const shareOne = useCallback(
+    async (item: GuestMediaItem) => {
+      const r = await shareImage(item.url, event.event_name);
+      if (r === "copied") setToast("Link copied");
+      else if (r === "failed") setToast("Couldn’t share");
+    },
+    [event.event_name],
+  );
 
   /** One media row as the download planner wants it. `folderName` comes from the
    *  media document (via the folder registry), never from whatever folder view
@@ -1950,7 +1960,7 @@ export function LoungeGallery({
                 "Manage my people") went with it. */}
             {faceBar && <div className="mb-4">{faceBar}</div>}
             {showLoading ? (
-              <LoadingSkeleton />
+              <GallerySkeleton t={t} />
             ) : (loadError && items.length === 0) || groupFailed || faceFailed ? (
               <ErrorState t={t} onRetry={() => setReloadKey((k) => k + 1)} />
             ) : items.length === 0 ? (
@@ -1980,7 +1990,7 @@ export function LoungeGallery({
               )
             ) : (
               <GridRefresh t={t} refreshing={refreshing}>
-                {/* ONE continuous justified grid over the full flat list — every
+                {/* ONE continuous masonry grid over the full flat list — every
                     loaded photo appears exactly once, in API order (folder
                     pills filter server-side, so no client-side partitioning).
                     My People is the one view that sections it, by how many of
@@ -2000,6 +2010,8 @@ export function LoungeGallery({
                     onToggleLike={toggleLike}
                     onEnterSelectWith={canSelect ? enterSelectWith : undefined}
                     onDownload={canDownload ? requestDownloadOne : undefined}
+                    onShare={shareOne}
+                    scrollRef={desktopScrollRef}
                   />
                 ) : (
                 <GalleryGrid
@@ -2013,6 +2025,8 @@ export function LoungeGallery({
                   onToggleLike={toggleLike}
                   onEnterSelectWith={canSelect ? enterSelectWith : undefined}
                   onDownload={canDownload ? requestDownloadOne : undefined}
+                  onShare={shareOne}
+                  scrollRef={desktopScrollRef}
                 />
                 )}
                 {loadingMore && (
@@ -2132,6 +2146,7 @@ export function LoungeGallery({
             onToggleLike={toggleLike}
             onEnterSelectWith={canSelect ? enterSelectWith : undefined}
             onDownload={canDownload ? requestDownloadOne : undefined}
+            onShare={shareOne}
             onOpen={(i) => setViewerIndex(i)}
             onToggleSelectMode={() => (selectMode ? exitSelect() : setSelectMode(true))}
             canSelect={canSelect}
@@ -2453,9 +2468,11 @@ function MobileGalleryView(props: {
   /** Absent when the studio has turned downloads off — select mode's only
    *  action is Download, so there is nothing to enter select mode for. */
   onEnterSelectWith?: (i: GuestMediaItem) => void;
-  /** Absent when the studio has turned downloads off — the tile renders no
-   *  download button at all rather than a disabled one. */
+  /** Absent when the studio has turned downloads off — the tile menu then
+   *  offers no Download at all rather than a disabled one. */
   onDownload?: (i: GuestMediaItem) => void;
+  /** The tile menu's Share (touch devices only, see gallery/tileMenuActions.ts). */
+  onShare?: (i: GuestMediaItem) => void;
   onOpen: (index: number) => void;
   onToggleSelectMode: () => void;
   /** False hides the Select entry point (its only action is Download). */
@@ -2483,7 +2500,9 @@ function MobileGalleryView(props: {
   onDismissMatchBanner: () => void;
   /** Count shown on the "All" pill. */
   totalForViewAll?: number;
-  scrollRef?: React.Ref<HTMLDivElement>;
+  /** The grid's scroll container: infinite scroll hangs off it, and the
+   *  masonry windows against it. */
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, refreshing, onClearFaces } = props;
 
@@ -2585,7 +2604,7 @@ function MobileGalleryView(props: {
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
           {faceBar && <div className="mb-4">{faceBar}</div>}
           {loading ? (
-            <LoadingSkeleton />
+            <GallerySkeleton t={t} />
           ) : (props.loadError && items.length === 0) || groupFailed ? (
             <ErrorState t={t} onRetry={props.onRetry} />
           ) : items.length === 0 ? (
@@ -2628,6 +2647,8 @@ function MobileGalleryView(props: {
                   onToggleLike={props.onToggleLike}
                   onEnterSelectWith={props.onEnterSelectWith}
                   onDownload={props.onDownload}
+                  onShare={props.onShare}
+                  scrollRef={scrollRef}
                 />
               ) : (
               <GalleryGrid
@@ -2641,6 +2662,8 @@ function MobileGalleryView(props: {
                 onToggleLike={props.onToggleLike}
                 onEnterSelectWith={props.onEnterSelectWith}
                 onDownload={props.onDownload}
+                onShare={props.onShare}
+                scrollRef={scrollRef}
               />
               )}
               {loadingMore && (
@@ -2713,6 +2736,9 @@ function BucketedGrid({
   onToggleLike: (i: GuestMediaItem) => void;
   onEnterSelectWith?: (i: GuestMediaItem) => void;
   onDownload?: (i: GuestMediaItem) => void;
+  onShare?: (i: GuestMediaItem) => void;
+  /** Each run windows itself against this container. */
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   // Runs of consecutive items from the same bucket. Pages arrive in bucket
   // order, so in practice there is one run per bucket; building it this way
@@ -2750,22 +2776,6 @@ function BucketedGrid({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function LoadingSkeleton() {
-  // A generic flex-wrap placeholder (no CSS columns) — varied box sizes so the
-  // load state still reads as a photo wall.
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div
-          key={i}
-          className="skeleton rounded-[10px]"
-          style={{ width: 110 + (i % 3) * 50, height: 130 + (i % 4) * 45, flex: "1 1 auto", animationDelay: `${i * 0.04}s` }}
-        />
-      ))}
     </div>
   );
 }

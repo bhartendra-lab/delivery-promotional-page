@@ -35,6 +35,7 @@ import {
   CreditCard,
   DeviceMobile,
   DotsSixVertical,
+  DotsThree,
   DotsThreeVertical,
   DownloadSimple,
   EnvelopeSimple,
@@ -161,6 +162,7 @@ export const IconArrowLeft = wrapPhosphor(ArrowLeft, 14, "IconArrowLeft");
 export const IconEdit = wrapPhosphor(PencilSimple, 13, "IconEdit");
 export const IconDownload = wrapPhosphor(DownloadSimple, 15, "IconDownload");
 export const IconDotsVertical = wrapPhosphor(DotsThreeVertical, 15, "IconDotsVertical");
+export const IconDotsThree = wrapPhosphor(DotsThree, 16, "IconDotsThree");
 export const IconHeart = wrapPhosphor(Heart, 14, "IconHeart");
 export const IconSearch = wrapPhosphor(MagnifyingGlass, 15, "IconSearch");
 export const IconUsers = wrapPhosphor(Users, 15, "IconUsers");

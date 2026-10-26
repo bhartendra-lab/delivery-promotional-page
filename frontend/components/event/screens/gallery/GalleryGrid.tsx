@@ -1,31 +1,36 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { degradeGridSrc, gridSrc } from "@/lib/media-actions";
+import { useHoverPointer } from "@/lib/use-media-query";
 import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
-import { IconHeart, IconCheck, IconDownload } from "@/components/ui/icons";
+import { createMasonryCache, masonryLayout, masonryWindow, radiusFor } from "./masonry";
+import { tileMenuActions } from "./tileMenuActions";
+import { TileMenu, type TileMenuItem } from "./TileMenu";
+import { IconHeart, IconCheck, IconDownload, IconDotsThree, IconPlay, IconPlus, IconShare } from "@/components/ui/icons";
 
 /**
- * The guest gallery's photo layout — isolated behind a `layout` prop so the
+ * The guest gallery's photo layout, isolated behind a `layout` prop so the
  * studio can later choose the presentation without touching LoungeGallery.
  *
- * - "justified" (default): a row-packed layout (Pic-Time/Samaro style) that
- *   fills each row to a target height using every item's aspect ratio, then
- *   scales the row to fill the container width exactly. Preserves API order
- *   (row-major), unlike CSS-column masonry which flows column-major. Legacy
- *   media without captured width/height falls back to a 3:2 aspect ratio so
- *   it still lays out — see `justifyRows.ts`.
- * - "grid": the original square-cropped grid, kept as a fallback so the seam
- *   exists for future layouts.
+ * - "masonry" (default): Pinterest-style columns, each photo dropped into the
+ *   shortest one. Photos never move once placed, and every tile has an
+ *   absolute position, which is what lets the grid render only the tiles near
+ *   the viewport. See masonry.ts for why it replaced the justified rows.
+ * - "justified": the row-packed layout that was the default before (see
+ *   justifyRows.ts). Kept working as a studio choice.
+ * - "grid": the original square-cropped grid, kept as a fallback.
  *
  * Infinite scroll is owned by the parent scroll container; this component just
  * renders whatever `items` it's given, so appended pages flow in naturally.
+ * Given that container as `scrollRef`, the masonry renders only the tiles in
+ * and around view; without it, it renders them all.
  */
 export function GalleryGrid({
   t,
-  layout = "justified",
+  layout = "masonry",
   items,
   selectMode,
   isSelected,
@@ -35,9 +40,12 @@ export function GalleryGrid({
   onToggleLike,
   onEnterSelectWith,
   onDownload,
+  onShare,
+  onCollect,
+  scrollRef,
 }: {
   t: ClientTheme;
-  layout?: "justified" | "grid";
+  layout?: "masonry" | "justified" | "grid";
   items: GuestMediaItem[];
   selectMode: boolean;
   /** Predicate rather than a Set: under "select all" the selection is a SCOPE
@@ -49,65 +57,113 @@ export function GalleryGrid({
   onToggleSelect: (item: GuestMediaItem) => void;
   onToggleLike: (item: GuestMediaItem) => void;
   /** Absent when select mode is unavailable (its only action is Download, and
-   *  the studio has turned downloads off) — the select badge then only toggles
-   *  an already-active selection. */
+   *  the studio has turned downloads off). The select badge then only toggles
+   *  an already-active selection, and a long-press does nothing. */
   onEnterSelectWith?: (item: GuestMediaItem) => void;
-  /** Absent when the studio has turned downloads off. The tile then renders NO
-   *  download button — a control that exists but refuses is worse than none. */
+  /** Absent when the studio has turned downloads off. The menu then has no
+   *  Download item: a control that exists but refuses is worse than none. */
   onDownload?: (item: GuestMediaItem) => void;
+  /** The native share sheet. Offered on touch devices only (see tileMenuActions.ts). */
+  onShare?: (item: GuestMediaItem) => void;
+  /** "Add to collection", for curators. Not wired until collections ship. */
+  onCollect?: (item: GuestMediaItem) => void;
+  /** The scroll container this grid sits in, for windowing. */
+  scrollRef?: React.RefObject<HTMLElement | null>;
 }) {
+  const hoverPointer = useHoverPointer();
+  const actions = tileMenuActions({
+    canDownload: !!onDownload,
+    canCollect: !!onCollect,
+    canShare: !!onShare && !hoverPointer,
+  });
+
+  // One menu for the whole grid (see TileMenu for why not one per tile).
+  const [menu, setMenu] = useState<{ item: GuestMediaItem; anchor: HTMLElement; rect: DOMRect } | null>(null);
+  const onOpenMenu =
+    actions.length > 0
+      ? (item: GuestMediaItem, anchor: HTMLElement) =>
+          setMenu((m) => (m?.item._id === item._id ? null : { item, anchor, rect: anchor.getBoundingClientRect() }))
+      : undefined;
+
+  const menuItems = (item: GuestMediaItem): TileMenuItem[] =>
+    actions.map((action) => {
+      if (action === "download") return { key: action, label: "Download", icon: <IconDownload size={19} />, onSelect: () => onDownload?.(item) };
+      if (action === "collect") return { key: action, label: "Add to collection", icon: <IconPlus size={19} />, onSelect: () => onCollect?.(item) };
+      return { key: action, label: "Share", icon: <IconShare size={19} />, onSelect: () => onShare?.(item) };
+    });
+
+  const tile = {
+    t,
+    selectMode,
+    isSelected,
+    liked,
+    openMenuId: menu?.item._id ?? null,
+    onToggleSelect,
+    onToggleLike,
+    onEnterSelectWith,
+    onOpenMenu,
+  };
+
+  let body: React.ReactNode;
   if (layout === "grid") {
-    return (
+    body = (
       <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-7 lg:gap-1.5">
         {items.map((item, index) => (
-          <PhotoTile
-            key={item._id}
-            t={t}
-            layout="grid"
-            item={item}
-            index={index}
-            selectMode={selectMode}
-            isSel={isSelected(item._id)}
-            isLiked={liked.has(item._id)}
-            onOpen={() => onOpen(index)}
-            onToggleSelect={() => onToggleSelect(item)}
-            onToggleLike={() => onToggleLike(item)}
-            onEnterSelectWith={onEnterSelectWith && (() => onEnterSelectWith(item))}
-            onDownload={onDownload && (() => onDownload(item))}
-          />
+          <PhotoTile key={item._id} {...tile} shape={{ kind: "grid" }} item={item} index={index} onOpen={() => onOpen(index)} />
         ))}
       </div>
     );
+  } else if (layout === "justified") {
+    body = <JustifiedGrid tile={tile} items={items} onOpen={onOpen} />;
+  } else {
+    body = <MasonryGrid tile={tile} items={items} onOpen={onOpen} scrollRef={scrollRef} />;
   }
 
   return (
-    <JustifiedGrid
-      t={t}
-      items={items}
-      selectMode={selectMode}
-      isSelected={isSelected}
-      liked={liked}
-      onOpen={onOpen}
-      onToggleSelect={onToggleSelect}
-      onToggleLike={onToggleLike}
-      onEnterSelectWith={onEnterSelectWith}
-      onDownload={onDownload}
-    />
+    <>
+      {body}
+      {/* Never in select mode: the 3-dot button is hidden there, so a menu
+          could only be left over from before. */}
+      {menu && !selectMode && (
+        <TileMenu
+          t={t}
+          mode={hoverPointer ? "popover" : "sheet"}
+          anchor={menu.anchor}
+          anchorRect={menu.rect}
+          items={menuItems(menu.item)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
   );
 }
 
+/** Everything a tile needs from the grid, shared by all three layouts. */
+type TileContext = {
+  t: ClientTheme;
+  selectMode: boolean;
+  isSelected: (id: string) => boolean;
+  liked: Set<string>;
+  /** The tile whose menu is open, so its trigger stays visible meanwhile. */
+  openMenuId: string | null;
+  onToggleSelect: (item: GuestMediaItem) => void;
+  onToggleLike: (item: GuestMediaItem) => void;
+  onEnterSelectWith?: (item: GuestMediaItem) => void;
+  onOpenMenu?: (item: GuestMediaItem, anchor: HTMLElement) => void;
+};
+
 /**
  * Measures its own width (initial synchronous read + ResizeObserver for later
- * changes — sidebar toggles, window resize) so the packing algorithm always
- * runs against the real available width.
+ * changes: sidebar toggles, window resize) so the layout always runs against
+ * the real available width.
  *
  * FLOORED, and read from the same box on both paths. It used to seed from
- * `clientWidth`, which is an INTEGER the browser rounds — while the observer
+ * `clientWidth`, which is an INTEGER the browser rounds, while the observer
  * that replaced it reports `contentRect.width`, which is fractional. On a
  * container whose true width is, say, 342.67px, `clientWidth` says 343, the
- * row is solved to fill 343, and the extra third of a pixel pushes the last
+ * layout is solved to fill 343, and the extra third of a pixel pushes the last
  * tile under the scroll container's clip. Flooring a fractional read makes the
- * packed row a hair narrower than the space it has, which can never clip, and
+ * layout a hair narrower than the space it has, which can never clip, and
  * makes the two measurements agree so the first paint matches the second.
  */
 function useContainerWidth() {
@@ -127,37 +183,119 @@ function useContainerWidth() {
   return [ref, width] as const;
 }
 
-function JustifiedGrid({
-  t,
+/** How much beyond the viewport stays rendered, in viewport heights. Above is
+ *  smaller than below because guests scroll down far more than up. */
+const WINDOW_ABOVE = 1.5;
+const WINDOW_BELOW = 2;
+/** The band moves in quarter-viewport steps, so scrolling re-renders the grid
+ *  about four times per screen rather than on every frame. */
+const WINDOW_STEPS_PER_VIEWPORT = 4;
+
+const viewportHeight = () => (typeof window === "undefined" ? 800 : window.innerHeight);
+
+/**
+ * The vertical band of the grid worth rendering, in the grid's own coordinates,
+ * or null for "everything" (no scroll container to watch).
+ *
+ * Measured from two rects per animation frame (the scroller's top and the
+ * grid's), not from `scrollTop` alone: the grid sits under other content (the
+ * desktop cover, the match banner, the face filter bar) whose height changes,
+ * and the rects always say where the grid really is. The band is snapped to
+ * quarter-viewport steps and padded by one step, so the real viewport is always
+ * covered by at least the promised 1.5 and 2 viewports either side, and state
+ * only changes when the snapped band does.
+ */
+function useViewportBand(
+  scrollRef: React.RefObject<HTMLElement | null> | undefined,
+  gridRef: React.RefObject<HTMLDivElement | null>,
+  contentHeight: number,
+) {
+  // Before the first measurement, assume the grid starts at the top of view.
+  const [band, setBand] = useState<{ from: number; to: number } | null>(() => {
+    if (!scrollRef) return null;
+    const vh = viewportHeight();
+    return { from: -Math.ceil(WINDOW_ABOVE * vh), to: Math.ceil((1 + WINDOW_BELOW) * vh) };
+  });
+
+  useEffect(() => {
+    const scroller = scrollRef?.current;
+    const grid = gridRef.current;
+    if (!scroller || !grid) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const vh = scroller.clientHeight || viewportHeight();
+      const step = Math.max(1, Math.round(vh / WINDOW_STEPS_PER_VIEWPORT));
+      const viewTop = scroller.getBoundingClientRect().top - grid.getBoundingClientRect().top;
+      const snapped = Math.floor(viewTop / step) * step;
+      const from = snapped - Math.ceil(WINDOW_ABOVE * vh);
+      const to = snapped + step + Math.ceil((1 + WINDOW_BELOW) * vh);
+      setBand((prev) => (prev && prev.from === from && prev.to === to ? prev : { from, to }));
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    schedule();
+    scroller.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(scroller);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      scroller.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      ro.disconnect();
+    };
+    // contentHeight: a new page (or a resize) is a reason to look again.
+  }, [scrollRef, gridRef, contentHeight]);
+
+  return band;
+}
+
+function MasonryGrid({
+  tile,
   items,
-  selectMode,
-  isSelected,
-  liked,
   onOpen,
-  onToggleSelect,
-  onToggleLike,
-  onEnterSelectWith,
-  onDownload,
+  scrollRef,
 }: {
-  t: ClientTheme;
+  tile: TileContext;
   items: GuestMediaItem[];
-  selectMode: boolean;
-  /** Predicate rather than a Set: under "select all" the selection is a SCOPE
-   *  minus exclusions, so a tile that arrives with a later page must resolve
-   *  as checked without anything having to enumerate it first. */
-  isSelected: (id: string) => boolean;
-  liked: Set<string>;
   onOpen: (index: number) => void;
-  onToggleSelect: (item: GuestMediaItem) => void;
-  onToggleLike: (item: GuestMediaItem) => void;
-  /** Absent when select mode is unavailable (its only action is Download, and
-   *  the studio has turned downloads off) — the select badge then only toggles
-   *  an already-active selection. */
-  onEnterSelectWith?: (item: GuestMediaItem) => void;
-  /** Absent when the studio has turned downloads off. The tile then renders NO
-   *  download button — a control that exists but refuses is worse than none. */
-  onDownload?: (item: GuestMediaItem) => void;
+  scrollRef?: React.RefObject<HTMLElement | null>;
 }) {
+  const [containerRef, width] = useContainerWidth();
+  // Appending a page lays out only the new page (see createMasonryCache).
+  const [layoutFor] = useState(() => createMasonryCache<GuestMediaItem>());
+  const layout = useMemo(() => layoutFor(items, width), [layoutFor, items, width]);
+  const band = useViewportBand(scrollRef, containerRef, layout.height);
+  const visible = useMemo(
+    () => (band ? masonryWindow(layout, band.from, band.to) : layout.boxes.map((_, i) => i)),
+    [layout, band],
+  );
+  const radius = radiusFor(width);
+
+  return (
+    <div ref={containerRef} className="relative w-full" style={{ height: layout.height, minHeight: width > 0 ? undefined : 1 }}>
+      {visible.map((i) => {
+        const item = items[i];
+        const box = layout.boxes[i];
+        if (!item || !box) return null;
+        return (
+          <PhotoTile
+            key={item._id}
+            {...tile}
+            shape={{ kind: "masonry", left: box.left, top: box.top, width: box.width, height: box.height, radius }}
+            item={item}
+            index={i}
+            onOpen={() => onOpen(i)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function JustifiedGrid({ tile, items, onOpen }: { tile: TileContext; items: GuestMediaItem[]; onOpen: (index: number) => void }) {
   const [containerRef, width] = useContainerWidth();
   // Flatten the index onto each item (rather than wrapping) so it still carries
   // its own width/height for justifyRows to read.
@@ -168,23 +306,14 @@ function JustifiedGrid({
     <div ref={containerRef} className="flex flex-col" style={{ gap: JUSTIFY_GAP, minHeight: width > 0 ? undefined : 1 }}>
       {rows.map((row, ri) => (
         <div key={ri} className="flex" style={{ gap: JUSTIFY_GAP, height: row.height }}>
-          {row.items.map((tile) => (
+          {row.items.map((cell) => (
             <PhotoTile
-              key={tile._id}
-              t={t}
-              layout="justified"
-              item={tile}
-              index={tile._index}
-              boxWidth={tile.boxWidth}
-              boxHeight={tile.boxHeight}
-              selectMode={selectMode}
-              isSel={isSelected(tile._id)}
-              isLiked={liked.has(tile._id)}
-              onOpen={() => onOpen(tile._index)}
-              onToggleSelect={() => onToggleSelect(tile)}
-              onToggleLike={() => onToggleLike(tile)}
-              onEnterSelectWith={onEnterSelectWith && (() => onEnterSelectWith(tile))}
-              onDownload={onDownload && (() => onDownload(tile))}
+              key={cell._id}
+              {...tile}
+              shape={{ kind: "justified", width: cell.boxWidth, height: cell.boxHeight }}
+              item={cell}
+              index={cell._index}
+              onOpen={() => onOpen(cell._index)}
             />
           ))}
         </div>
@@ -193,115 +322,253 @@ function JustifiedGrid({
   );
 }
 
+/**
+ * Display skeleton for the first load: the same masonry, filled with
+ * placeholders of mixed shapes, so the wall the guest is about to see is the
+ * one they are already looking at.
+ */
+export function GallerySkeleton({ t, count = 12 }: { t: ClientTheme; count?: number }) {
+  const [ref, width] = useContainerWidth();
+  const layout = useMemo(() => masonryLayout(Array.from({ length: count }, (_, i) => SKELETON_SHAPES[i % SKELETON_SHAPES.length]), width), [count, width]);
+  const radius = radiusFor(width);
+  return (
+    <div ref={ref} aria-hidden className="relative w-full" style={{ height: layout.height, minHeight: width > 0 ? undefined : 1 }}>
+      {layout.boxes.map((b, i) => (
+        <div
+          key={i}
+          className="tile-skeleton absolute"
+          style={{ ...skeletonVars(t), left: b.left, top: b.top, width: b.width, height: b.height, borderRadius: radius, animationDelay: `${i * 0.04}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+const SKELETON_SHAPES = [
+  { width: 2, height: 3 },
+  { width: 3, height: 2 },
+  { width: 4, height: 5 },
+  { width: 1, height: 1 },
+  { width: 3, height: 4 },
+  { width: 16, height: 9 },
+];
+
+/** The theme colours `.tile-skeleton` shimmers between. */
+const skeletonVars = (t: ClientTheme) => ({ "--skel-a": t.sunken, "--skel-b": t.border }) as React.CSSProperties;
+
+/* ── tiles ───────────────────────────────────────────────────────────── */
+
+/** Photos that have already played their entrance. Module-level so a tile that
+ *  windowing unmounts and later remounts does not play it again: `tile-in` is
+ *  for a photo's first appearance, not for every scroll back past it. */
+const enteredTiles = new Set<string>();
+/** Grid sources that have finished loading once this visit, so a remounted
+ *  tile starts visible instead of flashing its skeleton for a cached image. */
+const loadedSrcs = new Set<string>();
+
+/** Long-press: how long, and how far the finger may drift before it is a
+ *  scroll instead. */
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP = 8;
+
+/** The translucent circle behind the tile's white glyphs. */
+const CONTROL_TINT: React.CSSProperties = {
+  background: "rgba(18,14,10,0.32)",
+  backdropFilter: "blur(6px)",
+  WebkitBackdropFilter: "blur(6px)",
+};
+
+type TileShape =
+  | { kind: "masonry"; left: number; top: number; width: number; height: number; radius: number }
+  | { kind: "justified"; width: number; height: number }
+  | { kind: "grid" };
+
 function PhotoTile({
   t,
-  layout,
+  shape,
   item,
   index,
-  boxWidth,
-  boxHeight,
   selectMode,
-  isSel,
-  isLiked,
+  isSelected,
+  liked,
+  openMenuId,
   onOpen,
   onToggleSelect,
   onToggleLike,
   onEnterSelectWith,
-  onDownload,
-}: {
-  t: ClientTheme;
-  layout: "justified" | "grid";
+  onOpenMenu,
+}: TileContext & {
+  shape: TileShape;
   item: GuestMediaItem;
   index: number;
-  boxWidth?: number;
-  boxHeight?: number;
-  selectMode: boolean;
-  isSel: boolean;
-  isLiked: boolean;
   onOpen: () => void;
-  onToggleSelect: () => void;
-  onToggleLike: () => void;
-  onEnterSelectWith?: () => void;
-  /** Absent → no download button on this tile at all. */
-  onDownload?: () => void;
 }) {
-  const isJustified = layout === "justified";
+  const isSel = isSelected(item._id);
+  const isLiked = liked.has(item._id);
+  const menuOpen = openMenuId === item._id;
+  const radius = shape.kind === "masonry" ? shape.radius : shape.kind === "justified" ? 10 : 8;
   const pad = selectMode && isSel ? 4 : 0;
-  // Keep a liked heart visible on desktop; other controls reveal on hover so the
-  // photos stay the focus. Mobile keeps everything tappable (opacity-100 below sm).
-  const revealCls = "sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100";
+  const innerRadius = pad ? Math.max(4, radius - 3) : radius;
 
-  // Every tile carries a resolved box size in justified mode (real dims or the
-  // 3:2 fallback from justifyRows), so the box is reserved up front — no
-  // layout shift as the image loads. Mirrors the dashboard's GridImage
-  // skeleton-shimmer + fade-in-on-load pattern.
-  const [loaded, setLoaded] = useState(false);
+  /* Controls on a device with a real hover fade in on hover (or keyboard
+     focus inside the tile). On touch devices, phones and iPads alike, there is
+     no hover to wait for, so they are simply there. */
+  const reveal = "transition-opacity duration-200 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100";
+
+  const src = gridSrc(item);
+  const isVideo = item.type === "video";
+  const videoFrame = isVideo && !item.thumbnail_url;
+  const [loaded, setLoaded] = useState(() => loadedSrcs.has(src));
+  const markLoaded = () => {
+    loadedSrcs.add(src);
+    setLoaded(true);
+  };
   const imgRef = useRef<HTMLImageElement>(null);
   useEffect(() => {
-    if (imgRef.current?.complete) setLoaded(true);
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) setLoaded(true);
   }, []);
+
+  const [animate] = useState(() => !enteredTiles.has(item._id));
+  useEffect(() => {
+    enteredTiles.add(item._id);
+  }, [item._id]);
+
+  // Bumped by a tap that LIKES (never by one that unlikes, and never on mount),
+  // so the pop plays for the guest's own gesture only, not for every already
+  // liked photo that scrolls into view.
+  const [pop, setPop] = useState(0);
+
+  /* ── long-press to select (touch only) ── */
+  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const swallowClick = useRef(false);
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (press.current) clearTimeout(press.current.timer);
+    },
+    [],
+  );
+  const onPointerDown = (e: React.PointerEvent) => {
+    swallowClick.current = false;
+    const enter = onEnterSelectWith;
+    if (e.pointerType !== "touch" || selectMode || !enter) return;
+    // A press that starts on the heart or the menu belongs to that button.
+    if ((e.target as Element).closest("button")) return;
+    const start = { x: e.clientX, y: e.clientY };
+    cancelPress();
+    press.current = {
+      ...start,
+      timer: setTimeout(() => {
+        press.current = null;
+        // The finger is still down; the click its release produces would
+        // toggle the tile straight back out of the selection it just joined.
+        swallowClick.current = true;
+        navigator.vibrate?.(10);
+        enter(item);
+      }, LONG_PRESS_MS),
+    };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const p = press.current;
+    if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > LONG_PRESS_SLOP) cancelPress();
+  };
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (!swallowClick.current) return;
+    swallowClick.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const outer: React.CSSProperties =
+    shape.kind === "masonry"
+      ? { position: "absolute", left: shape.left, top: shape.top, width: shape.width, height: shape.height }
+      : shape.kind === "justified"
+        ? { width: shape.width, height: shape.height }
+        : {};
 
   return (
     <div
-      className={`group tile-in relative cursor-pointer ${isJustified ? "shrink-0" : "aspect-square transition-colors"}`}
-      style={{
-        // grid uses the wrapper as the selected-state frame; justified frames the inner box.
-        background: !isJustified && selectMode && isSel ? t.brand : "transparent",
-        width: isJustified ? boxWidth : undefined,
-        height: isJustified ? boxHeight : undefined,
-        animationDelay: `${(index % 14) * 0.03}s`,
-      }}
-      onClick={() => (selectMode ? onToggleSelect() : onOpen())}
+      className={`group relative cursor-pointer select-none [-webkit-touch-callout:none] ${animate ? "tile-in" : ""} ${
+        shape.kind === "justified" ? "shrink-0" : shape.kind === "grid" ? "aspect-square" : ""
+      }`}
+      style={{ ...outer, animationDelay: animate ? `${(index % 14) * 0.03}s` : undefined }}
+      onClick={() => (selectMode ? onToggleSelect(item) : onOpen())}
+      onClickCapture={onClickCapture}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onPointerLeave={cancelPress}
     >
+      {/* The selected frame: the photo insets and the brand colour shows
+          around it. */}
       <div
-        className={`overflow-hidden transition-all ${isJustified ? "relative h-full w-full" : "absolute"}`}
-        style={
-          isJustified
-            ? {
-                padding: pad,
-                background: selectMode && isSel ? t.brand : "transparent",
-                borderRadius: selectMode && isSel ? 12 : 10,
-              }
-            : { inset: pad, borderRadius: selectMode && isSel ? 9 : 8 }
-        }
+        className="relative h-full w-full transition-[padding,background-color] duration-200"
+        style={{ padding: pad, background: pad ? t.brand : "transparent", borderRadius: radius }}
       >
-        {isJustified && !loaded && <span aria-hidden className="skeleton absolute inset-0 rounded-[8px]" />}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={imgRef}
-          src={gridSrc(item)}
-          alt=""
-          loading="lazy"
-          // Casual-save deterrent (see GuestInspectDeterrent): no drag-out, no
-          // iOS long-press save sheet, no selection highlight. On the image
-          // only — the page's text stays selectable.
-          draggable={false}
-          onLoad={() => setLoaded(true)}
-          onError={(e) => degradeGridSrc(e.currentTarget, item)}
-          className={
-            isJustified
-              ? `absolute inset-0 h-full w-full select-none rounded-[8px] object-cover transition-opacity duration-300 ease-out [-webkit-touch-callout:none] ${loaded ? "opacity-100" : "opacity-0"}`
-              : "h-full w-full select-none object-cover transition-opacity duration-300 ease-out [-webkit-touch-callout:none] group-hover:opacity-[0.94]"
-          }
-        />
-        {/* soft theme-tinted wash on hover (replaces the old zoom) */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-          style={{ background: t.accentWash, borderRadius: isJustified ? 8 : undefined }}
-        />
+        <div className="relative h-full w-full overflow-hidden" style={{ borderRadius: innerRadius }}>
+          {!loaded && <span aria-hidden className="tile-skeleton absolute inset-0" style={skeletonVars(t)} />}
+          {videoFrame ? (
+            // A video with no thumbnail: let the browser show its first frame.
+            // `#t=0.1` is what makes iOS Safari paint one at all.
+            <video
+              src={`${item.url}#t=0.1`}
+              preload="metadata"
+              muted
+              playsInline
+              disablePictureInPicture
+              tabIndex={-1}
+              onLoadedMetadata={markLoaded}
+              onLoadedData={markLoaded}
+              className={`pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out ${loaded ? "opacity-100" : "opacity-0"}`}
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              ref={imgRef}
+              src={src}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              // Casual-save deterrent (see GuestInspectDeterrent): no drag-out,
+              // no iOS long-press save sheet, no selection highlight.
+              draggable={false}
+              onLoad={markLoaded}
+              onError={(e) => degradeGridSrc(e.currentTarget, item)}
+              className={`absolute inset-0 h-full w-full select-none object-cover transition-opacity duration-300 ease-out [-webkit-touch-callout:none] ${loaded ? "opacity-100" : "opacity-0"}`}
+            />
+          )}
+          {/* Soft theme-tinted wash on hover. Mouse devices only: on iOS a tap
+              leaves :hover stuck on, and the wash with it. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 can-hover:group-hover:opacity-100"
+            style={{ background: t.accentWash }}
+          />
+        </div>
       </div>
 
-      {/* select badge — always in select mode; desktop hover otherwise */}
+      {isVideo && (
+        <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white" style={CONTROL_TINT}>
+          <IconPlay size={15} weight="fill" />
+        </span>
+      )}
+
+      {/* Select badge: always in select mode. Otherwise a hover reveal on
+          mouse devices; on touch the way in is a long-press (or the Select
+          control above the grid), so the badge stays out of the photo. */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (selectMode) onToggleSelect();
-          else onEnterSelectWith?.();
+          if (selectMode) onToggleSelect(item);
+          else onEnterSelectWith?.(item);
         }}
-        aria-label="Select photo"
-        className={`absolute left-1.5 top-1.5 z-10 flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full ${
-          selectMode ? "flex" : onEnterSelectWith ? `hidden sm:flex ${revealCls}` : "hidden"
+        aria-label={isSel ? "Deselect photo" : "Select photo"}
+        className={`absolute left-2 top-2 z-10 h-[24px] w-[24px] cursor-pointer items-center justify-center rounded-full ${
+          selectMode ? "flex" : onEnterSelectWith ? `hidden can-hover:flex ${reveal}` : "hidden"
         }`}
         style={{
           background: isSel ? t.brand : "rgba(20,16,8,0.3)",
@@ -309,47 +576,47 @@ function PhotoTile({
           color: t.onBrand,
         }}
       >
-        {isSel && <IconCheck size={13} weight="bold" />}
+        {isSel && <IconCheck size={14} weight="bold" />}
       </button>
 
-      {/* like + download, together bottom-right. Like stays visible when liked;
-          both reveal on desktop hover otherwise, lighter on mobile. */}
+      {!selectMode && onOpenMenu && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenMenu(item, e.currentTarget);
+          }}
+          aria-label="Photo options"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          className={`absolute right-1 top-1 z-10 flex h-10 w-10 cursor-pointer items-center justify-center ${menuOpen ? "" : reveal}`}
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full text-white" style={CONTROL_TINT}>
+            <IconDotsThree size={18} weight="bold" />
+          </span>
+        </button>
+      )}
+
       {!selectMode && (
-        <div className="absolute bottom-1.5 right-1.5 z-10 flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleLike();
-            }}
-            aria-label={isLiked ? "Unlike photo" : "Like photo"}
-            className={`flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 transition-transform active:scale-95 ${
-              isLiked ? "" : revealCls
-            }`}
-            style={{ background: isLiked ? "rgba(255,255,255,0.92)" : "rgba(20,16,8,0.38)" }}
-          >
-            <IconHeart size={14} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
-            {(item.likes_count ?? 0) > 0 && (
-              <span className="pr-0.5 text-[11px] font-bold tabular-nums" style={{ color: isLiked ? SIGNAL.viewer : "#fff" }}>
-                {item.likes_count}
-              </span>
-            )}
-          </button>
-          {onDownload && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownload();
-              }}
-              aria-label="Download photo"
-              className={`flex h-[22px] w-[22px] cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95 ${revealCls}`}
-              style={{ background: "rgba(20,16,8,0.38)" }}
-            >
-              <IconDownload size={12} style={{ color: "#fff" }} />
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!isLiked) setPop((n) => n + 1);
+            onToggleLike(item);
+          }}
+          aria-label={isLiked ? "Unlike photo" : "Like photo"}
+          aria-pressed={isLiked}
+          // A liked heart stays visible on mouse devices too: it is the one
+          // control that says something about the photo.
+          className={`absolute bottom-1 right-1 z-10 flex h-10 w-10 cursor-pointer items-center justify-center ${isLiked ? "" : reveal}`}
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full transition-transform active:scale-90" style={CONTROL_TINT}>
+            <span key={pop} className={`flex ${pop > 0 && isLiked ? "like-pop" : ""}`}>
+              <IconHeart size={17} filled={isLiked} weight={isLiked ? undefined : "bold"} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
+            </span>
+          </span>
+        </button>
       )}
     </div>
   );

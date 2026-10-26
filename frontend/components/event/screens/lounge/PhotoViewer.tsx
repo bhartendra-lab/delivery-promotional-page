@@ -81,6 +81,7 @@ export function PhotoViewer({
   if (!item) return null;
   const isLiked = liked.has(item._id);
   const isSel = isSelected(item._id);
+  const likeCount = Math.max(0, item.likes_count ?? 0);
 
   async function onShare() {
     const r = await shareImage(item.url, event.event_name);
@@ -109,9 +110,20 @@ export function PhotoViewer({
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <ChipButton label="Like" onClick={() => onToggleLike(item)}>
+            {/* The like count lives here (and not on the grid tile) since the
+                masonry grid went calm. `likes_count` is already kept current
+                by the gallery's optimistic like toggle, so it is read as is. */}
+            <button
+              type="button"
+              onClick={() => onToggleLike(item)}
+              aria-label={isLiked ? "Unlike" : "Like"}
+              aria-pressed={isLiked}
+              className={`flex h-10 cursor-pointer items-center justify-center rounded-full text-white ${likeCount > 0 ? "gap-1.5 pl-2.5 pr-3" : "w-10"}`}
+              style={{ background: "rgba(255,255,255,0.14)" }}
+            >
               <IconHeart size={19} filled={isLiked} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
-            </ChipButton>
+              {likeCount > 0 && <span className="text-[13px] font-extrabold tabular-nums">{likeCount.toLocaleString("en-IN")}</span>}
+            </button>
             {canDownload && (
               <ChipButton label="Download" onClick={() => onDownload(item)}>
                 <IconDownload size={19} />
