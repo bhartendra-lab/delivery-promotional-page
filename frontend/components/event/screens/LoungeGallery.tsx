@@ -103,6 +103,9 @@ const ACCESS_RECHECK_MIN_INTERVAL_MS = 30_000;
  *  ZIP paginator both take. Never carries `skip`/`limit` — it describes the
  *  view, not a page of it. */
 type MediaScope = { mine?: boolean; onlyLiked?: boolean; customFolderId?: string; faceFilter?: boolean };
+/** The view a first page answered: its base (tab, Liked, folder) and, for a
+ *  feed, the feed's key. */
+type ItemsView = { base: string; feed: string | null };
 
 /** Same match set? Positional compare — the backend returns a stable order, and
  *  a false negative only costs one extra page fetch. */
@@ -356,6 +359,19 @@ export function LoungeGallery({
   const [likedView, setLikedView] = useState(false);
 
   const [items, setItems] = useState<GuestMediaItem[]>([]);
+  /**
+   * Which view the photos in `items` answer: the view's `base` (tab, Liked,
+   * folder; see `viewBase` below) and, for a feed, its key. Set with every
+   * first page. It is what lets a face filter change keep the photos on
+   * screen, dimmed, while the next set loads (same base), and what keeps a
+   * failed first page from leaving another view's photos passing for this one.
+   */
+  const [itemsView, setItemsViewState] = useState<ItemsView | null>(null);
+  const itemsViewRef = useRef<ItemsView | null>(null);
+  const setItemsView = useCallback((v: ItemsView | null) => {
+    itemsViewRef.current = v;
+    setItemsViewState(v);
+  }, []);
   const [folders, setFolders] = useState<CustomFolder[]>([]);
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [totalForView, setTotalForView] = useState(0);
@@ -533,6 +549,26 @@ export function LoungeGallery({
   /** Select mode exists solely to download a subset, so with downloads off it
    *  is a dead end; nor may it start on a grid that is still loading. */
   const canSelect = canDownload && !feedPending;
+  /** The grid's view apart from the face filter. A change here is a new view
+   *  (the skeleton); a face filter change on the same base is not. Read by the
+   *  loaders through the ref, when their first page lands. */
+  const viewBase = `${effTab}|${likedView ? "liked" : ""}|${folder}`;
+  const viewBaseRef = useRef(viewBase);
+  useEffect(() => {
+    viewBaseRef.current = viewBase;
+  });
+  /** A first page failed. The photos on screen stay only if they ARE the view
+   *  that failed (a background reload of it); another view's photos would pass
+   *  for this one's under the error, so they go and the error state shows. */
+  const dropItemsUnlessShowing = useCallback(
+    (feed: string | null) => {
+      const shown = itemsViewRef.current;
+      if (shown && shown.base === viewBaseRef.current && shown.feed === feed) return;
+      setItems([]);
+      setItemsView(null);
+    },
+    [setItemsView],
+  );
 
   /**
    * "Download all", for whom and where.
@@ -744,6 +780,7 @@ export function LoungeGallery({
         if (cancelled) return;
         const media = res.media ?? [];
         setItems(media);
+        setItemsView({ base: viewBaseRef.current, feed: null });
         if (res.customFolders) setFolders(res.customFolders);
         if (res.folderCounts) setFolderCounts(res.folderCounts);
         const total = typeof res.total === "number" ? res.total : media.length;
@@ -754,7 +791,10 @@ export function LoungeGallery({
       } catch (err) {
         if (cancelled) return;
         if (err instanceof GuestAuthError) onReauth();
-        else setLoadError(true);
+        else {
+          setLoadError(true);
+          dropItemsUnlessShowing(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -762,7 +802,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [uniqueIdentifier, bookingId, effTab, feedView, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired]);
+  }, [uniqueIdentifier, bookingId, effTab, feedView, folder, likedView, onReauth, reloadKey, seedLikes, mediaIds, passcodeRequired, setItemsView, dropItemsUnlessShowing]);
 
   /**
    * A feed's first page: My People's, or the face filter's.
@@ -799,6 +839,7 @@ export function LoungeGallery({
         const page = await feed.loadPage(null);
         if (cancelled) return;
         setItems(page.items);
+        setItemsView({ base: viewBaseRef.current, feed: feed.key });
         setItemBuckets(page.items.map(() => page.bucket));
         setGroupCursor(page.nextCursor);
         // Exact, and known before a single request: the feed is an
@@ -808,7 +849,10 @@ export function LoungeGallery({
       } catch (err) {
         if (cancelled) return;
         if (err instanceof GuestAuthError) onReauth();
-        else setLoadError(true);
+        else {
+          setLoadError(true);
+          dropItemsUnlessShowing(feed.key);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -816,7 +860,7 @@ export function LoungeGallery({
     return () => {
       cancelled = true;
     };
-  }, [feedView, activeFeedKey, reloadKey, seedLikes, onReauth]);
+  }, [feedView, activeFeedKey, reloadKey, seedLikes, onReauth, setItemsView, dropItemsUnlessShowing]);
 
   const loadMore = useCallback(async () => {
     // My People knows it is finished from its CURSOR, not from a count: a photo
@@ -912,18 +956,37 @@ export function LoungeGallery({
    * leave the PREVIOUS tab's photos on screen under a My People header — the
    * grid's own `loading` only goes true once there is a feed to ask.
    */
-  const showLoading =
+  /**
+   * The face filter changed and the new set's first page is not on screen yet,
+   * though nothing is loading at this instant: the frame between a selection's
+   * answer (or Clear) and its loader switching `loading` on. Without it the old
+   * photos lit up for that frame between two dimmed ones.
+   */
+  const faceUnpainted =
+    !loadError &&
+    itemsView?.base === viewBase &&
+    (feedView ? !!activeFeed && itemsView.feed !== activeFeed.key : itemsView.feed !== null);
+  const waiting =
     loading ||
     (groupView && !groupFeed && groupState === "loading") ||
-    // A face selection's first answer: the grid waits for it rather than
-    // showing the unfiltered photos under a selected chip.
-    (faceActive && !face.feed && !face.failed);
+    // A face selection's answer: the grid waits for it rather than passing
+    // the previous photos off as the new selection's.
+    face.pending ||
+    faceUnpainted;
+  /**
+   * The face filter moved the grid on (a tap on the bar, the box's button,
+   * Clear) and the next set is on its way: the photos on screen stay, dimmed
+   * and inert, instead of a skeleton flashing on every tap. Only on the SAME
+   * base view; a new tab, folder or Liked still shows the skeleton.
+   */
+  const refreshing = waiting && items.length > 0 && itemsView?.base === viewBase;
+  const showLoading = waiting && !refreshing;
   /** My People asked for its directory and did not get one. Distinct from an
    *  empty group, which is a real answer with its own empty state. */
   const groupFailed = groupView && !groupFeed && groupState === "error";
   /** The face selection could not be fetched. Retry (`reloadKey`) asks again. */
   const faceFailed = faceActive && face.failed;
-  const galleryDone = !loading && !loadError && items.length > 0 && !hasMore;
+  const galleryDone = !waiting && !loadError && items.length > 0 && !hasMore;
 
   /**
    * The review nudge appears at most twice per page load and never two at
@@ -1442,7 +1505,8 @@ export function LoungeGallery({
     // The face filter walks its own id list (see `downloadGalleryZipNow`):
     // My Photos stays `mine`, so the server keeps only the viewer's photos; a
     // host's All Photos sends `faceFilter`, which keeps them in the booking.
-    // No folder narrows it: the pills are hidden while a chip is selected.
+    // No folder narrows it: a chip resets the folder to All, and picking a
+    // pill clears the chips.
     if (faceActive) return faceScope === "all" ? { faceFilter: true } : { mine: true };
     const mine = effTab === "mine";
     return folder === ALL ? { mine } : { mine, customFolderId: folder };
@@ -1594,12 +1658,14 @@ export function LoungeGallery({
   // grid), so infinite scroll hangs off that container — not the grid element.
   const onDesktopScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    if (hasMore && !loadingMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
+    // Not while the face filter is replacing the set: a page of the old view
+    // would land on the new one.
+    if (hasMore && !loadingMore && !refreshing && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
   };
 
   /** A tap on the face filter bar. The grid is about to show a different set,
    *  so a selection made on the old one goes, and a folder pill with it: the
-   *  filter covers the whole tab and the pills are hidden while it does. */
+   *  filter covers the whole tab, so All is the pill lit while it does. */
   const faceToggle = face.toggle;
   const faceClear = face.clear;
   const onFaceToggle = useCallback(
@@ -1614,12 +1680,24 @@ export function LoungeGallery({
     exitSelect();
     faceClear();
   }, [exitSelect, faceClear]);
+  /** The open box's button: every pick in it at once, so the grid reloads one
+   *  time, after the box has closed, not once per tap under it. */
+  const faceSelect = face.select;
+  const onFaceApply = useCallback(
+    (ids: string[]) => {
+      exitSelect();
+      setFolder(ALL);
+      faceSelect(ids);
+    },
+    [exitSelect, faceSelect],
+  );
   const faceBar = face.faces ? (
     <FaceFilterBar
       t={t}
       faces={face.faces}
       selected={face.selected}
       onToggle={onFaceToggle}
+      onApply={onFaceApply}
       onClear={onFaceClear}
       desktop={isDesktop}
     />
@@ -1680,6 +1758,9 @@ export function LoungeGallery({
     scrollToGridTop();
   };
   const desktopSelectFolder = (f: string) => {
+    // The pills stay up under a face filter (with All lit: the filter covers
+    // the whole tab). Picking one goes back to browsing by folder.
+    if (faceActive) faceClear();
     setFolder(f);
     setLikedView(false);
     exitSelect();
@@ -1833,7 +1914,7 @@ export function LoungeGallery({
             setTab={desktopSetTab}
             showMine={faceSearchOn}
             showGroup={showPeopleTab}
-            showFolders={!feedView}
+            showFolders={!groupView}
             onOpenPrivate={() => setPasscodeOpen(true)}
             folders={folders}
             folderCounts={folderCounts}
@@ -1898,7 +1979,7 @@ export function LoungeGallery({
                 />
               )
             ) : (
-              <>
+              <GridRefresh t={t} refreshing={refreshing}>
                 {/* ONE continuous justified grid over the full flat list — every
                     loaded photo appears exactly once, in API order (folder
                     pills filter server-side, so no client-side partitioning).
@@ -1939,7 +2020,7 @@ export function LoungeGallery({
                     <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
                   </div>
                 )}
-              </>
+              </GridRefresh>
             )}
 
             {galleryDone && (
@@ -2015,15 +2096,20 @@ export function LoungeGallery({
             folderCounts={folderCounts}
             folder={folder}
             setFolder={(f) => {
+              // See desktopSelectFolder: a pill under a face filter goes back
+              // to browsing by folder.
+              if (faceActive) faceClear();
               setFolder(f);
               exitSelect();
             }}
             items={displayed}
             loading={showLoading}
+            refreshing={refreshing}
             loadError={loadError}
             onRetry={() => setReloadKey((k) => k + 1)}
             loadingMore={loadingMore}
-            hasMore={hasMore}
+            // See onDesktopScroll: no next page while the set is being replaced.
+            hasMore={hasMore && !refreshing}
             onLoadMore={loadMore}
             totalForViewAll={allCount ?? undefined}
             scrollRef={mobileScrollRef}
@@ -2326,9 +2412,12 @@ function MobileGalleryView(props: {
   groupFailed: boolean;
   /** The face filter bar for this tab, or null. Rendered under the tabs. */
   faceBar: React.ReactNode;
-  /** A face filter chip is selected: the folder pills hide, and an empty grid
-   *  says so rather than reporting no matches. */
+  /** A face filter chip is selected: an empty grid says so rather than
+   *  reporting no matches. */
   filtering: boolean;
+  /** The face filter is moving the grid to a new set: the photos on screen
+   *  stay, dimmed, until it is in (see the parent's `refreshing`). */
+  refreshing: boolean;
   onClearFaces: () => void;
   /** People waiting on this guest. On a phone the badge sits on the overflow
    *  menu button (and on "Manage my people" inside it), not on the tab. */
@@ -2396,7 +2485,7 @@ function MobileGalleryView(props: {
   totalForViewAll?: number;
   scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, onClearFaces } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, refreshing, onClearFaces } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
@@ -2462,9 +2551,11 @@ function MobileGalleryView(props: {
           />
         </div>
 
-        {/* Folder pills do not apply to My People, nor to a face filter: both
-            feeds are about who is in each photo, not which folder. */}
-        {!groupView && !likedView && !filtering && (
+        {/* Folder pills do not apply to My People, whose feed is about who is
+            in each photo, not which folder. Under a face filter they stay, with
+            All lit (the filter covers the whole tab): hiding them made the bar
+            jump up under the guest's finger on the first tap. */}
+        {!groupView && !likedView && (
           <FolderPillsRow
             t={t}
             folders={folders}
@@ -2519,7 +2610,7 @@ function MobileGalleryView(props: {
               />
             )
           ) : (
-            <>
+            <GridRefresh t={t} refreshing={refreshing}>
               {groupView ? (
                 <BucketedGrid
                   t={t}
@@ -2557,7 +2648,7 @@ function MobileGalleryView(props: {
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
                 </div>
               )}
-            </>
+            </GridRefresh>
           )}
 
           {galleryDone && (
@@ -2916,6 +3007,32 @@ function ErrorState({ t, onRetry }: { t: Theme; onRetry: () => void }) {
       <button type="button" onClick={onRetry} className="cursor-pointer rounded-full px-5 py-2.5 text-[13px] font-extrabold" style={{ background: t.brand, color: t.onBrand }}>
         Try again
       </button>
+    </div>
+  );
+}
+
+/**
+ * The grid while the face filter moves it to a new set: the photos on screen
+ * stay, dimmed and inert, under a small spinner, until the next set's first
+ * page is in. A skeleton here flashed on every tap of the bar. Off, it is a
+ * plain wrapper.
+ */
+function GridRefresh({ t, refreshing, children }: { t: Theme; refreshing: boolean; children: React.ReactNode }) {
+  return (
+    <div className="relative" aria-busy={refreshing || undefined}>
+      <div
+        className="transition-opacity duration-150"
+        style={{ opacity: refreshing ? 0.45 : 1, pointerEvents: refreshing ? "none" : undefined }}
+      >
+        {children}
+      </div>
+      {refreshing && (
+        <div className="pointer-events-none absolute inset-x-0 top-6 z-10 flex justify-center">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: t.card, boxShadow: t.shadowSm }}>
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ color: t.brand }} />
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -118,6 +118,23 @@ export function selectionKey(selected: readonly string[]): string {
   return [...selected].sort().join(",");
 }
 
+/** A whole set of picks applied at once (the open box's button): each chip
+ *  once, only chips that still exist, never past the cap. */
+export function selectionFrom(ids: readonly string[], chips: FaceChips | null): string[] {
+  return reconcileSelection([...new Set(ids)], chips).slice(0, FACE_FILTER_MAX_SELECTED);
+}
+
+/**
+ * What the open box's button does with the picks made in it: nothing changed
+ * ("done": it only closes), new picks ("show" their photos), or every pick
+ * taken off ("show-all": the tab unfiltered again).
+ */
+export type DraftAction = "done" | "show" | "show-all";
+export function draftAction(draft: readonly string[], applied: readonly string[]): DraftAction {
+  if (selectionKey(draft) === selectionKey(applied)) return "done";
+  return draft.length > 0 ? "show" : "show-all";
+}
+
 /** Is this a usable `face_filter_media` answer? Parallel arrays may be short;
  *  the ranking reads a missing entry as zero. */
 export function isFaceFilterMedia(raw: unknown): raw is FaceFilterMedia {

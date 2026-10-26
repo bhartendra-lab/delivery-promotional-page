@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   applyChipAnswer,
+  draftAction,
   FACE_FILTER_MAX_SELECTED,
   faceFilterQuery,
   isFaceFilterMedia,
   parseFaceChips,
   reconcileSelection,
+  selectionFrom,
   selectionKey,
   toggleSelection,
   visibleChips,
@@ -118,4 +120,22 @@ test("a tap toggles one chip, never past 30", () => {
 
 test("a selection's identity ignores order", () => {
   assert.equal(selectionKey(["b", "a"]), selectionKey(["a", "b"]));
+});
+
+/* ── the open box: picks applied by its button ───────────────────────────── */
+
+test("the box's picks apply as a set: each chip once, known chips only, capped", () => {
+  assert.deepEqual(selectionFrom(["a", "b", "a"], chips(["a", "b"])), ["a", "b"]);
+  assert.deepEqual(selectionFrom(["a", "gone", "b"], chips(["a", "b"])), ["a", "b"]);
+  const many = Array.from({ length: 40 }, (_, i) => `p${i}`);
+  assert.equal(selectionFrom(many, chips(many)).length, FACE_FILTER_MAX_SELECTED);
+  assert.deepEqual(selectionFrom([], chips(["a"])), []);
+});
+
+test("the box's button: done when nothing changed, else show or show all", () => {
+  assert.equal(draftAction([], []), "done");
+  assert.equal(draftAction(["b", "a"], ["a", "b"]), "done", "order does not count as a change");
+  assert.equal(draftAction(["a", "c"], ["a"]), "show");
+  assert.equal(draftAction(["a"], []), "show");
+  assert.equal(draftAction([], ["a"]), "show-all");
 });

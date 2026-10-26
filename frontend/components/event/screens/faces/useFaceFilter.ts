@@ -15,13 +15,15 @@
  *     and never before this visit's `search-selfie` has answered (the backend
  *     stores the viewer's own face during that search, which is what keeps
  *     them off their own bar). The cached chips paint before that.
- *   - a selection's photos: 250 ms after the last tap, with the previous
+ *   - a selection's photos: 250 ms after the last change, with the previous
  *     request aborted. Only the answer for the selection still on the bar is
  *     ever applied. Never with nothing selected. This one does NOT wait for
  *     the search: the server drops the viewer's own face and scopes "mine"
  *     to their stored photos either way, and if the search then changes
  *     those photos the chip key changes and the selection is asked again. So
  *     a reload with a selection kept paints as soon as it can.
+ *     A change is one tap on the bar, or the open box's button applying all
+ *     of its picks at once (`select`): the box asks nothing while it is open.
  *   - refresh: the gallery's own access re-check carries the chip query for
  *     the scope in view (`refreshRequest`), with `if_key`, so an unchanged bar
  *     costs a few bytes.
@@ -42,6 +44,7 @@ import {
   isFaceFilterMedia,
   reconcileSelection,
   SELECTION_DEBOUNCE_MS,
+  selectionFrom,
   selectionKey,
   toggleSelection,
   visibleChips,
@@ -90,7 +93,13 @@ export type FaceFilter = {
   feed: GroupFeed | null;
   /** The last request for this selection failed. The gallery's Retry asks again. */
   failed: boolean;
+  /** A selection is on the bar and its answer is not in yet (settling, or in
+   *  flight). `feed` may still be the previous selection's meanwhile: the
+   *  gallery keeps those photos on screen, dimmed, rather than a skeleton. */
+  pending: boolean;
   toggle: (id: string) => void;
+  /** The open box's button: the whole set of picks, applied at once. */
+  select: (ids: string[]) => void;
   clear: () => void;
   /** The chip query to ride on the gallery's session refresh, and where its
    *  answer goes. Null when there is nothing to refresh yet. */
@@ -261,6 +270,21 @@ export function useFaceFilter({
     [scope],
   );
 
+  const select = useCallback(
+    (ids: string[]) => {
+      if (!scope) return;
+      const target = scope;
+      setStates((prev) => {
+        const now = prev[target];
+        const selected = selectionFrom(ids, now.chips);
+        if (selectionKey(selected) === selectionKey(now.selected)) return prev;
+        const emptied = selected.length === 0;
+        return { ...prev, [target]: { ...now, selected, failed: false, ...(emptied ? { feed: null, feedFor: null } : {}) } };
+      });
+    },
+    [scope],
+  );
+
   const clear = useCallback(() => {
     if (!scope) return;
     const target = scope;
@@ -302,7 +326,9 @@ export function useFaceFilter({
     active,
     feed: active ? (cur?.feed ?? null) : null,
     failed: active && !!cur?.failed,
+    pending: active && !answered && !cur?.failed,
     toggle,
+    select,
     clear,
     refreshRequest,
   };

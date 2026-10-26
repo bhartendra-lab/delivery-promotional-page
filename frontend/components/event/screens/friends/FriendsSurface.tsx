@@ -604,6 +604,7 @@ export function FriendsSurface({
             faces={directory.members.map((m) => ({ id: m.guest_id, thumb_url: m.avatar_url ?? null, label: m.name }))}
             selected={activeFilter}
             onToggle={toggleFilter}
+            onApply={(ids) => setFilterIds(new Set(ids))}
             onClear={clearFilter}
             desktop={desktop}
           />,
