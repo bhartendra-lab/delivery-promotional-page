@@ -68,3 +68,36 @@ test("a gallery that cannot scroll far never folds", () => {
   assert.equal(run([0, 100, 200, 300], { max: short }).collapsed, false);
   assert.equal(run([0, COLLAPSE_AFTER + 20, 200, 300], { max: 2 * CHROME_SPACE }).collapsed, true);
 });
+
+test("with a start point, nothing folds above it and the rules count from it", () => {
+  const start = 900;
+  const over = run([0, 200, 400, 600, 800, 900 + COLLAPSE_AFTER], { max: MAX });
+  assert.equal(over.collapsed, true, "without a start, the cover itself would fold it");
+  let machine = INITIAL_MACHINE;
+  let collapsed = false;
+  let now = 10_000;
+  for (const top of [0, 200, 400, 600, 800, start + COLLAPSE_AFTER]) {
+    now += 16;
+    ({ machine, collapsed } = stepCollapse(machine, collapsed, { top, max: MAX, now, start }));
+  }
+  assert.equal(collapsed, false, "the cover and the first band of the grid never fold it");
+  now += 16;
+  ({ machine, collapsed } = stepCollapse(machine, collapsed, { top: start + COLLAPSE_AFTER + 40, max: MAX, now, start }));
+  assert.equal(collapsed, true);
+  // Back up into the grid's first band: open again.
+  now += COLLAPSE_LOCK_MS + 16;
+  ({ collapsed } = stepCollapse(machine, collapsed, { top: start + 10, max: MAX, now, start }));
+  assert.equal(collapsed, false);
+});
+
+test("the room to scroll is counted from the start point too", () => {
+  const start = 900;
+  let machine = INITIAL_MACHINE;
+  let collapsed = false;
+  let now = 10_000;
+  for (const top of [start, start + 100, start + 200, start + 300]) {
+    now += 16;
+    ({ machine, collapsed } = stepCollapse(machine, collapsed, { top, max: start + 2 * CHROME_SPACE - 1, now, start }));
+  }
+  assert.equal(collapsed, false);
+});

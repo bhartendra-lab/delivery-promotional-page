@@ -1,8 +1,9 @@
 /**
- * When the phone gallery folds its chrome away: the top bar, the folder pills
- * and the bottom nav hide while the guest scrolls down, and all come back on
- * the first scroll up. Pure, so the thresholds are tested rather than buried
- * in a scroll handler.
+ * When the gallery folds its chrome away: on a phone the top bar, the folder
+ * pills, the face bar and the bottom nav hide while the guest scrolls down; on
+ * a laptop the top bar, and the pills and face bar under the pinned control
+ * row. All come back on the first scroll up. Pure, so the thresholds are
+ * tested rather than buried in a scroll handler.
  *
  * The chrome is in the page flow, so folding it makes the scroller taller.
  * Near the end of the gallery that lowers the furthest it can scroll, the
@@ -43,6 +44,10 @@ export const INITIAL_MACHINE: ScrollMachine = { lastTop: 0, travel: 0, lockUntil
 /**
  * One scroll event. `top` is the scroller's scrollTop, `max` the furthest it
  * can scroll (scrollHeight - clientHeight), `now` a monotonic clock in ms.
+ * `start` is where the rules begin counting: the laptop's page has the cover
+ * above the grid, and nothing folds until the guest is in the photos. Every
+ * threshold here is measured from it.
+ *
  * The position is clamped first: iOS reports values past both ends while it
  * rubber-bands, and the bounce back from the bottom must not count as a
  * scroll up.
@@ -50,9 +55,10 @@ export const INITIAL_MACHINE: ScrollMachine = { lastTop: 0, travel: 0, lockUntil
 export function stepCollapse(
   machine: ScrollMachine,
   collapsed: boolean,
-  { top, max, now }: { top: number; max: number; now: number },
+  { top, max: scrollMax, now, start = 0 }: { top: number; max: number; now: number; start?: number },
 ): { machine: ScrollMachine; collapsed: boolean } {
-  const pos = Math.min(Math.max(top, 0), Math.max(max, 0));
+  const max = scrollMax - start;
+  const pos = Math.min(Math.max(top - start, 0), Math.max(max, 0));
   const delta = pos - machine.lastTop;
   const toggle = (next: boolean) => ({
     machine: { lastTop: pos, travel: 0, lockUntil: now + COLLAPSE_LOCK_MS },

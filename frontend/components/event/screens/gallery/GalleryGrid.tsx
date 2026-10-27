@@ -90,10 +90,11 @@ export function GalleryGrid({
    */
   badges?: (item: GuestMediaItem) => { likes: number; sorted: boolean } | null;
   /**
-   * The phone's tiles (masonry only): a line under each photo with its like
-   * count on the left and the 3-dot menu on the right, Pinterest-style, in
-   * place of the heart and menu drawn over the photo. Liking moves into the
-   * menu. The masonry reserves the line in every box, so nothing shifts.
+   * The gallery's tiles (masonry only), on phones and laptops: a line under
+   * each photo with its like count on the left and the 3-dot menu on the
+   * right, Pinterest-style, in place of the heart and menu drawn over the
+   * photo. Liking moves into the menu. The masonry reserves the line in every
+   * box, so nothing shifts. A mouse keeps the hover circle that selects.
    */
   footer?: boolean;
 }) {
@@ -178,7 +179,9 @@ export function GalleryGrid({
           anchor={menu.anchor}
           anchorRect={menu.rect}
           items={menuItems(menu.item)}
-          // The Pinterest sheet: the photo floats above the actions.
+          // The Pinterest sheet: the photo floats above the actions. A mouse
+          // gets the small popover by the button, with no photo: the tile is
+          // right there.
           preview={footerPx > 0 ? { src: gridSrc(menu.item), aspect: displayAspect(menu.item).ar } : undefined}
           onClose={() => setMenu(null)}
         />
@@ -572,8 +575,8 @@ function PhotoTile({
     e.stopPropagation();
   };
 
-  // With the phone's line under the photo, this box is the photo alone and the
-  // line hangs below it, inside the masonry slot that was sized for both.
+  // With the line under the photo, this box is the photo alone and the line
+  // hangs below it, inside the masonry slot that was sized for both.
   const outer: React.CSSProperties =
     shape.kind === "masonry"
       ? { position: "absolute", left: shape.left, top: shape.top, width: shape.width, height: shape.height - footerPx }
@@ -752,7 +755,7 @@ function PhotoTile({
 }
 
 /**
- * The line under a phone tile, Pinterest-style: the like count on the left
+ * The line under a tile, Pinterest-style: the like count on the left
  * (red when the guest liked it, nothing at all while no one has), the 3-dot
  * menu on the right. Not a place to open the photo or start a long-press:
  * presses here stay here.

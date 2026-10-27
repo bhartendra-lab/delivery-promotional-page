@@ -401,8 +401,8 @@ export function SelectionWorkspace({
     reveal,
     revealInset: desktop ? { top: stickyTop, bottom: 0 } : { top: 0, bottom: 96 },
     badges,
-    // The phone's line under each photo (count + menu), as in the gallery.
-    footer: !desktop,
+    // The line under each photo (count + menu), as in the gallery.
+    footer: true,
   };
 
   /* ── body ── */

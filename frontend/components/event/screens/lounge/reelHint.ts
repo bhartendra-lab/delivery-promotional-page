@@ -1,12 +1,14 @@
 /**
- * The reel viewer's swipe-up hint: a few seconds after a photo opens, it lifts
- * a little and settles back, so the next photo peeks in from below and the
- * guest learns that the reel scrolls. It never changes the photo.
+ * The viewers' "there is more" hint. In the phone's reel, a few seconds after
+ * a photo opens it lifts a little and settles back, so the next photo peeks in
+ * from below and the guest learns that the reel scrolls. In the laptop's
+ * viewer, which moves sideways, the Next arrow nudges to the right instead.
+ * Neither ever changes the photo.
  *
- * Shown until the guest's first swipe to another photo, then never again in
- * this browser session (sessionStorage). At most `REEL_HINT_MAX` nudges per
- * opening, so a guest who is only looking at one photo is not bounced for as
- * long as they look.
+ * Shown until the guest's first move to another photo, in either viewer, then
+ * never again in this browser session (sessionStorage). At most
+ * `REEL_HINT_MAX` nudges per opening, so a guest who is only looking at one
+ * photo is not bounced for as long as they look.
  *
  * No aliased imports: unit-tested under `node --test`.
  */
@@ -17,6 +19,8 @@ export const REEL_HINT_EVERY_MS = 3000;
 export const REEL_HINT_MAX = 3;
 /** How far the photo lifts. */
 export const REEL_HINT_LIFT_PX = 44;
+/** How far the laptop's Next arrow moves, twice per nudge. */
+export const ARROW_HINT_SHIFT_PX = 7;
 export const REEL_HINT_MS = 850;
 
 const KEY = "vyv:reel-swipe-hint-done";
@@ -33,7 +37,7 @@ export function sessionStore(): SessionStore | null {
   }
 }
 
-/** Whether the guest has already swiped this session. Storage that is missing
+/** Whether the guest has already moved to another photo this session. Storage that is missing
  *  or throws (a private window, blocked site data) reads as "not yet": the
  *  hint then simply plays again, which is harmless. */
 export function hintDone(store: SessionStore | null | undefined): boolean {
@@ -44,7 +48,7 @@ export function hintDone(store: SessionStore | null | undefined): boolean {
   }
 }
 
-/** Record the first swipe. Never throws. */
+/** Record the first move to another photo. Never throws. */
 export function markHintDone(store: SessionStore | null | undefined): void {
   try {
     store?.setItem(KEY, "1");

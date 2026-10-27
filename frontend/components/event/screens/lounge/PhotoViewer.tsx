@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GuestMediaItem } from "@/lib/types";
 import { SIGNAL } from "@/lib/client-theme";
 import { shareImage } from "@/lib/media-actions";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useEventTheme } from "../../EventThemeContext";
 import { ZoomImage } from "./ZoomImage";
+import { ARROW_HINT_SHIFT_PX, REEL_HINT_EVERY_MS, REEL_HINT_MS, hintDone, markHintDone, sessionStore, wantsNudge } from "./reelHint";
 import {
   IconX,
   IconHeart,
@@ -69,11 +71,44 @@ export function PhotoViewer({
 }) {
   const { theme: t, event } = useEventTheme();
   const item = items[index];
+  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
+
+  /* ── the Next arrow's hint (see reelHint.ts) ── */
+  const [moved, setMoved] = useState(() => hintDone(sessionStore()));
+  const [nudges, setNudges] = useState(0);
+  const nextRef = useRef<HTMLButtonElement>(null);
+  // The arrow moves, not the photo, so a zoomed photo does not stop it.
+  const nudgeDue = wantsNudge({ done: moved, nudges, canNext: items.length > 1, zoomed: false, reducedMotion: reduced });
 
   const step = (d: number) => {
     if (items.length < 2) return;
+    if (!moved) {
+      // The guest has found the arrows: no more hints this session.
+      setMoved(true);
+      markHintDone(sessionStore());
+    }
     onNav((index + d + items.length) % items.length);
   };
+
+  // Three seconds after the opening or the last nudge. Played with the Web
+  // Animations API on the button, so a nudge re-renders nothing.
+  useEffect(() => {
+    if (!nudgeDue) return;
+    const id = setTimeout(() => {
+      nextRef.current?.animate(
+        [
+          { transform: "translateX(0)" },
+          { transform: `translateX(${ARROW_HINT_SHIFT_PX}px)`, offset: 0.25 },
+          { transform: "translateX(0)", offset: 0.5 },
+          { transform: `translateX(${ARROW_HINT_SHIFT_PX}px)`, offset: 0.75 },
+          { transform: "translateX(0)" },
+        ],
+        { duration: REEL_HINT_MS, easing: "ease-in-out" },
+      );
+      setNudges((n) => n + 1);
+    }, REEL_HINT_EVERY_MS);
+    return () => clearTimeout(id);
+  }, [nudgeDue, nudges]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -159,9 +194,13 @@ export function PhotoViewer({
             <button type="button" onClick={() => step(-1)} aria-label="Previous" className="absolute left-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
               <IconChevronLeft size={20} weight="bold" />
             </button>
-            <button type="button" onClick={() => step(1)} aria-label="Next" className="absolute right-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
-              <IconChevronRight size={20} weight="bold" />
-            </button>
+            {/* The wrapper holds the place, so the hint can move the button
+                itself without undoing its centring. */}
+            <div className="absolute right-4 top-1/2 z-10 -translate-y-1/2">
+              <button ref={nextRef} type="button" onClick={() => step(1)} aria-label="Next" className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
+                <IconChevronRight size={20} weight="bold" />
+              </button>
+            </div>
           </>
         )}
       </div>

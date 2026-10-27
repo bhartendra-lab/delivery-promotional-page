@@ -1865,12 +1865,29 @@ export function LoungeGallery({
     return () => io.disconnect();
   }, [isDesktop]);
 
+  /* The gallery folds its chrome away while the guest scrolls down (see
+     gallery/collapseOnScroll.ts). On a phone: the top bar, the pills, the face
+     bar and the bottom nav, and select mode drops the nav outright, since the
+     action bar takes its place. On a laptop: the top bar, and the pills and
+     face bar under the pinned control row. Only on the grid itself: Home and
+     the curator's Selection workspace keep their chrome. */
+  const mobileGridShown = !isDesktop && view === "gallery" && !selectionShown;
+  const desktopGridShown = isDesktop && !selectionShown;
+  const fold = useScrollCollapse(`${isDesktop}|${view}|${tab}|${folder}|${likedView}|${selectMode}|${selectionShown}`);
+  const chromeFolded = mobileGridShown && fold.collapsed;
+  const navHidden = mobileGridShown && (fold.collapsed || selectMode);
+  const desktopFolded = desktopGridShown && fold.collapsed;
+
   // Desktop's whole page scrolls in one container (the cover flows into the
   // grid), so infinite scroll hangs off that container — not the grid element.
   const onDesktopScroll = (e: React.UIEvent<HTMLDivElement>) => {
     // The Selection workspace pages its own feed off this same scroller.
     if (selectionShown) return;
     const el = e.currentTarget;
+    // The fold counts from the top of the grid, where the control row's own
+    // place in the page has scrolled away: nothing folds over the cover.
+    const grid = gridSectionRef.current;
+    if (grid) fold.onScroll(el, grid.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop);
     // Not while the face filter is replacing the set: a page of the old view
     // would land on the new one.
     if (hasMore && !loadingMore && !refreshing && el.scrollTop + el.clientHeight >= el.scrollHeight - 600) loadMore();
@@ -1936,14 +1953,6 @@ export function LoungeGallery({
 
   const navActive = view === "home" ? "home" : likedView || selectionShown ? "liked" : "gallery";
 
-  /* The phone gallery folds its chrome away while the guest scrolls down (see
-     gallery/collapseOnScroll.ts), and select mode drops the bottom nav
-     outright: the action bar takes its place. Only on the grid itself: Home
-     and the curator's Selection workspace keep their chrome. */
-  const mobileGridShown = !isDesktop && view === "gallery" && !selectionShown;
-  const fold = useScrollCollapse(`${view}|${tab}|${folder}|${likedView}|${selectMode}|${selectionShown}`);
-  const chromeFolded = mobileGridShown && fold.collapsed;
-  const navHidden = mobileGridShown && (fold.collapsed || selectMode);
   const goHome = () => {
     setView("home");
     exitSelect();
@@ -2110,6 +2119,7 @@ export function LoungeGallery({
       {/* ── DESKTOP: sticky top bar + one continuous scroll ──────────────── */}
       {isDesktop && (
       <div className="flex min-h-0 flex-1 flex-col">
+        <Collapse open={!desktopFolded}>
         <TopBar
           t={t}
           event={event}
@@ -2125,6 +2135,7 @@ export function LoungeGallery({
           guestName={session.name}
           photoUrl={photoUrl}
         />
+        </Collapse>
         <div ref={desktopScrollRef} onScroll={onDesktopScroll} className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
           <DesktopCover
             t={t}
@@ -2184,7 +2195,6 @@ export function LoungeGallery({
             selectAll={selectAll}
             onSelectAll={selectAllInView}
             onClearSelectAll={clearSelectAll}
-            selectionLabel={selectionLabel}
             selectionHint={selectionHint}
             scopeTotal={totalForView}
             canDownloadAll={canDownloadAll && !selectionShown}
@@ -2193,6 +2203,10 @@ export function LoungeGallery({
             downloadCount={totalForView}
             allCount={allCount ?? undefined}
             pendingCount={friendFinder?.pending_count ?? 0}
+            // Pinned with the row, so it stays put over the photos and comes
+            // back on the first scroll up. Not in the Selection workspace.
+            faceBar={selectionShown ? null : faceBar}
+            folded={desktopFolded}
           />
 
           {/* scrollMarginTop = the measured pinned control-row height, so
@@ -2233,10 +2247,6 @@ export function LoungeGallery({
             {showMatchBanner && (
               <MatchBanner t={t} count={mediaIds?.length ?? 0} onDismiss={() => setMatchBannerDismissed(true)} className="mb-5" />
             )}
-            {/* The face filter bar, directly under the tabs where My People's
-                bar sat. My People's own controls (its requests banner and
-                "Manage my people") went with it. */}
-            {faceBar && <div className="mb-4">{faceBar}</div>}
             {showLoading ? (
               <GallerySkeleton t={t} />
             ) : (loadError && items.length === 0) || groupFailed || faceFailed ? (
@@ -2293,6 +2303,7 @@ export function LoungeGallery({
                     scrollRef={desktopScrollRef}
                     reveal={reveal}
                     revealInset={{ top: controlRowH, bottom: 0 }}
+                    footer
                   />
                 ) : (
                 <GalleryGrid
@@ -2311,6 +2322,7 @@ export function LoungeGallery({
                   scrollRef={desktopScrollRef}
                   reveal={reveal}
                   revealInset={{ top: controlRowH, bottom: 0 }}
+                  footer
                 />
                 )}
                 {loadingMore && (
@@ -3058,6 +3070,16 @@ function MobileGalleryView(props: {
             />
           </Collapse>
         )}
+
+        {/* The face filter bar is header, not content: it stays put while the
+            photos scroll under it, folds away with the pills on a scroll down
+            and comes back on the first scroll up. Not while selecting: a new
+            face filter would replace the set being selected from. */}
+        {faceBar && (
+          <Collapse open={!collapsed && !selectMode}>
+            <div className="pt-2.5">{faceBar}</div>
+          </Collapse>
+        )}
       </div>
 
       {/* grid */}
@@ -3075,13 +3097,6 @@ function MobileGalleryView(props: {
       >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
-          {/* Not while selecting: a new face filter would replace the set
-              being selected from. */}
-          {faceBar && (
-            <Collapse open={!selectMode}>
-              <div className="pb-4">{faceBar}</div>
-            </Collapse>
-          )}
           {loading ? (
             <GallerySkeleton t={t} />
           ) : (props.loadError && items.length === 0) || groupFailed ? (
