@@ -1,7 +1,7 @@
 /**
  * Pure matching logic for "Locate Original Images" (Smart Selects). No DOM, no
  * File System Access — just the fingerprint parsing, filename cleaning and the
- * shared exact→fuzzy matcher used against the shortlisted set.
+ * shared exact→fuzzy matcher used against the photos being located.
  *
  * The stored `media_id` is `makeRecordId(bookingId, makeFingerprint(file))` =
  * `` `${bookingId}__${file.name}-${file.size}-${file.lastModified}` `` (see

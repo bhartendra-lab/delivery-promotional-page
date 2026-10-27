@@ -6,7 +6,7 @@ import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { degradeGridSrc, gridSrc } from "@/lib/media-actions";
 import { useHoverPointer } from "@/lib/use-media-query";
 import { justifyRows, targetRowHeightFor, JUSTIFY_GAP } from "./justifyRows";
-import { createMasonryCache, masonryLayout, masonryWindow, radiusFor, revealScrollTop } from "./masonry";
+import { createMasonryCache, displayAspect, masonryLayout, masonryWindow, radiusFor, revealScrollTop } from "./masonry";
 import { tileMenuActions } from "./tileMenuActions";
 import { TileMenu, type TileMenuItem } from "./TileMenu";
 import { IconHeart, IconCheck, IconDownload, IconDotsThree, IconPlay, IconPlus, IconShare } from "@/components/ui/icons";
@@ -46,6 +46,7 @@ export function GalleryGrid({
   reveal,
   revealInset,
   badges,
+  footer = false,
 }: {
   t: ClientTheme;
   layout?: "masonry" | "justified" | "grid";
@@ -88,13 +89,25 @@ export function GalleryGrid({
    * so every other grid's tiles are exactly as Phase 1 left them.
    */
   badges?: (item: GuestMediaItem) => { likes: number; sorted: boolean } | null;
+  /**
+   * The phone's tiles (masonry only): a line under each photo with its like
+   * count on the left and the 3-dot menu on the right, Pinterest-style, in
+   * place of the heart and menu drawn over the photo. Liking moves into the
+   * menu. The masonry reserves the line in every box, so nothing shifts.
+   */
+  footer?: boolean;
 }) {
   const hoverPointer = useHoverPointer();
+  const footerPx = footer && layout === "masonry" ? TILE_FOOTER : 0;
   const actions = tileMenuActions({
+    canLike: footerPx > 0,
     canDownload: !!onDownload,
     canCollect: !!onCollect,
     canShare: !!onShare && !hoverPointer,
   });
+
+  /** A like made from the menu, so that tile's heart plays the pop once. */
+  const [pop, setPop] = useState<{ id: string; seq: number } | null>(null);
 
   // One menu for the whole grid (see TileMenu for why not one per tile).
   const [menu, setMenu] = useState<{ item: GuestMediaItem; anchor: HTMLElement; rect: DOMRect } | null>(null);
@@ -106,6 +119,18 @@ export function GalleryGrid({
 
   const menuItems = (item: GuestMediaItem): TileMenuItem[] =>
     actions.map((action) => {
+      if (action === "like") {
+        const on = liked.has(item._id);
+        return {
+          key: action,
+          label: on ? "Unlike" : "Like",
+          icon: <IconHeart size={19} filled={on} style={on ? { color: SIGNAL.liked } : undefined} />,
+          onSelect: () => {
+            if (!on) setPop((p) => ({ id: item._id, seq: (p?.seq ?? 0) + 1 }));
+            onToggleLike(item);
+          },
+        };
+      }
       if (action === "download") return { key: action, label: "Download", icon: <IconDownload size={19} />, onSelect: () => onDownload?.(item) };
       if (action === "collect") return { key: action, label: "Add to collection", icon: <IconPlus size={19} />, onSelect: () => onCollect?.(item) };
       return { key: action, label: "Share", icon: <IconShare size={19} />, onSelect: () => onShare?.(item) };
@@ -122,6 +147,8 @@ export function GalleryGrid({
     onEnterSelectWith,
     onOpenMenu,
     badges,
+    footerPx,
+    popSeq: (id: string) => (pop?.id === id ? pop.seq : 0),
   };
 
   let body: React.ReactNode;
@@ -151,6 +178,8 @@ export function GalleryGrid({
           anchor={menu.anchor}
           anchorRect={menu.rect}
           items={menuItems(menu.item)}
+          // The Pinterest sheet: the photo floats above the actions.
+          preview={footerPx > 0 ? { src: gridSrc(menu.item), aspect: displayAspect(menu.item).ar } : undefined}
           onClose={() => setMenu(null)}
         />
       )}
@@ -171,6 +200,10 @@ type TileContext = {
   onEnterSelectWith?: (item: GuestMediaItem) => void;
   onOpenMenu?: (item: GuestMediaItem, anchor: HTMLElement) => void;
   badges?: (item: GuestMediaItem) => { likes: number; sorted: boolean } | null;
+  /** Height of the like-and-menu line under each photo; 0 for none. */
+  footerPx: number;
+  /** Bumped for a tile liked from the menu, so its heart pops once. */
+  popSeq: (id: string) => number;
 };
 
 /**
@@ -291,7 +324,7 @@ function MasonryGrid({
   const [containerRef, width] = useContainerWidth();
   // Appending a page lays out only the new page (see createMasonryCache).
   const [layoutFor] = useState(() => createMasonryCache<GuestMediaItem>());
-  const layout = useMemo(() => layoutFor(items, width), [layoutFor, items, width]);
+  const layout = useMemo(() => layoutFor(items, width, tile.footerPx), [layoutFor, items, width, tile.footerPx]);
   const band = useViewportBand(scrollRef, containerRef, layout.height);
   const visible = useMemo(
     () => (band ? masonryWindow(layout, band.from, band.to) : layout.boxes.map((_, i) => i)),
@@ -421,6 +454,9 @@ const loadedSrcs = new Set<string>();
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 8;
 
+/** The phone's line under each photo: the like count and the 3-dot menu. */
+const TILE_FOOTER = 34;
+
 /** The translucent circle behind the tile's white glyphs. */
 const CONTROL_TINT: React.CSSProperties = {
   background: "rgba(18,14,10,0.32)",
@@ -448,6 +484,8 @@ function PhotoTile({
   onEnterSelectWith,
   onOpenMenu,
   badges,
+  footerPx,
+  popSeq,
 }: TileContext & {
   shape: TileShape;
   item: GuestMediaItem;
@@ -534,9 +572,11 @@ function PhotoTile({
     e.stopPropagation();
   };
 
+  // With the phone's line under the photo, this box is the photo alone and the
+  // line hangs below it, inside the masonry slot that was sized for both.
   const outer: React.CSSProperties =
     shape.kind === "masonry"
-      ? { position: "absolute", left: shape.left, top: shape.top, width: shape.width, height: shape.height }
+      ? { position: "absolute", left: shape.left, top: shape.top, width: shape.width, height: shape.height - footerPx }
       : shape.kind === "justified"
         ? { width: shape.width, height: shape.height }
         : {};
@@ -645,7 +685,7 @@ function PhotoTile({
           <IconCheck size={13} weight="bold" />
         </span>
       )}
-      {badge && badge.likes > 0 && (
+      {badge && badge.likes > 0 && !footerPx && (
         <span
           className="pointer-events-none absolute bottom-2 left-2 z-[5] flex h-7 items-center gap-1 rounded-full px-2 text-[11.5px] font-extrabold tabular-nums text-white"
           style={CONTROL_TINT}
@@ -655,7 +695,7 @@ function PhotoTile({
         </span>
       )}
 
-      {!selectMode && onOpenMenu && (
+      {!selectMode && onOpenMenu && !footerPx && (
         <button
           type="button"
           onClick={(e) => {
@@ -673,7 +713,7 @@ function PhotoTile({
         </button>
       )}
 
-      {!selectMode && (
+      {!selectMode && !footerPx && (
         <button
           type="button"
           onClick={(e) => {
@@ -692,6 +732,83 @@ function PhotoTile({
               <IconHeart size={17} filled={isLiked} weight={isLiked ? undefined : "bold"} style={{ color: isLiked ? SIGNAL.liked : "#fff" }} />
             </span>
           </span>
+        </button>
+      )}
+
+      {footerPx > 0 && (
+        <TileFooter
+          t={t}
+          height={footerPx}
+          // Kept current by the gallery's optimistic like toggle, as in the reel.
+          count={Math.max(0, item.likes_count ?? 0)}
+          liked={isLiked}
+          pop={popSeq(item._id)}
+          menuOpen={menuOpen}
+          onOpenMenu={!selectMode && onOpenMenu ? (anchor) => onOpenMenu(item, anchor) : undefined}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The line under a phone tile, Pinterest-style: the like count on the left
+ * (red when the guest liked it, nothing at all while no one has), the 3-dot
+ * menu on the right. Not a place to open the photo or start a long-press:
+ * presses here stay here.
+ */
+function TileFooter({
+  t,
+  height,
+  count,
+  liked,
+  pop,
+  menuOpen,
+  onOpenMenu,
+}: {
+  t: ClientTheme;
+  height: number;
+  count: number;
+  liked: boolean;
+  /** Bumped by a like from the menu, so the heart pops once for it. */
+  pop: number;
+  menuOpen: boolean;
+  /** Absent in select mode, where the menu is not offered. */
+  onOpenMenu?: (anchor: HTMLElement) => void;
+}) {
+  return (
+    <div
+      className="absolute inset-x-0 top-full flex items-center justify-between"
+      style={{ height }}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {count > 0 ? (
+        <span
+          className="flex items-center gap-1 pl-1 text-[12px] font-bold tabular-nums"
+          style={{ color: liked ? t.text : t.muted }}
+          aria-label={`${count.toLocaleString("en-IN")} ${count === 1 ? "like" : "likes"}${liked ? ", including yours" : ""}`}
+        >
+          <span key={pop} className={`flex ${pop > 0 && liked ? "like-pop" : ""}`} aria-hidden>
+            <IconHeart size={14} filled={liked} weight={liked ? undefined : "bold"} style={{ color: liked ? SIGNAL.liked : t.muted }} />
+          </span>
+          {count.toLocaleString("en-IN")}
+        </span>
+      ) : (
+        <span />
+      )}
+      {onOpenMenu && (
+        <button
+          type="button"
+          onClick={(e) => onOpenMenu(e.currentTarget)}
+          aria-label="Photo options"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          // A full 44px target, wider than the line looks.
+          className="-mr-1 flex h-[44px] w-11 cursor-pointer items-center justify-center rounded-full"
+          style={{ color: t.text, background: menuOpen ? t.sunken : "transparent" }}
+        >
+          <IconDotsThree size={20} weight="bold" />
         </button>
       )}
     </div>

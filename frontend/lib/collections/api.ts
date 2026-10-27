@@ -113,7 +113,7 @@ export function sendSelection(uid: string, bookingId: string, collectionIds: str
   );
 }
 
-/** Like or unlike many photos by Media `_id` (at most 500 per call). Curators only. */
+/** Like or unlike many photos by Media `_id` (at most 500 per call). Any guest of the event. */
 export function likePhotos(uid: string, mediaIds: string[], liked: boolean) {
   return guestFetch<{ message: string; changed: number }>(uid, "/deliverables/like-photos", json({ media_ids: mediaIds, liked }));
 }

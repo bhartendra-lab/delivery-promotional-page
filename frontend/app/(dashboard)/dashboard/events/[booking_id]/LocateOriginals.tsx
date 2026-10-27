@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLocateTargets, getShortlistedMedia, type ShortlistedMediaItem } from "@/lib/api";
-import type { GuestCollection } from "@/lib/collections/types";
-import { chosenTargets, groupByPlacement, locateDefaults, shortlistPlacementOf } from "@/lib/locate-originals/placements";
+import { getLocateTargets } from "@/lib/api";
+import type { GuestCollection, LocateItem } from "@/lib/collections/types";
+import { chosenTargets, groupByPlacement, locateDefaults } from "@/lib/locate-originals/placements";
 import { streamZipToDisk } from "@/lib/media-actions";
 import { OUTPUT_DIR, resolveCleanName } from "@/lib/locate-originals/match";
 import {
@@ -46,41 +46,37 @@ const fmt = (n: number) => n.toLocaleString("en-IN");
 
 /**
  * "Locate Original Images" (Smart Selects). A single-purpose, stateless tool:
- * the studio picks a folder, we match it to the current shortlist, they review
- * and copy. Nothing about a run is remembered server-side — the only surface on
+ * the studio ticks the collections to locate, picks a folder, we match it to
+ * those photos, they review and copy. Nothing about a run is remembered server-side — the only surface on
  * the tab is the header button; everything else lives in this modal, which
  * mounts fresh each time `open` flips true.
  */
 export function LocateOriginals({
   bookingId,
   eventName,
-  shortlistedCount,
-  collections = null,
+  collections,
   open,
   onOpenChange,
   toast,
 }: {
   bookingId: string;
   eventName: string;
-  shortlistedCount: number;
   /**
-   * The event's visible collections (Smart Selects' list), or null while
-   * collections are switched off. With at least one, the modal opens on
-   * "What should we locate?" and writes the by-collection tree; with none it
-   * is exactly the shortlist tool it always was.
+   * The event's visible collections (Smart Selects' list). The modal opens on
+   * "What should we locate?" and writes one folder per collection. With none
+   * there is nothing to locate, and it does not open.
    */
-  collections?: GuestCollection[] | null;
+  collections: GuestCollection[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   toast: (msg: string, type?: "success" | "error") => void;
 }) {
-  if (!open) return null;
+  if (!open || collections.length === 0) return null;
   return (
     <LocateModal
       bookingId={bookingId}
       eventName={eventName}
-      shortlistedCount={shortlistedCount}
-      collections={collections && collections.length > 0 ? collections : null}
+      collections={collections}
       toast={toast}
       onClose={() => onOpenChange(false)}
     />
@@ -91,47 +87,42 @@ export function LocateOriginals({
 
 type Phase = "what" | "picker" | "scanning" | "review" | "choose" | "copying" | "done" | "error";
 
-type LocateRow = ShortlistedMediaItem & { placements?: string[] };
+type LocateRow = LocateItem;
 
 function LocateModal({
   bookingId,
   eventName,
-  shortlistedCount,
   collections,
   toast,
   onClose,
 }: {
   bookingId: string;
   eventName: string;
-  shortlistedCount: number;
-  /** Non-empty, or null: the by-collection run, or today's shortlist run. */
-  collections: GuestCollection[] | null;
+  /** Non-empty. */
+  collections: GuestCollection[];
   toast: (msg: string, type?: "success" | "error") => void;
   onClose: () => void;
 }) {
-  const byCollection = collections != null;
   // Capability is known at first render; the modal itself only renders after a
   // user gesture so there's no SSR/hydration surface to mismatch.
   const [supported] = useState<boolean | null>(() =>
     typeof window !== "undefined" ? supportsFsa() : null,
   );
 
-  // Every shortlisted item is a target, every run — fetched fresh on open.
+  // Every photo in every visible collection, fetched fresh on open.
   const [loadedItems, setLoadedItems] = useState<LocateRow[]>([]);
   const [foldersById, setFoldersById] = useState<Map<string, string>>(new Map());
   const [itemsLoading, setItemsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // By collection, ONE read covers every visible collection and the
-  // shortlist; the checklist then narrows it locally, so its count is live.
-  const collectionIdsKey = collections ? collections.map((c) => c._id).join(",") : null;
+  // ONE read covers every visible collection; the checklist then narrows it
+  // locally, so its count is live.
+  const collectionIdsKey = collections.map((c) => c._id).join(",");
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const res = collectionIdsKey
-          ? await getLocateTargets(bookingId, collectionIdsKey.split(","), true)
-          : await getShortlistedMedia(bookingId);
+        const res = await getLocateTargets(bookingId, collectionIdsKey.split(","));
         if (!alive) return;
         setLoadedItems(res.media);
         setFoldersById(new Map(res.customFolders.map((f) => [f._id, f.name])));
@@ -146,32 +137,20 @@ function LocateModal({
     };
   }, [bookingId, collectionIdsKey]);
 
-  /* "What should we locate?" (by collection only) */
-  const collectionNames = useMemo(() => new Set((collections ?? []).map((c) => c.name)), [collections]);
-  const shortlistName = useMemo(
-    () => (byCollection ? shortlistPlacementOf(loadedItems, collectionNames) ?? "Shortlisted" : null),
-    [byCollection, loadedItems, collectionNames],
-  );
-  const shortlistInRun = shortlistName ? loadedItems.filter((i) => i.placements?.includes(shortlistName)).length : 0;
-  const [chosen, setChosen] = useState<{ collections: Set<string>; shortlist: boolean } | null>(null);
-  if (byCollection && chosen == null && !itemsLoading) {
-    setChosen(
-      locateDefaults((collections ?? []).map((c) => ({ id: c._id, name: c.name, count: c.count, sent: c.status === "final" }))),
-    );
+  /* "What should we locate?" */
+  const [chosen, setChosen] = useState<Set<string> | null>(null);
+  if (chosen == null && !itemsLoading) {
+    setChosen(locateDefaults(collections.map((c) => ({ id: c._id, name: c.name, count: c.count, sent: c.status === "final" }))));
   }
   /** The run's placement names, in the order the output tree lists them. */
-  const placementOrder = useMemo(() => {
-    if (!byCollection || !chosen) return [];
-    const names = (collections ?? []).filter((c) => chosen.collections.has(c._id)).map((c) => c.name);
-    return chosen.shortlist && shortlistName ? [...names, shortlistName] : names;
-  }, [byCollection, chosen, collections, shortlistName]);
-  /** What this run looks for: today's shortlist, or the chosen collections. */
-  const items: LocateRow[] = useMemo(
-    () => (byCollection ? chosenTargets(loadedItems, new Set(placementOrder)) : loadedItems),
-    [byCollection, loadedItems, placementOrder],
+  const placementOrder = useMemo(
+    () => (chosen ? collections.filter((c) => chosen.has(c._id)).map((c) => c.name) : []),
+    [chosen, collections],
   );
+  /** What this run looks for: the photos of the chosen collections. */
+  const items: LocateRow[] = useMemo(() => chosenTargets(loadedItems, new Set(placementOrder)), [loadedItems, placementOrder]);
 
-  const [phase, setPhase] = useState<Phase>(byCollection ? "what" : "picker");
+  const [phase, setPhase] = useState<Phase>("what");
   const [savedHandle, setSavedHandle] = useState<FsDirHandle | null>(null);
   const [scanned, setScanned] = useState(0);
   const [matches, setMatches] = useState<ScanMatch[]>([]);
@@ -220,7 +199,7 @@ function LocateModal({
     async (root: FsDirHandle) => {
       const targets = toTargets(items, bookingId);
       if (targets.length === 0) {
-        toast(byCollection ? "Nothing is selected to locate." : "Your shortlist is empty.");
+        toast("Nothing is selected to locate.");
         onClose();
         return;
       }
@@ -247,7 +226,7 @@ function LocateModal({
         setPhase("error");
       }
     },
-    [items, bookingId, toast, onClose, byCollection],
+    [items, bookingId, toast, onClose],
   );
 
   const pickAndScan = useCallback(
@@ -357,9 +336,9 @@ function LocateModal({
     setScanned(0);
     rootRef.current = null;
     rawIndexRef.current = new Map();
-    setPhase(byCollection ? "what" : "picker");
+    setPhase("what");
     if (supportsFsa()) void loadDirHandle(bookingId).then(setSavedHandle);
-  }, [bookingId, byCollection]);
+  }, [bookingId]);
 
   /* not-found → manual download (Done screen) */
   const notFoundItems = useMemo(() => {
@@ -367,8 +346,8 @@ function LocateModal({
     return items.filter((i) => !includedIds.has(i._id));
   }, [items, includedMatches]);
   const notFoundGroups = useMemo(
-    () => (byCollection ? groupByPlacement(notFoundItems, placementOrder).map((g) => ({ placement: g.placement, count: g.items.length })) : null),
-    [byCollection, notFoundItems, placementOrder],
+    () => groupByPlacement(notFoundItems, placementOrder).map((g) => ({ placement: g.placement, count: g.items.length })),
+    [notFoundItems, placementOrder],
   );
 
   const downloadNotFound = useCallback(async () => {
@@ -416,9 +395,7 @@ function LocateModal({
                 Locate Original Images
               </h2>
               <p className="text-[12px] text-[var(--color-brand-muted)]">
-                {byCollection
-                  ? "Match the Client's collections and your shortlist to your full-resolution files."
-                  : "Match shortlisted photos to your full-resolution files."}
+                Match the Client&apos;s collections to your full-resolution files.
               </p>
             </div>
           </div>
@@ -440,21 +417,19 @@ function LocateModal({
             <>
               {phase === "what" && chosen && (
                 <WhatPanel
-                  collections={collections ?? []}
+                  collections={collections}
                   chosen={chosen}
-                  shortlistCount={shortlistInRun}
                   loading={itemsLoading}
                   loadError={loadError}
                   onToggleCollection={(id) =>
                     setChosen((c) => {
                       if (!c) return c;
-                      const next = new Set(c.collections);
+                      const next = new Set(c);
                       if (next.has(id)) next.delete(id);
                       else next.add(id);
-                      return { ...c, collections: next };
+                      return next;
                     })
                   }
-                  onToggleShortlist={() => setChosen((c) => (c ? { ...c, shortlist: !c.shortlist } : c))}
                 />
               )}
               {phase === "what" && !chosen && <p className="text-[13px] text-[var(--color-brand-muted)]">{loadError ?? "Loading…"}</p>}
@@ -462,8 +437,7 @@ function LocateModal({
                 <PickerPanel
                   supported={supported}
                   savedHandle={savedHandle}
-                  noun={byCollection ? "selected photo" : "shortlisted photo"}
-                  targetCount={byCollection ? items.length : items.length || shortlistedCount}
+                  targetCount={items.length}
                   loading={itemsLoading}
                   loadError={loadError}
                   onUseSaved={() => void pickAndScan(true)}
@@ -492,7 +466,6 @@ function LocateModal({
                 <DonePanel
                   result={result}
                   mode={lastMode}
-                  byCollection={byCollection}
                   notFoundGroups={notFoundGroups}
                   folderName={finalFolderName}
                   zipping={zipping}
@@ -510,7 +483,7 @@ function LocateModal({
               {phase === "review" && `${fmt(includedMatches.length)} of ${fmt(targetCount)} ready`}
             </div>
             <div className="flex items-center gap-2.5">
-              {phase === "picker" && byCollection && (
+              {phase === "picker" && (
                 <button
                   type="button"
                   onClick={() => setPhase("what")}
@@ -581,8 +554,8 @@ function ChromeRequiredPanel() {
         Open this page in Google Chrome
       </h3>
       <p className="max-w-[360px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-        Locate Originals works best in Google Chrome — open this page there to match your
-        shortlist to your photo folder.
+        Locate Originals works in Google Chrome. Open this page there to match the
+        Client&apos;s collections to your photo folder.
       </p>
     </div>
   );
@@ -590,7 +563,7 @@ function ChromeRequiredPanel() {
 
 const STEPS: { icon: React.ReactNode; label: string }[] = [
   { icon: <IconFolder size={18} />, label: "Pick a folder" },
-  { icon: <IconScanFace size={18} />, label: "We check it against your shortlist" },
+  { icon: <IconScanFace size={18} />, label: "We check it against the collections" },
   { icon: <IconCheck size={18} />, label: "You review what we found" },
   { icon: <IconCopy size={18} />, label: "We copy them in" },
 ];
@@ -631,23 +604,19 @@ function StepsGraphic() {
   );
 }
 
-/** "What should we locate?": the Client's collections and the shortlist. */
+/** "What should we locate?": the Client's collections. */
 function WhatPanel({
   collections,
   chosen,
-  shortlistCount,
   loading,
   loadError,
   onToggleCollection,
-  onToggleShortlist,
 }: {
   collections: GuestCollection[];
-  chosen: { collections: Set<string>; shortlist: boolean };
-  shortlistCount: number;
+  chosen: Set<string>;
   loading: boolean;
   loadError: string | null;
   onToggleCollection: (id: string) => void;
-  onToggleShortlist: () => void;
 }) {
   const row = (key: string, on: boolean, disabled: boolean, onToggle: () => void, label: React.ReactNode, count: number, chip?: React.ReactNode) => (
     <li key={key}>
@@ -671,9 +640,8 @@ function WhatPanel({
       )}
       <ul className="-mx-2" role="list">
         {collections.map((c) =>
-          row(c._id, chosen.collections.has(c._id), c.count === 0, () => onToggleCollection(c._id), c.name, c.count, <StatusChip c={c} />),
+          row(c._id, chosen.has(c._id), c.count === 0, () => onToggleCollection(c._id), c.name, c.count, <StatusChip c={c} />),
         )}
-        {row("shortlist", chosen.shortlist, shortlistCount === 0, onToggleShortlist, "Shortlisted", shortlistCount)}
       </ul>
       <p className="mt-3 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
         {loading
@@ -687,7 +655,6 @@ function WhatPanel({
 function PickerPanel({
   supported,
   savedHandle,
-  noun,
   targetCount,
   loading,
   loadError,
@@ -696,8 +663,6 @@ function PickerPanel({
 }: {
   supported: boolean | null;
   savedHandle: FsDirHandle | null;
-  /** "shortlisted photo", or "selected photo" by collection. */
-  noun: string;
   targetCount: number;
   loading: boolean;
   loadError: string | null;
@@ -725,8 +690,7 @@ function PickerPanel({
         <p className="mb-4 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
           Pick a folder (we&apos;ll check subfolders too) and we&apos;ll match it against your{" "}
           <span className="font-semibold text-[var(--color-brand-ink)]">{fmt(targetCount)}</span>{" "}
-          {noun}
-          {targetCount === 1 ? "" : "s"}.
+          selected photo{targetCount === 1 ? "" : "s"}.
         </p>
       )}
 
@@ -812,7 +776,7 @@ function ReviewPanel({
           No originals found in that folder
         </p>
         <p className="max-w-[360px] text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
-          None of the {fmt(targetCount)} shortlisted photos matched a file here. Try another
+          None of the {fmt(targetCount)} selected photos matched a file here. Try another
           folder.
         </p>
       </div>
@@ -823,7 +787,7 @@ function ReviewPanel({
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-[var(--color-brand-success-soft)] bg-[var(--color-brand-success-soft)] px-3.5 py-2.5">
         <p className="text-[13px] font-semibold text-[var(--color-brand-ink)]">
-          Found {fmt(found)} of {fmt(targetCount)} shortlisted photos
+          Found {fmt(found)} of {fmt(targetCount)} selected photos
         </p>
         <p className="text-[12px] text-[var(--color-brand-muted)]">
           {fmt(exact.length)} found
@@ -1013,7 +977,6 @@ function CopyingPanel({ prog }: { prog: CopyProgress }) {
 function DonePanel({
   result,
   mode,
-  byCollection,
   notFoundGroups,
   folderName,
   zipping,
@@ -1021,9 +984,8 @@ function DonePanel({
 }: {
   result: RunResult;
   mode: CopyMode;
-  byCollection: boolean;
-  /** By collection: how many were not found for each album. */
-  notFoundGroups: { placement: string; count: number }[] | null;
+  /** How many were not found for each album. */
+  notFoundGroups: { placement: string; count: number }[];
   folderName: string;
   zipping: boolean;
   onDownloadNotFound: () => void;
@@ -1040,9 +1002,7 @@ function DonePanel({
         <p className="max-w-[380px] text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
           {mode === "replace"
             ? `The “${folderName}” folder now matches this run's selection exactly.`
-            : byCollection
-              ? `Originals are in the “${folderName}” folder, sorted by collection, then by folder.`
-              : `Originals are in the “${folderName}” folder, sorted into per-folder subfolders.`}
+            : `Originals are in the “${folderName}” folder, sorted by collection, then by folder.`}
         </p>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -1053,10 +1013,10 @@ function DonePanel({
       {result.notFound > 0 && (
         <div className="flex flex-col items-center gap-2 text-center">
           <p className="text-[12px] text-[var(--color-brand-muted)]">
-            {fmt(result.notFound)} {byCollection ? "selected" : "shortlisted"} photo{result.notFound === 1 ? "" : "s"} weren&apos;t
+            {fmt(result.notFound)} selected photo{result.notFound === 1 ? "" : "s"} weren&apos;t
             found in that folder.
           </p>
-          {notFoundGroups && notFoundGroups.length > 0 && (
+          {notFoundGroups.length > 0 && (
             <ul className="flex flex-wrap justify-center gap-1.5" role="list">
               {notFoundGroups.map((g) => (
                 <li key={g.placement} className="rounded-full bg-[var(--color-brand-warning-soft)] px-2.5 py-1 text-[11.5px] font-semibold text-[var(--color-brand-ink)]">

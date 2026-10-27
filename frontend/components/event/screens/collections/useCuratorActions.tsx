@@ -6,6 +6,7 @@ import { GuestAuthError } from "@/lib/guest-api";
 import { likePhotos } from "@/lib/collections/api";
 import {
   MAX_LIKE_IDS,
+  addedAny,
   bulkLikeMode,
   chunk,
   likedToast,
@@ -17,8 +18,11 @@ import {
 import { SaveToCollectionSheet } from "./SaveToCollectionSheet";
 import { CollectionWriteError, type CollectionsApi } from "./useCollections";
 
-/** The gallery's toast, with an optional Undo. */
-export type Notify = (text: string, undo?: () => void) => void;
+/** A second button on the toast, after Undo ("Review"). */
+export type ToastAction = { label: string; run: () => void };
+
+/** The gallery's toast, with an optional Undo and an optional action. */
+export type Notify = (text: string, undo?: () => void, action?: ToastAction) => void;
 
 /** What a bulk action acts on: ids in hand, or a scope still to be walked. */
 export type BulkTarget =
@@ -41,6 +45,7 @@ export function useCuratorActions({
   liked,
   applyLikes,
   onReauth,
+  onReview,
 }: {
   t: ClientTheme;
   desktop: boolean;
@@ -53,6 +58,9 @@ export function useCuratorActions({
   /** Show these as liked or not, before (or without) the server's answer. */
   applyLikes: (ids: readonly string[], on: boolean) => void;
   onReauth: () => void;
+  /** Opens Review and send. Clients only: after a save that added photos,
+   *  the toast offers it. Absent for an editor, who cannot send. */
+  onReview?: () => void;
 }) {
   const [save, setSave] = useState<{ ids: string[] | null; count: number; onDone?: () => void } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -96,13 +104,18 @@ export function useCuratorActions({
       done?.();
       const text = saveSummary(ledger, (id) => col.collectionsById.get(id)?.name ?? "the collection");
       if (!text) return;
-      notify(text, () => {
-        void col.undo(ledger).then((ok) => {
-          if (!ok) notify("Couldn’t undo all of that. Check your collections.");
-        });
-      });
+      notify(
+        text,
+        () => {
+          void col.undo(ledger).then((ok) => {
+            if (!ok) notify("Couldn’t undo all of that. Check your collections.");
+          });
+        },
+        // A Client who just added photos is one tap from reviewing them.
+        onReview && addedAny(ledger) ? { label: "Review", run: onReview } : undefined,
+      );
     },
-    [save, col, notify],
+    [save, col, notify, onReview],
   );
 
   const saveSheet = save ? (

@@ -24,8 +24,6 @@ export type LikedFilters = {
   subTypes: string[];
   /** Specific guest ids (from get-all-guests). */
   guestIds: string[];
-  /** Show only shortlisted (picked-for-delivery) media. */
-  shortlistedOnly: boolean;
   /** Result ordering. "likes" = most-liked first (default); "recent" = newest first. */
   sort: "likes" | "recent";
 };
@@ -34,18 +32,17 @@ export const EMPTY_LIKED_FILTERS: LikedFilters = {
   audience: "all",
   subTypes: [],
   guestIds: [],
-  shortlistedOnly: false,
   sort: "likes",
 };
 
 /**
- * Clears the Smart Selects narrowing filters (Host picks / Team / Guests /
- * Shortlisted) back to "All liked". Sort is left untouched — it's ordering,
+ * Clears the Smart Selects narrowing filters (Host picks / Team / Guests)
+ * back to "All liked". Sort is left untouched — it's ordering,
  * not scope. Shaped as a pure `(prev) => next` updater so callers can pass it
  * straight to `setLikedFilters`.
  */
 export function resetLikedScope(f: LikedFilters): LikedFilters {
-  return { ...f, audience: "all", subTypes: [], guestIds: [], shortlistedOnly: false };
+  return { ...f, audience: "all", subTypes: [], guestIds: [] };
 }
 
 /**
@@ -55,12 +52,7 @@ export function resetLikedScope(f: LikedFilters): LikedFilters {
  * (see the Sort control's own no-Clear behaviour).
  */
 export function hasActiveLikedFilters(f: LikedFilters): boolean {
-  return (
-    f.audience !== "all" ||
-    f.subTypes.length > 0 ||
-    f.guestIds.length > 0 ||
-    f.shortlistedOnly
-  );
+  return f.audience !== "all" || f.subTypes.length > 0 || f.guestIds.length > 0;
 }
 
 export type EventMeta = {
@@ -160,14 +152,10 @@ export type EventContextValue = {
   photoCap: PhotoCap | null;
   /** Re-reads the cap from the server; resolves with the fresh value. */
   refreshPhotoCap: () => Promise<PhotoCap | null>;
-  /** Count of shortlisted media in the booking (drives the "Shortlisted" chip). */
-  shortlistedCount: number;
   /** Active filters for the Smart Selects (liked) view. */
   likedFilters: LikedFilters;
   /** Update the Smart Selects filters (re-fetches the liked view when it's active). */
   setLikedFilters: React.Dispatch<React.SetStateAction<LikedFilters>>;
-  /** Flag/unflag media as shortlisted (optimistic; used by Smart Selects). */
-  setShortlisted: (ids: string[], shortlisted: boolean) => Promise<void>;
   /** Total media in the booking (drives the header + All Media count). */
   totalCount: number;
   /** Total media in the active view (drives the folder's photo count + hasMore). */
@@ -226,7 +214,7 @@ export type EventContextValue = {
   /** Delete media by id (optimistic removal + reconcile + cover refresh). */
   deleteMediaIds: (ids: string[]) => Promise<void>;
   /**
-   * Every media id in the ACTIVE view (folder / liked / shortlist filters
+   * Every media id in the ACTIVE view (folder / liked filters
    * applied), fetched server-side and unpaginated — what "Select all" needs,
    * since the grid only holds the pages scrolled so far.
    */

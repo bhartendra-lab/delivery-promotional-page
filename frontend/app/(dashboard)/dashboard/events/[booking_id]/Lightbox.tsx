@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
 import { PhotoInfoTip } from "./PhotoInfoTip";
-import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconStar, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
+import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
@@ -20,7 +20,6 @@ export function Lightbox({
   onIndexChange,
   onClose,
   onDelete,
-  onToggleShortlist,
   onDownload,
 }: {
   items: MediaItem[];
@@ -29,8 +28,6 @@ export function Lightbox({
   onClose: () => void;
   /** Delete the previewed item. Omitted where delete isn't offered (Smart Selects). */
   onDelete?: (item: MediaItem) => void;
-  /** Toggle the previewed item's shortlist flag (Smart Selects). */
-  onToggleShortlist?: (item: MediaItem) => void;
   /**
    * Save the previewed photo. Owned by the grid, not by this overlay, so the
    * button behaves exactly like the tile's: it offers the quality choice where
@@ -172,15 +169,6 @@ export function Lightbox({
             <IconZoomIn size={17} />
           </ToolButton>
           <span className="mx-1 h-5 w-px bg-white/20" />
-          {onToggleShortlist && (
-            <ToolButton
-              label={item.shortlisted ? "Remove from shortlist" : "Shortlist photo"}
-              active={!!item.shortlisted}
-              onClick={() => onToggleShortlist(item)}
-            >
-              <IconStar size={16} filled={!!item.shortlisted} />
-            </ToolButton>
-          )}
           <PhotoInfoTip item={item} placement="toolbar" />
           <ToolButton label="Download photo" onClick={() => onDownload(item)}>
             <IconDownload size={16} />
@@ -249,28 +237,23 @@ function ToolButton({
   onClick,
   disabled,
   danger,
-  active,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
-  /** Persistent "on" state (e.g. shortlisted) — tinted amber. */
-  active?: boolean;
 }) {
   return (
     <button
       type="button"
       title={label}
       aria-label={label}
-      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
-      style={active ? { color: "var(--color-brand-warning)" } : undefined}
-      className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
-        active ? "" : "text-white"
-      } ${danger ? "hover:bg-[var(--color-brand-danger)]" : "hover:bg-white/15"}`}
+      className={`flex h-9 w-9 items-center justify-center rounded-lg text-white transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+        danger ? "hover:bg-[var(--color-brand-danger)]" : "hover:bg-white/15"
+      }`}
     >
       {children}
     </button>

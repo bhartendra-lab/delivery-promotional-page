@@ -241,3 +241,29 @@ test("a tile taller than the room is top-aligned, and the target never goes nega
   assert.equal(revealScrollTop({ boxTop: 3000, boxHeight: 1200, scrollTop: 0, viewportHeight: 800, insetTop: 60 }), 2940);
   assert.equal(revealScrollTop({ boxTop: 10, boxHeight: 200, scrollTop: 400, viewportHeight: 800 }), 0);
 });
+
+test("a footer is added under every photo and never overlaps the next tile", () => {
+  const squares = Array.from({ length: 6 }, () => ({ width: 1000, height: 1000 }));
+  const plain = masonryLayout(squares, 358);
+  const lined = masonryLayout(squares, 358, undefined, 32);
+  assert.equal(lined.footer, 32);
+  lined.boxes.forEach((b, i) => {
+    assert.equal(b.height, plain.boxes[i].height + 32);
+    assert.equal(b.width, plain.boxes[i].width);
+  });
+  // The second photo in a column starts after the first one's footer and a gap.
+  const col0 = lined.columnItems[0];
+  const [a, b] = [lined.boxes[col0[0]], lined.boxes[col0[1]]];
+  assert.equal(b.top, a.top + a.height + lined.gap);
+});
+
+test("a layout is only reused for the same footer", () => {
+  const all = Array.from({ length: 40 }, (_, i) => ({ _id: `m${i}`, width: 1000 + (i % 5) * 300, height: 1000 }));
+  const layoutFor = createMasonryCache<(typeof all)[number]>();
+  const plain = layoutFor(all, 358);
+  const lined = layoutFor(all, 358, 32);
+  assert.deepEqual(lined, masonryLayout(all, 358, undefined, 32));
+  assert.notDeepEqual(lined.boxes, plain.boxes);
+  // A continuation with a different footer is ignored, not mixed in.
+  assert.deepEqual(masonryLayout(all, 358, plain, 32), masonryLayout(all, 358, undefined, 32));
+});

@@ -15,7 +15,6 @@ import {
   updateBooking,
   editLockCodeOf,
   updateGalleryActivationStatus,
-  updateMediaShortlist,
   type MediaViewOptions,
   type UpdateBookingInput,
 } from "@/lib/api";
@@ -224,7 +223,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [uploadQualityTier, setUploadQualityTier] = useState<UploadVariant | null>(null);
   // The event's photo cap as last read from archive-tiers; null when uncapped.
   const [fetchedPhotoCap, setFetchedPhotoCap] = useState<PhotoCap | null>(null);
-  const [shortlistedCount, setShortlistedCount] = useState(0); // shortlisted media
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
@@ -355,7 +353,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         likedGuestType: f.audience === "all" ? undefined : f.audience,
         likedGuestSubTypes: f.subTypes,
         likedGuestIds: f.guestIds,
-        shortlistedOnly: f.shortlistedOnly,
       };
     }
     return {
@@ -394,7 +391,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         if (res.customFolders) setFolders(res.customFolders);
         if (res.folderCounts) setFolderCounts(res.folderCounts);
         if (typeof res.likedCount === "number") setLikedCount(res.likedCount);
-        if (typeof res.shortlistedCount === "number") setShortlistedCount(res.shortlistedCount);
         if (typeof res.totalCount === "number") {
           setTotalCount(res.totalCount);
           totalCountRef.current = res.totalCount;
@@ -850,41 +846,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking, reload, refreshDlpUsage, toast],
   );
 
-  // Flag/unflag media as shortlisted (Smart Selects). Optimistic: flip the flag
-  // in place, and when un-shortlisting under the "Shortlisted only" filter, drop
-  // the items from the view so they vanish immediately. Reverts on failure.
-  const setShortlisted = useCallback(
-    async (ids: string[], shortlisted: boolean) => {
-      const real = ids.filter((id) => id && !id.startsWith("optimistic-"));
-      if (real.length === 0) return;
-      const prev = mediaRef.current;
-      const changed = prev.filter(
-        (m) => real.includes(m._id) && !!m.shortlisted !== shortlisted,
-      ).length;
-      const f = likedFiltersRef.current;
-      const dropFromView = !shortlisted && f.shortlistedOnly;
-      setMedia((cur) =>
-        dropFromView
-          ? cur.filter((m) => !real.includes(m._id))
-          : cur.map((m) => (real.includes(m._id) ? { ...m, shortlisted } : m)),
-      );
-      try {
-        await updateMediaShortlist(real, shortlisted);
-        setShortlistedCount((c) => Math.max(0, c + (shortlisted ? changed : -changed)));
-        if (dropFromView) setTotalForView((t) => Math.max(0, t - real.length));
-        toast(
-          shortlisted
-            ? `${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} shortlisted`
-            : `Removed ${real.length.toLocaleString("en-IN")} from shortlist`,
-        );
-      } catch (err) {
-        setMedia(prev); // restore on failure
-        toast(err instanceof Error ? err.message : "Could not update shortlist — try again", "error");
-      }
-    },
-    [toast],
-  );
-
   /* ── activation actions (the only gallery controls left) ────── */
 
   const doDeactivate = useCallback(async () => {
@@ -1086,8 +1047,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
    *    nothing here can submit an incomplete photo set for processing.
    *  - Access & Sharing (guest link, passcode, guest list, QR) has no data
    *    dependency on upload state at all.
-   *  - Smart Selects flips per-media shortlist flags on existing rows. Only
-   *    its Locate Originals scan is held back (see `activeLocked`), since that
+   *  - Smart Selects reads likes and writes collections, never media rows.
+   *    Only its Locate Originals scan is held back (see `activeLocked`), since that
    *    walks the whole disk while the compressor pool is already saturated.
    */
   const effectiveTab: TabId = activeTab;
@@ -1120,10 +1081,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       uploadQualityTier,
       photoCap,
       refreshPhotoCap: refreshArchiveTiers,
-      shortlistedCount,
       likedFilters,
       setLikedFilters,
-      setShortlisted,
       totalCount,
       totalForView,
       hasMore,
@@ -1145,7 +1104,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, shortlistedCount, likedFilters, setLikedFilters, setShortlisted, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

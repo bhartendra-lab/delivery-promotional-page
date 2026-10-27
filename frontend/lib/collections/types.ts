@@ -131,14 +131,14 @@ export type GuestControl = {
 };
 
 /** One photo Locate Originals should find, with every place it goes: one
- *  per collection it is in, plus the shortlist's (GET /collections/:id/locate). */
+ *  per collection it is in (GET /collections/:id/locate). */
 export type LocateItem = {
   _id: string;
   media_id: string;
   url: string;
   filename: string | null;
   custom_folder_ids: string[];
-  /** Output folder names, in the collections' order ("Priya's Side", "Shortlisted"). */
+  /** Output folder names, in the collections' order ("Priya's Side", "Album"). */
   placements: string[];
 };
 

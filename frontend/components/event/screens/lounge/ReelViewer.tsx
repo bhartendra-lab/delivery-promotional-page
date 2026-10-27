@@ -20,6 +20,7 @@ import {
   type Step,
   type Tap,
 } from "./reelGestures";
+import { REEL_HINT_EVERY_MS, REEL_HINT_LIFT_PX, REEL_HINT_MS, hintDone, markHintDone, sessionStore, wantsNudge } from "./reelHint";
 import { IconCheck, IconChevronLeft, IconDownload, IconHeart, IconPlus, IconShare } from "@/components/ui/icons";
 
 /** Ask the gallery for its next page this many photos before the end, so the
@@ -139,6 +140,12 @@ export function ReelViewer({
   /** Bumped by a heart tap that likes, so the pop plays for that tap only. */
   const [pop, setPop] = useState(0);
 
+  /* ── the swipe-up hint (see reelHint.ts) ── */
+  const [swiped, setSwiped] = useState(() => hintDone(sessionStore()));
+  const [nudges, setNudges] = useState(0);
+  const nudgeRef = useRef<HTMLDivElement>(null);
+  const nudgeDue = wantsNudge({ done: swiped, nudges, canNext, zoomed, reducedMotion: reduced });
+
   /* ── settling: animate the track to a step, then move the index ── */
   const settleRef = useRef<{ timer: ReturnType<typeof setTimeout>; done: () => void } | null>(null);
   /** Finish a settle in flight right now, so a new touch starts from it. */
@@ -151,6 +158,11 @@ export function ReelViewer({
   };
   const settleTo = (step: Step) => {
     completeSettle();
+    if (step !== 0 && !swiped) {
+      // The guest has found the reel's scroll: no more hints this session.
+      setSwiped(true);
+      markHintDone(sessionStore());
+    }
     const target = index + step;
     const done = () => {
       setSettling(false);
@@ -226,6 +238,8 @@ export function ReelViewer({
       return;
     }
     completeSettle();
+    // A nudge in flight gives way to the finger at once.
+    for (const a of nudgeRef.current?.getAnimations?.() ?? []) a.cancel();
     const now = performance.now();
     gesture.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: now, samples: [{ t: now, y: e.clientY }], mode: "pending" };
   };
@@ -316,6 +330,28 @@ export function ReelViewer({
     [],
   );
 
+  /* ── the hint's next nudge, three seconds after the opening or the last one ──
+     Played with the Web Animations API on a wrapper around the track, so a
+     nudge re-renders nothing and never remounts a slide. */
+  useEffect(() => {
+    if (!nudgeDue) return;
+    const id = setTimeout(() => {
+      // A finger on the photo, or a page settling: skip this one.
+      if (!gesture.current && !settleRef.current) {
+        nudgeRef.current?.animate(
+          [
+            { transform: "translate3d(0, 0, 0)", easing: "cubic-bezier(0.33, 0, 0.2, 1)" },
+            { transform: `translate3d(0, ${-REEL_HINT_LIFT_PX}px, 0)`, offset: 0.4, easing: "cubic-bezier(0.45, 0, 0.25, 1)" },
+            { transform: "translate3d(0, 0, 0)" },
+          ],
+          { duration: REEL_HINT_MS },
+        );
+      }
+      setNudges((n) => n + 1);
+    }, REEL_HINT_EVERY_MS);
+    return () => clearTimeout(id);
+  }, [nudgeDue, nudges, index]);
+
   /* ── the gallery's next page, asked for before it is needed ──
      Once per position: a page that fails (offline, say) leaves the count where
      it was, and asking again on every render would hammer the server in a
@@ -378,6 +414,8 @@ export function ReelViewer({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
+      {/* The swipe-up hint lifts this wrapper; the track inside follows the finger. */}
+      <div ref={nudgeRef} className="absolute inset-0">
       <div
         className="absolute inset-0"
         style={{
@@ -414,6 +452,7 @@ export function ReelViewer({
             )}
           </div>
         )}
+      </div>
       </div>
 
       {/* scrims, for the legibility of the white controls on bright photos */}

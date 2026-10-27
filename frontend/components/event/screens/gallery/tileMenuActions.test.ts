@@ -15,3 +15,9 @@ test("each item appears only when allowed", () => {
 test("a laptop with downloads off and no collections has an empty menu, so no 3-dot button", () => {
   assert.deepEqual(tileMenuActions({ canDownload: false, canCollect: false, canShare: false }), []);
 });
+
+test("on a phone, Like comes first", () => {
+  assert.deepEqual(tileMenuActions({ canLike: true, canDownload: true, canCollect: true, canShare: true }), ["like", "download", "collect", "share"]);
+  // Downloads off and not a curator: Like and Share are still there.
+  assert.deepEqual(tileMenuActions({ canLike: true, canDownload: false, canCollect: false, canShare: true }), ["like", "share"]);
+});

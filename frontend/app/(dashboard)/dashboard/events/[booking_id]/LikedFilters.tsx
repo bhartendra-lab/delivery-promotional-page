@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAllGuests } from "@/lib/api";
 import type { Guest } from "@/lib/types";
 import { hasActiveLikedFilters, resetLikedScope, type LikedFilters as LikedFiltersState } from "./EventContext";
-import { IconCaretDown, IconCheck, IconHeart, IconSearch, IconStar, IconUsers } from "./icons";
+import { IconCaretDown, IconCheck, IconHeart, IconSearch, IconUsers } from "./icons";
 import { SortDropdown, type SortOption } from "./SortDropdown";
 
 const SORT_OPTIONS: SortOption<LikedFiltersState["sort"]>[] = [
@@ -15,10 +15,9 @@ const SORT_OPTIONS: SortOption<LikedFiltersState["sort"]>[] = [
 /**
  * Filter bar for the Smart Selects view — a single compact, wrapping row.
  * "All liked" is the default/reset state, not a pill alongside the others: it
- * clears the narrowing filters (Host picks, Shortlisted, Team, Guests) rather
- * than competing with them as an exclusive option. Host picks and Shortlisted
- * are independent toggles that AND-combine with each other and with Team /
- * Guests. Team is small (2-3 people) so it's inline chips, not a dropdown;
+ * clears the narrowing filters (Host picks, Team, Guests) rather than
+ * competing with them as an exclusive option. Host picks is a toggle that
+ * AND-combines with Team / Guests. Team is small (2-3 people) so it's inline chips, not a dropdown;
  * Guests stays a searchable dropdown but only lists people who've actually
  * liked something. Sort is ordering, not scope — it's a single-select control
  * that always has a value (see `SortDropdown`) and carries no "Clear".
@@ -29,7 +28,6 @@ export function LikedFilters({
   filters,
   onChange,
   likedCount = 0,
-  shortlistedCount = 0,
 }: {
   bookingId: string;
   guestTypes: string[] | undefined;
@@ -37,7 +35,6 @@ export function LikedFilters({
   onChange: React.Dispatch<React.SetStateAction<LikedFiltersState>>;
   /** Total liked media in the booking — shown as the "All liked" pill's count. */
   likedCount?: number;
-  shortlistedCount?: number;
 }) {
   const showTeams = !!guestTypes && guestTypes.length > 0;
   const narrowingActive = hasActiveLikedFilters(filters);
@@ -80,13 +77,10 @@ export function LikedFilters({
     }));
 
   const hostPicksOn = filters.audience === "host";
-  const shortlistedOn = filters.shortlistedOnly;
 
   const resetToAllLiked = () => onChange(resetLikedScope);
   const toggleHostPicks = () =>
     onChange((f) => ({ ...f, audience: f.audience === "host" ? "all" : "host" }));
-  const toggleShortlisted = () =>
-    onChange((f) => ({ ...f, shortlistedOnly: !f.shortlistedOnly }));
 
   // Button summary for the Guests dropdown (name when one, count otherwise).
   const guestsLabel = useMemo(() => {
@@ -110,15 +104,6 @@ export function LikedFilters({
         title="Flagged as a favourite by the couple"
       >
         Host picks
-      </QuickPill>
-      <QuickPill
-        active={shortlistedOn}
-        onClick={toggleShortlisted}
-        count={shortlistedCount}
-        title="Your team's picks for the final edit"
-      >
-        <IconStar size={12} filled={shortlistedOn} />
-        Shortlisted
       </QuickPill>
 
       {showTeams && (
@@ -163,7 +148,7 @@ export function LikedFilters({
 
 /**
  * The default/reset state — not one of the exclusive-looking pills, since
- * Host picks / Shortlisted / Team / Guests all AND-combine rather than
+ * Host picks / Team / Guests all AND-combine rather than
  * competing with "All liked" for a single selection. Disabled (inert) once
  * nothing is narrowed; clicking it while active clears back to the full
  * liked pool.
@@ -183,7 +168,7 @@ function AllLikedReset({
       type="button"
       onClick={onClick}
       disabled={!active}
-      title={active ? "Clear Host picks, Shortlisted, Team and Guest filters" : "Showing every liked photo"}
+      title={active ? "Clear Host picks, Team and Guest filters" : "Showing every liked photo"}
       className={`brand-focus inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
         active
           ? "text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
@@ -205,7 +190,7 @@ function AllLikedReset({
   );
 }
 
-/* ── quick toggle pill (Host picks / Shortlisted / Team) ───────────── */
+/* ── quick toggle pill (Host picks / Team) ──────────────────────────── */
 
 function QuickPill({
   active,

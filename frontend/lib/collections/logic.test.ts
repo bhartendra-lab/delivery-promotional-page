@@ -26,6 +26,7 @@ import {
   reviewDefaults,
   rowTapAction,
   saveSummary,
+  addedAny,
   selectionCardState,
   sendButtonLabel,
   sendConfirmText,
@@ -169,6 +170,15 @@ test("the sheet ends with one toast for everything it did", () => {
   );
   assert.equal(saveSummary(recordChange(one, "c2", "remove", ["a"]), name), "Updated 2 collections");
   assert.equal(saveSummary(new Map(), name), null);
+});
+
+test("only a session that added photos earns the Review button", () => {
+  const one = recordChange(new Map(), "c1", "add", ["a"]);
+  assert.equal(addedAny(one), true);
+  assert.equal(addedAny(recordChange(new Map(), "c1", "remove", ["a"])), false);
+  // Added, then taken out again in the same session: nothing was added.
+  assert.equal(addedAny(recordChange(one, "c1", "remove", ["a"])), false);
+  assert.equal(addedAny(new Map()), false);
 });
 
 test("membership answers replace what was asked, and writes show before the server answers", () => {

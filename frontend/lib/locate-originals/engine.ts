@@ -2,15 +2,15 @@
  * "Locate Original Images" runner — the client-side scan → match → copy
  * pipeline (Chromium's File System Access API only; see fsa.ts). No React here.
  *
- * The match target is always the booking's current `shortlisted: true` media —
- * every run checks the whole shortlist, with no memory of a previous run.
+ * The match targets are the photos of the collections the studio ticked —
+ * every run checks all of them, with no memory of a previous run.
  * Matching recomputes each disk file's `media_id` with the *same*
  * `makeFingerprint` / `makeRecordId` the uploader used, so exact matches are an
  * O(1) Set lookup.
  */
 
 import { makeFingerprint, makeRecordId } from "@/lib/r2-upload/state";
-import type { ShortlistedMediaItem } from "@/lib/api";
+import type { LocateItem } from "@/lib/collections/types";
 import {
   buildTargets,
   isRawFile,
@@ -33,8 +33,8 @@ import {
 } from "./fsa";
 import { placementPath } from "./placements";
 
-/** A shortlisted media item, enriched with the fields the matcher/router need. */
-export type ShortlistTarget = {
+/** A photo to locate, enriched with the fields the matcher/router need. */
+export type LocateTarget = {
   _id: string;
   media_id: string;
   /** Clean original filename (stored, or parsed from media_id). */
@@ -42,16 +42,15 @@ export type ShortlistTarget = {
   filesize: number;
   custom_folder_ids: string[];
   /**
-   * Locate by collection: every top-level folder this photo goes into (one
-   * per collection it is in, plus the shortlist's). Absent on a run without
-   * collections, which writes the old `{Folder}/{file}` layout exactly.
+   * Every top-level folder this photo goes into, one per collection it is
+   * in. Absent writes the old `{Folder}/{file}` layout.
    */
   placements?: string[];
 };
 
 /** One matched target and the disk file(s) that matched it (>1 = conflict). */
 export type ScanMatch = {
-  target: ShortlistTarget;
+  target: LocateTarget;
   sources: SourceFile[];
   /** "exact" = found; "fuzzy" = found, but the modified date changed (confirm). */
   kind: "exact" | "fuzzy";
@@ -78,19 +77,19 @@ export type RunResult = {
   /** Matches whose file was already correctly in place (Replace mode only —
    *  a fresh/new-copy folder never has any). */
   alreadyThere: number;
-  /** Shortlisted targets with no confirmed match this run. */
+  /** Targets with no confirmed match this run. */
   notFound: number;
   copiedNames: string[];
 };
 
 /** The studio's confirmed pick: one chosen disk file per included target. */
-export type IncludedMatch = { target: ShortlistTarget; source: SourceFile };
+export type IncludedMatch = { target: LocateTarget; source: SourceFile };
 
-/** Enrich the raw shortlisted rows into match targets (clean name + size). */
+/** Enrich the raw locate rows into match targets (clean name + size). */
 export function toTargets(
-  items: (ShortlistedMediaItem & { placements?: string[] })[],
+  items: (Omit<LocateItem, "placements"> & { placements?: string[] })[],
   bookingId: string,
-): ShortlistTarget[] {
+): LocateTarget[] {
   return items.map((it) => ({
     _id: it._id,
     media_id: it.media_id,
@@ -107,21 +106,21 @@ function dirOf(path: string): string {
 }
 
 /**
- * Recursively scan a picked directory: match every file against the shortlist
+ * Recursively scan a picked directory: match every file against the
  * targets, and separately index every raw-format file by directory + base name
  * (for the CR2-sibling copy step). `onProgress` is called with the running
  * scanned count (throttled to every 25 files + once at the end).
  */
 export async function scanDirectory(
   root: FsDirHandle,
-  targets: ShortlistTarget[],
+  targets: LocateTarget[],
   bookingId: string,
   onProgress: (scanned: number) => void,
 ): Promise<ScanResult> {
   const index = buildTargets(targets);
   const byId = new Map<
     string,
-    { target: ShortlistTarget; sources: SourceFile[]; exact: boolean }
+    { target: LocateTarget; sources: SourceFile[]; exact: boolean }
   >();
   const rawIndex = new Map<string, SourceFile>();
   let scanned = 0;
@@ -154,7 +153,7 @@ export async function scanDirectory(
 
 /** Resolve a target's on-disk subfolder name (first folder id, or Uncategorised). */
 function folderNameFor(
-  target: ShortlistTarget,
+  target: LocateTarget,
   folderNameById: Map<string, string>,
 ): string {
   const firstId = target.custom_folder_ids[0];

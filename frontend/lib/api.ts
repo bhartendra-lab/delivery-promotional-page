@@ -1259,8 +1259,6 @@ export type MediaViewOptions = {
   likedGuestSubTypes?: string[];
   /** Restrict likes to these specific guest ids. */
   likedGuestIds?: string[];
-  /** Smart Selects — only shortlisted media. */
-  shortlistedOnly?: boolean;
 };
 
 function mediaViewParams(opts?: MediaViewOptions): URLSearchParams {
@@ -1273,7 +1271,6 @@ function mediaViewParams(opts?: MediaViewOptions): URLSearchParams {
     params.set("liked_guest_sub_types", opts.likedGuestSubTypes.join(","));
   if (opts?.likedGuestIds?.length)
     params.set("liked_guest_ids", opts.likedGuestIds.join(","));
-  if (opts?.shortlistedOnly) params.set("shortlisted_only", "true");
   return params;
 }
 
@@ -1296,7 +1293,7 @@ export function getMedia(
  * "Select all", which must reach the whole folder (or the whole gallery on All
  * Media), not just the pages scrolled into the grid so far.
  *
- * These are Media `_id`s — the ids `deleteMedia`/`updateMediaShortlist` take —
+ * These are Media `_id`s — the ids `deleteMedia` takes —
  * NOT the content-fingerprint `media_id`s that `getUploadedMediaIds` returns.
  */
 export function getMediaIdsForView(bookingId: string, opts?: MediaViewOptions): Promise<string[]> {
@@ -1429,54 +1426,6 @@ export function setGuestAccessLevel(guestId: string, level: GuestAccessLevel) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ level }),
     },
-  );
-}
-
-/**
- * POST /deliverables/update-media-shortlist — flag/unflag media as shortlisted
- * for Smart Selects. `mediaIds` are Media `_id`s (never optimistic placeholders).
- */
-export function updateMediaShortlist(mediaIds: string[], shortlisted: boolean) {
-  return request<{ message: string; modifiedCount: number }>(
-    "/deliverables/update-media-shortlist",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ media_ids: mediaIds, shortlisted }),
-    },
-  );
-}
-
-/**
- * One shortlisted media item as returned by `get-shortlisted-media` — just the
- * fields the client-side "Locate Original Images" matcher needs. `media_id`
- * encodes `{booking}__{filename}-{size}-{lastModified}`; `filename` is the stored
- * clean name (null on legacy docs, which parse it back out of `media_id`).
- */
-export type ShortlistedMediaItem = {
-  _id: string;
-  media_id: string;
-  /** Gallery (web-res) R2 URL — lets the studio zip-download any not-found photos. */
-  url: string;
-  filename: string | null;
-  custom_folder_ids: string[];
-};
-
-export type ShortlistedMediaResponse = {
-  media: ShortlistedMediaItem[];
-  /** The booking's custom folders — id→name for per-folder subfolder routing. */
-  customFolders: { _id: string; name: string }[];
-};
-
-/**
- * GET /deliverables/get-shortlisted-media/:booking_id — the full, unpaginated set
- * of shortlisted media for the booking (Smart Selects → Locate Original Images),
- * plus the booking's custom folders, for the client-side disk matcher. Nothing
- * about a run is persisted server-side — every call reflects the live shortlist.
- */
-export function getShortlistedMedia(bookingId: string) {
-  return request<ShortlistedMediaResponse>(
-    `/deliverables/get-shortlisted-media/${encodeURIComponent(bookingId)}`,
   );
 }
 
@@ -1914,11 +1863,13 @@ export function reopenStudioCollections(bookingId: string, collectionIds: string
   return request<{ reopened: string[]; already_draft: string[] }>(`${cb(bookingId)}/reopen`, jsonPost({ collection_ids: collectionIds }));
 }
 
-/** Locate Originals: every photo in these collections (and the shortlist), with its placements. */
-export function getLocateTargets(bookingId: string, collectionIds: string[], includeShortlist: boolean) {
+/** Locate Originals: every photo in these collections, with its placements. The
+ *  backend can still add the old studio shortlist; Smart Selects no longer has
+ *  one, so it is always asked not to. */
+export function getLocateTargets(bookingId: string, collectionIds: string[]) {
   const p = new URLSearchParams();
   if (collectionIds.length) p.set("collection_ids", collectionIds.join(","));
-  p.set("include_shortlist", includeShortlist ? "true" : "false");
+  p.set("include_shortlist", "false");
   return request<LocateResponse>(`${cb(bookingId)}/locate?${p.toString()}`);
 }
 

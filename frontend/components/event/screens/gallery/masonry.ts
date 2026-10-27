@@ -45,6 +45,7 @@ export type MasonryBox = {
   left: number;
   top: number;
   width: number;
+  /** The whole tile: the photo plus the layout's `footer`. */
   height: number;
   /** Which column the box was placed in. */
   column: number;
@@ -73,6 +74,9 @@ export type MasonryLayout = {
   boxes: MasonryBox[];
   /** Total height: the tallest column, without its trailing gap. */
   height: number;
+  /** Fixed height under every photo (the phone's like-and-menu line), part of
+   *  each box. A layout is only reusable for the same footer. */
+  footer: number;
 };
 
 type Sized = { width?: number; height?: number };
@@ -118,7 +122,7 @@ export function displayAspect(item: Sized): { ar: number; clamped: boolean } {
   return { ar, clamped: ar !== raw };
 }
 
-function emptyLayout(containerWidth: number): MasonryLayout {
+function emptyLayout(containerWidth: number, footer: number): MasonryLayout {
   return {
     containerWidth,
     columns: 0,
@@ -130,6 +134,7 @@ function emptyLayout(containerWidth: number): MasonryLayout {
     columnItems: [],
     boxes: [],
     height: 0,
+    footer,
   };
 }
 
@@ -157,7 +162,10 @@ function solveColumns(width: number): { columns: number; gap: number; widths: nu
 }
 
 /**
- * Lay `items` out for a container `containerWidth` pixels wide.
+ * Lay `items` out for a container `containerWidth` pixels wide. `footer` is a
+ * fixed strip under every photo (0 for none): each box is the photo's own
+ * height plus it, so a line of controls under the photo never overlaps the
+ * next tile.
  *
  * `prev`, when given, must be the layout of a PREFIX of these same items at
  * this same width (the caller owns that check: see `createMasonryCache`). The
@@ -167,12 +175,14 @@ function solveColumns(width: number): { columns: number; gap: number; widths: nu
  *
  * Never mutates `prev`.
  */
-export function masonryLayout<T extends Sized>(items: T[], containerWidth: number, prev?: MasonryLayout): MasonryLayout {
+export function masonryLayout<T extends Sized>(items: T[], containerWidth: number, prev?: MasonryLayout, footer = 0): MasonryLayout {
   const width = Math.floor(containerWidth);
-  if (!(width > 0) || items.length === 0) return emptyLayout(width > 0 ? width : 0);
+  if (!(width > 0) || items.length === 0) return emptyLayout(width > 0 ? width : 0, footer);
 
   const reuse =
-    prev && prev.containerWidth === width && prev.columns > 0 && prev.boxes.length <= items.length ? prev : null;
+    prev && prev.containerWidth === width && prev.footer === footer && prev.columns > 0 && prev.boxes.length <= items.length
+      ? prev
+      : null;
 
   let columns: number;
   let gap: number;
@@ -201,7 +211,7 @@ export function masonryLayout<T extends Sized>(items: T[], containerWidth: numbe
     let col = 0;
     for (let c = 1; c < columns; c++) if (heights[c] < heights[col]) col = c;
     const w = widths[col];
-    const h = Math.max(1, Math.round(w / displayAspect(items[i]).ar));
+    const h = Math.max(1, Math.round(w / displayAspect(items[i]).ar)) + footer;
     boxes.push({ left: lefts[col], top: heights[col], width: w, height: h, column: col });
     colItems[col].push(i);
     heights[col] += h + gap;
@@ -223,6 +233,7 @@ export function masonryLayout<T extends Sized>(items: T[], containerWidth: numbe
     columnItems: colItems,
     boxes,
     height,
+    footer,
   };
 }
 
@@ -263,12 +274,12 @@ export function masonryWindow(layout: MasonryLayout, fromY: number, toY: number)
  * A closure rather than a ref so the grid can hold it in `useState` and call it
  * inside `useMemo` without reading a ref during render.
  */
-export function createMasonryCache<T extends Sized & { _id: string }>(): (items: T[], containerWidth: number) => MasonryLayout {
+export function createMasonryCache<T extends Sized & { _id: string }>(): (items: T[], containerWidth: number, footer?: number) => MasonryLayout {
   let last: { layout: MasonryLayout; ids: string[] } | null = null;
-  return (items, containerWidth) => {
+  return (items, containerWidth, footer = 0) => {
     const width = Math.floor(containerWidth);
     let prev: MasonryLayout | undefined;
-    if (last && last.layout.containerWidth === width && last.ids.length <= items.length) {
+    if (last && last.layout.containerWidth === width && last.layout.footer === footer && last.ids.length <= items.length) {
       const ids = last.ids;
       let same = true;
       for (let i = 0; i < ids.length; i++) {
@@ -279,7 +290,7 @@ export function createMasonryCache<T extends Sized & { _id: string }>(): (items:
       }
       if (same) prev = last.layout;
     }
-    const layout = masonryLayout(items, width, prev);
+    const layout = masonryLayout(items, width, prev, footer);
     last = { layout, ids: items.map((m) => m._id) };
     return layout;
   };

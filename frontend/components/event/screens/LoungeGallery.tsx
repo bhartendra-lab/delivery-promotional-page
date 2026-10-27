@@ -42,12 +42,13 @@ import { MobileTopBar } from "./lounge/MobileTopBar";
 import { ReviewNudge, OutroBand, type NudgeReason } from "./lounge/ReviewNudge";
 import { GalleryGrid, GallerySkeleton } from "./gallery/GalleryGrid";
 import { StickyControlRow } from "./gallery/StickyControlRow";
-import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectionSummary, type GalleryTab } from "./gallery/GalleryControls";
+import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, SelectAllToggle, type GalleryTab } from "./gallery/GalleryControls";
+import { Collapse, useScrollCollapse } from "./gallery/Collapse";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
 import type { CollectionsBlock } from "@/lib/collections/types";
 import { attributionLine, bulkLikeMode, capabilities, studioLabel } from "@/lib/collections/logic";
 import { useCollections } from "./collections/useCollections";
-import { useCuratorActions, type BulkTarget } from "./collections/useCuratorActions";
+import { useCuratorActions, type BulkTarget, type ToastAction } from "./collections/useCuratorActions";
 import { CuratorSelectionBar } from "./collections/CuratorSelectionBar";
 import type { WorkspaceEntry } from "./collections/SelectionWorkspace";
 
@@ -498,8 +499,11 @@ export function LoungeGallery({
    *  re-checks and is the real gate. */
   const [archiveAccess, setArchiveAccess] = useState(false);
   /** A plain message, or (collections' reversible actions) one with Undo. */
-  const [toast, setToast] = useState<string | { text: string; undo: () => void } | null>(null);
-  const notify = useCallback((text: string, undo?: () => void) => setToast(undo ? { text, undo } : text), []);
+  const [toast, setToast] = useState<string | { text: string; undo?: () => void; action?: ToastAction } | null>(null);
+  const notify = useCallback(
+    (text: string, undo?: () => void, action?: ToastAction) => setToast(undo || action ? { text, undo, action } : text),
+    [],
+  );
   const [nudge, setNudge] = useState<NudgeReason | null>(null);
   /** One action-triggered nudge (download OR likes) per page load. */
   const actionNudgeShown = useRef(false);
@@ -589,11 +593,14 @@ export function LoungeGallery({
   /** A feed view whose first answer has not landed yet: the grid shows the
    *  loading state, and nothing may be selected or downloaded from it. */
   const feedPending = feedView && !activeFeed;
-  /** Select mode exists to act on a subset: to download it or, for a
-   *  curator, to like it or save it to a collection. So for anyone else with
-   *  downloads off it is a dead end and has no way in; and nobody may start
-   *  one on a grid that is still loading. */
-  const canSelect = (canDownload || curator) && !feedPending;
+  /** Bulk like, for every guest: it rides the collections switch (the
+   *  session's block), like the rest of this release's new writes. */
+  const bulkLikeOn = collections?.enabled === true;
+  /** Select mode exists to act on a subset: to download it, to like it, or
+   *  for a curator to save it to a collection. With downloads off and the
+   *  switch off it would be a dead end, so it has no way in; and nobody may
+   *  start one on a grid that is still loading. */
+  const canSelect = (canDownload || curator || bulkLikeOn) && !feedPending;
   /** The grid's view apart from the face filter. A change here is a new view
    *  (the skeleton); a face filter change on the same base is not. Read by the
    *  loaders through the ref, when their first page lands. */
@@ -971,8 +978,9 @@ export function LoungeGallery({
 
   useEffect(() => {
     if (!toast) return;
-    // Long enough to reach for Undo; a plain message stays as it always did.
-    const id = setTimeout(() => setToast(null), typeof toast === "string" ? 2600 : 5000);
+    // Long enough to reach for Undo, and a little longer when it also offers
+    // Review; a plain message stays as it always did.
+    const id = setTimeout(() => setToast(null), typeof toast === "string" ? 2600 : toast.action ? 6500 : 5000);
     return () => clearTimeout(id);
   }, [toast]);
 
@@ -1242,6 +1250,7 @@ export function LoungeGallery({
       prev.map((m) => (changing.has(m._id) ? { ...m, likes_count: Math.max(0, (m.likes_count ?? 0) + (on ? 1 : -1)) } : m)),
     );
   }, []);
+  const openReview = useCallback(() => setReviewOpen(true), []);
   const curatorActions = useCuratorActions({
     t,
     desktop: isDesktop,
@@ -1252,6 +1261,8 @@ export function LoungeGallery({
     liked,
     applyLikes,
     onReauth: reauth,
+    // Only a Client can send, so only a Client's save toast offers Review.
+    onReview: caps.canSend ? openReview : undefined,
   });
   const openSave = curatorActions.openSave;
   const openSaveFor = useCallback((item: GuestMediaItem) => openSave({ ids: [item._id] }), [openSave]);
@@ -1924,6 +1935,15 @@ export function LoungeGallery({
   }
 
   const navActive = view === "home" ? "home" : likedView || selectionShown ? "liked" : "gallery";
+
+  /* The phone gallery folds its chrome away while the guest scrolls down (see
+     gallery/collapseOnScroll.ts), and select mode drops the bottom nav
+     outright: the action bar takes its place. Only on the grid itself: Home
+     and the curator's Selection workspace keep their chrome. */
+  const mobileGridShown = !isDesktop && view === "gallery" && !selectionShown;
+  const fold = useScrollCollapse(`${view}|${tab}|${folder}|${likedView}|${selectMode}|${selectionShown}`);
+  const chromeFolded = mobileGridShown && fold.collapsed;
+  const navHidden = mobileGridShown && (fold.collapsed || selectMode);
   const goHome = () => {
     setView("home");
     exitSelect();
@@ -2128,7 +2148,6 @@ export function LoungeGallery({
                 onStart={() => gotoGallery("all")}
                 onContinue={() => openSelection({ segment: "liked", collectionId: null })}
                 onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
-                onReview={() => setReviewOpen(true)}
                 onReauth={reauth}
               />
             </div>
@@ -2324,6 +2343,7 @@ export function LoungeGallery({
       {/* ── MOBILE: bottom nav + separate Home / Gallery tabs ────────────── */}
       {!isDesktop && (
       <div className="flex min-h-0 flex-1 flex-col">
+        <Collapse open={!chromeFolded}>
         <MobileTopBar
           t={t}
           event={event}
@@ -2339,6 +2359,7 @@ export function LoungeGallery({
           guestName={session.name}
           photoUrl={photoUrl}
         />
+        </Collapse>
         {view === "home" ? (
           <div
             ref={mobileScrollRef}
@@ -2364,7 +2385,6 @@ export function LoungeGallery({
                   onStart={() => gotoGallery("all")}
                   onContinue={() => openSelection({ segment: "liked", collectionId: null })}
                   onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
-                  onReview={() => setReviewOpen(true)}
                   onReauth={reauth}
                 />
               </div>
@@ -2446,8 +2466,9 @@ export function LoungeGallery({
               mobileScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
             }}
             selectMode={selectMode}
+            collapsed={chromeFolded}
+            onScrollPosition={fold.onScroll}
             isSelected={isSelected}
-            selectionLabel={selectionLabel}
             selectionHint={selectionHint}
             scopeTotal={totalForView}
             selectAll={selectAll}
@@ -2494,18 +2515,17 @@ export function LoungeGallery({
           />
         )}
 
-        <BottomNav t={t} active={navActive} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
+        <BottomNav t={t} active={navActive} hidden={navHidden} onHome={goHome} onGallery={goGallery} onLiked={goLiked} />
       </div>
       )}
 
-      {/* Select action bar — Cancel + Download only. The count and Select all
-          live in the control row at the top, next to each other, so the bar
-          stays a one-line commit step rather than a second summary. Download is
-          also the ONLY action here, which is why select mode is unreachable
-          when the studio has downloads off (see `canSelect`); the guard below
-          is belt-and-braces for a mode that can no longer be entered. */}
-      {/* A curator's bar instead: Like, Add to collection, Download. */}
-      {selectMode && curator && !selectionShown && (
+      {/* The select action bar. With the collections switch on, every guest
+          gets the same one: Like, Download where allowed, and Add to
+          collection for a curator. With it off, a plain guest's bar is Cancel +
+          Download only: Download is then the ONLY action, which is why select
+          mode is unreachable for them when the studio has downloads off (see
+          `canSelect`); the guard below is belt-and-braces for that. */}
+      {selectMode && (curator || bulkLikeOn) && !selectionShown && (
         <CuratorSelectionBar
           t={t}
           label={selectionLabel}
@@ -2517,19 +2537,20 @@ export function LoungeGallery({
             exitSelect();
             void curatorActions.bulkLike(target, { known: selectionKnown });
           }}
-          onCollect={() => openSave(selectionTarget(), exitSelect)}
+          onCollect={curator ? () => openSave(selectionTarget(), exitSelect) : undefined}
           onDownload={canDownload ? downloadSelected : undefined}
           busy={zipping}
-          aboveNav={!isDesktop}
+          // Select mode hides the bottom nav, so the bar takes its place.
+          aboveNav={false}
         />
       )}
-      {selectMode && !curator && (
+      {selectMode && !curator && !bulkLikeOn && (
         <div
-          // Sits above the bottom nav, which now carries the home-indicator
-          // inset — so this has to clear the same inset or the two overlap on a
-          // notched phone. The desktop offset is untouched (no nav there).
+          // On a phone, where the bottom nav was: select mode hides the nav.
+          // Clears the home-indicator inset so a notched phone does not cover
+          // it. The laptop keeps the offset it always had.
           className="fixed inset-x-0 z-40 flex justify-center px-5 lg:bottom-6"
-          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
+          style={{ bottom: isDesktop ? "calc(84px + env(safe-area-inset-bottom))" : "calc(16px + env(safe-area-inset-bottom))" }}
         >
           <div className="flex w-full max-w-[460px] items-center justify-between gap-3 rounded-full px-4 py-2" style={{ background: t.card, boxShadow: t.shadow }}>
             <span className="truncate text-[12.5px] font-extrabold" style={{ color: t.text }}>
@@ -2746,23 +2767,43 @@ export function LoungeGallery({
           style={anyViewerOpen && !isDesktop ? { top: "calc(60px + env(safe-area-inset-top))" } : undefined}
         >
           <div
-            className={`flex items-center gap-3 rounded-full px-4 py-2.5 text-[12.5px] font-bold shadow-lg ${typeof toast === "string" ? "" : "pointer-events-auto"}`}
+            className={`flex max-w-full items-center gap-3 rounded-full px-4 py-2.5 text-[12.5px] font-bold shadow-lg ${typeof toast === "string" ? "" : "pointer-events-auto"}`}
             style={anyViewerOpen ? { background: "rgba(255,253,245,0.95)", color: SIGNAL.viewer } : { background: SIGNAL.viewer, color: "#fff" }}
           >
-            {typeof toast === "string" ? toast : toast.text}
-            {typeof toast !== "string" && (
-              <button
-                type="button"
-                onClick={() => {
-                  const undo = toast.undo;
-                  setToast(null);
-                  undo();
-                }}
-                className="-my-1 -mr-1.5 cursor-pointer rounded-full px-2.5 py-1 text-[12.5px] font-extrabold"
-                style={{ color: "inherit", background: anyViewerOpen ? "rgba(20,16,8,0.08)" : "rgba(255,255,255,0.14)" }}
-              >
-                Undo
-              </button>
+            {/* With buttons, a long collection name gives way to them; a plain
+                message wraps as it always did. */}
+            {typeof toast === "string" ? toast : <span className="min-w-0 truncate">{toast.text}</span>}
+            {typeof toast !== "string" && (toast.undo || toast.action) && (
+              <span className="-my-1 -mr-1.5 flex shrink-0 items-center gap-1">
+                {toast.undo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const undo = toast.undo;
+                      setToast(null);
+                      undo?.();
+                    }}
+                    className="cursor-pointer rounded-full px-2.5 py-1 text-[12.5px] font-extrabold"
+                    style={{ color: "inherit", background: anyViewerOpen ? "rgba(20,16,8,0.08)" : "rgba(255,255,255,0.14)" }}
+                  >
+                    Undo
+                  </button>
+                )}
+                {toast.action && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const run = toast.action?.run;
+                      setToast(null);
+                      run?.();
+                    }}
+                    className="cursor-pointer rounded-full px-3 py-1 text-[12.5px] font-extrabold"
+                    style={{ background: t.brand, color: t.onBrand }}
+                  >
+                    {toast.action.label}
+                  </button>
+                )}
+              </span>
             )}
           </div>
         </div>
@@ -2872,9 +2913,12 @@ function MobileGalleryView(props: {
   likedView: boolean;
   onSelectLiked: () => void;
   selectMode: boolean;
+  /** The guest has scrolled down: the folder pills fold away, leaving the
+   *  switcher and the menu on one line (see gallery/collapseOnScroll.ts). */
+  collapsed: boolean;
+  /** Every scroll of the grid, for the fold. */
+  onScrollPosition: (el: HTMLElement) => void;
   isSelected: (id: string) => boolean;
-  /** "All N selected" / "N selected" for the compact header (see the parent). */
-  selectionLabel: string;
   /** Quiet line under Select all; only set for large selections. */
   selectionHint?: string;
   /** Photos in the active view — shown on the Select all button. */
@@ -2928,7 +2972,7 @@ function MobileGalleryView(props: {
    *  masonry windows against it. */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, isSelected, selectionLabel, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, refreshing, onClearFaces } = props;
+  const { t, unlocked, tab, setTab, onOpenPrivate, folders, folderCounts, folder, setFolder, items, loading, loadingMore, hasMore, onLoadMore, likedView, onSelectLiked, selectMode, collapsed, onScrollPosition, isSelected, selectionHint, scopeTotal, selectAll, onSelectAll, onClearSelectAll, liked, canSelect, canDownloadAll, zipping, galleryDone, event, reviewUrl, onReviewClick, contactUrl, onContactClick, onRescan, onBrowseAll, faceSearchOn, hasSelfie, showMatchBanner, matchCount, onDismissMatchBanner, totalForViewAll, scrollRef, showGroup, itemBuckets, groupLabels, groupFailed, faceBar, filtering, refreshing, onClearFaces } = props;
 
   // Mirrors the parent's `effTab`: with face search off there is no My Photos,
   // whatever `tab` still holds.
@@ -2939,6 +2983,7 @@ function MobileGalleryView(props: {
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
+    onScrollPosition(el);
     if (hasMore && !loadingMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) onLoadMore();
   };
 
@@ -2958,9 +3003,9 @@ function MobileGalleryView(props: {
       <div className="fx-rise relative z-30 px-4 pt-3" style={{ background: t.bg }}>
         <div className="flex items-center justify-between gap-2">
           {selectMode ? (
-            <SelectionSummary
+            // The count and Cancel are in the action bar at the bottom.
+            <SelectAllToggle
               t={t}
-              label={selectionLabel}
               selectAll={selectAll}
               scopeTotal={scopeTotal}
               onSelectAll={onSelectAll}
@@ -2997,17 +3042,21 @@ function MobileGalleryView(props: {
         {/* Folder pills do not apply to My People, whose feed is about who is
             in each photo, not which folder. Under a face filter they stay, with
             All lit (the filter covers the whole tab): hiding them made the bar
-            jump up under the guest's finger on the first tap. */}
+            jump up under the guest's finger on the first tap. They fold away
+            while the guest scrolls down, and in select mode, where switching
+            folder would end the selection anyway. */}
         {!groupView && !likedView && (
-          <FolderPillsRow
-            t={t}
-            folders={folders}
-            folderCounts={folderCounts}
-            folder={folder}
-            setFolder={setFolder}
-            allCount={totalForViewAll}
-            className="mt-2.5 pb-1"
-          />
+          <Collapse open={!collapsed && !selectMode}>
+            <FolderPillsRow
+              t={t}
+              folders={folders}
+              folderCounts={folderCounts}
+              folder={folder}
+              setFolder={setFolder}
+              allCount={totalForViewAll}
+              className="mt-2.5 pb-1"
+            />
+          </Collapse>
         )}
       </div>
 
@@ -3026,7 +3075,13 @@ function MobileGalleryView(props: {
       >
         <div className="mx-auto w-full max-w-[760px] px-4">
           {showMatchBanner && <MatchBanner t={t} count={matchCount} onDismiss={onDismissMatchBanner} className="mb-5" />}
-          {faceBar && <div className="mb-4">{faceBar}</div>}
+          {/* Not while selecting: a new face filter would replace the set
+              being selected from. */}
+          {faceBar && (
+            <Collapse open={!selectMode}>
+              <div className="pb-4">{faceBar}</div>
+            </Collapse>
+          )}
           {loading ? (
             <GallerySkeleton t={t} />
           ) : (props.loadError && items.length === 0) || groupFailed ? (
@@ -3076,6 +3131,7 @@ function MobileGalleryView(props: {
                   scrollRef={scrollRef}
                   reveal={props.reveal}
                   revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
+                  footer
                 />
               ) : (
               <GalleryGrid
@@ -3094,6 +3150,7 @@ function MobileGalleryView(props: {
                 scrollRef={scrollRef}
                 reveal={props.reveal}
                 revealInset={{ top: 0, bottom: MOBILE_NAV_CLEARANCE }}
+                footer
               />
               )}
               {loadingMore && (
@@ -3172,6 +3229,8 @@ function BucketedGrid({
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   reveal?: { id: string; seq: number } | null;
   revealInset?: { top: number; bottom: number };
+  /** The phone's like-and-menu line under each photo (see GalleryGrid). */
+  footer?: boolean;
 }) {
   // Runs of consecutive items from the same bucket. Pages arrive in bucket
   // order, so in practice there is one run per bucket; building it this way
@@ -3498,7 +3557,23 @@ function FaceFilterEmptyState({ t, onClear }: { t: Theme; onClear: () => void })
   );
 }
 
-function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active: "home" | "gallery" | "liked"; onHome: () => void; onGallery: () => void; onLiked: () => void }) {
+function BottomNav({
+  t,
+  active,
+  hidden = false,
+  onHome,
+  onGallery,
+  onLiked,
+}: {
+  t: Theme;
+  active: "home" | "gallery" | "liked";
+  /** Slid out below the screen: the guest is scrolling down the grid, or
+   *  selecting (the action bar takes its place). */
+  hidden?: boolean;
+  onHome: () => void;
+  onGallery: () => void;
+  onLiked: () => void;
+}) {
   const items = [
     { key: "home", label: "Home", icon: <IconHome size={18} weight={active === "home" ? "fill" : "regular"} />, on: onHome },
     { key: "gallery", label: "Gallery", icon: <IconGrid size={18} weight={active === "gallery" ? "fill" : "regular"} />, on: onGallery },
@@ -3509,8 +3584,13 @@ function BottomNav({ t, active, onHome, onGallery, onLiked }: { t: Theme; active
       // `pb-3` alone puts the pill under the home indicator on a notched
       // phone. The inset is added to it rather than replacing it, so a device
       // without one is unchanged.
-      className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-5 pb-3 lg:hidden"
-      style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-5 pb-3 transition-transform duration-[250ms] ease-out motion-reduce:transition-none lg:hidden"
+      style={{
+        paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))",
+        transform: hidden ? "translateY(calc(100% + 8px))" : undefined,
+      }}
+      inert={hidden}
+      aria-hidden={hidden || undefined}
     >
       <div className="flex w-full max-w-[460px] gap-1 rounded-full p-1" style={{ background: t.card, boxShadow: t.shadow }}>
         {items.map((n) => {

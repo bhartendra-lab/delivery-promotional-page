@@ -16,17 +16,15 @@ import { useStudioCollections } from "./useStudioCollections";
 /**
  * Smart Selects — a top-level section (sibling of Media / Gallery Design /
  * Access & Sharing) for the photos guests liked. The studio filters them by who
- * liked, shortlists the best picks for delivery, locates their originals, and
- * downloads. The header stacks a title bar and the filter bar — the Liked /
- * Shortlisted counts live as badges on the filter bar's quick pills rather than
- * a separate full-width stat strip.
+ * liked and downloads. The header stacks a title bar and the filter bar; the
+ * Liked count rides as a badge on the filter bar rather than a stat strip.
  *
  * With collections switched on (the server's COLLECTIONS_ENABLED), the tab
- * gains a left rail on a laptop and a pill row on a phone: All liked,
- * Shortlisted, the Client's collections and New collection. All liked and
- * Shortlisted are the same liked feed and filters as always; a collection
- * opens its own view. With the switch off none of that renders and the tab is
- * exactly what it was.
+ * gains a left rail on a laptop and a pill row on a phone: All liked, the
+ * Client's collections and New collection. A collection opens its own view,
+ * and Locate Originals copies the collections' originals out of the studio's
+ * drive. With the switch off the tab is the liked feed and its filters only:
+ * Locate Originals works from collections, so it is not offered.
  */
 export function SmartSelectsTab({
   loading,
@@ -42,10 +40,8 @@ export function SmartSelectsTab({
     media,
     folders,
     likedCount,
-    shortlistedCount,
     likedFilters,
     setLikedFilters,
-    setShortlisted,
     selectAllIds,
     totalForView,
     hasMore,
@@ -83,20 +79,14 @@ export function SmartSelectsTab({
   // first-run empty state instead of the filter bar.
   const noLikesAtAll = !loading && likedCount === 0 && media.length === 0 && !filtersActive;
 
-  // Locate Originals has work to do when anything is shortlisted, or (with
-  // collections) when any collection has photos.
-  const collectionPhotos = collectionsOn && studio.collections.some((c) => c.count > 0);
-  const canLocate = shortlistedCount > 0 || collectionPhotos;
+  // Locate Originals has work to do once any collection has photos.
+  const canLocate = collectionsOn && studio.collections.some((c) => c.count > 0);
 
   const emptyMessage: React.ReactNode = !filtersActive
     ? "No liked photos yet."
     : (
       <div className="flex flex-col items-center gap-2">
-        <p>
-          {likedFilters.shortlistedOnly
-            ? "No shortlisted photos match these filters yet."
-            : "No liked photos match these filters."}
-        </p>
+        <p>No liked photos match these filters.</p>
         <button
           type="button"
           onClick={() => setLikedFilters(resetLikedScope)}
@@ -109,18 +99,12 @@ export function SmartSelectsTab({
 
   const railProps = {
     view,
-    shortlistedOnly: likedFilters.shortlistedOnly,
     likedCount,
-    shortlistedCount,
     collections: studio.collections,
     canCreate: studio.collections.length < studio.maxCollections,
     onAllLiked: () => {
       setView({ kind: "liked" });
       setLikedFilters(resetLikedScope);
-    },
-    onShortlisted: () => {
-      setView({ kind: "liked" });
-      setLikedFilters((f) => ({ ...f, shortlistedOnly: true }));
     },
     onCollection: (id: string) => setView({ kind: "collection", id }),
     onNew: () => setNaming(true),
@@ -152,7 +136,7 @@ export function SmartSelectsTab({
       </div>
     ) : (
       <>
-        {/* 2 — Filter bar, locked (Liked / Shortlisted counts ride as pill badges). */}
+        {/* 2 — Filter bar, locked (the Liked count rides as a pill badge). */}
         <div className="shrink-0 px-6 sm:px-10">
           <LikedFilters
             bookingId={bookingId}
@@ -160,7 +144,6 @@ export function SmartSelectsTab({
             filters={likedFilters}
             onChange={setLikedFilters}
             likedCount={likedCount}
-            shortlistedCount={shortlistedCount}
           />
 
           {filtersActive && (
@@ -176,8 +159,6 @@ export function SmartSelectsTab({
             items={media}
             allowDelete={false}
             showLikes
-            showShortlist
-            onShortlistMany={setShortlisted}
             onSelectAll={selectAllIds}
             totalForView={totalForView}
             viewKey={`smart:${JSON.stringify(likedFilters)}`}
@@ -185,7 +166,7 @@ export function SmartSelectsTab({
             loadingMore={loadingMore}
             onLoadMore={loadMore}
             emptyMessage={emptyMessage}
-            archiveName={`${meta.name || "Gallery"} — Smart Selects`}
+            archiveName={`${meta.name || "Gallery"} - Smart Selects`}
             notify={toast}
             selectionActions={addAction}
           />
@@ -208,33 +189,35 @@ export function SmartSelectsTab({
               Smart Selects
             </h1>
             <p className="mt-1 max-w-[560px] text-[13px] leading-relaxed text-[var(--color-brand-muted)]">
-              Every like here comes from a guest who scanned their face to find their own photos — no
-              manual sorting needed. Flag the best with Host picks or Shortlisted, then jump to Locate
-              Originals when you&apos;re ready to edit.
+              Every like here comes from a guest who scanned their face to find their own photos, so
+              there is no manual sorting.{" "}
+              {collectionsOn
+                ? "Add the best to a collection, open the ones the Client chose, and use Locate Originals when you're ready to edit."
+                : "Filter by who liked them and download what you need."}
             </p>
           </div>
           {/* Locate Originals walks your whole photo drive and copies files out.
               Running that against a saturated compressor pool would crawl and
               slow the upload down with it — so it waits, while everything else
               on this tab stays usable mid-upload. */}
-          <button
-            type="button"
-            onClick={() => setLocateOpen(true)}
-            disabled={!canLocate || activeLocked}
-            title={
-              activeLocked
-                ? "Available once the upload finishes — scanning your drive mid-upload would slow both down."
-                : !canLocate
-                  ? collectionsOn
-                    ? "Shortlist photos, or wait for the Client to add photos to a collection."
-                    : "Shortlist photos first to locate their originals."
-                  : undefined
-            }
-            className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <IconTarget size={16} />
-            Locate Originals{!collectionPhotos && shortlistedCount > 0 ? ` (${shortlistedCount.toLocaleString("en-IN")})` : ""}
-          </button>
+          {collectionsOn && (
+            <button
+              type="button"
+              onClick={() => setLocateOpen(true)}
+              disabled={!canLocate || activeLocked}
+              title={
+                activeLocked
+                  ? "Available once the upload finishes. Scanning your drive mid-upload would slow both down."
+                  : !canLocate
+                    ? "Add photos to a collection first, or wait for the Client to."
+                    : undefined
+              }
+              className="brand-focus inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-5 text-[13.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconTarget size={16} />
+              Locate Originals
+            </button>
+          )}
         </div>
 
         {collectionsOn && (
@@ -248,8 +231,7 @@ export function SmartSelectsTab({
         <LocateOriginals
           bookingId={bookingId}
           eventName={meta.name}
-          shortlistedCount={shortlistedCount}
-          collections={collectionsOn ? studio.collections : null}
+          collections={collectionsOn ? studio.collections : []}
           open={locateOpen}
           onOpenChange={setLocateOpen}
           toast={toast}
@@ -322,8 +304,8 @@ function EmptyState() {
       </div>
       <h3 className="text-[19px] font-bold tracking-tight text-[var(--color-brand-ink)]">No liked photos yet</h3>
       <p className="text-[14px] leading-relaxed text-[var(--color-brand-muted)]">
-        When guests like photos in your live gallery, their favourites gather here — ready for you to
-        shortlist the best picks with the host.
+        When guests like photos in your live gallery, their favourites gather here, ready for you and
+        the Client to choose from.
       </p>
     </div>
   );

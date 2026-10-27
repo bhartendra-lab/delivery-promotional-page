@@ -15,7 +15,7 @@ import type { SinglePhotoSource } from "@/lib/download/single";
 import { useEvent } from "./EventContext";
 import { Lightbox } from "./Lightbox";
 import { PhotoInfoTip } from "./PhotoInfoTip";
-import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconStar, IconTrash, IconX } from "./icons";
+import { IconCheck, IconDotsVertical, IconDownload, IconHeart, IconImage, IconTrash, IconX } from "./icons";
 
 /**
  * The download pre-flight in dashboard clothing. The modal is shared with the
@@ -93,8 +93,6 @@ export function MediaGrid({
   loadingMore = false,
   onLoadMore,
   showLikes = false,
-  showShortlist = false,
-  onShortlistMany,
   allowDelete = true,
   emptyMessage,
   archiveName,
@@ -131,10 +129,6 @@ export function MediaGrid({
   onLoadMore?: () => void;
   /** Show each tile's like count (the Smart Selects view). */
   showLikes?: boolean;
-  /** Show the per-tile shortlist star + the bulk Shortlist action (Smart Selects). */
-  showShortlist?: boolean;
-  /** Flag/unflag Media ids as shortlisted. Required for shortlist affordances. */
-  onShortlistMany?: (ids: string[], shortlisted: boolean) => Promise<void>;
   /** Whether Delete is offered (false on Smart Selects). */
   allowDelete?: boolean;
   /** Custom empty-state content for this view (text, or a richer node with a next-step action). */
@@ -428,39 +422,6 @@ export function MediaGrid({
     resolveArchiveUrls,
   ]);
 
-  // Shortlist toggle for the selection. If every selected photo is already
-  // shortlisted the button removes them; otherwise it shortlists all of them.
-  // Under a whole-view selection the loaded slice can't answer "are they all
-  // shortlisted", so the button stays on its additive meaning.
-  const selectedItems = useMemo(() => items.filter((m) => selected.has(m._id)), [items, selected]);
-  const allSelectedShortlisted =
-    !wholeView && selectedItems.length > 0 && selectedItems.every((m) => m.shortlisted);
-
-  // Single entry point for every shortlist action (tile star, selection bar,
-  // lightbox). Ids are only filtered against `items` when they could be
-  // optimistic placeholders — a whole-view selection is server-resolved, so
-  // every id in it is already persisted and must survive.
-  const requestShortlist = useCallback(
-    (ids: string[], next: boolean, opts?: { clearSelection?: boolean; trusted?: boolean }) => {
-      if (!onShortlistMany) return;
-      const real = opts?.trusted
-        ? ids
-        : items.filter((m) => ids.includes(m._id) && isPersisted(m)).map((m) => m._id);
-      if (real.length === 0) return;
-      const shouldClear = !!opts?.clearSelection;
-      void onShortlistMany(real, next).then(() => shouldClear && clearSelection());
-    },
-    [items, onShortlistMany, clearSelection],
-  );
-
-  const shortlistSelected = useCallback(() => {
-    const ids = wholeView
-      ? Array.from(selected)
-      : selectedItems.filter(isPersisted).map((m) => m._id);
-    if (ids.length === 0) return;
-    requestShortlist(ids, !allSelectedShortlisted, { clearSelection: true, trusted: wholeView });
-  }, [wholeView, selected, selectedItems, allSelectedShortlisted, requestShortlist]);
-
   // Deleting the whole view empties `items` the moment the optimistic removal
   // lands — long before the request and its reload finish. Keep the confirm
   // dialog (and its busy spinner) mounted through that gap and show a working
@@ -527,20 +488,6 @@ export function MediaGrid({
               )}
               Download
             </button>
-            {showShortlist && onShortlistMany && (
-              <button
-                type="button"
-                onClick={shortlistSelected}
-                className={`brand-focus inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 ${
-                  allSelectedShortlisted
-                    ? "bg-[var(--color-brand-muted)]"
-                    : "bg-[var(--color-brand-warning)]"
-                }`}
-              >
-                <IconStar size={14} filled={!allSelectedShortlisted} />
-                {allSelectedShortlisted ? "Remove from shortlist" : "Shortlist"}
-              </button>
-            )}
             {selectionActions?.({ ids: Array.from(selected), clear: clearSelection })}
             {allowDelete && onDeleteMany && (
               <button
@@ -612,18 +559,8 @@ export function MediaGrid({
 
               {/* Metadata tip. Bottom-left is the one corner no other tile
                   affordance uses — top-left is the select box, top-right the
-                  star or the "⋮", bottom-right the download button. */}
+                  "⋮", bottom-right the download button. */}
               {persisted && <PhotoInfoTip item={m} />}
-
-              {/* Persistent status star (top-right) — the single status signal.
-                  Not shortlisted → hover-only outline star. Shortlisted → amber.
-                  One click toggles the shortlist. */}
-              {showShortlist && onShortlistMany && persisted && (
-                <StatusStar
-                  shortlisted={!!m.shortlisted}
-                  onToggle={() => requestShortlist([m._id], !m.shortlisted)}
-                />
-              )}
 
               {/* Per-photo actions (hover): a "⋮" menu (top-right) with
                   Download + Set as cover photo where cover-setting is offered
@@ -700,13 +637,6 @@ export function MediaGrid({
                 }
               : undefined
           }
-          onToggleShortlist={
-            showShortlist && onShortlistMany
-              ? (item) => {
-                  if (isPersisted(item)) requestShortlist([item._id], !item.shortlisted);
-                }
-              : undefined
-          }
           onDownload={downloadOne}
         />
       )}
@@ -737,37 +667,6 @@ export function MediaGrid({
         shareUrl={typeof window !== "undefined" ? window.location.href : undefined}
       />
     </>
-  );
-}
-
-/** Top-right status star. Renders nothing persistent when not shortlisted (an
- *  outline star fades in on tile hover); amber once shortlisted. One click
- *  toggles the shortlist. */
-function StatusStar({
-  shortlisted,
-  onToggle,
-}: {
-  shortlisted: boolean;
-  onToggle: () => void;
-}) {
-  const label = shortlisted ? "Remove from shortlist" : "Shortlist photo";
-  const tone = shortlisted
-    ? "bg-[var(--color-brand-warning)] text-white opacity-100"
-    : "bg-black/40 text-white opacity-0 hover:bg-black/60 focus-visible:opacity-100 group-hover:opacity-100";
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-      aria-label={label}
-      aria-pressed={shortlisted}
-      title={label}
-      className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md transition-opacity ${tone}`}
-    >
-      <IconStar size={13} filled={shortlisted} />
-    </button>
   );
 }
 

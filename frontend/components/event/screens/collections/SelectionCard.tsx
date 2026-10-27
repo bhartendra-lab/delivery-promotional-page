@@ -13,8 +13,9 @@ import type { CollectionsApi } from "./useCollections";
  * the album selection stands, in one glance, and the way back into it.
  *
  *   start     nothing liked or saved yet: what to do, and "Start selecting"
- *   progress  a chip per collection with photos, what is left to sort,
- *             "Continue" and, for Clients, "Review and send"
+ *   progress  a chip per collection with photos, what is left to sort, and
+ *             "Continue". Review and send lives in the Selection workspace
+ *             and in the toast after a save, not here.
  *   sent      every collection with photos is with the studio
  */
 export function SelectionCard({
@@ -26,7 +27,6 @@ export function SelectionCard({
   onStart,
   onContinue,
   onOpenCollection,
-  onReview,
   onReauth,
   className = "",
 }: {
@@ -38,7 +38,6 @@ export function SelectionCard({
   onStart: () => void;
   onContinue: () => void;
   onOpenCollection: (collectionId: string) => void;
-  onReview: () => void;
   onReauth: () => void;
   className?: string;
 }) {
@@ -139,11 +138,6 @@ export function SelectionCard({
             <CardButton t={t} primary inline onClick={onContinue}>
               Continue
             </CardButton>
-            {col.caps.canSend && filled.some((c) => c.status === "draft") && (
-              <CardButton t={t} inline onClick={onReview}>
-                Review and send
-              </CardButton>
-            )}
           </div>
         </>
       )}

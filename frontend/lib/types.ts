@@ -436,8 +436,6 @@ export type MediaItem = {
   /** Total likes across all guests. Present on dashboard get-media (drives the
    *  "Liked Media" folder's badge + most-liked sort). Absent on optimistic items. */
   likes_count?: number;
-  /** Studio shortlist flag (Smart Selects) — a picked-for-delivery liked photo. */
-  shortlisted?: boolean;
   /** True when at least one host liked this photo (drives the filled heart in Smart
    *  Selects). Independent of the active who-filter; present only on smart loads. */
   host_liked?: boolean;
@@ -777,8 +775,6 @@ export type GetMediaResponse = {
   folderCounts?: Record<string, number>;
   /** Count of media with at least one like. Drives the Smart Selects header. */
   likedCount?: number;
-  /** Count of shortlisted media. Drives the "Shortlisted" filter chip. */
-  shortlistedCount?: number;
   /** Always true for the dashboard (the studio owns its own media); present so
    *  the same download pre-flight code reads one field in both hosts. */
   archive_access?: boolean;

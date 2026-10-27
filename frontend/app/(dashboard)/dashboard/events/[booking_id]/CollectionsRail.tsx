@@ -3,21 +3,17 @@
 import { statusLabel } from "@/lib/collections/logic";
 import { railTarget } from "@/lib/collections/studio";
 import type { GuestCollection } from "@/lib/collections/types";
-import { IconHeart, IconLock, IconPlus, IconStar } from "./icons";
+import { IconHeart, IconLock, IconPlus } from "./icons";
 
-/** What Smart Selects is showing: the liked feed (All liked, or Shortlisted,
- *  which is its filter), or one client collection. */
+/** What Smart Selects is showing: the liked feed, or one client collection. */
 export type SmartView = { kind: "liked" } | { kind: "collection"; id: string };
 
 type Props = {
   view: SmartView;
-  shortlistedOnly: boolean;
   likedCount: number;
-  shortlistedCount: number;
   collections: GuestCollection[];
   canCreate: boolean;
   onAllLiked: () => void;
-  onShortlisted: () => void;
   onCollection: (id: string) => void;
   onNew: () => void;
 };
@@ -25,17 +21,15 @@ type Props = {
 const fmt = (n: number) => n.toLocaleString("en-IN");
 
 /**
- * Smart Selects' left rail on a laptop (220px): All liked, Shortlisted, then
- * the Client's collections with their count, status and album progress, and
- * New collection. Shown only while collections are switched on; the liked
- * feed, its filters and the shortlist behave exactly as before.
+ * Smart Selects' left rail on a laptop (220px): All liked, then the Client's
+ * collections with their count, status and album progress, and New
+ * collection. Shown only while collections are switched on.
  */
 export function CollectionsRail(p: Props) {
   const likedOn = p.view.kind === "liked";
   return (
     <nav aria-label="Smart Selects views" className="flex w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[var(--color-brand-border)] px-3 py-6">
-      <RailItem active={likedOn && !p.shortlistedOnly} onClick={p.onAllLiked} icon={<IconHeart size={15} />} label="All liked" count={p.likedCount} />
-      <RailItem active={likedOn && p.shortlistedOnly} onClick={p.onShortlisted} icon={<IconStar size={15} />} label="Shortlisted" count={p.shortlistedCount} />
+      <RailItem active={likedOn} onClick={p.onAllLiked} icon={<IconHeart size={15} />} label="All liked" count={p.likedCount} />
 
       <div className="mb-1 mt-5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-muted)]">
         Client collections
@@ -95,8 +89,7 @@ export function CollectionsPills(p: Props) {
   const likedOn = p.view.kind === "liked";
   return (
     <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" style={{ scrollbarWidth: "none" }} role="toolbar" aria-label="Smart Selects views">
-      <Pill active={likedOn && !p.shortlistedOnly} onClick={p.onAllLiked} label="All liked" count={p.likedCount} />
-      <Pill active={likedOn && p.shortlistedOnly} onClick={p.onShortlisted} label="Shortlisted" count={p.shortlistedCount} />
+      <Pill active={likedOn} onClick={p.onAllLiked} label="All liked" count={p.likedCount} />
       {p.collections.map((c) => (
         <Pill
           key={c._id}

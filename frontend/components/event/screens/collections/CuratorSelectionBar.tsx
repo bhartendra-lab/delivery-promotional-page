@@ -12,10 +12,11 @@ export type BarAction = {
 };
 
 /**
- * The selection bar a curator gets in place of Cancel + Download: the count
- * on the left, then labelled icon buttons. Like (Unlike when every selected
- * photo is already liked by me), Add to collection, Download only where the
- * studio allows it, and Remove inside a collection's own view.
+ * The selection bar every guest gets while collections are switched on, in
+ * place of Cancel + Download: the count on the left, then labelled icon
+ * buttons. Like (Unlike when every selected photo is already liked by me),
+ * Add to collection for curators only, Download only where the studio allows
+ * it, and Remove inside a collection's own view.
  *
  * Phone: a pill above the bottom nav, clearing the same home-indicator inset
  * as today's bar. Desktop: bottom-centred.
@@ -41,7 +42,8 @@ export function CuratorSelectionBar({
   likeMode: "like" | "unlike";
   onCancel: () => void;
   onLike: () => void;
-  onCollect: () => void;
+  /** Curators only: absent, a plain guest's bar has no Add to collection. */
+  onCollect?: () => void;
   /** Absent when the studio has downloads off. */
   onDownload?: () => void;
   /** A collection's own view only. */
@@ -61,7 +63,7 @@ export function CuratorSelectionBar({
       onClick: onLike,
       disabled: none,
     },
-    { key: "collect", label: "Add to collection", icon: <IconPlus size={19} weight="bold" />, onClick: onCollect, disabled: none },
+    ...(onCollect ? [{ key: "collect", label: "Add to collection", icon: <IconPlus size={19} weight="bold" />, onClick: onCollect, disabled: none }] : []),
     ...(onRemove ? [{ key: "remove", label: removeLabel, icon: <IconMinus size={19} weight="bold" />, onClick: onRemove, disabled: none }] : []),
     ...(onDownload ? [{ key: "download", label: "Download", icon: <IconDownload size={19} weight="bold" />, onClick: onDownload, disabled: none }] : []),
   ];

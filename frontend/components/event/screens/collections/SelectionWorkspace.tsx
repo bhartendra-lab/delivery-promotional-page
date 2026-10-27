@@ -256,7 +256,19 @@ export function SelectionWorkspace({
     (item: GuestMediaItem) => toggleLike(item, (delta) => bumpLikes([item._id], delta)),
     [toggleLike, bumpLikes],
   );
-  const actions = useCuratorActions({ t, desktop, studio, uid, col, notify, liked, applyLikes: wsApplyLikes, onReauth });
+  const actions = useCuratorActions({
+    t,
+    desktop,
+    studio,
+    uid,
+    col,
+    notify,
+    liked,
+    applyLikes: wsApplyLikes,
+    onReauth,
+    // Only a Client can send, so only a Client's save toast offers Review.
+    onReview: col.caps.canSend ? onReview : undefined,
+  });
 
   const target = (): BulkTarget => {
     if (selectAll && feed.hasMore && query) {
@@ -389,6 +401,8 @@ export function SelectionWorkspace({
     reveal,
     revealInset: desktop ? { top: stickyTop, bottom: 0 } : { top: 0, bottom: 96 },
     badges,
+    // The phone's line under each photo (count + menu), as in the gallery.
+    footer: !desktop,
   };
 
   /* ── body ── */

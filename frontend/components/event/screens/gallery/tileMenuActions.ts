@@ -5,13 +5,19 @@
  * No aliased imports: unit-tested under `node --test`.
  */
 
-export type TileMenuAction = "download" | "collect" | "share";
+export type TileMenuAction = "like" | "download" | "collect" | "share";
 
 export function tileMenuActions({
+  canLike = false,
   canDownload,
   canCollect,
   canShare,
 }: {
+  /**
+   * The phone's tiles have no heart of their own (the line under the photo
+   * only shows the count), so liking moves into the menu, first.
+   */
+  canLike?: boolean;
   /** The studio allows downloads on this event. */
   canDownload: boolean;
   /** The viewer is a curator (Phase 4). False until then. */
@@ -25,6 +31,7 @@ export function tileMenuActions({
   canShare: boolean;
 }): TileMenuAction[] {
   const out: TileMenuAction[] = [];
+  if (canLike) out.push("like");
   if (canDownload) out.push("download");
   if (canCollect) out.push("collect");
   if (canShare) out.push("share");

@@ -3,7 +3,7 @@
 import type { CustomFolder } from "@/lib/types";
 import { SIGNAL, type ClientTheme } from "@/lib/client-theme";
 import { useEffect, useRef, useState } from "react";
-import { IconHeart, IconLock, IconDownload, IconSquare, IconCheckSquare, IconChecks, IconMenuBars } from "@/components/ui/icons";
+import { IconHeart, IconLock, IconDownload, IconSquare, IconCheck, IconCheckSquare, IconChecks, IconMenuBars } from "@/components/ui/icons";
 
 /** Sentinel folder id meaning "no specific folder" — shared by every screen
  *  that reads/sets the active folder pill. */
@@ -309,6 +309,63 @@ export function SelectionSummary({
 }
 
 /**
+ * The phone's select-mode header: one circle and "All (1,240)", top left.
+ *
+ * The count of what is selected and the way out (Cancel) live in the action
+ * bar at the bottom, so the header carries nothing else. The circle fills with
+ * a check while the whole view is selected; a tap then clears the selection.
+ */
+export function SelectAllToggle({
+  t,
+  selectAll,
+  scopeTotal,
+  onSelectAll,
+  onClearSelectAll,
+  hint,
+}: {
+  t: ClientTheme;
+  selectAll: boolean;
+  /** Photos in the active view. */
+  scopeTotal: number;
+  onSelectAll: () => void;
+  onClearSelectAll: () => void;
+  /** Optional quiet line under the control (the large-selection warning). */
+  hint?: string;
+}) {
+  const count = scopeTotal > 0 ? ` (${scopeTotal.toLocaleString("en-IN")})` : "";
+  return (
+    <div className="flex min-w-0 flex-col items-start">
+      <button
+        type="button"
+        onClick={selectAll ? onClearSelectAll : onSelectAll}
+        aria-pressed={selectAll}
+        aria-label={selectAll ? "Clear selection" : `Select all${count}`}
+        className="flex min-h-[44px] cursor-pointer items-center gap-2 text-[14px] font-bold"
+        style={{ color: t.text }}
+      >
+        <span
+          aria-hidden
+          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full transition-colors duration-200"
+          style={{
+            background: selectAll ? t.brand : "transparent",
+            border: selectAll ? "none" : `2px solid ${t.muted}`,
+            color: t.onBrand,
+          }}
+        >
+          {selectAll && <IconCheck size={13} weight="bold" />}
+        </span>
+        All{count}
+      </button>
+      {hint && (
+        <span className="-mt-1.5 truncate pl-[30px] text-[10.5px] font-semibold" style={{ color: t.muted }}>
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * Right-side action cluster: Liked, Download, Select, Unlock — icon + title, no
  * pill backgrounds. Liked and Select show their active state as an underline
  * (they're the two real view toggles); Download is a one-shot action; Unlock
@@ -557,21 +614,9 @@ function OverflowMenu({
     };
   }, [open]);
 
-  // In select mode the only actions are Cancel and Download, and both live in
-  // the select action bar at the bottom. A menu here would be a second place
-  // to do the same two things.
-  if (selectMode) {
-    return (
-      <button
-        type="button"
-        onClick={onToggleSelectMode}
-        className="flex min-h-[44px] shrink-0 cursor-pointer items-center px-2 text-[13.5px] font-extrabold"
-        style={{ color: t.brand }}
-      >
-        Cancel
-      </button>
-    );
-  }
+  // In select mode every action, Cancel included, lives in the action bar at
+  // the bottom; the header shows only Select all (see SelectAllToggle).
+  if (selectMode) return null;
 
   return (
     <div ref={wrap} className="relative shrink-0">

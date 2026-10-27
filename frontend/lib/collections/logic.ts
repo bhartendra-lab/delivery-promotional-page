@@ -182,6 +182,13 @@ export function idsToChange(
   return mediaIds.filter((id) => !!refIn(membership.get(id), collectionId) === (action === "remove"));
 }
 
+/** Whether a sheet session put any photo into a collection, net: what
+ *  earns the toast its Review button. */
+export function addedAny(ledger: ChangeLedger): boolean {
+  for (const change of ledger.values()) if (change.added.size > 0) return true;
+  return false;
+}
+
 /** The one toast a sheet session ends with, or null when nothing changed. */
 export function saveSummary(ledger: ChangeLedger, nameOf: (collectionId: string) => string): string | null {
   const addedTo = [...ledger].filter(([, c]) => c.added.size > 0).map(([id]) => id);

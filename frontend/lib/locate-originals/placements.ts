@@ -3,14 +3,11 @@
  * one goes. Pure, so the rules are tested apart from the File System Access
  * plumbing (fsa.ts) and the copier (engine.ts).
  *
- * With collections, the output tree is
+ * The output tree is
  *   Smartly Selected/{Collection}/{Folder}/{file}
- *   Smartly Selected/Shortlisted/{Folder}/{file}
  * and a photo in two collections is copied into both: album designers work
- * per album. With no collections the tree is exactly what it always was,
- * Smartly Selected/{Folder}/{file}, and none of this module is used.
+ * per album.
  */
-import type { LocateItem } from "../collections/types.ts";
 import { sanitizeFolderName } from "./match.ts";
 
 /** One row of the "What should we locate?" checklist. */
@@ -18,33 +15,18 @@ export type LocateChoice = { id: string; name: string; count: number; sent: bool
 
 /**
  * What the checklist starts with (spec §9.2): every sent collection; if none
- * is sent, every collection with photos. Shortlisted is ticked only when no
- * collection is (an event with collections but nothing in them yet, say).
+ * is sent, every collection with photos.
  */
-export function locateDefaults(collections: readonly LocateChoice[]): { collections: Set<string>; shortlist: boolean } {
+export function locateDefaults(collections: readonly LocateChoice[]): Set<string> {
   const filled = collections.filter((c) => c.count > 0);
   const sent = filled.filter((c) => c.sent);
-  const chosen = new Set((sent.length ? sent : filled).map((c) => c.id));
-  return { collections: chosen, shortlist: chosen.size === 0 };
-}
-
-/**
- * The shortlist's placement name in a locate answer: the one name that is not
- * a collection's. The backend calls it "Shortlisted", or "Shortlisted
- * (studio)" when a Client named a collection "Shortlisted".
- */
-export function shortlistPlacementOf(
-  items: readonly Pick<LocateItem, "placements">[] | readonly { placements?: string[] }[],
-  collectionNames: ReadonlySet<string>,
-): string | null {
-  for (const it of items) for (const p of it.placements ?? []) if (!collectionNames.has(p)) return p;
-  return null;
+  return new Set((sent.length ? sent : filled).map((c) => c.id));
 }
 
 /**
  * The run's photos for a choice, each keeping only the placements chosen.
- * Fetched once for everything (every visible collection and the shortlist),
- * then narrowed here on every tick, so the button's count is always live.
+ * Fetched once for every visible collection, then narrowed here on every
+ * tick, so the button's count is always live.
  */
 export function chosenTargets<T extends { placements?: string[] }>(
   items: readonly T[],
