@@ -330,35 +330,10 @@ export const sendConfirmText = (studio: string) =>
 
 export const sentText = (studio: string) => `Sent. ${capFirst(studio)} has been told.`;
 
-/* ── the lounge card ──────────────────────────────────────────────────── */
-
-export type SelectionCardState = "start" | "progress" | "sent";
-
-/**
- * Which card a curator sees on the home view. "sent" once every collection
- * with photos is sent (and at least one has photos); "start" before anyone
- * has liked or saved anything; "progress" otherwise.
- */
-export function selectionCardState(
-  collections: readonly Pick<GuestCollection, "status" | "count">[],
-  likedTotal: number,
-): SelectionCardState {
-  const filled = collections.filter((c) => c.count > 0);
-  if (filled.length > 0 && filled.every((c) => c.status === "final")) return "sent";
-  if (filled.length === 0 && likedTotal === 0) return "start";
-  return "progress";
-}
+/* ── the Selection workspace ─────────────────────────────────────────── */
 
 export const unsortedLabel = (n: number) =>
   `${n.toLocaleString("en-IN")} liked ${n === 1 ? "photo" : "photos"} to sort`;
-
-/** "Tap the heart … then sort them into Priya’s Side and Rahul’s Side." */
-export function startCardText(collections: readonly Pick<GuestCollection, "name">[]): string {
-  const names = joinNames(collections.slice(0, 2).map((c) => c.name));
-  return names
-    ? `Pick photos for your albums. Tap the heart on the ones you love, then sort them into ${names}.`
-    : "Pick photos for your albums. Tap the heart on the ones you love, then sort them into collections.";
-}
 
 /* ── Guest Control ────────────────────────────────────────────────────── */
 

@@ -48,9 +48,12 @@
  * bar: that is not the guest scrolling, and collapsing on it is what closed
  * the box mid-choice. A scroll gesture outside it (a wheel, a drag on the
  * scrim) does collapse it, as scrolling away would, but never over picks still
- * waiting for the button. It sits at z-[35]: over the grid and the phone's
- * control row (z-30), under the laptop's sticky control row (z-40), which
- * stays usable; a click there collapses the box first.
+ * waiting for the button. It sits at z-[53], with its scrim at z-[52]: the
+ * bar lives inside the pinned header on both shells now (the phone's control
+ * row, the laptop's sticky control row at z-40), so the box opens over that
+ * header, and over the top bars (z-40 phone, z-50 laptop). Below the review
+ * nudge (z-[55]), the sheets and the viewer. A click on the scrim, anywhere
+ * outside the box, collapses it.
  */
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -529,7 +532,7 @@ export function FaceFilterBar({
             <div
               ref={scrimRef}
               aria-hidden
-              className="fixed inset-0 z-[34]"
+              className="fixed inset-0 z-[52]"
               style={{ background: "rgba(31,26,14,0.18)", opacity: 0 }}
             />
             <div
@@ -537,7 +540,7 @@ export function FaceFilterBar({
               id={boxId}
               role="region"
               aria-label="Filter by people"
-              className="fixed z-[35] overflow-hidden"
+              className="fixed z-[53] overflow-hidden"
               style={{
                 top: anchor.top,
                 left: anchor.left,

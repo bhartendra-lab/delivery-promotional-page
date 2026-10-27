@@ -79,7 +79,6 @@ const FaceFilterBar = dynamic(
  * JavaScript it always did.
  */
 const SelectionWorkspace = dynamic(() => import("./collections/SelectionWorkspace").then((m) => m.SelectionWorkspace), { ssr: false });
-const SelectionCard = dynamic(() => import("./collections/SelectionCard").then((m) => m.SelectionCard), { ssr: false });
 const ReviewSendSheet = dynamic(() => import("./collections/ReviewSendSheet").then((m) => m.ReviewSendSheet), { ssr: false });
 const GuestControlSheet = dynamic(() => import("./collections/GuestControlSheet").then((m) => m.GuestControlSheet), { ssr: false });
 
@@ -1757,8 +1756,9 @@ export function LoungeGallery({
     }
     return { ids: displayed.filter((i) => isSelected(i._id)).map((i) => i._id) };
   };
-  /** Into the Selection workspace, at a given place (the lounge card's chips
-   *  open one collection). Remounted, so it starts there. */
+  /** Into the Selection workspace, at a given place. A curator's way in is the
+   *  Liked tab (the bottom nav on a phone, Liked in the laptop's control row).
+   *  Remounted, so it starts there. */
   const openSelection = (entry: WorkspaceEntry) => {
     setWorkspaceEntry((e) => ({ ...entry, seq: e.seq + 1 }));
     setSelectionOpen(true);
@@ -2147,22 +2147,6 @@ export function LoungeGallery({
             date={date}
           />
           <div ref={mastheadSentinelRef} />
-          {curator && (
-            <div className="mx-auto w-full max-w-[1440px] px-8 pt-6">
-              <SelectionCard
-                className="mx-auto max-w-[760px]"
-                t={t}
-                studio={studio}
-                col={col}
-                uid={uniqueIdentifier}
-                bookingId={bookingId}
-                onStart={() => gotoGallery("all")}
-                onContinue={() => openSelection({ segment: "liked", collectionId: null })}
-                onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
-                onReauth={reauth}
-              />
-            </div>
-          )}
 
           {/* The friends card used to sit here, between the cover and the
               grid's controls. It is gone: it repeated what the My People tab
@@ -2386,21 +2370,6 @@ export function LoungeGallery({
               onBandAction={onBandAction}
               date={date}
             />
-            {curator && (
-              <div className="mx-auto w-full max-w-[460px] px-5 pt-5">
-                <SelectionCard
-                  t={t}
-                  studio={studio}
-                  col={col}
-                  uid={uniqueIdentifier}
-                  bookingId={bookingId}
-                  onStart={() => gotoGallery("all")}
-                  onContinue={() => openSelection({ segment: "liked", collectionId: null })}
-                  onOpenCollection={(id) => openSelection({ segment: "collections", collectionId: id })}
-                  onReauth={reauth}
-                />
-              </div>
-            )}
             <div
               className="mx-auto w-full max-w-[460px] px-5 pt-6"
               style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
@@ -3012,7 +2981,11 @@ function MobileGalleryView(props: {
           level here the photos paint over the menu, whatever z-index the menu
           itself carries. The tiles' entrance animation is a transform, which
           gives each one its own stacking context and made it certain. */}
-      <div className="fx-rise relative z-30 px-4 pt-3" style={{ background: t.bg }}>
+      {/* `pb-3` here and `pt-3` on the grid below: scrolled photos are cut off
+          at the header's bottom edge, so the space between them has to belong
+          to the header, or a scrolled photo would sit flush against the face
+          bar (or the pills, or the folded line). */}
+      <div className="fx-rise relative z-30 px-4 pb-3 pt-3" style={{ background: t.bg }}>
         <div className="flex items-center justify-between gap-2">
           {selectMode ? (
             // The count and Cancel are in the action bar at the bottom.
@@ -3085,7 +3058,7 @@ function MobileGalleryView(props: {
       {/* grid */}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto pt-6"
+        className="min-h-0 flex-1 overflow-y-auto pt-3"
         onScroll={onScroll}
         style={{
           scrollbarWidth: "none",

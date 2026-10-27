@@ -27,13 +27,11 @@ import {
   rowTapAction,
   saveSummary,
   addedAny,
-  selectionCardState,
   sendButtonLabel,
   sendConfirmText,
   sentText,
   sheetRowState,
   shortDate,
-  startCardText,
   statusLabel,
   studioLabel,
   targetStatus,
@@ -268,19 +266,9 @@ test("review defaults to every non-empty draft; sent and empty ones cannot be pi
   );
 });
 
-test("the lounge card: start, in progress, all sent", () => {
-  assert.equal(selectionCardState([coll(), coll({ _id: "c2" })], 0), "start");
-  assert.equal(selectionCardState([coll()], 5), "progress");
-  assert.equal(selectionCardState([coll({ count: 3 }), coll({ _id: "c2" })], 0), "progress");
-  assert.equal(selectionCardState([coll({ count: 3, status: "final" }), coll({ _id: "c2" })], 9), "sent");
-  assert.equal(selectionCardState([coll({ count: 3, status: "final" }), coll({ _id: "c2", count: 1 })], 9), "progress");
+test("the to-sort count", () => {
   assert.equal(unsortedLabel(38), "38 liked photos to sort");
   assert.equal(unsortedLabel(1), "1 liked photo to sort");
-  assert.equal(
-    startCardText([coll(), coll({ name: "Rahul’s Side" })]),
-    "Pick photos for your albums. Tap the heart on the ones you love, then sort them into Priya’s Side and Rahul’s Side.",
-  );
-  assert.match(startCardText([]), /sort them into collections\.$/);
 });
 
 const row = (over: Partial<GuestControlRow> = {}): GuestControlRow => ({
@@ -342,7 +330,6 @@ test("no em or en dash in any string a curator reads", () => {
     lockedMessage("Sharma Films"),
     sendConfirmText("Sharma Films"),
     sentText("Sharma Films"),
-    startCardText([coll()]),
     targetStatus(300, 250)!.note!,
     unsortedLabel(3),
     sendButtonLabel(2, "Sharma Films"),
