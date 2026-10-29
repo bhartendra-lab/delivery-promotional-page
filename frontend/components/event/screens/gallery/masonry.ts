@@ -1,6 +1,8 @@
 /**
  * Column masonry (Pinterest style): fixed-width columns, each photo dropped
- * into whichever column is currently shortest, ties to the leftmost.
+ * into whichever column is currently shortest, ties to the leftmost. Columns
+ * within `LEVEL_SHARE` of a column's width of the shortest count as tied (see
+ * there for why).
  *
  * WHY THIS AND NOT THE JUSTIFIED ROWS (justifyRows.ts) IT REPLACES AS THE
  * DEFAULT. Two properties the rows could not have:
@@ -40,6 +42,18 @@ export const DEFAULT_ASPECT_RATIO = 3 / 2;
  */
 export const MIN_ASPECT_RATIO = 0.5;
 export const MAX_ASPECT_RATIO = 2;
+
+/**
+ * Columns this close to the shortest (as a share of the column width) count as
+ * level, and the next photo goes to the leftmost of them. Without it a row of
+ * landscapes that differ by 2 or 3 pixels (one camera's 3:2 beside another's
+ * 3:2-ish crop) sent the next photos to whichever columns happened to be a
+ * pixel short, often the right-hand ones, leaving the left side of the grid
+ * empty under a full first row. With it the grid fills left to right, the way
+ * it reads. The cost is that the bottom edge can end up to this much more
+ * ragged, which nobody sees. About 28px on a laptop column, 21px on a phone.
+ */
+export const LEVEL_SHARE = 0.12;
 
 export type MasonryBox = {
   left: number;
@@ -205,11 +219,13 @@ export function masonryLayout<T extends Sized>(items: T[], containerWidth: numbe
     boxes = [];
   }
 
+  // Fixed per width, so a continuation uses the same margin as a full layout.
+  const level = Math.round(Math.min(...widths) * LEVEL_SHARE);
   for (let i = boxes.length; i < items.length; i++) {
-    // Shortest column, ties to the leftmost. A strict `<` is what makes the
-    // tie go left.
+    // The leftmost column within `level` of the shortest.
+    const shortest = Math.min(...heights);
     let col = 0;
-    for (let c = 1; c < columns; c++) if (heights[c] < heights[col]) col = c;
+    while (heights[col] > shortest + level) col++;
     const w = widths[col];
     const h = Math.max(1, Math.round(w / displayAspect(items[i]).ar)) + footer;
     boxes.push({ left: lefts[col], top: heights[col], width: w, height: h, column: col });

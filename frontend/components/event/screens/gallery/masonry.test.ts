@@ -114,6 +114,30 @@ test("each photo goes to the shortest column, ties to the leftmost", () => {
   assert.equal(l2.boxes[2].top, l2.boxes[1].height + l2.gap);
 });
 
+test("columns a few pixels apart count as level, so the grid fills left to right", () => {
+  // Five columns: three 3:2 landscapes, then two a hair shorter. The next
+  // three go under the first three, not to the two short columns on the right.
+  const row = [
+    ...Array.from({ length: 3 }, () => ({ width: 3000, height: 2000 })),
+    ...Array.from({ length: 2 }, () => ({ width: 3000, height: 1960 })),
+    ...Array.from({ length: 3 }, () => ({ width: 3000, height: 2000 })),
+  ];
+  const l = masonryLayout(row, 1376);
+  assert.equal(l.columns, 5);
+  assert.ok(l.boxes[3].height < l.boxes[0].height);
+  assert.deepEqual(
+    l.boxes.map((b) => b.column),
+    [0, 1, 2, 3, 4, 0, 1, 2],
+  );
+  // A gap of a third of a photo is not level: the short column still gets
+  // the next one (two columns of 176: a square beside a 3:2, 59px apart).
+  const l2 = masonryLayout([{ width: 100, height: 100 }, { width: 3000, height: 2000 }, { width: 100, height: 100 }], 358);
+  assert.deepEqual(
+    l2.boxes.map((b) => b.column),
+    [0, 1, 1],
+  );
+});
+
 test("boxes in a column stack with exactly one gap between them", () => {
   const l = masonryLayout(mixed(60), 1116);
   for (const list of l.columnItems) {
