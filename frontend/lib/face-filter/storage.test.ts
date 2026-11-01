@@ -78,3 +78,14 @@ test("no storage at all is a miss", () => {
   assert.equal(readFaceChips("g1", "mine"), null);
   assert.doesNotThrow(() => writeFaceChips("g1", "mine", chips));
 });
+
+test("the public scope is cached on its own and cleared with the rest", () => {
+  const data = installStorage();
+  const publicChips: FaceChips = { ...chips, scope: "public" };
+  writeFaceChips("g1", "public", publicChips);
+  writeFaceSelection("g1", "public", ["a"]);
+  assert.deepEqual(readFaceChips("g1", "public"), publicChips);
+  assert.equal(readFaceChips("g1", "mine"), null, "not shared with another scope");
+  clearFaceFilterCache("g1");
+  assert.equal(data.size, 0);
+});

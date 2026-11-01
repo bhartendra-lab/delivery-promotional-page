@@ -3,12 +3,13 @@
 /**
  * The face filter's state and requests, for the gallery.
  *
- * TWO SCOPES, held side by side: "mine" (My Photos, for anyone with a selfie)
- * and "all" (All Photos, hosts only). Each keeps its own chips, its own
- * selection and its own last answer, so a host moving between the tabs finds
- * each one as they left it. The gallery tells this hook which scope the
- * visible tab filters (`scope`), or null where no bar belongs (Liked, a
- * guest's All Photos, My People, face search off).
+ * THREE SCOPES, held side by side: "mine" (My Photos, for anyone with a
+ * selfie), "all" (All Photos, hosts only) and "public" (All Photos for a Guest
+ * without the passcode, i.e. Highlights: the people in public folders). Each
+ * keeps its own chips, its own selection and its own last answer, so a host
+ * moving between the tabs finds each one as they left it. The gallery tells
+ * this hook which scope the visible tab filters (`scope`), or null where no bar
+ * belongs (Liked, My People, face search off, Highlights with no public photo).
  *
  * WHEN IT ASKS:
  *   - chips: once per scope per visit, the first time that scope's tab shows,
@@ -126,7 +127,11 @@ export function useFaceFilter({
   /** The gallery's reload counter; a bump retries a failed selection. */
   retryKey: number;
 }): FaceFilter {
-  const [states, setStates] = useState<States>(() => ({ mine: initialScope(uid, "mine"), all: initialScope(uid, "all") }));
+  const [states, setStates] = useState<States>(() => ({
+    mine: initialScope(uid, "mine"),
+    all: initialScope(uid, "all"),
+    public: initialScope(uid, "public"),
+  }));
 
   const statesRef = useRef(states);
   const onReauthRef = useRef(onReauth);
@@ -143,10 +148,14 @@ export function useFaceFilter({
   const allChips = states.all.chips;
   const mineSelected = states.mine.selected;
   const allSelected = states.all.selected;
+  const publicChips = states.public.chips;
+  const publicSelected = states.public.selected;
   useEffect(() => writeFaceChips(uid, "mine", mineChips), [uid, mineChips]);
   useEffect(() => writeFaceChips(uid, "all", allChips), [uid, allChips]);
+  useEffect(() => writeFaceChips(uid, "public", publicChips), [uid, publicChips]);
   useEffect(() => writeFaceSelection(uid, "mine", mineSelected), [uid, mineSelected]);
   useEffect(() => writeFaceSelection(uid, "all", allSelected), [uid, allSelected]);
+  useEffect(() => writeFaceSelection(uid, "public", publicSelected), [uid, publicSelected]);
 
   /** One chip answer for one scope. A selection loses any chip that is gone;
    *  if it survives, the selection effect asks for it again under the new key. */
@@ -184,11 +193,13 @@ export function useFaceFilter({
       async (ids: string[]): Promise<GuestMediaItem[]> => {
         // My Photos: `mine`, so the server keeps only the viewer's own photos.
         // A host's All Photos: `faceFilter`, so the ids are kept inside the
-        // booking. The ONLY place `face_filter: true` is ever sent.
+        // booking. Highlights: `faceFilter` too, and the server keeps the ids
+        // inside the public folders. The ONLY place `face_filter: true` is
+        // ever sent.
         const res = await getGuestMedia(
           uid,
           bookingId,
-          target === "all" ? { faceFilter: true, skip: 0, limit: ids.length } : { mine: true, skip: 0, limit: ids.length },
+          target === "mine" ? { mine: true, skip: 0, limit: ids.length } : { faceFilter: true, skip: 0, limit: ids.length },
           ids,
         );
         return res.media ?? [];

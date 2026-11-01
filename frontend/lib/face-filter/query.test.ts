@@ -139,3 +139,21 @@ test("the box's button: done when nothing changed, else show or show all", () =>
   assert.equal(draftAction(["a"], []), "show");
   assert.equal(draftAction([], ["a"]), "show-all");
 });
+
+/* ── the public (Highlights) scope ───────────────────────────────────────── */
+
+test("public scope: the query asks for it by name", () => {
+  assert.equal(faceFilterQuery({ scope: "public" }), "?include=face_filter&scope=public");
+  assert.equal(
+    faceFilterQuery({ scope: "public", ifKey: "k", faces: ["a", "b"] }),
+    "?include=face_filter&scope=public&if_key=k&faces=a%2Cb",
+  );
+});
+
+test("public scope: a block and a selection answer are accepted, an unknown scope is not", () => {
+  assert.equal(parseFaceChips(chips(["a"], { scope: "public" }))?.scope, "public");
+  assert.equal(parseFaceChips({ ...chips(["a"]), scope: "everyone" }), null);
+  const answer = { key: "k1", scope: "public", faces: ["a"], media_ids: ["m1"], hits: [1], like_counts: [0] };
+  assert.equal(isFaceFilterMedia(answer), true);
+  assert.equal(isFaceFilterMedia({ ...answer, scope: "everyone" }), false);
+});

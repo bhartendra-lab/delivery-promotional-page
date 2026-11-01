@@ -551,9 +551,11 @@ export function LoungeGallery({
      people picked. Which tab gets one:
        - My Photos, for anyone with a selfie: people in their own photos;
        - All Photos, for a host (every Client is one): everyone in the event;
+       - All Photos for a Guest without the passcode (Highlights, when there
+         are public photos): the people in the public folders only;
        - never Liked (a filter that leaves `tab` where it was, hence
-         `likedView` and not `effTab`), never a guest's All Photos
-         (Highlights), never My People, never with face search off.
+         `likedView` and not `effTab`), never My People, never with face
+         search off.
      With no chip selected none of this touches the grid: `feedView` stays
      whatever `groupView` is, and every loader runs exactly as before. */
 
@@ -570,7 +572,9 @@ export function LoungeGallery({
           : null
         : unlocked
           ? "all"
-          : null;
+          : hasPublicPhotos
+            ? "public"
+            : null;
   const face = useFaceFilter({
     uid: uniqueIdentifier,
     bookingId,
@@ -1681,10 +1685,10 @@ export function LoungeGallery({
     if (effTab === "group") return { mine: true };
     // The face filter walks its own id list (see `downloadGalleryZipNow`):
     // My Photos stays `mine`, so the server keeps only the viewer's photos; a
-    // host's All Photos sends `faceFilter`, which keeps them in the booking.
-    // No folder narrows it: a chip resets the folder to All, and picking a
-    // pill clears the chips.
-    if (faceActive) return faceScope === "all" ? { faceFilter: true } : { mine: true };
+    // host's All Photos and Highlights send `faceFilter`, which keeps them in
+    // the booking and the public folders respectively. No folder narrows it: a
+    // chip resets the folder to All, and picking a pill clears the chips.
+    if (faceActive) return faceScope === "mine" ? { mine: true } : { faceFilter: true };
     const mine = effTab === "mine";
     return folder === ALL ? { mine } : { mine, customFolderId: folder };
   }, [likedView, effTab, folder, faceActive, faceScope]);
@@ -1702,7 +1706,7 @@ export function LoungeGallery({
         return activeFeedRef.current?.filtered ? `${base} - my people (filtered) ${n}` : `${base} - my people ${n}`;
       }
       // Filtered by face: the file says so, and which tab it came from.
-      if (faceActive) return `${base} - ${faceScope === "all" ? "all photos" : "my photos"} (filtered) ${n}`;
+      if (faceActive) return `${base} - ${faceScope === "all" ? "all photos" : faceScope === "public" ? "highlights" : "my photos"} (filtered) ${n}`;
       if (folder !== ALL) {
         const folderName = folders.find((f) => f._id === folder)?.name?.trim() || "folder";
         return `${base} - ${folderName} ${n}`;
