@@ -1,0 +1,321 @@
+/* Login backdrop – "photographers in space".
+ * Motion language borrowed from the vyavasth.in hero: springy polaroid pops,
+ * ping rings, a beating heart, dashed orbits, soft brown shadows. */
+
+.sky {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(60vmax 45vmax at 50% 55%, rgba(214, 110, 74, 0.55), transparent 70%),
+    radial-gradient(70vmax 60vmax at 0% 0%, rgba(120, 52, 32, 0.9), transparent 70%),
+    linear-gradient(180deg, #4a2618 0%, #7a3a24 45%, #a24c30 100%);
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+/* Stars */
+.star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #faf4ec;
+  opacity: 0.7;
+  animation: blink 3.2s ease-in-out infinite;
+}
+.starBig {
+  width: 5px;
+  height: 5px;
+  box-shadow: 0 0 8px rgba(250, 244, 236, 0.8);
+}
+.starPlus {
+  width: 12px;
+  height: 12px;
+  background: none;
+  border-radius: 0;
+}
+.starPlus::before,
+.starPlus::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: #faf4ec;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+}
+.starPlus::before { width: 12px; height: 2.5px; }
+.starPlus::after { width: 2.5px; height: 12px; }
+@keyframes blink {
+  50% { opacity: 0.2; transform: scale(0.7); }
+}
+
+/* Dashed orbits */
+.orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(250, 244, 236, 0.18);
+  transform: translate(-50%, -50%);
+}
+.orbitSpin {
+  position: absolute;
+  inset: -1px;
+  animation: spin 60s linear infinite;
+}
+.moonlet {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f0d9cd;
+  box-shadow: 0 0 0 4px rgba(240, 217, 205, 0.15);
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.bob { animation: bob 6s ease-in-out infinite; }
+@keyframes bob {
+  50% { transform: translateY(-10px) rotate(-1.5deg); }
+}
+
+.scene { position: absolute; }
+
+/* Planets */
+.planet { position: relative; border-radius: 50%; }
+.planetTerra {
+  background: radial-gradient(circle at 35% 30%, #e27b57 0%, #c25a3a 45%, #8e3820 100%);
+  box-shadow: inset -18px -14px 0 rgba(0, 0, 0, 0.12), 0 30px 60px -20px rgba(20, 8, 4, 0.6);
+}
+.planetCream {
+  background: radial-gradient(circle at 35% 30%, #fff8ef 0%, #f0d9cd 55%, #d9b29e 100%);
+  box-shadow: inset -14px -10px 0 rgba(120, 52, 32, 0.12), 0 30px 60px -20px rgba(20, 8, 4, 0.6);
+}
+.crater { position: absolute; border-radius: 50%; background: rgba(0, 0, 0, 0.1); }
+.planetCream .crater { background: rgba(168, 68, 42, 0.14); }
+
+/* Photographer + camera flash (7s loop, polaroid pops on the flash) */
+.shooter {
+  position: absolute;
+  cursor: pointer;
+  pointer-events: auto;
+  transform-origin: 50% 100%;
+}
+.shooter svg { display: block; overflow: visible; }
+.flash {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgba(255, 247, 220, 0.85) 30%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  animation: flash 7s linear infinite;
+}
+@keyframes flash {
+  0%, 9.9% { opacity: 0; transform: scale(0.3); }
+  10.5% { opacity: 1; transform: scale(1.4); }
+  15%, 100% { opacity: 0; transform: scale(2); }
+}
+.flashRing {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  pointer-events: none;
+  animation: fpulse 7s linear infinite;
+}
+@keyframes fpulse {
+  0%, 10% { opacity: 0; transform: scale(0.6); }
+  11% { opacity: 0.9; transform: scale(0.9); }
+  22%, 100% { opacity: 0; transform: scale(2.4); }
+}
+
+.shot {
+  position: absolute;
+  width: 86px;
+  padding: 5px 5px 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 14px 30px -8px rgba(30, 10, 4, 0.55);
+  opacity: 0;
+  animation: shot 7s linear infinite;
+}
+.shot img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.shotStill {
+  opacity: 1;
+  animation: none;
+  transform: rotate(6deg);
+}
+.tag {
+  position: absolute;
+  top: -10px;
+  right: -16px;
+  background: #c25a3a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px 999px 999px 5px;
+  box-shadow: 0 6px 14px rgba(43, 20, 13, 0.35), 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+@keyframes shot {
+  0%, 10% { opacity: 0; transform: translate(0, 10px) scale(0.3) rotate(0deg); }
+  14% { opacity: 1; transform: translate(0, -6px) scale(1.08) rotate(var(--r)); }
+  17% { transform: translate(0, 0) scale(1) rotate(var(--r)); }
+  62% { opacity: 1; transform: translate(var(--dx), -22px) scale(1) rotate(var(--r)); }
+  74%, 100% { opacity: 0; transform: translate(var(--dx), -40px) scale(0.9) rotate(var(--r)); }
+}
+
+/* "128 photos of you" pill */
+.pill {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px 6px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2a2218;
+  box-shadow: 0 14px 30px -10px rgba(30, 10, 4, 0.55);
+  opacity: 0;
+  animation: pillIn 7s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+.pill b { color: #c25a3a; font-weight: 800; }
+.pillIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #c25a3a;
+  display: grid;
+  place-items: center;
+}
+@keyframes pillIn {
+  0%, 30% { opacity: 0; transform: translateY(8px) scale(0.7); }
+  36% { opacity: 1; transform: translateY(-2px) scale(1.06); }
+  40%, 80% { opacity: 1; transform: none; }
+  88%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+/* Satellite pings */
+.ping {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(240, 217, 205, 0.7);
+  opacity: 0;
+  animation: ping 2.4s ease-out infinite;
+}
+.pingLate { animation-delay: 1.2s; }
+@keyframes ping {
+  0% { opacity: 0.9; transform: scale(0.4); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+
+/* Rocket along the top strip */
+.rocket {
+  position: absolute;
+  left: -8vw;
+  top: 15vh;
+  width: 46px;
+  animation: fly 14s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+@keyframes fly {
+  0% { transform: translate(0, 0) rotate(76deg); }
+  50% { transform: translate(60vw, -9vh) rotate(90deg); }
+  100% { transform: translate(120vw, -4vh) rotate(100deg); }
+}
+.flame {
+  transform-origin: 50% 0;
+  transform-box: fill-box;
+  animation: flicker 0.18s ease-in-out infinite alternate;
+}
+@keyframes flicker {
+  to { transform: scaleY(1.35) scaleX(0.85); }
+}
+.trail { position: absolute; left: 50%; top: 100%; }
+.trail i {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  left: -5px;
+  border-radius: 50%;
+  background: rgba(240, 217, 205, 0.6);
+  animation: puff 1s ease-out infinite;
+}
+.trail i:nth-child(2) { animation-delay: 0.33s; }
+.trail i:nth-child(3) { animation-delay: 0.66s; }
+@keyframes puff {
+  from { top: 30px; opacity: 0.8; transform: scale(0.6); }
+  to { top: 90px; opacity: 0; transform: scale(1.8); }
+}
+
+/* Asteroids */
+.rock {
+  position: absolute;
+  background: #6b3a28;
+  border-radius: 46% 54% 42% 58% / 55% 45% 55% 45%;
+  box-shadow: inset -6px -5px 0 rgba(0, 0, 0, 0.18), inset 4px 3px 0 rgba(255, 220, 200, 0.08);
+  animation: drift 9s ease-in-out infinite;
+}
+@keyframes drift {
+  50% { transform: translate(8px, -12px) rotate(14deg); }
+}
+
+.heart {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #f6e3e6;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 24px -8px rgba(30, 10, 4, 0.5);
+  animation: beat 2.4s ease-in-out infinite;
+}
+@keyframes beat {
+  0%, 36%, 100% { transform: scale(1); }
+  12% { transform: scale(1.22); }
+  24% { transform: scale(0.96); }
+}
+
+@media (max-width: 1023px) {
+  .hideSm { display: none; }
+}
+
+/* Still frame: no motion, but every photo stays visible. */
+@media (prefers-reduced-motion: reduce) {
+  .sky *,
+  .sky *::before,
+  .sky *::after {
+    animation: none !important;
+  }
+  .shot,
+  .pill {
+    opacity: 1;
+  }
+  .rocket { display: none; }
+  .flash,
+  .flashRing { display: none; }
+}
