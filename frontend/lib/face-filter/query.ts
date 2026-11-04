@@ -43,6 +43,10 @@ export function faceFilterQuery({
   return `?${params.toString()}`;
 }
 
+function isScope(value: unknown): value is FaceFilterScope {
+  return value === "mine" || value === "all" || value === "public";
+}
+
 function parseChip(raw: unknown): FaceChip | null {
   const chip = raw as Partial<FaceChip> | null;
   if (!chip || typeof chip.id !== "string" || !SAFE_ID.test(chip.id)) return null;
@@ -58,7 +62,7 @@ function parseChip(raw: unknown): FaceChip | null {
 export function parseFaceChips(raw: unknown): FaceChips | null {
   const block = raw as Partial<FaceChips> | null;
   if (!block || typeof block.key !== "string" || !block.key) return null;
-  if (block.scope !== "mine" && block.scope !== "all") return null;
+  if (!isScope(block.scope)) return null;
   if (block.state !== "ready" && block.state !== "preparing" && block.state !== "needs_selfie") return null;
   if (!Array.isArray(block.faces)) return null;
   const seen = new Set<string>();
@@ -142,7 +146,7 @@ export function isFaceFilterMedia(raw: unknown): raw is FaceFilterMedia {
   return (
     !!media &&
     typeof media.key === "string" &&
-    (media.scope === "mine" || media.scope === "all") &&
+    isScope(media.scope) &&
     Array.isArray(media.faces) &&
     Array.isArray(media.media_ids) &&
     Array.isArray(media.hits) &&

@@ -79,9 +79,9 @@ export function writeFaceSelection(uid: string, scope: FaceFilterScope, selected
   }
 }
 
-/** Forget both scopes for this gallery: on sign-out and re-auth. */
+/** Forget every scope for this gallery: on sign-out and re-auth. */
 export function clearFaceFilterCache(uid: string): void {
-  for (const scope of ["mine", "all"] as const) {
+  for (const scope of ["mine", "all", "public"] as const) {
     writeFaceChips(uid, scope, null);
     writeFaceSelection(uid, scope, []);
   }

@@ -54,6 +54,16 @@ const nunito = Nunito({
 export const metadata: Metadata = {
   title: "Delivery — Photography",
   description: "Branded delivery landing pages for photography studios.",
+  // Private client galleries, studio dashboards and studio custom domains must
+  // never appear in search results (guests' faces, couple names). Child routes
+  // inherit this; previews on WhatsApp etc. still work because robots.txt is
+  // not used to block crawling.
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false, noimageindex: true },
+  },
   icons: {
     icon: [{ url: "/vyavasth-icon.svg", type: "image/svg+xml" }],
     shortcut: ["/vyavasth-icon.svg"],

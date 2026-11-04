@@ -13,9 +13,11 @@
  * `import type` at no cost to the lounge's bundle.
  */
 
-/** Whose photos a chip bar narrows. A Guest is always "mine"; a host (every
- *  Client is one) asks for "all" on All Photos and "mine" on My Photos. */
-export type FaceFilterScope = "mine" | "all";
+/** Whose photos a chip bar narrows. "mine": the viewer's own photos. "all": a
+ *  host's All Photos (every Client is a host). "public": Highlights, the photos
+ *  in public folders that a Guest without the passcode may open; its chips and
+ *  counts come from those photos alone. */
+export type FaceFilterScope = "mine" | "all" | "public";
 
 /** `preparing`: the event has no identities yet. `needs_selfie`: "mine" for a
  *  viewer who has not scanned. Neither shows a bar or a message. */
