@@ -15,6 +15,7 @@ import {
   nearestAvailableIndex,
   planForTier,
   planLabel,
+  uploadLimitHeadline,
   yearlySavingsPercent,
 } from "@/lib/plans";
 import { isStorageBasedPlan } from "@/lib/types";
@@ -286,7 +287,7 @@ export function PlanChooser({
               </p>
             )}
             <p className="text-xs text-[var(--color-brand-muted)]">
-              Upload unlimited photos. Each event stays live for 3 months.{" "}
+              {uploadLimitHeadline(eventPlan)}. Each event stays live for 3 months.{" "}
               <PhotoLimitTermsLink eventPlan={eventPlan} showOffer={Boolean(offer)} />
             </p>
           </div>
@@ -489,7 +490,7 @@ function PricingModelCards({
         <ul className="mt-3 space-y-1.5 text-xs text-[var(--color-brand-muted)]">
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
-            Upload unlimited photos*
+            {uploadLimitHeadline(eventPlan)}*
           </li>
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />

@@ -42,9 +42,11 @@ export type Plan = {
   qr_limit?: number | null;
   features?: string[] | null;
   /* ── Event-based plan only. Optional: an API that predates them sends none. */
-  /** Media items one pay-per-event event can hold at a time. */
+  /** Uploads one pay-per-event event gets over its life, deleted photos included. */
   photo_cap?: number | null;
-  /** Items added by one paid capacity block. */
+  /** Uploads one 4K photo uses against photo_cap. */
+  photo_cap_4k_weight?: number | null;
+  /** Uploads added by one paid capacity block. */
   photo_cap_addon_size?: number | null;
   /** Rupees for one capacity block, as the plan lists it. */
   photo_cap_addon_price?: number | null;
@@ -206,8 +208,10 @@ export function freeEventsLabel(count: number): string {
 }
 
 export type PhotoCapTerms = {
-  /** Items one pay-per-event event holds at a time, before any add-on. */
+  /** Uploads one pay-per-event event gets, before any add-on. */
   cap: number;
+  /** Uploads one 4K photo uses. */
+  weight4k: number;
   addonSize: number;
   /** Rupees per add-on block, as the plan lists it. */
   addonPrice: number;
@@ -231,7 +235,30 @@ export function photoCapTermsOf(plan: Plan | null | undefined): PhotoCapTerms | 
   if (typeof cap !== "number" || cap < 0) return null;
   if (typeof addonSize !== "number" || addonSize <= 0) return null;
   if (typeof addonPrice !== "number" || addonPrice < 0) return null;
-  return { cap, addonSize, addonPrice, gstInclusive: gstInclusiveOf(plan) };
+  return { cap, weight4k: weight4kOf(plan), addonSize, addonPrice, gstInclusive: gstInclusiveOf(plan) };
+}
+
+/**
+ * Uploads one 4K photo uses, for an API that does not say. Mirrors
+ * DEFAULT_PHOTO_CAP_4K_WEIGHT in the API's billing service; the plan's own
+ * `photo_cap_4k_weight` always wins.
+ */
+export const FALLBACK_PHOTO_CAP_4K_WEIGHT = 4;
+
+/** The plan's 4K weight, or the fallback when it sends none usable. */
+export function weight4kOf(plan: Plan | null | undefined): number {
+  const weight = plan?.photo_cap_4k_weight;
+  return typeof weight === "number" && Number.isInteger(weight) && weight >= 1 ? weight : FALLBACK_PHOTO_CAP_4K_WEIGHT;
+}
+
+/**
+ * The headline for what one pay per event event takes: "Upload up to 20,000
+ * photos per event", with the number from the plan. Without one (the plan has
+ * not loaded, or does not carry the limit) no figure is quoted.
+ */
+export function uploadLimitHeadline(plan: Plan | null | undefined): string {
+  const terms = photoCapTermsOf(plan);
+  return terms ? `Upload up to ${formatCount(terms.cap)} photos per event` : "Upload your event photos";
 }
 
 /**
@@ -306,9 +333,10 @@ export function payPerEventTerms(
   const lines = [
     ...(capTerms
       ? [
-          `Each event can hold up to ${formatCount(capTerms.cap)} photos at a time.`,
-          "You can delete photos and upload new ones whenever you like. Only what is in the event right now counts.",
-          `Need more room? Add ${formatCount(capTerms.addonSize)} photos to an event for ${formatPrice(capTerms.addonPrice)}, ${note}. Capacity is added in blocks of ${formatCount(capTerms.addonSize)}.`,
+          `Each event includes ${formatCount(capTerms.cap)} photo uploads.`,
+          "Every photo you upload counts, including photos you delete later. Deleting a photo does not give the upload back.",
+          `A 4K photo counts as ${formatCount(capTerms.weight4k)} uploads. Original file uploads are available on storage plans.`,
+          `Need more? Add ${formatCount(capTerms.addonSize)} uploads to an event for ${formatPrice(capTerms.addonPrice)}, ${note}. Capacity is added in blocks of ${formatCount(capTerms.addonSize)}.`,
           "Extra capacity belongs to that one event. It cannot be moved to another event and is not refundable.",
         ]
       : []),

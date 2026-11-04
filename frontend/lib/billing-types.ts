@@ -183,7 +183,7 @@ export type CheckoutPreview =
        *  has galleries: paying deletes them. Checkout refuses until the request
        *  carries `confirm_storage_clear: true`. */
       storage_data_warning?: StorageDataWarning | null;
-      /** photo_cap_topup only: items this purchase adds to the event's cap. */
+      /** photo_cap_topup only: uploads this purchase adds to the event's cap. */
       photos_added?: number;
       /* ── event_validity_extension only ── */
       /** The period being bought. */
@@ -208,11 +208,19 @@ export type StorageDataWarning = { galleries: number; message: string };
  * answer with when the cap is hit ({ code: "PHOTO_CAP_EXCEEDED", photo_cap }).
  */
 export type PhotoCap = {
-  /** Base cap plus whatever was bought for this event. */
+  /** Base cap plus whatever was bought for this event, in upload units. */
   cap: number;
-  /** Media items in the event right now. */
+  /** Upload units consumed, deleted photos included. A 4K photo uses
+   *  `weight_4k` units, any other photo 1. */
   used: number;
   remaining: number;
+  /** Photos in the event right now. Absent from an API that predates the
+   *  cumulative limit. */
+  in_event?: number;
+  /** Units used by photos that were deleted since. */
+  deleted_units?: number;
+  /** Units one 4K photo uses right now. */
+  weight_4k?: number;
   addon_size: number;
   /** Rupees per block, as the Event-based plan lists it. */
   addon_price: number;

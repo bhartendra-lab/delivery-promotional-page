@@ -1109,8 +1109,9 @@ export type PresignRequest = {
   with_thumbnail?: boolean;
   /** The run's quality tier. Omitted means "2560". "4096" additionally signs a
    *  single PUT to B2 for the archive copy; "original" signs none here and uses
-   *  the multipart endpoints below instead. Anything but "2560" is plan-gated
-   *  server-side and answers 402 below a 500 GB plan. */
+   *  the multipart endpoints below instead. "original" is gated server-side:
+   *  402 without a storage plan, and on any pay per event event. On a pay per
+   *  event event a "4096" photo uses more of the event's upload limit. */
   variant?: UploadVariant;
   /** A guest selfie's opt-out of caching. The backend honours it for guests
    *  only, and then answers with the header to send in `cache_control`. */
@@ -1440,6 +1441,21 @@ export function getUploadedMediaIds(bookingId: string): Promise<string[]> {
   return request<{ media_ids: string[] }>(
     `/deliverables/get-media/${encodeURIComponent(bookingId)}?ids_only=true`,
   ).then((res) => res.media_ids ?? []);
+}
+
+/**
+ * The same list plus `deletedMediaIds`: files that were deleted from this
+ * event and are not in it now (`include_deleted=true`). Used by the upload
+ * dialog on a pay per event event, where uploading one of them again uses the
+ * event's upload allowance again. An API that predates the flag sends no
+ * deleted list, which reads as none.
+ */
+export function getUploadedAndDeletedMediaIds(
+  bookingId: string,
+): Promise<{ mediaIds: string[]; deletedMediaIds: string[] }> {
+  return request<{ media_ids: string[]; deleted_media_ids?: string[] }>(
+    `/deliverables/get-media/${encodeURIComponent(bookingId)}?ids_only=true&include_deleted=true`,
+  ).then((res) => ({ mediaIds: res.media_ids ?? [], deletedMediaIds: res.deleted_media_ids ?? [] }));
 }
 
 /**

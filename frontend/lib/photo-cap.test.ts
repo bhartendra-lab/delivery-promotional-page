@@ -10,6 +10,8 @@ import {
   photoCapGstInclusive,
   photoCapListedTotal,
   photoCapChargedTotal,
+  uploadUnitsForSelection,
+  photoCapWeight4k,
 } from "./photo-cap.ts";
 import type { PhotoCap } from "./billing-types.ts";
 
@@ -60,10 +62,33 @@ test("photoCapHasGrown: only once the cap reflects the purchase", () => {
   assert.equal(photoCapHasGrown(before, null, 10000), false);
 });
 
-test("photoCapNearlyFull: from 90% of the cap", () => {
-  assert.equal(photoCapNearlyFull(cap(0), 17999), false);
-  assert.equal(photoCapNearlyFull(cap(0), 18000), true);
-  assert.equal(photoCapNearlyFull(null, 50000), false);
+test("photoCapNearlyFull: from 90% of the uploads used, deleted photos included", () => {
+  assert.equal(photoCapNearlyFull(cap(17999)), false);
+  assert.equal(photoCapNearlyFull(cap(18000)), true);
+  // Only 2,000 photos in the event, but 16,000 uploads were deleted: nearly full.
+  assert.equal(photoCapNearlyFull(cap(18000, { in_event: 2000, deleted_units: 16000 })), true);
+  assert.equal(photoCapNearlyFull(null), false);
+  assert.equal(photoCapNearlyFull(cap(0, { cap: 0 })), false);
+});
+
+test("uploadUnitsForSelection: a 4K photo uses the weight, any other tier 1", () => {
+  assert.equal(uploadUnitsForSelection(10, "4096", 4), 40);
+  assert.equal(uploadUnitsForSelection(10, "4096", 3), 30);
+  assert.equal(uploadUnitsForSelection(10, "2560", 4), 10);
+  assert.equal(uploadUnitsForSelection(0, "4096", 4), 0);
+});
+
+test("photoCapWeight4k: the event's own weight, else 4", () => {
+  assert.equal(photoCapWeight4k(cap(0, { weight_4k: 6 })), 6);
+  assert.equal(photoCapWeight4k(cap(0)), 4);
+  assert.equal(photoCapWeight4k(null), 4);
+});
+
+test("photoCapOverBy: a 4K selection that fits by count can still be over by units", () => {
+  // 19,990 used, 5 new photos: 5 HD fit, 5 at 4K (20 units) do not.
+  assert.equal(photoCapOverBy(cap(19990), uploadUnitsForSelection(5, "2560", 4)), -5);
+  assert.equal(photoCapOverBy(cap(19990), uploadUnitsForSelection(5, "4096", 4)), 10);
+  assert.equal(minPhotoCapBlocks(cap(19990), uploadUnitsForSelection(5, "4096", 4)), 1);
 });
 
 test("what a purchase costs: listed and charged are the same while the price includes GST", () => {

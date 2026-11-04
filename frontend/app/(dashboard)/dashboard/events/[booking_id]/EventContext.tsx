@@ -145,7 +145,8 @@ export type EventContextValue = {
    */
   uploadQualityTier: UploadVariant | null;
   /**
-   * Photo cap of a pay-per-event event: how many items it can hold at a time.
+   * Upload limit of a pay-per-event event: how many uploads it gets over its
+   * life, deleted photos included, and how many it has used.
    * Null for a storage-plan event, which has none. Read with the archive tiers
    * and kept current from the upload engine's create-media responses.
    */

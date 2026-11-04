@@ -33,7 +33,7 @@ const MAX_ATTEMPTS = 15;
 export type PhotoCapContext = "selection" | "paused" | "room";
 
 /**
- * Buy extra photo capacity for ONE pay-per-event event, in place.
+ * Buy extra upload capacity for ONE pay-per-event event, in place.
  *
  * The purchase runs through the same useCheckoutFlow as every other one. What
  * is different is the confirmation: capacity is granted to the event by
@@ -150,7 +150,7 @@ export function PhotoCapPanel({
       purpose: "photo_cap_topup",
       bookingId,
       blocks,
-      description: `Extra photo capacity: ${formatCount(photosAdded)} photos`,
+      description: `Extra upload capacity: ${formatCount(photosAdded)} uploads`,
       before: null,
       currentPlanName: "",
       prefill: company
@@ -211,18 +211,20 @@ export function PhotoCapPanel({
     );
   }
 
+  // Everything here is in uploads: a 4K photo uses more than one, and deleted
+  // photos still count, so "photos" would not add up.
   const heading =
     context === "selection"
-      ? "This upload goes over the event's photo limit"
+      ? "This upload goes over the event's upload limit"
       : context === "paused"
-        ? "This event reached its photo limit"
-        : "Add photo capacity";
+        ? "This event reached its upload limit"
+        : "Add upload capacity";
   const body =
     context === "selection"
-      ? `This event holds ${formatCount(photoCap.cap)} photos. It has ${formatCount(photoCap.used)} and you selected ${formatCount(incoming)}, which is ${formatCount(Math.max(0, over))} too many.`
+      ? `This event includes ${formatCount(photoCap.cap)} uploads. It has used ${formatCount(photoCap.used)} and this selection needs ${formatCount(incoming)}, which is ${formatCount(Math.max(0, over))} too many.`
       : context === "paused"
-        ? `This event holds ${formatCount(photoCap.cap)} photos. ${formatCount(incoming)} photo${incoming === 1 ? " is" : "s are"} waiting to go in.`
-        : `This event holds ${formatCount(photoCap.cap)} photos and has ${formatCount(photoCap.used)}.`;
+        ? `This event includes ${formatCount(photoCap.cap)} uploads. The photos waiting to go in need ${formatCount(incoming)} more.`
+        : `This event includes ${formatCount(photoCap.cap)} uploads and has used ${formatCount(photoCap.used)}.`;
   const payLabel =
     context === "selection"
       ? `Pay ${formatPrice(amount)} and upload`
@@ -265,7 +267,7 @@ export function PhotoCapPanel({
               </button>
             </div>
             <p className="text-[13px] text-[var(--color-brand-ink)]" aria-live="polite">
-              Add <strong className="tabular-nums">{formatCount(photosAdded)}</strong> photos
+              Add <strong className="tabular-nums">{formatCount(photosAdded)}</strong> uploads
               <span className="text-[var(--color-brand-muted)]">
                 {" "}
                 · {gstInclusive ? `${formatPrice(listedAmount)}, GST included` : formatListPrice(listedAmount, false)}
@@ -275,7 +277,7 @@ export function PhotoCapPanel({
 
           {needed > MAX_PHOTO_CAP_BLOCKS && (
             <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
-              One purchase can add up to {formatCount(MAX_PHOTO_CAP_BLOCKS * photoCap.addon_size)} photos. You can add
+              One purchase can add up to {formatCount(MAX_PHOTO_CAP_BLOCKS * photoCap.addon_size)} uploads. You can add
               more after this one, or select fewer photos.
             </p>
           )}
@@ -312,8 +314,8 @@ export function PhotoCapPanel({
         <>
           <p className="text-[13px] leading-relaxed text-[var(--color-brand-ink)]">
             {context === "selection"
-              ? "Ask your studio admin to add photo capacity for this event, or select fewer photos."
-              : "Ask your studio admin to add photo capacity for this event."}
+              ? "Ask your studio admin to add upload capacity for this event, or select fewer photos."
+              : "Ask your studio admin to add upload capacity for this event."}
           </p>
           <div className="flex flex-wrap items-center gap-2.5">
             {secondary && (

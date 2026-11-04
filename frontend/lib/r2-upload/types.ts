@@ -133,8 +133,12 @@ export type FolderProgress = {
 /** Mirrors `PhotoCap` in lib/billing-types.ts (kept structural so this module stays import-free). */
 export type PhotoCapStatus = {
   cap: number;
+  /** Upload units consumed, deleted photos included. */
   used: number;
   remaining: number;
+  in_event?: number;
+  deleted_units?: number;
+  weight_4k?: number;
   addon_size: number;
   addon_price: number;
   addon_price_with_gst?: number;
@@ -199,7 +203,13 @@ export type EngineProgress = {
    * stopped (`resumeAfterPhotoCap`); if the event is still full it simply
    * pauses again on the next refusal.
    */
-  photoCapPause: { waiting: number; photoCap: PhotoCapStatus | null } | null;
+  photoCapPause: {
+    /** Photos not yet in the gallery. */
+    waiting: number;
+    /** What they will use against the upload limit at this run's tier (a 4K photo uses `weight_4k`). */
+    waitingUnits: number;
+    photoCap: PhotoCapStatus | null;
+  } | null;
   /**
    * Last photo-cap status reported by create-media, so the count on screen
    * stays live through a run. Null on an uncapped (storage-plan) event and

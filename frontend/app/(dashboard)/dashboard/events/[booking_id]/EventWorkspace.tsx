@@ -223,6 +223,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [uploadQualityTier, setUploadQualityTier] = useState<UploadVariant | null>(null);
   // The event's photo cap as last read from archive-tiers; null when uncapped.
   const [fetchedPhotoCap, setFetchedPhotoCap] = useState<PhotoCap | null>(null);
+  // Read by deleteMediaIds without making it re-create on every cap change.
+  const fetchedPhotoCapRef = useRef(fetchedPhotoCap);
+  useEffect(() => {
+    fetchedPhotoCapRef.current = fetchedPhotoCap;
+  });
   const [likedFilters, setLikedFilters] = useState<LikedFilters>(EMPTY_LIKED_FILTERS);
   const [totalCount, setTotalCount] = useState(0); // all media in the booking
   const [totalForView, setTotalForView] = useState(0); // media in the active view
@@ -255,16 +260,19 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
 
   const engine = useUploadEngine(bookingId);
   // The engine hears the cap on every create-media response, so during a run
-  // its figure is the fresher one. `used` is not read from either: the page's
-  // own `totalCount` is the live count of what is in the event.
+  // its figure is the fresher one. The photo count is not read from either:
+  // the page's own `totalCount` is the live count of what is in the event.
   //
-  // Whichever knows the higher cap wins: capacity is only ever added, so the
-  // lower figure is the stale one (the engine keeps its last value after a run,
-  // and would otherwise hide capacity bought since).
+  // Both figures only ever grow: capacity is only added, and uploads used
+  // count deleted photos too. So the one that knows the higher cap wins, and
+  // on the same cap the one that knows the higher `used` (the engine keeps its
+  // last value after a run, and would otherwise hide capacity bought, or
+  // uploads used, since).
   const enginePhotoCap = engine.progress.photoCap;
   const photoCap =
     enginePhotoCap && fetchedPhotoCap
-      ? enginePhotoCap.cap >= fetchedPhotoCap.cap
+      ? enginePhotoCap.cap > fetchedPhotoCap.cap ||
+        (enginePhotoCap.cap === fetchedPhotoCap.cap && enginePhotoCap.used >= fetchedPhotoCap.used)
         ? enginePhotoCap
         : fetchedPhotoCap
       : (enginePhotoCap ?? fetchedPhotoCap);
@@ -837,13 +845,16 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         // settleStorage: the backend already adjusted the figure incrementally,
         // so there's nothing to recalculate — this just reads it.
         void refreshDlpUsage();
+        // On a pay per event event the photos leave the event but the uploads
+        // they used stay used: re-read the cap so the page shows exactly that.
+        if (fetchedPhotoCapRef.current) void refreshArchiveTiers();
         toast(`${real.length.toLocaleString("en-IN")} photo${real.length === 1 ? "" : "s"} deleted`);
       } catch (err) {
         setMedia(prev); // restore on failure
         toast(err instanceof Error ? err.message : "Could not delete — try again", "error");
       }
     },
-    [persistBooking, reload, refreshDlpUsage, toast],
+    [persistBooking, reload, refreshDlpUsage, refreshArchiveTiers, toast],
   );
 
   /* ── activation actions (the only gallery controls left) ────── */

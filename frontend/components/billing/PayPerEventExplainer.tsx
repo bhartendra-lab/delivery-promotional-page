@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { getBillingPlans } from "@/lib/billing";
 import { isStorageSnapshot } from "@/lib/billing-types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
-import { eventPlanOf, firstPurchaseOfferOf, offerLine } from "@/lib/plans";
+import { eventPlanOf, firstPurchaseOfferOf, offerLine, uploadLimitHeadline } from "@/lib/plans";
 import type { Plan } from "@/lib/plans";
 import { PhotoLimitTermsLink } from "./PhotoLimitTerms";
 
@@ -46,7 +46,7 @@ export function PayPerEventExplainer({ snapshot }: { snapshot: SubscriptionSnaps
       <ul className="mt-2 flex list-disc flex-col gap-1.5 pl-5 text-sm leading-relaxed text-[var(--color-brand-muted)]">
         <li>Buy events as you need them. Each event stays live for 3 months.</li>
         <li>
-          Upload unlimited photos. <PhotoLimitTermsLink eventPlan={eventPlan} showOffer={Boolean(offer)} />
+          {uploadLimitHeadline(eventPlan)}. <PhotoLimitTermsLink eventPlan={eventPlan} showOffer={Boolean(offer)} />
         </li>
         {offer && <li>First purchase offer: {offerLine(offer).toLowerCase()}.</li>}
       </ul>

@@ -111,7 +111,7 @@ export function UploadProgress({
             {cancelling
               ? "Stopping the upload…"
               : capPause
-              ? "This event reached its photo limit"
+              ? "This event reached its upload limit"
               : paused && progress.storageFullWarning
               ? `Storage full — paused at ${progress.photosDone.toLocaleString("en-IN")} of ${progress.photosTotal.toLocaleString("en-IN")} photos`
               : paused
@@ -196,15 +196,15 @@ export function UploadProgress({
           </div>
         )}
 
-        {/* The event's photo cap was reached mid-run. Adding capacity resumes
-            the run from where it paused; deleting photos and pressing Resume
-            works too, since only what is in the event right now counts. */}
+        {/* The event's upload limit was reached mid-run. Adding capacity
+            resumes the run from where it paused. Deleting photos does not
+            help: deleted photos still count toward the limit. */}
         {capPause && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-8 py-3.5">
             <div className="flex items-start gap-2.5">
               <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
               <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
-                This event reached its photo limit. {waiting.toLocaleString("en-IN")} photo
+                This event reached its upload limit. {waiting.toLocaleString("en-IN")} photo
                 {waiting === 1 ? " is" : "s are"} waiting.
               </p>
             </div>

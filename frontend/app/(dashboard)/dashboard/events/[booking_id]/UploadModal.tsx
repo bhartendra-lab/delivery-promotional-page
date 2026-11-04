@@ -14,9 +14,9 @@ import {
 import { DeliveryPreferencesPanel, ToggleRow } from "./DeliveryPreferencesPanel";
 import { useCompany } from "@/lib/useCompany";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
-import { getUploadedMediaIds } from "@/lib/api";
+import { getUploadedAndDeletedMediaIds } from "@/lib/api";
 import type { PhotoCap } from "@/lib/billing-types";
-import { photoCapOverBy } from "@/lib/photo-cap";
+import { photoCapOverBy, photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
 import { resolveDedup } from "@/lib/r2-upload/dedup";
 import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
 import {
@@ -40,57 +40,21 @@ export type UploadPlan = (
   watermark: boolean;
 };
 
-/** GB of plan storage a company needs before ORIGINAL-file uploads unlock.
- *  Mirrors ORIGINAL_TIER_MIN_STORAGE_GB in the backend's billing service, which
- *  is the gate that actually counts — this constant only decides what the UI
- *  offers.
- *
- *  It is the SECOND of two conditions. Both archive tiers first need a
- *  storage-metered plan at all: a count-based plan (Free / Event-based) is
- *  metered by events created and has no byte cap, so an archive object under
- *  one is storage nothing measures. On top of that, only Original needs 500 GB
- *  — it stores the camera file byte for byte (~30x), where 4K is a lossy
- *  re-encode about the size of the delivery copy, whose bytes any storage
- *  plan's cap already counts. */
-const ORIGINAL_TIER_MIN_STORAGE_GB = 500;
-
 /** The three quality tiers, in the order they're offered.
  *
  *  The wording is deliberate and should not be softened. "4K" is a lossy
  *  4096px JPEG, not an archive of the original, and a studio must not come away
  *  believing it has their original files — only "Original file" means the camera
- *  file, byte for byte. That distinction is also why only Original is
- *  plan-gated. */
+ *  file, byte for byte. That distinction is also why only Original is gated:
+ *  it needs a storage plan, and is never offered on a pay per event event. */
 const QUALITY_TIERS: Array<{
   value: UploadVariant;
   label: string;
   detail: string;
-  /** Writes a third object per photo, so it needs a storage-metered plan. */
-  requiresStoragePlan: boolean;
-  /** Additionally needs 500 GB — true for Original alone. */
-  requiresLargePlan: boolean;
 }> = [
-  {
-    value: "2560",
-    label: "HD (2560px)",
-    detail: "",
-    requiresStoragePlan: false,
-    requiresLargePlan: false,
-  },
-  {
-    value: "4096",
-    label: "4K (4096px)",
-    detail: "",
-    requiresStoragePlan: true,
-    requiresLargePlan: false,
-  },
-  {
-    value: "original",
-    label: "Original file",
-    detail: "",
-    requiresStoragePlan: true,
-    requiresLargePlan: true,
-  },
+  { value: "2560", label: "HD (2560px)", detail: "" },
+  { value: "4096", label: "4K (4096px)", detail: "" },
+  { value: "original", label: "Original file", detail: "" },
 ];
 
 /** What the "Allow watermark" switch covers at each quality tier. The 4K copy
@@ -164,6 +128,12 @@ type Props = {
    * as it always has.
    */
   photoCap: PhotoCap | null;
+  /**
+   * This event has an upload limit (pay per event). True as soon as the
+   * booking's plan says so, even before `photoCap` has loaded: Original file is
+   * never offered on such an event.
+   */
+  eventCapped: boolean;
   /** Re-reads the cap from the server; resolves with the fresh value. */
   refreshPhotoCap: () => Promise<PhotoCap | null>;
   /**
@@ -200,6 +170,7 @@ export function UploadModal({
   bookingUploadTier,
   bookingId,
   photoCap,
+  eventCapped,
   refreshPhotoCap,
   sessionWatermark = null,
 }: Props) {
@@ -277,12 +248,9 @@ export function UploadModal({
    * The run's quality tier. Defaults to HD — the tier every run used before
    * this existed, and the only one that costs a studio nothing extra.
    *
-   * Two gates, mirroring the backend's (which is what actually enforces them,
-   * on every presign and every multipart call): both archive tiers need a
-   * storage-metered plan, and Original needs 500 GB of it. `limit` is the
-   * plan's storage cap in GB on a storage-based plan (see DlpUsage) and an
-   * event count on a count-based one, which is exactly why the plan TYPE is
-   * tested first and the size second.
+   * Mirrors the backend's gate (which is what actually enforces it, on every
+   * presign and every multipart call): 4K on every plan, and Original only on
+   * a storage plan of any size, and never on a pay per event event.
    */
   /**
    * The tier the studio has chosen for this run.
@@ -317,9 +285,11 @@ export function UploadModal({
     setSeededFrom(bookingUploadTier);
     setSelectedVariant(bookingUploadTier ?? "2560");
   }
-  const archiveAllowed = storageGated && !dlpLoading;
-  const originalAllowed =
-    archiveAllowed && (dlpUsage?.limit ?? 0) >= ORIGINAL_TIER_MIN_STORAGE_GB;
+  const archiveAllowed = !dlpLoading;
+  /** Why Original is not offered, or null when it is. The event first: a pay
+   *  per event event refuses it whatever the studio's plan. */
+  const originalBlockedBy: "capped" | "plan" | null = eventCapped ? "capped" : !storageGated ? "plan" : null;
+  const originalAllowed = archiveAllowed && originalBlockedBy === null;
   const allowedFor = (v: UploadVariant) =>
     v === "original" ? originalAllowed : v === "4096" ? archiveAllowed : true;
   /**
@@ -467,17 +437,28 @@ export function UploadModal({
   /* ── Photo cap (pay-per-event events) ─────────────────────────────────────
    *
    * Checked on step 2, once the selection is final, the same place the storage
-   * estimate is. `incoming` is what will ACTUALLY be uploaded: the engine skips
-   * files already in the gallery at the start of a run (resolveDedup against
-   * the saved media ids), so the same rule is applied here first. Counting the
-   * raw selection would ask a studio re-selecting a folder to pay for photos it
-   * has already uploaded.
+   * estimate is. The selection is split three ways:
+   *  - already in the event: skipped by the engine at the start of a run
+   *    (resolveDedup against the saved media ids), so never counted here;
+   *  - deleted from this event before: uploading one again uses the event's
+   *    allowance again, so the studio chooses (uploaded again by default);
+   *  - new.
+   * Counting the raw selection would ask a studio re-selecting a folder to pay
+   * for photos it has already uploaded, or quietly spend the allowance on
+   * photos it meant to be gone.
+   *
+   * What it costs is in upload units: a 4K photo uses `weight_4k`. That is
+   * derived from the check and the tier at render, so changing the tier
+   * re-prices the selection without asking the server again.
    *
    * This is a courtesy, not the control: the server refuses at presign and at
    * create-media whatever this dialog decides. If the lookup fails the whole
-   * selection is counted, which can only over-ask, never under-ask. */
+   * selection is counted as new, which can only over-ask, never under-ask. */
   const capped = photoCap !== null;
-  const [capCheck, setCapCheck] = useState<{ cap: PhotoCap; incoming: number } | null>(null);
+  const [capCheck, setCapCheck] = useState<{ cap: PhotoCap; newCount: number; deletedFiles: File[] } | null>(null);
+  /** Upload previously deleted files again. On by default: a deleted photo can
+   *  always be uploaded again; the studio may choose to skip them instead. */
+  const [reuploadDeleted, setReuploadDeleted] = useState(true);
   /** The terms dialog is up: this dialog's own Escape handling stands down. */
   const [termsOpen, setTermsOpen] = useState(false);
   // Read through refs: neither is a reason to re-run the check.
@@ -495,15 +476,22 @@ export function UploadModal({
       return;
     }
     let cancelled = false;
-    Promise.all([refreshPhotoCapRef.current(), getUploadedMediaIds(bookingId).catch(() => null)]).then(
-      ([fresh, uploadedIds]) => {
+    Promise.all([refreshPhotoCapRef.current(), getUploadedAndDeletedMediaIds(bookingId).catch(() => null)]).then(
+      ([fresh, ids]) => {
         if (cancelled) return;
         const cap = fresh ?? photoCapRef.current;
         if (!cap) return;
-        const incoming = uploadedIds
-          ? resolveDedup(bookingId, files, new Set(uploadedIds)).filter((d) => d.match === null).length
-          : files.length;
-        setCapCheck({ cap, incoming });
+        let newCount = files.length;
+        let deletedFiles: File[] = [];
+        if (ids) {
+          const inEvent = resolveDedup(bookingId, files, new Set(ids.mediaIds));
+          const notInEvent = files.filter((_, i) => inEvent[i].match === null);
+          const wasDeleted = resolveDedup(bookingId, notInEvent, new Set(ids.deletedMediaIds));
+          deletedFiles = notInEvent.filter((_, i) => wasDeleted[i].match !== null);
+          newCount = notInEvent.length - deletedFiles.length;
+        }
+        setReuploadDeleted(true);
+        setCapCheck({ cap, newCount, deletedFiles });
       },
     );
     return () => {
@@ -513,7 +501,17 @@ export function UploadModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, capped, step, filesFingerprint, bookingId]);
 
-  const capOverBy = capCheck ? photoCapOverBy(capCheck.cap, capCheck.incoming) : 0;
+  const capWeight4k = photoCapWeight4k(capCheck?.cap ?? photoCap);
+  /** Previously deleted files this run leaves out: none, unless the studio chose to skip them. */
+  const skippedFiles = capCheck && !reuploadDeleted ? capCheck.deletedFiles : [];
+  /** Upload units this run will use: the new files, plus the deleted ones if
+   *  the studio chose to upload them again, at the selected tier. */
+  const capIncoming = capCheck
+    ? uploadUnitsForSelection(capCheck.newCount + (capCheck.deletedFiles.length - skippedFiles.length), variant, capWeight4k)
+    : 0;
+  /** What the Upload button sends: the selection minus the skipped files. */
+  const uploadCount = files.length - skippedFiles.length;
+  const capOverBy = capCheck ? photoCapOverBy(capCheck.cap, capIncoming) : 0;
   const overCap = capOverBy > 0;
   // True while a capped event's fit is still unknown. Upload stays disabled
   // until it clears, exactly like `estimatePending` for a storage plan.
@@ -702,7 +700,7 @@ export function UploadModal({
    */
   async function startUpload(opts: { capCleared?: boolean } = {}) {
     // Re-check defensively: usage could have landed between the two steps.
-    if (files.length === 0 || estimatePending || overStorage || savingPrefs) return;
+    if (uploadCount <= 0 || estimatePending || overStorage || savingPrefs) return;
     // `capCleared` is passed by the photo-limit panel the moment a capacity
     // purchase is confirmed: the state this render closed over still says
     // "over", but the cap has grown and the selection now fits.
@@ -721,10 +719,19 @@ export function UploadModal({
       setSavingPrefs(false);
     }
 
+    // Previously deleted files the studio chose to skip leave the run here, so
+    // they are neither uploaded nor counted. Groups left empty are dropped.
+    const skip = new Set(skippedFiles);
+    const keep = (list: File[]) => (skip.size === 0 ? list : list.filter((file) => !skip.has(file)));
+    const keepGroups = (groups: Array<{ name: string; files: File[] }>) =>
+      skip.size === 0
+        ? groups
+        : groups.map((group) => ({ ...group, files: keep(group.files) })).filter((group) => group.files.length > 0);
+
     if (single && target) {
       onStart({
         mode: "single",
-        files,
+        files: keep(files),
         targetFolderId: target.id,
         targetFolderName: target.name,
         variant,
@@ -735,14 +742,14 @@ export function UploadModal({
     }
     if (resolvedGroups) {
       // The `mixed` case, already answered on step 1.
-      onStart({ mode: "grouped", groups: resolvedGroups, variant, watermark: allowWatermark });
+      onStart({ mode: "grouped", groups: keepGroups(resolvedGroups), variant, watermark: allowWatermark });
       onClose();
       return;
     }
     if (analysis.kind === "direct") {
       onStart({
         mode: "grouped",
-        groups: [{ name: directName ?? defaultFolderName(), files: analysis.looseFiles }],
+        groups: keepGroups([{ name: directName ?? defaultFolderName(), files: analysis.looseFiles }]),
         variant,
         watermark: allowWatermark,
       });
@@ -750,7 +757,7 @@ export function UploadModal({
       return;
     }
     // grouped → every photo already belongs to a named folder.
-    onStart({ mode: "grouped", groups: analysis.subGroups, variant, watermark: allowWatermark });
+    onStart({ mode: "grouped", groups: keepGroups(analysis.subGroups), variant, watermark: allowWatermark });
     onClose();
   }
 
@@ -880,6 +887,12 @@ export function UploadModal({
                   onChange={requestTierChange}
                   archiveAllowed={archiveAllowed}
                   originalAllowed={originalAllowed}
+                  originalBlockedBy={dlpLoading ? null : originalBlockedBy}
+                  weightNote={
+                    photoCap && variant === "4096"
+                      ? `Each 4K photo uses ${capWeight4k.toLocaleString("en-IN")} of this event’s ${photoCap.cap.toLocaleString("en-IN")} uploads.`
+                      : null
+                  }
                 />
               </StepSection>
 
@@ -1068,10 +1081,41 @@ export function UploadModal({
               an over-quota storage estimate blocks it, and the upload starts by
               itself once a capacity purchase is confirmed. The selection and
               every choice on this step stay exactly as they are throughout. */}
+          {/* Files deleted from this event before: uploading them again uses
+              the allowance again, so the studio decides. Uploaded again by default. */}
+          {step === "preferences" && hasSelection && capCheck && capCheck.deletedFiles.length > 0 && (
+            <div className="border-t border-[var(--color-brand-border)] px-6 py-3 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
+              <p>
+                {capCheck.deletedFiles.length.toLocaleString("en-IN")} of these photos{" "}
+                {capCheck.deletedFiles.length === 1 ? "was" : "were"} deleted from this event before. Uploading{" "}
+                {capCheck.deletedFiles.length === 1 ? "it" : "them"} again uses{" "}
+                {uploadUnitsForSelection(capCheck.deletedFiles.length, variant, capWeight4k).toLocaleString("en-IN")} more
+                uploads.
+              </p>
+              <div role="radiogroup" aria-label="Previously deleted photos" className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
+                {[
+                  { value: true, label: "Upload them again" },
+                  { value: false, label: "Skip them" },
+                ].map((option) => (
+                  <label key={option.label} className="inline-flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="reupload-deleted"
+                      checked={reuploadDeleted === option.value}
+                      onChange={() => setReuploadDeleted(option.value)}
+                      disabled={savingPrefs}
+                      className="h-3.5 w-3.5 accent-[var(--color-brand-navy)]"
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           {step === "preferences" && hasSelection && capCheck && !overCap && (
             <p className="border-t border-[var(--color-brand-border)] px-6 py-2.5 text-right text-[12.5px] tabular-nums text-[var(--color-brand-muted)]">
-              {(capCheck.cap.used + capCheck.incoming).toLocaleString("en-IN")} of{" "}
-              {capCheck.cap.cap.toLocaleString("en-IN")} photos after this upload
+              {(capCheck.cap.used + capIncoming).toLocaleString("en-IN")} of{" "}
+              {capCheck.cap.cap.toLocaleString("en-IN")} uploads used after this upload
             </p>
           )}
           {step === "preferences" && hasSelection && capCheck && overCap && (
@@ -1079,16 +1123,16 @@ export function UploadModal({
               <PhotoCapPanel
                 bookingId={bookingId}
                 photoCap={capCheck.cap}
-                incoming={capCheck.incoming}
+                incoming={capIncoming}
                 context="selection"
                 refreshPhotoCap={refreshPhotoCap}
                 onTermsOpenChange={setTermsOpen}
                 onCapacityAdded={(fresh) => {
-                  setCapCheck({ cap: fresh, incoming: capCheck.incoming });
+                  setCapCheck({ ...capCheck, cap: fresh });
                   // Paid and confirmed. If it now fits, upload without making
                   // the studio press Upload again; if it still does not (the
                   // purchase was smaller than the overrun), the panel stays.
-                  if (photoCapOverBy(fresh, capCheck.incoming) <= 0) void startUpload({ capCleared: true });
+                  if (photoCapOverBy(fresh, capIncoming) <= 0) void startUpload({ capCleared: true });
                 }}
                 secondary={{
                   label: "Go back and select fewer photos",
@@ -1137,15 +1181,15 @@ export function UploadModal({
             {step === "preferences" && overCap ? null : step === "preferences" ? (
               <button
                 type="button"
-                disabled={files.length === 0 || overStorage || estimatePending || capPending || savingPrefs}
+                disabled={uploadCount <= 0 || overStorage || estimatePending || capPending || savingPrefs}
                 onClick={() => void startUpload()}
                 className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {savingPrefs
                   ? "Saving preferences…"
                   : capPending
-                    ? "Checking photo limit…"
-                    : `Upload · ${files.length.toLocaleString("en-IN")} photo${files.length === 1 ? "" : "s"}`}
+                    ? "Checking upload limit…"
+                    : `Upload · ${uploadCount.toLocaleString("en-IN")} photo${uploadCount === 1 ? "" : "s"}`}
               </button>
             ) : (
               <button
@@ -1678,21 +1722,26 @@ function QualityTierSelector({
   onChange,
   archiveAllowed,
   originalAllowed,
+  originalBlockedBy,
+  weightNote,
 }: {
   value: UploadVariant;
   onChange: (v: UploadVariant) => void;
-  /** Storage-metered plan — the condition BOTH archive tiers share. */
+  /** 4K: every plan, once plan usage has loaded. */
   archiveAllowed: boolean;
-  /** …plus 500 GB, which only Original needs. */
+  /** Original: a storage plan, on an event without an upload limit. */
   originalAllowed: boolean;
+  /** Why Original is withheld, for the note under the tiers; null while unknown or when it is not. */
+  originalBlockedBy: "capped" | "plan" | null;
+  /** Pay per event events with 4K selected: what one 4K photo uses. */
+  weightNote: string | null;
 }) {
   return (
     <div>
       <div role="radiogroup" aria-label="Upload quality" className="flex flex-col gap-2">
         {QUALITY_TIERS.map((tier) => {
           const disabled =
-            (tier.requiresStoragePlan && !archiveAllowed) ||
-            (tier.requiresLargePlan && !originalAllowed);
+            (tier.value === "4096" && !archiveAllowed) || (tier.value === "original" && !originalAllowed);
           const selected = value === tier.value;
           return (
             <button
@@ -1736,15 +1785,19 @@ function QualityTierSelector({
           );
         })}
       </div>
-      {!originalAllowed && (
+      {weightNote && (
+        <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">{weightNote}</p>
+      )}
+      {/* Names only what is withheld and why. On a pay per event event no plan
+          change brings Original to it, so there is nothing to link to. */}
+      {originalBlockedBy === "capped" && (
         <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
-          {/* Names only what is actually withheld. On a storage plan under
-              500 GB that is Original alone, and saying so while pointing out
-              that 4K is already included stops the note reading as an
-              upsell for something the studio can use today. */}
-          {archiveAllowed
-            ? `Original file needs a ${ORIGINAL_TIER_MIN_STORAGE_GB} GB plan or larger. 4K is included on your plan.`
-            : `4K and Original file need a storage-based plan — Original on ${ORIGINAL_TIER_MIN_STORAGE_GB} GB or larger.`}{" "}
+          Original file is not available on pay per event events. Upload at 4K instead.
+        </p>
+      )}
+      {originalBlockedBy === "plan" && (
+        <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+          Original file needs a storage plan.{" "}
           <a
             href="/dashboard/billing"
             target="_blank"

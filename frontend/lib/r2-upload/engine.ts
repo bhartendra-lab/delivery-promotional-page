@@ -52,6 +52,7 @@ import type { UploadVariant } from "./compressor";
 import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
 import { resolveDedup } from "./dedup.ts";
+import { photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
 import { captureFieldsForRecord, captureFieldsForMetadata } from "./capture-time.ts";
 import {
   archiveMetadataFor,
@@ -500,7 +501,7 @@ export class UploadEngineCore {
     // folder re-selected after a cancelled/interrupted run skips what's already
     // in the gallery — the durable source of truth, since cancel wipes IDB.
     const alreadyUploaded = await this.fetchUploadedMediaIds();
-    await this.upsertPendingRecords(inputs, alreadyUploaded);
+    await this.upsertPendingRecords(inputs, alreadyUploaded ?? new Set<string>(), alreadyUploaded !== null);
     this.seedMetadataQueue();
     this.scheduleEmit(
       {
@@ -1180,8 +1181,9 @@ export class UploadEngineCore {
         with_thumbnail: this.thumbBlobs.has(r.id),
         // Sent on every archive-tier run, including "original" (which gets no
         // archive URL back). It is what makes the plan gate fire HERE, at the
-        // first batch, rather than at the first multipart create — a
-        // sub-500 GB studio finds out before any bytes move.
+        // first batch, rather than at the first multipart create: a studio
+        // without a storage plan, or uploading Original into a pay per event
+        // event, finds out before any bytes move.
         variant: this.variant,
       })),
     );
@@ -2000,7 +2002,9 @@ export class UploadEngineCore {
     const waiting = Array.from(this.records.values()).filter(
       (r) => r.status !== "saved" && r.status !== "failed",
     ).length;
-    this.scheduleEmit({ photoCapPause: { waiting, photoCap }, ...(photoCap ? { photoCap } : {}) }, true);
+    // Priced at this run's tier: on a 4K run every waiting photo uses the 4K weight.
+    const waitingUnits = uploadUnitsForSelection(waiting, this.variant, photoCapWeight4k(photoCap));
+    this.scheduleEmit({ photoCapPause: { waiting, waitingUnits, photoCap }, ...(photoCap ? { photoCap } : {}) }, true);
     // Not while a cancel is winding the run down: its loops must be free to
     // settle, and a pause here would hold them until the cancel grace period
     // ran out. The run is stopping anyway.
@@ -2353,6 +2357,9 @@ export class UploadEngineCore {
   private async upsertPendingRecords(
     inputs: UploadInput[],
     alreadyUploaded: Set<string>,
+    /** `alreadyUploaded` really is the gallery's list (the fetch succeeded),
+     *  not the empty stand-in a failed fetch leaves. */
+    galleryKnown: boolean,
   ): Promise<void> {
     const decisions = resolveDedup(
       this.bookingId,
@@ -2365,7 +2372,17 @@ export class UploadEngineCore {
     for (let i = 0; i < inputs.length; i++) {
       const inp = inputs[i];
       const { id, fingerprint, match } = decisions[i];
-      const existing = this.records.get(id);
+      const local = this.records.get(id);
+      // A photo deleted from the gallery since it was saved. Its record
+      // survives in IndexedDB whenever its run did not finish cleanly (one
+      // failed or cancelled file keeps every record), and would otherwise skip
+      // the file forever: a deleted photo could never be uploaded again. When
+      // the gallery's own list says it is not there, by exact or fuzzy match,
+      // the record is stale and the file is queued again from scratch. Only
+      // when that list actually loaded: with no list, local records are the
+      // best evidence there is.
+      const deletedSinceSaved = galleryKnown && local?.status === "saved" && !match;
+      const existing = deletedSinceSaved ? undefined : local;
       // Already done locally (resume): leave the record — and any `dedupeMatch`
       // an earlier selection wrote — exactly as it stands.
       if (existing && (existing.status === "uploaded" || existing.status === "saved")) continue;
@@ -2425,9 +2442,10 @@ export class UploadEngineCore {
    * filename/filesize back out of these ids client-side, so no extra call).
    * Best-effort: a failure just disables backend-side skipping for this run
    * (files re-upload rather than blocking the whole upload on a transient
-   * error).
+   * error). Null on failure, so a caller can tell "the gallery is empty" from
+   * "the gallery is unknown".
    */
-  private async fetchUploadedMediaIds(): Promise<Set<string>> {
+  private async fetchUploadedMediaIds(): Promise<Set<string> | null> {
     try {
       const ids = await getUploadedMediaIds(this.bookingId);
       return new Set(ids);
@@ -2436,7 +2454,7 @@ export class UploadEngineCore {
         "[upload:dedup] could not fetch existing media ids; uploading without backend skip",
         err,
       );
-      return new Set<string>();
+      return null;
     }
   }
 

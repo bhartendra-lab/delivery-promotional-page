@@ -274,7 +274,12 @@ export function MediaGrid({
     }
   }, [confirm, onDeleteMany, items.length]);
 
-  const { bookingId, folders } = useEvent();
+  const { bookingId, folders, photoCap } = useEvent();
+  // On a pay per event event, deleting does not give the uploads back, and the
+  // confirmation says so before the studio commits. Null on a storage plan.
+  const deleteCapNote = photoCap
+    ? `Deleted photos still count toward this event’s ${photoCap.cap.toLocaleString("en-IN")} uploads.`
+    : null;
   const downloadFlow = useDownloadFlow();
   // The flow owns the whole run — pre-flight, progress, cancel — so "a
   // download is in progress" is simply "the modal is open".
@@ -435,6 +440,7 @@ export function MediaGrid({
         {confirm && (
           <DeleteConfirm
             count={confirm.ids.length}
+            capNote={deleteCapNote}
             busy={deleting}
             onCancel={() => !deleting && setConfirm(null)}
             onConfirm={runDelete}
@@ -644,6 +650,7 @@ export function MediaGrid({
       {confirm && (
         <DeleteConfirm
           count={confirm.ids.length}
+          capNote={deleteCapNote}
           busy={deleting}
           onCancel={() => !deleting && setConfirm(null)}
           onConfirm={runDelete}
@@ -686,11 +693,14 @@ function DeletingNotice() {
 
 function DeleteConfirm({
   count,
+  capNote,
   busy,
   onCancel,
   onConfirm,
 }: {
   count: number;
+  /** Pay per event events only: deleted photos still count toward the upload limit. */
+  capNote: string | null;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -742,6 +752,9 @@ function DeleteConfirm({
           {count === 1 ? "This photo" : "These photos"} will be permanently removed from this event and the gallery.
           This can’t be undone.
         </p>
+        {capNote && (
+          <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-brand-muted)]">{capNote}</p>
+        )}
         <div className="mt-6 flex justify-end gap-2.5">
           <button
             type="button"

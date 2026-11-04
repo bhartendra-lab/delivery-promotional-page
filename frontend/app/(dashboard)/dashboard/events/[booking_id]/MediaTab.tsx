@@ -129,11 +129,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
   const paused = engine.progress.paused;
   const engineActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
   const capPause = engine.progress.photoCapPause;
-  // What the dialog is priced against. `used` is the page's own live count.
+  // What the dialog is priced against. `used` is the server's figure: uploads
+  // used, deleted photos included, which no count on this page can rebuild.
+  // An API that predates the cumulative limit (no `in_event`) counted photos
+  // in the event, so there the page's own live count is still the fresher one.
   const capForDialog: PhotoCap | null = (() => {
     const base = capPause?.photoCap ?? photoCap;
     if (!base) return null;
     if (capDialog === "paused" && capPause?.photoCap) return capPause.photoCap;
+    if (base.in_event != null) return base;
     return { ...base, used: totalCount, remaining: Math.max(0, base.cap - totalCount) };
   })();
   // "populated" vs "empty" is event-level (does the booking have any media),
@@ -483,14 +487,15 @@ export function MediaTab({ loading }: { loading: boolean }) {
             <div className="flex items-start gap-2.5">
               <IconWarning size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-warning)]" />
               <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">
-                This event reached its photo limit. {capPause.waiting.toLocaleString("en-IN")} photo
+                This event reached its upload limit. {capPause.waiting.toLocaleString("en-IN")} photo
                 {capPause.waiting === 1 ? " is" : "s are"} waiting.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {/* Deleting photos frees room too: this saves the waiting ones
-                  again without buying anything, and re-shows this notice if the
-                  event is still full. */}
+              {/* Saves the waiting ones again without buying anything (capacity
+                  may have been added from another device), and re-shows this
+                  notice if the event is still full. Deleting photos does not
+                  free room: deleted photos still count. */}
               <button
                 type="button"
                 onClick={() => void engine.resumeAfterPhotoCap()}
@@ -578,6 +583,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         bookingUploadTier={uploadQualityTier}
         bookingId={ctxBookingId}
         photoCap={photoCap}
+        eventCapped={photoCap !== null || isCountBasedPlan(serviceType)}
         refreshPhotoCap={refreshPhotoCap}
         sessionWatermark={engine.sessionWatermark}
         onStart={(plan) => {
@@ -626,7 +632,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
           <PhotoCapPanel
             bookingId={ctxBookingId}
             photoCap={capForDialog}
-            incoming={capDialog === "paused" ? (capPause?.waiting ?? 0) : 0}
+            incoming={capDialog === "paused" ? (capPause?.waitingUnits ?? capPause?.waiting ?? 0) : 0}
             context={capDialog}
             refreshPhotoCap={refreshPhotoCap}
             onCapacityAdded={() => {
@@ -737,12 +743,21 @@ function EventHeader({
     subtitle = paused
       ? `Paused — ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"} detected`
       : `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folders detected`;
-  else if (state === "populated")
-    subtitle = photoCap
-      ? `${totalPhotos.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} photos across ${folderCount} folder${folderCount === 1 ? "" : "s"}`
-      : `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} across ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
-  // From 90% of the cap, offer more room before an upload has to ask for it.
-  const offerCapacity = state === "populated" && photoCapNearlyFull(photoCap, totalPhotos);
+  else if (state === "populated") {
+    const photosLine = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"}`;
+    const foldersLine = `${folderCount} folder${folderCount === 1 ? "" : "s"}`;
+    // A pay per event event shows the photos in it AND the uploads it has
+    // used, which deleted photos still count toward. The photo count is the
+    // page's own live figure. An API that predates the cumulative limit sends
+    // no `in_event`, and its `used` is still a photo count: the old line.
+    subtitle = !photoCap
+      ? `${photosLine} across ${foldersLine}`
+      : photoCap.in_event == null
+        ? `${totalPhotos.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} photos across ${foldersLine}`
+        : `${photosLine} in ${foldersLine} · ${photoCap.used.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} uploads used`;
+  }
+  // From 90% of the uploads used, offer more room before an upload has to ask for it.
+  const offerCapacity = state === "populated" && photoCapNearlyFull(photoCap);
 
   return (
     <section className="flex shrink-0 flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">

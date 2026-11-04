@@ -11,6 +11,9 @@ import {
   freeEventsLabel,
   photoCapTermsOf,
   payPerEventTerms,
+  weight4kOf,
+  uploadLimitHeadline,
+  FALLBACK_PHOTO_CAP_4K_WEIGHT,
   formatCount,
   formatOfferDate,
   FALLBACK_VALIDITY_BASE_DAYS,
@@ -171,6 +174,7 @@ test("offerLine / freeEventsLabel: the bonus comes from the offer, never a fixed
 test("photoCapTermsOf: the plan's figures, and nothing at all when the plan does not carry them", () => {
   assert.deepEqual(photoCapTermsOf(eventPlan({ photo_cap: 30000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 })), {
     cap: 30000,
+    weight4k: FALLBACK_PHOTO_CAP_4K_WEIGHT,
     addonSize: 2500,
     addonPrice: 75,
     gstInclusive: true,
@@ -186,22 +190,44 @@ test("photoCapTermsOf: the plan's figures, and nothing at all when the plan does
 });
 
 test("payPerEventTerms: every figure comes from the plan", () => {
-  const lines = payPerEventTerms(eventPlan({ photo_cap: 25000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75 }));
-  assert.equal(lines.length, 8);
-  assert.equal(lines[0], "Each event can hold up to 25,000 photos at a time.");
-  assert.equal(lines[2], "Need more room? Add 2,500 photos to an event for ₹75, GST included. Capacity is added in blocks of 2,500.");
+  const lines = payPerEventTerms(
+    eventPlan({ photo_cap: 25000, photo_cap_addon_size: 2500, photo_cap_addon_price: 75, photo_cap_4k_weight: 3 }),
+  );
+  assert.equal(lines.length, 9);
+  assert.equal(lines[0], "Each event includes 25,000 photo uploads.");
+  assert.equal(
+    lines[1],
+    "Every photo you upload counts, including photos you delete later. Deleting a photo does not give the upload back.",
+  );
+  assert.equal(lines[2], "A 4K photo counts as 3 uploads. Original file uploads are available on storage plans.");
+  assert.equal(lines[3], "Need more? Add 2,500 uploads to an event for ₹75, GST included. Capacity is added in blocks of 2,500.");
+  // Nothing promises that deleting frees room any more.
+  for (const line of lines) assert.ok(!/at a time|frees|Only what is in the event/.test(line), line);
+});
+
+test("payPerEventTerms: the 4K weight falls back to 4 when the plan does not send one", () => {
+  assert.equal(payPerEventTerms(eventPlan())[2], "A 4K photo counts as 4 uploads. Original file uploads are available on storage plans.");
+});
+
+test("weight4kOf / uploadLimitHeadline: the plan's figures, or no figure at all", () => {
+  assert.equal(weight4kOf(eventPlan({ photo_cap_4k_weight: 6 })), 6);
+  for (const bad of [null, undefined, 0, 2.5]) assert.equal(weight4kOf(eventPlan({ photo_cap_4k_weight: bad })), 4, String(bad));
+  assert.equal(uploadLimitHeadline(eventPlan({ photo_cap: 20000 })), "Upload up to 20,000 photos per event");
+  assert.equal(uploadLimitHeadline(eventPlan({ photo_cap: 25000 })), "Upload up to 25,000 photos per event");
+  assert.equal(uploadLimitHeadline(null), "Upload your event photos");
+  assert.ok(!/unlimited/i.test(uploadLimitHeadline(eventPlan())));
 });
 
 test("payPerEventTerms: how long an event lives and what extending it costs, from the plan", () => {
   const terms = payPerEventTerms(eventPlan());
-  assert.equal(terms[4], "Each event stays live for 3 months from the day you create it. Unused events never expire.");
+  assert.equal(terms[5], "Each event stays live for 3 months from the day you create it. Unused events never expire.");
   assert.equal(
-    terms[5],
+    terms[6],
     "Need it for longer? Before an event closes, you or your Client can extend it: 3 months for ₹199, 6 months for ₹299 or 12 months for ₹499, GST included. The time is added to the date the event was due to close.",
   );
-  assert.equal(terms[6], "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.");
+  assert.equal(terms[7], "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.");
   assert.equal(
-    terms[7],
+    terms[8],
     "When an event closes, guests can no longer open it and its photos are deleted. A closed event cannot be extended. Extensions are not refundable.",
   );
 
@@ -209,30 +235,30 @@ test("payPerEventTerms: how long an event lives and what extending it costs, fro
   const edited = payPerEventTerms(
     eventPlan({ validity_base_days: 45, validity_extension_options: [{ months: 6, price: 249.5 }, { months: 1, price: 99 }] }),
   );
-  assert.equal(edited[4], "Each event stays live for 45 days from the day you create it. Unused events never expire.");
-  assert.ok(edited[5].includes("you or your Client can extend it: 1 month for ₹99 or 6 months for ₹249.50, GST included."));
+  assert.equal(edited[5], "Each event stays live for 45 days from the day you create it. Unused events never expire.");
+  assert.ok(edited[6].includes("you or your Client can extend it: 1 month for ₹99 or 6 months for ₹249.50, GST included."));
   const single = payPerEventTerms(eventPlan({ validity_base_days: 30, validity_extension_options: [{ months: 3, price: 199 }] }));
-  assert.equal(single[4], "Each event stays live for 1 month from the day you create it. Unused events never expire.");
-  assert.ok(single[5].includes("can extend it: 3 months for ₹199, GST included."));
+  assert.equal(single[5], "Each event stays live for 1 month from the day you create it. Unused events never expire.");
+  assert.ok(single[6].includes("can extend it: 3 months for ₹199, GST included."));
 });
 
 test("payPerEventTerms: a plan that lists its prices before GST says plus GST, on the add-on and on the extension", () => {
   const lines = payPerEventTerms(eventPlan({ gst_inclusive: false }));
-  assert.equal(lines[2], "Need more room? Add 5,000 photos to an event for ₹50, plus GST. Capacity is added in blocks of 5,000.");
-  assert.ok(lines[5].includes("3 months for ₹199, 6 months for ₹299 or 12 months for ₹499, plus GST."));
+  assert.equal(lines[3], "Need more? Add 5,000 uploads to an event for ₹50, plus GST. Capacity is added in blocks of 5,000.");
+  assert.ok(lines[6].includes("3 months for ₹199, 6 months for ₹299 or 12 months for ₹499, plus GST."));
   for (const line of lines) assert.ok(!line.includes("GST included"), line);
 });
 
 test("payPerEventTerms: no plan, no terms; and a line is left out when the plan does not carry its figures", () => {
   assert.deepEqual(payPerEventTerms(null), []);
   assert.deepEqual(payPerEventTerms(undefined), []);
-  // No photo limit figures: the four lines about the limit go, the rest stay.
+  // No photo limit figures: the five lines about the limit go, the rest stay.
   const noCap = payPerEventTerms(eventPlan({ photo_cap: null }));
   assert.equal(noCap.length, 4);
   assert.ok(noCap[0].startsWith("Each event stays live for 3 months"));
   // No periods on sale: the "Need it for longer?" line goes.
   const noOptions = payPerEventTerms(eventPlan({ validity_extension_options: [] }));
-  assert.equal(noOptions.length, 7);
+  assert.equal(noOptions.length, 8);
   assert.ok(noOptions.every((line) => !line.startsWith("Need it for longer?")));
 });
 
@@ -314,19 +340,19 @@ test("payPerEventTerms: the offer line appears only for a live offer, and only w
   const until = Date.UTC(2026, 11, 31, 12);
   const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: until } });
   const lines = payPerEventTerms(live);
-  assert.equal(lines.length, 9);
+  assert.equal(lines.length, 10);
   assert.equal(
-    lines[8],
+    lines[9],
     "First purchase offer for new studios: buy at least 1 event and get 1 free. One time per studio, whatever number of events you buy. Offer valid till 31 Dec 2026.",
   );
   // No end date: the sentence about validity is left out, not left dangling.
   const openEnded = payPerEventTerms(eventPlan({ first_purchase_offer: { bonus_events: 2, valid_until: null } }));
   assert.equal(
-    openEnded[8],
+    openEnded[9],
     "First purchase offer for new studios: buy at least 1 event and get 2 free. One time per studio, whatever number of events you buy.",
   );
   // A studio that cannot get the offer is not told about it.
-  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 8);
+  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 9);
 });
 
 test("payPerEventTerms: no em dashes in copy a studio reads", () => {
