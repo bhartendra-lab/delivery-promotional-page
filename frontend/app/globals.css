@@ -153,6 +153,21 @@ body {
   0% { opacity: 0; transform: translateY(-12px); }
   100% { opacity: 1; transform: translateY(0); }
 }
+@keyframes offer-progress {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
+/* Login offer timer: the fill IS the clock — onAnimationEnd advances the
+   slide, so pausing the animation pauses the carousel. */
+.offer-progress {
+  transform-origin: left;
+  animation: offer-progress 3s linear both;
+}
+.group:hover .offer-progress,
+.group:has(:focus-visible) .offer-progress {
+  animation-play-state: paused;
+}
 
 .dash-rise {
   animation: dash-rise 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;

@@ -241,7 +241,6 @@ export const IconCameraOff = wrapPhosphor(CameraSlash, 30, "IconCameraOff");
 export const IconBrowser = wrapPhosphor(Browser, 30, "IconBrowser");
 export const IconSmiley = wrapPhosphor(Smiley, 44, "IconSmiley");
 export const IconSparkle = wrapPhosphor(Sparkle, 24, "IconSparkle");
-
 /**
  * The gallery's overflow-menu glyph: two stacked bars, left-aligned, the lower
  * one shorter.
