@@ -6,8 +6,6 @@ import {
   buildStorageTiers,
   chargedPrice,
   eventPlanOf,
-  firstPurchaseOfferOf,
-  offerLine,
   formatInr,
   formatStorage,
   gstInclusiveOf,
@@ -89,11 +87,6 @@ export function PlanChooser({
   // studio the option comes back.
   const eventOptionAvailable =
     Boolean(eventPlan) && (!isStorageBasedPlan(currentServiceType) || planHasLapsed(currentSnapshot));
-  // The first-purchase offer, shown only when it is live AND the API says this
-  // studio would get it. A studio that has bought events before, or was given
-  // free events at signup, must never see the line.
-  const liveOffer = firstPurchaseOfferOf(eventPlan);
-  const offer = liveOffer && currentSnapshot?.first_purchase_offer_eligible === true ? liveOffer : null;
   const hasStorage = tiers.length > 0;
   const bothAvailable = eventOptionAvailable && hasStorage;
 
@@ -206,8 +199,6 @@ export function PlanChooser({
       <PricingModelCards
         eventPlan={eventPlan!}
         tiers={tiers}
-        offerText={offer ? `${offerLine(offer)} on your first purchase` : null}
-        showOfferInTerms={Boolean(offer)}
         selectedMode={mode}
         onSelect={(m) => {
           setMode(m);
@@ -281,25 +272,14 @@ export function PlanChooser({
             <p className="text-sm text-[var(--color-brand-muted)]">
               {formatInr(eventPlan.event_unit_price ?? 0)} per event · {gstNote(gstInclusiveOf(eventPlan))}
             </p>
-            {offer && (
-              <p className="w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-navy-deep)]">
-                {offerLine(offer)} on your first purchase
-              </p>
-            )}
             <p className="text-xs text-[var(--color-brand-muted)]">
               {uploadLimitHeadline(eventPlan)}. Each event stays live for 3 months.{" "}
-              <PhotoLimitTermsLink eventPlan={eventPlan} showOffer={Boolean(offer)} />
+              <PhotoLimitTermsLink eventPlan={eventPlan} />
             </p>
           </div>
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--color-brand-ink)]">How many events?</p>
             <EventQuantity quantity={qty} onChange={setQty} />
-            {/* The line that makes "one free, however many you buy" obvious. */}
-            {offer && (
-              <p className="mt-2 text-sm text-[var(--color-brand-ink)]" aria-live="polite">
-                You pay for {qty}. You get {qty + offer.bonus_events}.
-              </p>
-            )}
           </div>
           <div className="flex items-baseline justify-between rounded-lg bg-[var(--color-brand-bg)] px-4 py-3">
             <span className="text-sm text-[var(--color-brand-muted)]">
@@ -429,16 +409,11 @@ export function PlanChooser({
 function PricingModelCards({
   eventPlan,
   tiers,
-  offerText,
-  showOfferInTerms,
   selectedMode,
   onSelect,
 }: {
   eventPlan: Plan;
   tiers: StorageTier[];
-  /** The first-purchase offer line, or null when this studio would not get it. */
-  offerText: string | null;
-  showOfferInTerms: boolean;
   selectedMode: Mode;
   onSelect: (mode: Mode) => void;
 }) {
@@ -482,11 +457,6 @@ function PricingModelCards({
             / event{gstInclusiveOf(eventPlan) ? "" : " + GST"}
           </span>
         </p>
-        {offerText && (
-          <p className="mt-2 w-fit rounded-full bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-brand-navy-deep)]">
-            {offerText}
-          </p>
-        )}
         <ul className="mt-3 space-y-1.5 text-xs text-[var(--color-brand-muted)]">
           <li className="flex items-center gap-1.5">
             <IconCheck size={11} className="shrink-0 text-[var(--color-brand-navy)]" />
@@ -544,7 +514,7 @@ function PricingModelCards({
     {/* Outside the cards on purpose: each card is itself a button, and a
         button cannot hold another one. */}
     <p className="text-xs text-[var(--color-brand-muted)]">
-      *<PhotoLimitTermsLink eventPlan={eventPlan} showOffer={showOfferInTerms} />
+      *<PhotoLimitTermsLink eventPlan={eventPlan} />
     </p>
     </div>
   );

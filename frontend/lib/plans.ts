@@ -5,18 +5,6 @@
 export type ServiceType = "Free" | "Event-based" | "Monthly" | "Yearly";
 export type BillingInterval = "one_time" | "monthly" | "yearly";
 
-/**
- * The first-purchase offer on the pay-per-event plan: bonus events added to a
- * studio's FIRST event purchase. A fixed number per studio, not per event
- * bought. The API sends null whenever the offer is not live right now, so
- * nothing here does date math: show it if it is there.
- */
-export type FirstPurchaseOffer = {
-  bonus_events: number;
-  /** epoch ms; null = no end date */
-  valid_until: number | null;
-};
-
 export type Plan = {
   _id: string;
   name?: string | null;
@@ -52,7 +40,6 @@ export type Plan = {
   photo_cap_addon_price?: number | null;
   /** One capacity block as charged, GST included. */
   photo_cap_addon_price_with_gst?: number | null;
-  first_purchase_offer?: FirstPurchaseOffer | null;
   /** Days a pay-per-event event stays live from the day it is created. */
   validity_base_days?: number | null;
   /** Paid validity extensions on sale: months added to an event's current end
@@ -187,21 +174,6 @@ export function freePlanOf(plans: Plan[]): Plan | null {
   return plans.find((p) => p.service_type === "Free") ?? null;
 }
 
-/** The live first-purchase offer on a plan, or null. Never a zero-bonus offer. */
-export function firstPurchaseOfferOf(plan: Plan | null | undefined): FirstPurchaseOffer | null {
-  const offer = plan?.first_purchase_offer;
-  if (!offer || typeof offer.bonus_events !== "number" || offer.bonus_events <= 0) return null;
-  return {
-    bonus_events: offer.bonus_events,
-    valid_until: typeof offer.valid_until === "number" ? offer.valid_until : null,
-  };
-}
-
-/** "Buy 1 event, get 1 free" — the one wording of the offer, used everywhere. */
-export function offerLine(offer: FirstPurchaseOffer): string {
-  return `Buy 1 event, get ${offer.bonus_events} free`;
-}
-
 /** "1 free event" / "2 free events" */
 export function freeEventsLabel(count: number): string {
   return `${count} free event${count === 1 ? "" : "s"}`;
@@ -319,12 +291,10 @@ export function validityOptionsSentence(options: ValidityExtensionOption[]): str
  * No plan, no terms: the list is empty, since there is no figure to quote. A
  * line whose figures the plan does not carry is left out on its own.
  *
- * `includeOffer: false` drops the offer line for a studio that cannot get it.
+ * Free events are given only by a coupon at checkout now, so no offer line
+ * belongs here: a coupon's terms are its own.
  */
-export function payPerEventTerms(
-  plan: Plan | null | undefined,
-  opts: { includeOffer?: boolean } = {},
-): string[] {
+export function payPerEventTerms(plan: Plan | null | undefined): string[] {
   if (!plan) return [];
   const capTerms = photoCapTermsOf(plan);
   const options = validityOptionsOf(plan);
@@ -349,13 +319,6 @@ export function payPerEventTerms(
     "We email you 7 days before an event closes, and message your Clients on WhatsApp with their own link to extend it.",
     "When an event closes, guests can no longer open it and its photos are deleted. A closed event cannot be extended. Extensions are not refundable.",
   ];
-  const offer = opts.includeOffer === false ? null : firstPurchaseOfferOf(plan);
-  if (offer) {
-    const until = offer.valid_until != null ? ` Offer valid till ${formatOfferDate(offer.valid_until)}.` : "";
-    lines.push(
-      `First purchase offer for new studios: buy at least 1 event and get ${offer.bonus_events} free. One time per studio, whatever number of events you buy.${until}`,
-    );
-  }
   return lines;
 }
 
@@ -365,7 +328,7 @@ export function formatCount(n: number): string {
 }
 
 /**
- * An offer's end date as a studio reads it: "31 Dec 2026". Pinned to India
+ * An offer's (a coupon's) end date as a studio reads it: "31 Dec 2026". Pinned to India
  * time so a server render and the browser can never disagree about the day.
  */
 export function formatOfferDate(ms: number): string {

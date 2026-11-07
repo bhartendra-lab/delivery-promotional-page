@@ -1,6 +1,8 @@
 "use client";
 
 import { formatInr } from "@/lib/plans";
+import { couponBonusRowLabel, nextTierNudge } from "@/lib/checkout-summary";
+import type { NextBonusTier } from "@/lib/billing-types";
 
 export function CheckoutSummary({
   title,
@@ -8,6 +10,8 @@ export function CheckoutSummary({
   lines,
   discountAmount,
   bonusEvents,
+  couponCode,
+  nextBonusTier,
   taxableValue,
   taxLines,
   prorationCredit,
@@ -21,8 +25,12 @@ export function CheckoutSummary({
   subtitle?: string;
   lines: { label: string; amount: number }[];
   discountAmount?: number | null;
-  /** Free events the first-purchase offer adds to this purchase (the preview's `bonus_events`). */
+  /** Free events the coupon adds to this purchase (the preview's `bonus_events`). */
   bonusEvents?: number | null;
+  /** The coupon behind them (the preview's `coupon.code`), named in the row. */
+  couponCode?: string | null;
+  /** The next tier up of a bonus coupon (the preview's `next_bonus_tier`), for the nudge under the row. */
+  nextBonusTier?: NextBonusTier | null;
   /** Taxable value (post-discount, pre-GST) and the CGST+SGST or IGST breakdown, from POST /billing/checkout/preview. */
   taxableValue?: number | null;
   taxLines?: { type: string; percent: number; amount: number }[] | null;
@@ -65,11 +73,14 @@ export function CheckoutSummary({
         )}
         {typeof bonusEvents === "number" && bonusEvents > 0 && (
           <div className="flex items-baseline justify-between text-sm">
-            <span className="text-[var(--color-brand-muted)]">
-              First purchase offer: +{bonusEvents} free event{bonusEvents === 1 ? "" : "s"}
-            </span>
+            <span className="text-[var(--color-brand-muted)]">{couponBonusRowLabel(couponCode, bonusEvents)}</span>
             <span className="tabular-nums text-[var(--color-brand-navy-deep)]">{formatInr(0)}</span>
           </div>
+        )}
+        {nextTierNudge(nextBonusTier) && (
+          <p className="-mt-1 text-xs font-medium text-[var(--color-brand-navy)]" aria-live="polite">
+            {nextTierNudge(nextBonusTier)}
+          </p>
         )}
         {prorationCredit && prorationCredit.amount > 0 && (
           <div className="flex items-baseline justify-between text-sm">

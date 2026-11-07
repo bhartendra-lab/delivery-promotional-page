@@ -10,11 +10,14 @@
 
 export type StudioNotice = {
   _id: string;
-  type: "selection_sent";
+  /** "selection_sent": a Client sent collections (about one event).
+   *  "referral_reward": a studio this one referred paid (about no event). */
+  type: "selection_sent" | "referral_reward";
   /** "Priya sent Priya's Side and Rahul's Side (322 photos)" */
   title: string;
   /** The event's name, or null. */
   body: string | null;
+  /** The event, for a selection; absent on a referral notice. */
   booking_id: string;
   data: {
     collection_ids: string[];
@@ -60,8 +63,12 @@ export function timeAgo(when: string | number | null | undefined, now: number): 
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
-/** Where a notice opens: the event's Smart Selects, on its first collection. */
-export function noticeHref(n: Pick<StudioNotice, "booking_id" | "data">): string {
+/** Where a referral notice opens. */
+export const REFERRALS_PATH = "/dashboard/settings/referrals";
+
+/** Where a notice opens: the event's Smart Selects, on its first collection; a referral notice, the referral page. */
+export function noticeHref(n: Pick<StudioNotice, "booking_id" | "data"> & { type?: StudioNotice["type"] }): string {
+  if (n.type === "referral_reward") return REFERRALS_PATH;
   const first = n.data?.collection_ids?.[0];
   const q = new URLSearchParams({ tab: "smart" });
   if (first) q.set("collection", first);

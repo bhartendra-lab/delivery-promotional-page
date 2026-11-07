@@ -38,3 +38,10 @@ test("the deep link is read once and stripped, leaving everything else", () => {
   assert.equal(withoutDeepLink("https://x.in/dashboard/events/b1?tab=smart&collection=c&extend=1#top"), "/dashboard/events/b1?extend=1#top");
   assert.equal(withoutDeepLink("https://x.in/dashboard/events/b1?tab=smart"), "/dashboard/events/b1");
 });
+
+test("noticeHref: a referral notice opens the referral page", () => {
+  assert.equal(
+    noticeHref({ type: "referral_reward", booking_id: "", data: { collection_ids: [], collection_names: [], client_name: null, photo_count: 0 } }),
+    "/dashboard/settings/referrals",
+  );
+});

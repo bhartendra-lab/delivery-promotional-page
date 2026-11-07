@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summaryRowsOf, type PricedPreview } from "./checkout-summary.ts";
+import {
+  summaryRowsOf,
+  couponBonusRowLabel,
+  nextTierNudge,
+  couponChipLabel,
+  appliedBonusLabel,
+  type PricedPreview,
+} from "./checkout-summary.ts";
 
 const preview = (over: Partial<PricedPreview> = {}): PricedPreview => ({
   mode: "event_topup",
@@ -50,4 +57,29 @@ test("summaryRowsOf: the unused plan credit follows the same basis", () => {
   assert.equal(summaryRowsOf(preview({ proration: { ...proration, list_unused_credit: 500 } })).unusedCredit, 500);
   // A tier upgrade has no credit row.
   assert.equal(summaryRowsOf(preview({ proration: { ...proration, mode: "tier_upgrade", unused_credit: null } })).unusedCredit, null);
+});
+
+test("couponBonusRowLabel: the bonus row names the code and the events", () => {
+  assert.equal(couponBonusRowLabel("+1", 1), "Coupon +1: +1 free event");
+  assert.equal(couponBonusRowLabel("TIER", 3), "Coupon TIER: +3 free events");
+  assert.equal(couponBonusRowLabel(null, 2), "Coupon: +2 free events");
+});
+
+test("nextTierNudge: only while a bigger tier is in reach", () => {
+  assert.equal(nextTierNudge({ min_quantity: 5, bonus_events: 2, events_to_add: 1 }), "Add 1 more to get 2 free");
+  assert.equal(nextTierNudge({ min_quantity: 10, bonus_events: 3, events_to_add: 6 }), "Add 6 more to get 3 free");
+  assert.equal(nextTierNudge(null), null);
+  assert.equal(nextTierNudge(undefined), null);
+});
+
+test("couponChipLabel / appliedBonusLabel: figures from the coupon, no dashes", () => {
+  const bonus = { code: "+1", reward_type: "bonus_events" as const, percent_off: null, bonus_events: 1, bonus_tiers: [{ min_quantity: 1, bonus_events: 1 }] };
+  assert.equal(couponChipLabel(bonus), "+1 · 1 free event");
+  assert.equal(couponChipLabel({ ...bonus, bonus_events: 0, bonus_tiers: [{ min_quantity: 2, bonus_events: 2 }] }), "+1 · 2 free events");
+  assert.equal(couponChipLabel({ code: "STORAGE5", reward_type: "percent_off", percent_off: 5, bonus_events: 0, bonus_tiers: null }), "STORAGE5 · 5% off");
+  assert.equal(appliedBonusLabel(2), "+2 free events");
+  assert.equal(appliedBonusLabel(0), null);
+  for (const text of [couponBonusRowLabel("+1", 1), nextTierNudge({ min_quantity: 5, bonus_events: 2, events_to_add: 1 }) ?? "", couponChipLabel(bonus)]) {
+    assert.doesNotMatch(text, /[\u2013\u2014]/);
+  }
 });

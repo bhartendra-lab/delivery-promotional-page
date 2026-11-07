@@ -304,6 +304,8 @@ export function UpgradeModal({
             lines={[{ label: grossLineLabel, amount: displayGross }]}
             discountAmount={displayDiscount}
             bonusEvents={hasPreview ? preview.bonus_events : null}
+            couponCode={hasPreview ? preview.coupon?.code : null}
+            nextBonusTier={hasPreview ? preview.next_bonus_tier : null}
             taxableValue={hasPreview ? preview.taxable_value : null}
             taxLines={hasPreview ? preview.tax_lines : null}
             prorationCredit={prorationCredit}

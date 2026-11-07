@@ -9,21 +9,18 @@ import { payPerEventTerms, type Plan } from "@/lib/plans";
  * chooser, Plan & Billing, and the upload dialog's photo-limit panel.
  *
  * Every figure comes from the Event-based plan (lib/plans#payPerEventTerms,
- * the same text the pricing page renders). `showOffer` is false for a studio
- * that cannot get the first-purchase offer, so it is never told about one.
+ * the same text the pricing page renders).
  */
 export function PhotoLimitTerms({
   open,
   onClose,
   eventPlan,
-  showOffer = false,
 }: {
   open: boolean;
   onClose: () => void;
   eventPlan: Plan | null | undefined;
-  showOffer?: boolean;
 }) {
-  const lines = payPerEventTerms(eventPlan, { includeOffer: showOffer });
+  const lines = payPerEventTerms(eventPlan);
   return (
     <Modal open={open} onClose={onClose} title="Pay per event: terms" size="md">
       {lines.length > 0 ? (
@@ -50,13 +47,11 @@ export function PhotoLimitTerms({
  */
 export function PhotoLimitTermsLink({
   eventPlan,
-  showOffer = false,
   label = "T&C apply",
   className = "",
   onOpenChange,
 }: {
   eventPlan: Plan | null | undefined;
-  showOffer?: boolean;
   label?: string;
   className?: string;
   onOpenChange?: (open: boolean) => void;
@@ -79,7 +74,7 @@ export function PhotoLimitTermsLink({
       >
         {label}
       </button>
-      <PhotoLimitTerms open={open} onClose={() => set(false)} eventPlan={eventPlan} showOffer={showOffer} />
+      <PhotoLimitTerms open={open} onClose={() => set(false)} eventPlan={eventPlan} />
     </>
   );
 }

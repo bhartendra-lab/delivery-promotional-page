@@ -47,6 +47,7 @@ import {
   FolderPlus,
   Funnel,
   Gear,
+  Gift,
   Globe,
   Heart,
   HouseSimple,
@@ -219,6 +220,7 @@ export const IconOpen = wrapPhosphor(ArrowSquareOut, 16, "IconOpen");
 /* ── A4: settings & auth ───────────────────────────────────────── */
 export const IconBuilding = wrapPhosphor(Building, 15, "IconBuilding");
 export const IconGlobe = wrapPhosphor(Globe, 15, "IconGlobe");
+export const IconGift = wrapPhosphor(Gift, 15, "IconGift");
 export const IconShareNetwork = wrapPhosphor(ShareNetwork, 15, "IconShareNetwork");
 export const IconSave = wrapPhosphor(FloppyDisk, 16, "IconSave");
 export const IconKey = wrapPhosphor(Key, 18, "IconKey");

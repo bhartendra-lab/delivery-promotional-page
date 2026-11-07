@@ -15,11 +15,13 @@ import type {
   WriteResult,
 } from "./collections/types";
 import type { NotificationList } from "./notifications";
+import type { ReferralResolution, MyReferrals, AttachReferralResult } from "./referral";
 import type { UploadVariant } from "./r2-upload/compressor";
 import { UPLOAD_CACHE_CONTROL } from "./upload-cache-control";
 import type {
   PlansResponse,
   PublicCoupon,
+  AvailableCoupon,
   SubscriptionSnapshot,
   CouponValidation,
   CheckoutResponse,
@@ -601,6 +603,37 @@ export function getPublicCoupons() {
  */
 export function getSubscription() {
   return request<SubscriptionSnapshot>("/billing/subscription");
+}
+
+/** GET /billing/coupons/available — the coupons this studio can use on this plan right now. */
+export function getAvailableCoupons(input: { service_id: string; quantity?: number }) {
+  const params = new URLSearchParams({ service_id: input.service_id, quantity: String(input.quantity ?? 1) });
+  return request<{ coupons: AvailableCoupon[] }>(`/billing/coupons/available?${params.toString()}`);
+}
+
+/* ── Referrals ──────────────────────────────────────────────────── */
+
+/** GET /referrals/resolve/:code — public. An unknown code is `{ valid: false }`, never an error. */
+export function resolveReferral(code: string) {
+  return request<ReferralResolution>(`/referrals/resolve/${encodeURIComponent(code)}`, { auth: false });
+}
+
+/** GET /referrals/me — any member. */
+export function getMyReferrals() {
+  return request<MyReferrals>("/referrals/me");
+}
+
+/**
+ * POST /referrals/attach — the studio admin, during onboarding. A refusal is
+ * an ApiError whose message is the sentence to show; 409 means the studio
+ * already has a referral (treat it as done).
+ */
+export function attachReferral(input: { code: string; source: "link" | "manual" }) {
+  return request<AttachReferralResult>("/referrals/attach", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 /** POST /billing/coupons/validate. Both outcomes are HTTP 200 — branch on `valid`, never on status. */

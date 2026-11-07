@@ -12,6 +12,7 @@ import {
   IconCreditCard,
   IconCaretDown,
   IconGlobe,
+  IconGift,
   type IconProps,
 } from "@/components/ui/icons";
 import type { Company } from "@/lib/types";
@@ -50,6 +51,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     items: [
       { label: "Personal Information", href: "/dashboard/settings/personal", Icon: IconUser },
       { label: "Plan & Billing", href: "/dashboard/settings/billing", Icon: IconCreditCard },
+      { label: "Refer a Studio", href: "/dashboard/settings/referrals", Icon: IconGift },
     ],
   },
 ];

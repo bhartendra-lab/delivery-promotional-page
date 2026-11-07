@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react";
 import { needsPlan } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
-import { getBillingPlans } from "@/lib/billing";
-import { eventPlanOf, firstPurchaseOfferOf, type FirstPurchaseOffer } from "@/lib/plans";
+import { getPublicCoupons } from "@/lib/billing";
+import type { PublicCoupon } from "@/lib/billing";
 import { useChrome } from "@/components/dashboard/ChromeContext";
-import { useSubscription } from "./SubscriptionProvider";
 
 /**
  * True while the studio has not made its first payment: it can use the
@@ -26,46 +25,38 @@ export function useAwaitingFirstPayment(): boolean {
 }
 
 /**
- * The first-purchase offer as this studio would get it. `ready` is false until
- * the plan and the subscription have both answered, so a caller that must not
- * change its wording after it appears (the welcome dialog) can wait for it.
+ * The first coupon Vyavasth showcases for event purchases ("Your first event is
+ * on us", with its code), for a studio that has not paid yet. `ready` is false
+ * until the public list has answered, so a caller that must not change its
+ * wording after it appears (the welcome dialog) can wait for it.
  *
- * `offer` follows the two conditions used everywhere else: the offer is live,
- * and the API says this studio would get it. A member without billing access
- * has no subscription snapshot and so is never shown the offer.
- *
- * Nothing about the offer is kept here: the bonus and its end date come from
- * the Event-based Service through the plans API, which sends no offer at all
- * once it is switched off or outside its dates. The plans are asked for again
- * each time a page that shows the offer opens (not useEventPlan's one request
- * per session), so a change made in the database is on screen at the next
- * page the studio opens.
+ * Nothing is kept here: the coupon, its headline and its code come from
+ * GET /billing/coupons/public, asked again each time a page that shows it
+ * opens, so a change in the database is on screen at the next page. Whether
+ * this studio may use it is checkout's to say ("Offers for you" there only
+ * lists coupons it can use); callers show this only while it has not paid.
  */
-export function useFirstPurchaseOffer(enabled = true): { offer: FirstPurchaseOffer | null; ready: boolean } {
-  const { snapshot, loading } = useSubscription();
-  const [liveOffer, setLiveOffer] = useState<FirstPurchaseOffer | null>(null);
-  const [planLoaded, setPlanLoaded] = useState(false);
+export function useShowcasedEventCoupon(enabled = true): { coupon: PublicCoupon | null; ready: boolean } {
+  const [coupon, setCoupon] = useState<PublicCoupon | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    getBillingPlans()
+    getPublicCoupons()
       .then((res) => {
-        if (!cancelled) setLiveOffer(firstPurchaseOfferOf(eventPlanOf(res.plans)));
+        if (!cancelled) setCoupon(res.coupons.find((c) => c.audience === "event" && c.headline) ?? null);
       })
       .catch(() => {
-        /* No plans, no offer: the caller falls back to its plain wording. */
+        /* No coupon: the caller falls back to its plain wording. */
       })
       .finally(() => {
-        if (!cancelled) setPlanLoaded(true);
+        if (!cancelled) setLoaded(true);
       });
     return () => {
       cancelled = true;
     };
   }, [enabled]);
 
-  return {
-    offer: liveOffer && snapshot?.first_purchase_offer_eligible === true ? liveOffer : null,
-    ready: planLoaded && !loading,
-  };
+  return { coupon, ready: loaded };
 }

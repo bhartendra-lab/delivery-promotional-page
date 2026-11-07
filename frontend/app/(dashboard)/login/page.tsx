@@ -2,9 +2,11 @@
 
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { requestStudioOtp, verifyStudioOtp, ApiError } from "@/lib/api";
-import { getBillingPlans, getPublicCoupons } from "@/lib/billing";
-import { eventPlanOf, firstPurchaseOfferOf, offerLine, formatOfferDate } from "@/lib/plans";
+import { requestStudioOtp, verifyStudioOtp, resolveReferral, ApiError } from "@/lib/api";
+import { getPublicCoupons } from "@/lib/billing";
+import type { PublicCoupon } from "@/lib/billing";
+import { formatOfferDate } from "@/lib/plans";
+import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral";
 import { setToken, setCompany, sanitizeRedirectPath } from "@/lib/auth";
 import {
   IconMail,
@@ -61,84 +63,35 @@ function Grain({ className = "" }: { className?: string }) {
   );
 }
 
-/* ── Live offers: 1+1 on event plans, flat % off storage plans ──────────
- * Each offer has a coupon code. Both calls hit public, no-auth endpoints, so
- * they work before sign-in. Defaults match what's currently promised; a live
- * response only refines the copy (bonus count, end date, real coupon %) — it
- * never hides an offer just because the network blipped. */
+/* ── Live offers ────────────────────────────────────────────────────────
+ * Entirely from GET /billing/coupons/public: the coupons Vyavasth showcases,
+ * in the order it chose, each with its own headline, subline and code. No
+ * code, figure or headline lives here: a hard-coded fallback could name a
+ * code that no longer exists. With nothing showcased, or the call failing,
+ * the panel shows one brand slide with no code (BRAND_SLIDE). */
 
-const EVENT_OFFER_CODE = "PLUS1";
-const STORAGE_OFFER_CODE = "STORAGE5";
-const STORAGE_OFFER_PERCENT_FALLBACK = 5;
-
-type LoginOffers = {
-  eventLine: string;
-  eventCode: string;
-  eventUntil: string | null;
-  storageCode: string;
-  storagePercent: number;
-  storageUntil: string | null;
-};
-
-const DEFAULT_OFFERS: LoginOffers = {
-  eventLine: "Buy 1 event, get 1 free",
-  eventCode: EVENT_OFFER_CODE,
-  eventUntil: null,
-  storageCode: STORAGE_OFFER_CODE,
-  storagePercent: STORAGE_OFFER_PERCENT_FALLBACK,
-  storageUntil: null,
-};
+type LoginOffers = { coupons: PublicCoupon[] };
 
 function useLoginOffers(): LoginOffers {
-  const [offers, setOffers] = useState<LoginOffers>(DEFAULT_OFFERS);
+  const [coupons, setCoupons] = useState<PublicCoupon[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-
-    getBillingPlans()
-      .then((res) => {
-        if (cancelled) return;
-        const offer = firstPurchaseOfferOf(eventPlanOf(res.plans));
-        if (!offer) return;
-        setOffers((prev) => ({
-          ...prev,
-          eventLine: offerLine(offer),
-          eventUntil: prev.eventUntil ?? (offer.valid_until != null ? formatOfferDate(offer.valid_until) : null),
-        }));
-      })
-      .catch(() => {
-        /* Keep the default line. */
-      });
-
     getPublicCoupons()
       .then((res) => {
-        if (cancelled) return;
-        const find = (code: string) => res.coupons.find((c) => c.code.toUpperCase() === code);
-        const event = find(EVENT_OFFER_CODE);
-        const storage = find(STORAGE_OFFER_CODE);
-        setOffers((prev) => ({
-          ...prev,
-          ...(event && {
-            eventCode: event.code,
-            eventUntil: event.valid_until != null ? formatOfferDate(event.valid_until) : prev.eventUntil,
-          }),
-          ...(storage && {
-            storageCode: storage.code,
-            storagePercent: storage.percent_off,
-            storageUntil: storage.valid_until != null ? formatOfferDate(storage.valid_until) : null,
-          }),
-        }));
+        // An older API also lists coupons that are not showcased, with no
+        // headline: those are never shown.
+        if (!cancelled) setCoupons((res.coupons ?? []).filter((c) => c.headline));
       })
       .catch(() => {
-        /* Keep the default codes. */
+        /* The brand slide stays. */
       });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return offers;
+  return { coupons };
 }
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
@@ -157,40 +110,47 @@ function usePrefersReducedMotion() {
 }
 
 /* ── Offer panel ────────────────────────────────────────────────────────
- * Two cards — event plans and storage plans — each a condition, a reward and
- * a tap-to-copy code. They switch every 3s (the progress bar's CSS animation
- * is the timer, so hover/focus/pause just pause the animation). Arrows step
- * manually; the pause button stops rotation. Slides share one grid cell so
- * the panel never changes height. */
+ * One card per showcased coupon: its headline large, its subline small, a
+ * tap-to-copy code and its end date. They switch every 3s (the progress bar's
+ * CSS animation is the timer, so hover/focus/pause just pause the animation).
+ * Arrows step manually; the pause button stops rotation. Slides share one
+ * grid cell so the panel never changes height. */
 
 type OfferSlide = {
   id: string;
-  condition: string;
-  reward: string;
-  code: string;
+  headline: string;
+  subline: string | null;
+  code: string | null;
   until: string | null;
+};
+
+/** Shown when nothing is showcased or the offers could not load: no code, nothing to go stale. */
+const BRAND_SLIDE: OfferSlide = {
+  id: "brand",
+  headline: "Your wedding galleries, delivered",
+  subline: "Every guest finds their photos.",
+  code: null,
+  until: null,
 };
 
 function OfferPanel({ offers }: { offers: LoginOffers }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
-  const autoplay = !reducedMotion;
 
-  const [eventCondition, eventReward] = splitOfferLine(offers.eventLine);
+  const slides: OfferSlide[] = offers.coupons.length
+    ? offers.coupons.map((coupon) => ({
+        id: coupon.code,
+        headline: coupon.headline ?? "",
+        subline: coupon.subline,
+        code: coupon.code,
+        until: coupon.valid_until != null ? formatOfferDate(coupon.valid_until) : null,
+      }))
+    : [BRAND_SLIDE];
+  const autoplay = !reducedMotion && slides.length > 1;
+  const current = Math.min(index, slides.length - 1);
 
-  const slides: OfferSlide[] = [
-    { id: "event", condition: eventCondition, reward: eventReward, code: offers.eventCode, until: offers.eventUntil },
-    {
-      id: "storage",
-      condition: "Any storage plan,",
-      reward: `flat ${offers.storagePercent}% off`,
-      code: offers.storageCode,
-      until: offers.storageUntil,
-    },
-  ];
-
-  const go = (step: number) => setIndex((i) => (i + step + slides.length) % slides.length);
+  const go = (step: number) => setIndex((i) => (Math.min(i, slides.length - 1) + step + slides.length) % slides.length);
 
   return (
     <aside className="group relative flex flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-7 py-7 text-white sm:px-10 sm:py-9">
@@ -211,7 +171,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
         aria-live={paused || !autoplay ? "polite" : "off"}
       >
         {slides.map((slide, i) => {
-          const active = i === index;
+          const active = i === current;
           return (
             <div
               key={slide.id}
@@ -224,64 +184,70 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
                 active ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
               }`}
             >
-              <p className="text-[22px] font-medium leading-tight text-white/80 sm:text-[26px]">{slide.condition}</p>
-              <p className="mt-1 text-[44px] font-extrabold leading-[1.02] tracking-[-0.03em] sm:text-[56px] lg:text-[62px]">
-                {slide.reward}
+              <p className="text-[40px] font-extrabold leading-[1.04] tracking-[-0.03em] sm:text-[50px] lg:text-[54px]">
+                {slide.headline}
               </p>
-              <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <CopyCode code={slide.code} />
-                {slide.until && <span className="text-xs text-white/65">Ends {slide.until}</span>}
-              </div>
+              {slide.subline && (
+                <p className="mt-3 text-base font-medium leading-snug text-white/80 sm:text-lg">{slide.subline}</p>
+              )}
+              {(slide.code || slide.until) && (
+                <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  {slide.code && <CopyCode code={slide.code} />}
+                  {slide.until && <span className="text-xs text-white/65">Valid till {slide.until}</span>}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      <div className="relative flex items-center justify-between gap-4">
-        <div className="flex gap-2" role="tablist" aria-label="Choose offer">
-          {slides.map((slide, i) => {
-            const active = i === index;
-            return (
-              <button
-                key={slide.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                aria-label={`Offer ${i + 1} of ${slides.length}`}
-                onClick={() => setIndex(i)}
-                className="brand-focus relative h-1 w-10 overflow-hidden rounded-full bg-white/25"
-              >
-                {active && (
-                  <span
-                    key={index}
-                    className={`absolute inset-0 rounded-full bg-white ${autoplay ? "offer-progress" : ""}`}
-                    style={autoplay && paused ? { animationPlayState: "paused" } : undefined}
-                    onAnimationEnd={autoplay ? () => go(1) : undefined}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {slides.length > 1 && (
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="flex gap-2" role="tablist" aria-label="Choose offer">
+            {slides.map((slide, i) => {
+              const active = i === current;
+              return (
+                <button
+                  key={slide.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={`Offer ${i + 1} of ${slides.length}`}
+                  onClick={() => setIndex(i)}
+                  className="brand-focus relative h-1 w-10 overflow-hidden rounded-full bg-white/25"
+                >
+                  {active && (
+                    <span
+                      key={current}
+                      className={`absolute inset-0 rounded-full bg-white ${autoplay ? "offer-progress" : ""}`}
+                      style={autoplay && paused ? { animationPlayState: "paused" } : undefined}
+                      onAnimationEnd={autoplay ? () => go(1) : undefined}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          <ControlButton label="Previous offer" onClick={() => go(-1)}>
-            <IconArrowLeft size={14} />
-          </ControlButton>
-          {autoplay && (
-            <ControlButton
-              label={paused ? "Play offers" : "Pause offers"}
-              pressed={paused}
-              onClick={() => setPaused((p) => !p)}
-            >
-              {paused ? <IconPlay size={13} weight="fill" /> : <IconPause size={13} weight="fill" />}
+          <div className="flex items-center gap-1.5">
+            <ControlButton label="Previous offer" onClick={() => go(-1)}>
+              <IconArrowLeft size={14} />
             </ControlButton>
-          )}
-          <ControlButton label="Next offer" onClick={() => go(1)}>
-            <IconArrowRight size={14} />
-          </ControlButton>
+            {autoplay && (
+              <ControlButton
+                label={paused ? "Play offers" : "Pause offers"}
+                pressed={paused}
+                onClick={() => setPaused((p) => !p)}
+              >
+                {paused ? <IconPlay size={13} weight="fill" /> : <IconPause size={13} weight="fill" />}
+              </ControlButton>
+            )}
+            <ControlButton label="Next offer" onClick={() => go(1)}>
+              <IconArrowRight size={14} />
+            </ControlButton>
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }
@@ -333,13 +299,6 @@ function CopyCode({ code }: { code: string }) {
   );
 }
 
-/** "Buy 1 event, get 1 free" → ["Buy 1 event,", "get 1 free"]. */
-function splitOfferLine(line: string): [string, string] {
-  const cut = line.indexOf(", ");
-  if (cut === -1) return ["", line];
-  return [line.slice(0, cut + 1), line.slice(cut + 2)];
-}
-
 type Step = "email" | "code";
 
 function LoginForm() {
@@ -348,6 +307,7 @@ function LoginForm() {
   const redirectTo = sanitizeRedirectPath(search.get("next") ?? search.get("redirect"));
   const oauthFailed = search.get("error") === "auth_failed";
 
+  const invitedBy = useInvitedBy();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -399,6 +359,12 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         {step === "email" && (
           <>
+            {invitedBy && (
+              <p className="mb-5 inline-flex max-w-full items-center gap-2 rounded-full bg-[var(--color-brand-hover)] px-3 py-1.5 text-xs font-semibold text-[var(--color-brand-ink)] ring-1 ring-[var(--color-brand-border)]">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-brand-navy)]" aria-hidden="true" />
+                <span className="truncate">Invited by {invitedBy}</span>
+              </p>
+            )}
             <div className="space-y-2">
               <h2 className="text-[26px] font-bold leading-tight text-[var(--color-brand-ink)]">
                 Sign in to your studio
@@ -490,6 +456,30 @@ function LoginForm() {
       </div>
     </section>
   );
+}
+
+/**
+ * The name of the studio whose Referral link brought this visitor, or null.
+ * The code was kept by ReferralCapture (lib/referral.ts); it is captured here
+ * too in case this effect runs first. An unknown code shows nothing.
+ */
+function useInvitedBy(): string | null {
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    captureReferralFromUrl();
+    const stored = getStoredReferral();
+    if (!stored) return;
+    let cancelled = false;
+    resolveReferral(stored.code)
+      .then((res) => {
+        if (!cancelled && res.valid && res.studio_name) setName(res.studio_name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return name;
 }
 
 function ErrorBanner({ message }: { message: string }) {

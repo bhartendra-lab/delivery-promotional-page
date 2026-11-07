@@ -100,6 +100,10 @@ export function NotificationBell() {
   const openNotice = (n: StudioNotice) => {
     if (!n.read) markRead([n._id]);
     setOpen(false);
+    if (n.type === "referral_reward") {
+      router.push(noticeHref(n));
+      return;
+    }
     const eventPath = `/dashboard/events/${n.booking_id}`;
     if (pathname === eventPath) {
       // Already on that event: navigating to the same page would not re-run

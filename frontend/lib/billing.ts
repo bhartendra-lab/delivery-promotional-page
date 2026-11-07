@@ -7,6 +7,7 @@
 export {
   getBillingPlans,
   getPublicCoupons,
+  getAvailableCoupons,
   getSubscription,
   validateCoupon,
   checkout,
@@ -27,6 +28,9 @@ export type { BillingProfileInput, CheckoutInput } from "./api";
 export type {
   PlansResponse,
   PublicCoupon,
+  AvailableCoupon,
+  BonusTier,
+  NextBonusTier,
   SubscriptionSnapshot,
   CountBasedSnapshot,
   StorageBasedSnapshot,

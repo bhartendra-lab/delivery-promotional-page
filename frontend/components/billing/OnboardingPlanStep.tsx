@@ -328,6 +328,8 @@ export function OnboardingPlanStep() {
               ]}
               discountAmount={rows ? rows.discountAmount : appliedCoupon?.discountAmount}
               bonusEvents={hasPreview ? preview.bonus_events : null}
+              couponCode={hasPreview ? preview.coupon?.code : null}
+              nextBonusTier={hasPreview ? preview.next_bonus_tier : null}
               taxableValue={hasPreview ? preview.taxable_value : null}
               taxLines={hasPreview ? preview.tax_lines : null}
               total={displayTotal}

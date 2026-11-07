@@ -6,8 +6,6 @@ import {
   yearlySavingsPercent,
   formatStorage,
   formatInr,
-  firstPurchaseOfferOf,
-  offerLine,
   freeEventsLabel,
   photoCapTermsOf,
   payPerEventTerms,
@@ -153,20 +151,7 @@ function eventPlan(overrides: Partial<Plan> = {}): Plan {
   };
 }
 
-test("firstPurchaseOfferOf: null unless the API sent a live offer with a bonus", () => {
-  assert.equal(firstPurchaseOfferOf(null), null);
-  assert.equal(firstPurchaseOfferOf(eventPlan()), null);
-  assert.equal(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: null })), null);
-  assert.equal(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: { bonus_events: 0, valid_until: null } })), null);
-  assert.deepEqual(firstPurchaseOfferOf(eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: 123 } })), {
-    bonus_events: 1,
-    valid_until: 123,
-  });
-});
-
-test("offerLine / freeEventsLabel: the bonus comes from the offer, never a fixed 1", () => {
-  assert.equal(offerLine({ bonus_events: 1, valid_until: null }), "Buy 1 event, get 1 free");
-  assert.equal(offerLine({ bonus_events: 2, valid_until: null }), "Buy 1 event, get 2 free");
+test("freeEventsLabel: singular and plural", () => {
   assert.equal(freeEventsLabel(1), "1 free event");
   assert.equal(freeEventsLabel(2), "2 free events");
 });
@@ -336,28 +321,17 @@ test("yearlySavingsPercent: compared as charged, so plans listed differently are
   assert.equal(yearlySavingsPercent(mixed), 2);
 });
 
-test("payPerEventTerms: the offer line appears only for a live offer, and only when asked for", () => {
-  const until = Date.UTC(2026, 11, 31, 12);
-  const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: until } });
-  const lines = payPerEventTerms(live);
-  assert.equal(lines.length, 10);
-  assert.equal(
-    lines[9],
-    "First purchase offer for new studios: buy at least 1 event and get 1 free. One time per studio, whatever number of events you buy. Offer valid till 31 Dec 2026.",
-  );
-  // No end date: the sentence about validity is left out, not left dangling.
-  const openEnded = payPerEventTerms(eventPlan({ first_purchase_offer: { bonus_events: 2, valid_until: null } }));
-  assert.equal(
-    openEnded[9],
-    "First purchase offer for new studios: buy at least 1 event and get 2 free. One time per studio, whatever number of events you buy.",
-  );
-  // A studio that cannot get the offer is not told about it.
-  assert.equal(payPerEventTerms(live, { includeOffer: false }).length, 9);
+test("payPerEventTerms: no first-purchase offer line, even if an older API still sends one", () => {
+  // Free events come only from a coupon at checkout. The API keeps
+  // first_purchase_offer (always null) for one release; nothing reads it.
+  const plan = { ...eventPlan(), first_purchase_offer: { bonus_events: 1, valid_until: 1 } } as ReturnType<typeof eventPlan>;
+  const lines = payPerEventTerms(plan);
+  assert.equal(lines.length, 9);
+  assert.equal(lines.some((line) => /first purchase/i.test(line)), false);
 });
 
 test("payPerEventTerms: no em dashes in copy a studio reads", () => {
-  const live = eventPlan({ first_purchase_offer: { bonus_events: 1, valid_until: 1 } });
-  for (const line of payPerEventTerms(live)) assert.doesNotMatch(line, /[\u2013\u2014]/, line);
+  for (const line of payPerEventTerms(eventPlan())) assert.doesNotMatch(line, /[\u2013\u2014]/, line);
 });
 
 test("formatCount / formatOfferDate", () => {

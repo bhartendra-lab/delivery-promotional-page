@@ -19,7 +19,37 @@ export type PlansResponse = {
   plans: Plan[];
 };
 
-export type PublicCoupon = { code: string; percent_off: number; valid_until: number };
+/** One tier of a bonus coupon: buy at least `min_quantity` events, get `bonus_events` free. */
+export type BonusTier = { min_quantity: number; bonus_events: number };
+
+/** The next tier up from the quantity being bought, for "Add 1 more to get 2 free". */
+export type NextBonusTier = { min_quantity: number; bonus_events: number; events_to_add: number };
+
+/**
+ * GET /billing/coupons/public: the showcased coupons, in showcase order. Only
+ * a showcased coupon is ever public. Every figure and line on the login
+ * page's offer panel comes from here; nothing is hard-coded.
+ */
+export type PublicCoupon = {
+  code: string;
+  reward_type: "percent_off" | "bonus_events";
+  /** percent_off coupons only. */
+  percent_off: number | null;
+  /** bonus_events coupons only. */
+  bonus_tiers: BonusTier[] | null;
+  valid_until: number | null;
+  /** Which plans the showcase is about. */
+  audience: "event" | "storage" | null;
+  headline: string | null;
+  subline: string | null;
+};
+
+/** GET /billing/coupons/available: what this studio can use on this plan right now ("Offers for you"). */
+export type AvailableCoupon = PublicCoupon & {
+  /** Free events at the quantity asked about (0 for a percent coupon). */
+  bonus_events: number;
+  next_bonus_tier: NextBonusTier | null;
+};
 
 /** GET /billing/subscription — base fields common to every plan family. */
 type SubscriptionBase = {
@@ -35,10 +65,11 @@ type SubscriptionBase = {
   grace_until: number | null;
   suspend_at: number | null;
   delete_at: number | null;
-  /** True when this studio would get the first-purchase bonus if it bought
-   *  events now. Optional: older API responses don't carry it. Never show the
-   *  offer to a studio without it. */
-  first_purchase_offer_eligible?: boolean;
+  /** Whether this studio has ever paid (Companies.first_paid_at). The
+   *  dashboard shows the showcased event coupon to one that has not.
+   *  Optional: older API responses don't carry it; treat absent as paid, so
+   *  an offer is never shown on a guess. */
+  has_paid?: boolean;
 };
 
 export type CountBasedSnapshot = SubscriptionBase & {
@@ -49,6 +80,8 @@ export type CountBasedSnapshot = SubscriptionBase & {
 
 export type StorageBasedSnapshot = SubscriptionBase & {
   storage: { limit: number | null; used: number; remaining: number | null };
+  /** Referral reward days already inside current_period_end. Absent or 0 when none. */
+  bonus_validity_days?: number;
 };
 
 export type SubscriptionSnapshot = CountBasedSnapshot | StorageBasedSnapshot;
@@ -76,8 +109,19 @@ export type CouponValidation =
        *  the GST switch, where it equals `discount_amount`. */
       list_discount_amount?: number;
       gst_inclusive?: boolean;
+      /** The coupon as applied. */
+      coupon?: { code: string; reward_type: "percent_off" | "bonus_events" } | null;
+      /** Free events a bonus coupon adds at this quantity; 0 for a percent coupon. */
+      bonus_events?: number;
+      next_bonus_tier?: NextBonusTier | null;
     }
-  | { valid: false; message: string };
+  | {
+      valid: false;
+      /** Why, e.g. "FIRST_PURCHASE_ONLY". Absent from an older API. */
+      reason?: string;
+      /** The sentence to show under the field. */
+      message: string;
+    };
 
 /**
  * POST /billing/checkout — a discriminated union (§1.5).
@@ -177,8 +221,12 @@ export type CheckoutPreview =
       /** false when a coupon covers the full price — show "Activate plan", not "Pay ₹0.00". */
       requires_payment: boolean;
       proration: CheckoutProration | null;
-      /** Free events the first-purchase offer adds to this purchase; 0 or absent when none. */
+      /** Free events the coupon adds to this purchase; 0 or absent when none. */
       bonus_events?: number;
+      /** The next tier up of a bonus coupon, or null. */
+      next_bonus_tier?: NextBonusTier | null;
+      /** The coupon applied to this quote, or null. */
+      coupon?: { code: string; reward_type: "percent_off" | "bonus_events" } | null;
       /** Set when this event purchase leaves a lapsed storage plan that still
        *  has galleries: paying deletes them. Checkout refuses until the request
        *  carries `confirm_storage_clear: true`. */

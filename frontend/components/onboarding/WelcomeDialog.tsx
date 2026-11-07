@@ -6,10 +6,11 @@ import { useCompany } from "@/lib/useCompany";
 import { needsPlan, setCompany, PLAN_STEP_PATH } from "@/lib/auth";
 import { markWelcomeDialogSeen } from "@/lib/api";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
-import { useFirstPurchaseOffer } from "@/components/billing/useFirstPurchase";
+import { useShowcasedEventCoupon } from "@/components/billing/useFirstPurchase";
+import { CopyCouponCode } from "@/components/billing/FirstPurchaseNotice";
 import { isStorageSnapshot } from "@/lib/billing-types";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
-import { formatOfferDate, formatStorage, offerLine } from "@/lib/plans";
+import { formatOfferDate, formatStorage } from "@/lib/plans";
 import { Modal } from "@/components/ui/Modal";
 import { IconSparkle } from "@/components/ui/icons";
 
@@ -39,8 +40,9 @@ function readyToUse(snapshot: SubscriptionSnapshot | null): string | null {
  *  - It can (the Free plan gave it events at signup, or it has already paid):
  *    a "you're all set" note quoting what it has.
  *  - It cannot (no free events, nothing paid): an invitation to buy, with the
- *    first-purchase offer when this studio would get it. "Not now" leaves the
- *    studio on the dashboard, where FirstPurchaseNotice keeps the offer in view.
+ *    coupon Vyavasth showcases for event purchases when there is one (its
+ *    headline and code, from the API). "Not now" leaves the studio on the
+ *    dashboard, where FirstPurchaseNotice keeps the coupon in view.
  */
 export function WelcomeDialog() {
   const router = useRouter();
@@ -56,10 +58,10 @@ export function WelcomeDialog() {
     company.welcome_dialog_seen_at == null &&
     !dismissed;
   const unpaid = !!company && needsPlan(company);
-  const { offer, ready: offerReady } = useFirstPurchaseOffer(due && unpaid);
-  // The buy version waits for the offer to be known, so its wording and button
-  // never change in front of the studio.
-  const open = due && (!unpaid || offerReady);
+  const { coupon, ready: couponReady } = useShowcasedEventCoupon(due && unpaid);
+  // The buy version waits for the coupon to be known, so its wording never
+  // changes in front of the studio.
+  const open = due && (!unpaid || couponReady);
 
   async function markSeen() {
     // A ref guard (not just component state) so Escape, the X, and a button
@@ -102,16 +104,13 @@ export function WelcomeDialog() {
             Your studio is verified. Buy your first event to create a gallery, share the QR, and watch the
             deliveries land.
           </p>
-          {offer && (
-            <div className="w-full rounded-lg bg-[var(--color-brand-navy-soft)] px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-brand-navy)]">
-                First purchase offer
-              </p>
-              <p className="mt-1 text-base font-bold text-[var(--color-brand-ink)]">{offerLine(offer)}</p>
-              {offer.valid_until != null && (
-                <p className="mt-0.5 text-xs text-[var(--color-brand-muted)]">
-                  Valid till {formatOfferDate(offer.valid_until)}
-                </p>
+          {coupon && (
+            <div className="flex w-full flex-col items-center gap-2 rounded-lg bg-[var(--color-brand-navy-soft)] px-4 py-3">
+              <p className="text-base font-bold text-[var(--color-brand-ink)]">{coupon.headline}</p>
+              {coupon.subline && <p className="text-xs text-[var(--color-brand-muted)]">{coupon.subline}</p>}
+              <CopyCouponCode code={coupon.code} />
+              {coupon.valid_until != null && (
+                <p className="text-xs text-[var(--color-brand-muted)]">Valid till {formatOfferDate(coupon.valid_until)}</p>
               )}
             </div>
           )}
@@ -121,7 +120,7 @@ export function WelcomeDialog() {
               onClick={choosePlan}
               className="brand-focus inline-flex h-11 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
             >
-              {offer ? offerLine(offer) : "Buy events"}
+              Buy events
             </button>
             <button
               type="button"

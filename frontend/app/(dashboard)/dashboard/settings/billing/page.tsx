@@ -15,6 +15,8 @@ import { listInvoices, cancelSubscription, resumeSubscription, ApiError } from "
 import type { Invoice } from "@/lib/billing-types";
 import { isStorageBasedPlan } from "@/lib/types";
 import { autoRenews, canTurnOnAutoRenew } from "@/lib/subscription-status";
+import { isStorageSnapshot } from "@/lib/billing-types";
+import { referralBonusDaysLine } from "@/lib/referral";
 import { BillingDetailsCard } from "./BillingDetailsCard";
 
 const formatDate = (ms: number) =>
@@ -57,6 +59,10 @@ export default function BillingSettingsPage() {
   }
 
   const isRecurring = isStorageBasedPlan(snapshot?.service?.service_type);
+  // Referral reward days inside the end date shown above (option A: on top of
+  // the paid period, the autopay date unmoved).
+  const bonusDaysLine =
+    snapshot && isStorageSnapshot(snapshot) ? referralBonusDaysLine(snapshot.bonus_validity_days, autoRenews(snapshot)) : null;
   // A plan with no mandate (100% coupon, set by support) has no auto-renew to turn off.
   const canCancel = isRecurring && snapshot?.status === "active" && !snapshot.cancel_at_period_end && autoRenews(snapshot);
   // Also offered to a plan that never had auto-renew at all (comped, or set by
@@ -139,6 +145,7 @@ export default function BillingSettingsPage() {
                 Resets {formatDate(snapshot.current_period_end)}
               </p>
             )}
+            {bonusDaysLine && <p className="mt-1 text-xs text-[var(--color-brand-muted)]">{bonusDaysLine}</p>}
           </div>
         </div>
 
