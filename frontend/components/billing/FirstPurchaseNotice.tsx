@@ -7,7 +7,7 @@ import { useAwaitingFirstPayment, useShowcasedEventCoupon } from "./useFirstPurc
 
 /**
  * Shown on the dashboard home and the events tab until the studio's first
- * payment: why "Add event" reads "Buy more events", and the coupon Vyavasth
+ * payment: that events have to be bought first, and the coupon Vyavasth
  * showcases for event purchases, when there is one. Renders nothing once the
  * studio has paid.
  */

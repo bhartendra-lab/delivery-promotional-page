@@ -116,11 +116,9 @@ export default function DashboardHomePage() {
     router.push(`/dashboard/events/${row._id}`);
   }
 
+  // With no events left this still opens Add event: the studio fills it in and
+  // pays for this one event from there ("Continue to pay").
   function openCreate() {
-    if (isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining === 0) {
-      openUpgradeModal({ preset: "event" });
-      return;
-    }
     setModalOpen(true);
   }
 
@@ -208,7 +206,7 @@ export default function DashboardHomePage() {
               className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
             >
               <IconPlus />
-              {createBlocked ? "Buy more events" : "Add event"}
+              Add event
             </button>
             {lowRemaining && (
               <p className="text-xs text-[var(--color-brand-muted)]">{dlpUsage?.remaining} events left</p>

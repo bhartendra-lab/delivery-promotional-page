@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
-import { IconHome, IconCalendar, IconQrCode, IconSidebar, IconGift } from "@/components/ui/icons";
+import { IconHome, IconCalendar, IconQrCode, IconSidebar } from "@/components/ui/icons";
 import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
 
@@ -20,8 +20,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard", Icon: IconHome },
   { id: "events", label: "Events", href: "/dashboard/events", Icon: IconCalendar },
   { id: "reusable-qr", label: "Reusable QR", href: "/dashboard/reusable-qr", Icon: IconQrCode },
-  // The same page as Settings > Refer a Studio, put where a studio will see it.
-  { id: "referrals", label: "Refer a studio", href: "/dashboard/settings/referrals", Icon: IconGift },
 ];
 
 export function Sidebar({

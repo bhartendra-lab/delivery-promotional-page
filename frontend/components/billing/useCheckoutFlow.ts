@@ -53,6 +53,13 @@ export type RunCheckoutInput = {
   /** Called when the server rejects the coupon at redeem time (400) even
    *  though it validated fine earlier — lets the caller clear the applied chip. */
   onCouponRejected?: (message: string) => void;
+  /**
+   * Called once when the payment went through on the studio's side (Razorpay's
+   * success handler, or a 100% coupon the server activated outright), as the
+   * flow moves to "confirming". The webhook still grants the purchase, so the
+   * caller must wait for it to land (e.g. retry what the purchase unlocks).
+   */
+  onPaid?: () => void;
 };
 
 /**
@@ -104,6 +111,7 @@ export function useCheckoutFlow() {
             targetServiceId: input.serviceId,
             before: input.before,
           });
+          input.onPaid?.();
           return;
         }
         setState({ phase: "scheduled", message: res.message, effectiveAt: res.effective_at });
@@ -127,6 +135,7 @@ export function useCheckoutFlow() {
               targetServiceId: input.serviceId,
               before: input.before,
             });
+            input.onPaid?.();
           },
           onDismiss: () => {
             setState({ phase: "dismissed", planName: input.currentPlanName });
@@ -149,6 +158,7 @@ export function useCheckoutFlow() {
               targetServiceId: input.serviceId,
               before: input.before,
             });
+            input.onPaid?.();
           },
           onDismiss: () => {
             setState({ phase: "dismissed", planName: input.currentPlanName });
