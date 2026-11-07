@@ -93,10 +93,11 @@ export function referralInviteCopy(offer: ReferralOffer): ReferralInviteCopy {
   const n = offer.quantity;
   if (offer.kind === "event_credit") {
     const what = n === 1 ? "an event" : `${n} events`;
+    const free = `${n} free event${n === 1 ? "" : "s"}`;
     return {
       short: `Get ${what} free`,
-      title: n === 1 ? "Your next event, free" : `${n} events, free`,
-      body: `Invite a studio you know. When they join and make their first payment, you get ${n} free event${n === 1 ? "" : "s"}.`,
+      title: n === 1 ? "Your next event, on us" : `${n} events, on us`,
+      body: `Know a studio that would love Vyavasth? Invite them. When they join and make their first payment, you get ${free}. Every studio you bring earns you ${n === 1 ? "another one" : `${n} more`}.`,
       cta: "Invite a studio",
     };
   }
@@ -104,7 +105,7 @@ export function referralInviteCopy(offer: ReferralOffer): ReferralInviteCopy {
   return {
     short: `Get ${days} free`,
     title: `${days} more on your plan, on us`,
-    body: `Know a studio that would love Vyavasth? Invite them. When they join and make their first payment, your plan runs ${days} longer.`,
+    body: `Know a studio that would love Vyavasth? Invite them. When they join and make their first payment, your plan runs ${days} longer. Every studio you bring adds ${days} more.`,
     cta: "Invite a studio",
   };
 }

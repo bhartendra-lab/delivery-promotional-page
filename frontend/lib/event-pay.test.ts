@@ -90,11 +90,11 @@ test("referralOfferOf: only a studio with a code, while the program runs, with a
 test("referralInviteCopy: figures from the offer, no dashes", () => {
   const one = referralInviteCopy({ kind: "event_credit", quantity: 1 });
   assert.equal(one.short, "Get an event free");
-  assert.equal(one.title, "Your next event, free");
-  assert.match(one.body, /you get 1 free event\./);
+  assert.equal(one.title, "Your next event, on us");
+  assert.match(one.body, /you get 1 free event\. Every studio you bring earns you another one\./);
   const week = referralInviteCopy({ kind: "validity_days", quantity: 7 });
   assert.equal(week.title, "7 days more on your plan, on us");
-  assert.match(week.body, /your plan runs 7 days longer\./);
+  assert.match(week.body, /your plan runs 7 days longer\. Every studio you bring adds 7 days more\./);
   assert.equal(referralInviteCopy({ kind: "event_credit", quantity: 2 }).short, "Get 2 events free");
   for (const copy of [one, week]) {
     for (const text of Object.values(copy)) assert.doesNotMatch(text, /[–—]/);

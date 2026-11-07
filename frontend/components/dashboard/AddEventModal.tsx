@@ -79,7 +79,9 @@ const newPerson = (role: PersonDraft["role"]): PersonDraft => ({ id: `p${++perso
  * they were never saved), and when the payment lands the event is created
  * from what was typed and opened. Nothing typed is lost if the payment is
  * closed or fails. Beside the button: what referring a studio would earn.
- * On a storage plan the form shows an invitation to refer instead.
+ *
+ * Every open, on either kind of plan, shows a card inviting the studio to
+ * refer (free events, or extra days on a storage plan).
  *
  * The form itself lives in an inner component that is mounted only while the
  * modal is open, so every open starts from a clean form without an effect to
@@ -145,7 +147,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   // the usage meter still reads 0.
   const [paidFor, setPaidFor] = useState(false);
   const payMode = payPerEvent && !paidFor && (dlpUsage?.remaining === 0 || outOfEvents);
-  const referral = useReferralStanding(!dlpLoading && (payMode || showExpiry));
+  const referral = useReferralStanding(!dlpLoading && (payPerEvent || showExpiry));
   const purchase = useOneEventPurchase(payMode && referral.loaded, referral.me?.referee_coupon_code ?? null);
   const { state: flow, runCheckout, reset: resetFlow } = useCheckoutFlow();
   /** "billing": saving billing details before paying; "creating": paid, creating the event; "stuck": paid, the event is not unlocked yet. */
@@ -162,7 +164,12 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const paying = flow.phase === "processing";
   const busy = submitting || paying || stage === "creating";
   const eventOffer = payMode && referral.offer?.kind === "event_credit" ? referral.offer : null;
-  const storageOffer = showExpiry && referral.offer?.kind === "validity_days" ? referral.offer : null;
+  // The invitation card shows on every open, on both kinds of plan: free
+  // events on pay per event, extra days on a storage plan.
+  const cardOffer =
+    (payPerEvent && referral.offer?.kind === "event_credit") || (showExpiry && referral.offer?.kind === "validity_days")
+      ? referral.offer
+      : null;
   const billingStage = stage === "billing" || (flow.phase === "error" && flow.code === "BILLING_PROFILE_INCOMPLETE");
 
   useEffect(() => {
@@ -216,6 +223,12 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
 
   /** The new event's page says once what happened to the WhatsApp invites, then opens. */
   function openCreated(res: Awaited<ReturnType<typeof createBooking>>) {
+    // The event just used one of the plan's events (or the paid one): the
+    // shared usage meter (sidebar, dashboard, "N events left") is only read on
+    // load, so it is re-read here or it keeps showing the old count until a
+    // refresh. Owned by the dashboard layout, so it lands after this modal
+    // closes.
+    void Promise.all([refreshDlpUsage(), refreshSubscription()]);
     // Carried in sessionStorage rather than the URL: nothing to strip
     // afterwards, and a refresh cannot replay it.
     const notice = createdEventNotice(res.client_invites);
@@ -354,8 +367,8 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     for (let attempt = 1; mounted.current; attempt += 1) {
       try {
         const res = await createBooking(body);
-        void Promise.all([refreshDlpUsage(), refreshSubscription()]);
         if (mounted.current) openCreated(res);
+        else void Promise.all([refreshDlpUsage(), refreshSubscription()]);
         return;
       } catch (err) {
         const status = err instanceof ApiError ? err.status : null;
@@ -719,8 +732,8 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
           </p>
         )}
 
-        {/* A storage plan: the studio's own invitation to refer. */}
-        {storageOffer && <ReferralAdCard offer={storageOffer} onNavigate={onClose} />}
+        {/* The studio's own invitation to refer, with what it earns on its plan. */}
+        {cardOffer && <ReferralAdCard offer={cardOffer} onNavigate={onClose} />}
 
         {(serverError || (flow.phase === "error" && flow.code !== "BILLING_PROFILE_INCOMPLETE")) && (
           <p
