@@ -10,6 +10,7 @@
  * for the single-photo and grid paths.
  */
 
+import { gridSrcChain as sharedGridSrcChain } from "./media-src.ts";
 import { describeError } from "./download/failure.ts";
 
 export function nameFromUrl(url: string): string {
@@ -184,21 +185,10 @@ export async function fetchPhotoBlob(url: string, signal?: AbortSignal): Promise
 export const gridSrc = (m: { url: string; thumbnail_url?: string | null }) =>
   m.thumbnail_url || m.url;
 
-/**
- * Ordered list of sources a grid tile may fall through, most-preferred first.
- * `gridSrc` is always element 0. Consecutive duplicates are dropped (an already
- * cold URL's `coldFallback` is itself), so a tile never retries the exact same
- * URL it just failed on.
- */
+/** Ordered list of sources a grid tile may fall through (see media-src.ts).
+ *  `gridSrc` is always element 0. */
 function gridSrcChain(m: { url: string; thumbnail_url?: string | null }): string[] {
-  const thumb = m.thumbnail_url || null;
-  const chain = thumb
-    ? // A thumbnail can be missing on either host while the delivery copy is
-      // fine — e.g. mid-migration, or a photo the backfill hasn't reached — so
-      // degrade to the 2560px copy (guaranteed to exist) before giving up.
-      [thumb, coldFallback(thumb), m.url, coldFallback(m.url)]
-    : [m.url, coldFallback(m.url)];
-  return chain.filter((url, i) => url && url !== chain[i - 1]);
+  return sharedGridSrcChain(m, { hot: HOT, cold: COLD });
 }
 
 /**

@@ -28,18 +28,10 @@
 
 import { canShareFiles } from "./share.ts";
 
-export type SaveCapability =
-  /** File System Access directory picker: write each file into a chosen folder,
-   *  streamed, no ZIP. Peak memory is one file regardless of selection size. */
-  | "directory"
-  /** File System Access save picker: one ZIP streamed to disk. Also bounded. */
-  | "streamZip"
-  /** iPhone / iPad with a share sheet that takes files: photos are handed to
-   *  the sheet in small sets and saved straight to Photos, no ZIP. */
-  | "share"
-  /** Neither: a ZIP has to be built in RAM before it can be handed to the
-   *  browser, so the selection size is bounded by what the tab can hold. */
-  | "memoryZip";
+// The type lives in ./types.ts so plan.ts (pure, shared with the mobile app)
+// imports nothing browser-specific. Re-exported for existing imports.
+import type { SaveCapability } from "./types.ts";
+export type { SaveCapability };
 
 /** The globals the probe looks at. A plain object so a test can stand in for
  *  `window` without a DOM. */

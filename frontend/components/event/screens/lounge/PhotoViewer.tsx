@@ -7,6 +7,10 @@ import { shareImage } from "@/lib/media-actions";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useEventTheme } from "../../EventThemeContext";
 import { ZoomImage } from "./ZoomImage";
+import { PhotoStage } from "@/components/viewer/PhotoStage";
+import { gridSrc } from "@/lib/media-actions";
+import { useImageWindow, useWindowSize } from "@/lib/use-image-window";
+import { windowIndices, windowNeedsMore } from "@/lib/viewer-window";
 import { ARROW_HINT_SHIFT_PX, REEL_HINT_EVERY_MS, REEL_HINT_MS, hintDone, markHintDone, sessionStore, wantsNudge } from "./reelHint";
 import {
   IconX,
@@ -40,6 +44,8 @@ export function PhotoViewer({
   onDownload,
   onCollect,
   attribution,
+  hasMore = false,
+  onLoadMore,
 }: {
   items: GuestMediaItem[];
   index: number;
@@ -68,6 +74,11 @@ export function PhotoViewer({
   onCollect?: (item: GuestMediaItem) => void;
   /** The curator's "Added to Priya’s Side by Manish" line for a photo. */
   attribution?: (item: GuestMediaItem) => string | null;
+  /** More photos exist past the last loaded one. While true, Next on the last
+   *  photo asks for the next page and waits for it instead of wrapping. */
+  hasMore?: boolean;
+  /** The gallery's own page loader; it guards against double requests. */
+  onLoadMore?: () => void;
 }) {
   const { theme: t, event } = useEventTheme();
   const item = items[index];
@@ -80,15 +91,60 @@ export function PhotoViewer({
   // The arrow moves, not the photo, so a zoomed photo does not stop it.
   const nudgeDue = wantsNudge({ done: moved, nudges, canNext: items.length > 1, zoomed: false, reducedMotion: reduced });
 
+  /* ── Next on the last loaded photo while more exist: wait for the page ── */
+  // Waiting is "Next was pressed on this photo": derived, so moving to any
+  // other photo (or the set ending) clears it without another state write.
+  const [waitingAt, setWaitingAt] = useState<number | null>(null);
+  const canPage = hasMore && !!onLoadMore;
+  const waitingNext = waitingAt === index && canPage;
+  useEffect(() => {
+    if (waitingAt !== index) return;
+    if (items.length > index + 1) onNav(index + 1);
+    // The set turned out to end here: wrap, as it would have.
+    else if (!hasMore && items.length > 1) onNav(0);
+  }, [waitingAt, items.length, hasMore, index, onNav]);
+
   const step = (d: number) => {
-    if (items.length < 2) return;
+    if (items.length < 2 && !canPage) return;
     if (!moved) {
       // The guest has found the arrows: no more hints this session.
       setMoved(true);
       markHintDone(sessionStore());
     }
+    setWaitingAt(null);
+    if (canPage) {
+      // No wrap while the list is incomplete: the "first" and "last" photos
+      // are not the real ends of the gallery yet.
+      if (d > 0 && index >= items.length - 1) {
+        setWaitingAt(index);
+        onLoadMore!();
+        return;
+      }
+      if (d < 0 && index === 0) return;
+      onNav(index + d);
+      return;
+    }
     onNav((index + d + items.length) % items.length);
   };
+
+  /* ── the sliding window: 5 ahead, 3 behind, wrapping like the arrows ── */
+  const win = useWindowSize();
+  const windowEntries = windowIndices(index, items.length, { ...win, wrap: !canPage }).map((i) => {
+    const m = items[i];
+    return { full: m.type === "video" ? null : m.url, thumb: gridSrc(m) };
+  });
+  useImageWindow(windowEntries);
+  // Ask for the next page once the window reaches past the loaded photos.
+  // Once per position, as in the reel: a page that fails must not be asked
+  // for again on every render.
+  const askedAt = useRef("");
+  useEffect(() => {
+    if (!onLoadMore || !windowNeedsMore(index, items.length, hasMore, win.ahead)) return;
+    const at = `${items.length}:${index}`;
+    if (askedAt.current === at) return;
+    askedAt.current = at;
+    onLoadMore();
+  }, [index, items.length, hasMore, onLoadMore, win.ahead]);
 
   // Three seconds after the opening or the last nudge. Played with the Web
   // Animations API on the button, so a nudge re-renders nothing.
@@ -119,7 +175,7 @@ export function PhotoViewer({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, items.length]);
+  }, [index, items.length, canPage]);
 
   if (!item) return null;
   const isLiked = liked.has(item._id);
@@ -188,16 +244,24 @@ export function PhotoViewer({
 
       {/* image */}
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-4">
-        <ZoomImage key={item._id} src={item.url} />
-        {items.length > 1 && (
+        <PhotoStage
+          item={{ id: item._id, url: item.url, thumb: item.thumbnail_url || null, width: item.width, height: item.height }}
+          rounded
+          reducedMotion={reduced}
+          waiting={waitingNext}
+          renderFull={(p) => <ZoomImage src={p.src} enabled={p.ready} onLoad={p.onLoad} onError={p.onError} imgStyle={p.style} />}
+        />
+        {(items.length > 1 || canPage) && (
           <>
-            <button type="button" onClick={() => step(-1)} aria-label="Previous" className="absolute left-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
-              <IconChevronLeft size={20} weight="bold" />
-            </button>
+            <div className="absolute left-4 top-1/2 z-10 -translate-y-1/2">
+              <button type="button" onClick={() => step(-1)} aria-label="Previous" className={NAV_BUTTON}>
+                <IconChevronLeft size={20} weight="bold" />
+              </button>
+            </div>
             {/* The wrapper holds the place, so the hint can move the button
                 itself without undoing its centring. */}
             <div className="absolute right-4 top-1/2 z-10 -translate-y-1/2">
-              <button ref={nextRef} type="button" onClick={() => step(1)} aria-label="Next" className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-white" style={{ background: "rgba(20,16,8,0.5)" }}>
+              <button ref={nextRef} type="button" onClick={() => step(1)} aria-label="Next" className={NAV_BUTTON}>
                 <IconChevronRight size={20} weight="bold" />
               </button>
             </div>
@@ -222,6 +286,12 @@ export function PhotoViewer({
     </div>
   );
 }
+
+/** Previous / Next. The pressed state (a 95% scale and a brighter fill) makes
+ *  every click visibly register, even while the photo is still loading. The
+ *  fill is a class, not an inline style, so `active:` can override it. */
+const NAV_BUTTON =
+  "flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-white bg-[rgba(20,16,8,0.5)] transition-[transform,background-color] duration-100 hover:bg-[rgba(40,34,24,0.6)] active:scale-95 active:bg-[rgba(70,62,50,0.72)]";
 
 function ChipButton({ label, onClick, children, className = "" }: { label: string; onClick: () => void; children: React.ReactNode; className?: string }) {
   return (

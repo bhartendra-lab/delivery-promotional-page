@@ -342,6 +342,11 @@ export function SelectionWorkspace({
     loadMoreRef.current = feed.loadMore;
     canLoadRef.current = feed.hasMore && !feed.loadingMore;
   });
+  /** The viewer's "next page" (Next past the last loaded photo): the same
+   *  guard as the scroller, so a page already loading is never asked twice. */
+  const loadMoreOnce = useCallback(() => {
+    if (canLoadRef.current) void loadMoreRef.current();
+  }, []);
   useEffect(() => {
     const el = scroller?.current;
     if (!el) return;
@@ -706,6 +711,8 @@ export function SelectionWorkspace({
           onDownload={onDownloadOne}
           onCollect={openSaveFor}
           attribution={attribution}
+          hasMore={feed.hasMore}
+          onLoadMore={loadMoreOnce}
         />
       )}
     </>

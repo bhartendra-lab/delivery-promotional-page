@@ -13,6 +13,7 @@ import { PolicyProvider } from "@/components/event/policy/PolicyContext";
 import { PolicyOverlay } from "@/components/event/policy/PolicyOverlay";
 import { GuestInspectDeterrent } from "@/components/event/GuestInspectDeterrent";
 import { InAppBrowserGate } from "@/components/event/InAppBrowserGate";
+import { AppHandoffSheet, useAppHandoff } from "@/components/event/AppHandoffSheet";
 
 type Status = "loading" | "ready" | "notfound" | "error";
 
@@ -59,7 +60,15 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
   if (event.is_active === false) return <GalleryUnavailable event={event} reason="deactivated" />;
   if (event.gallery_publish_status === "expired") return <GalleryUnavailable event={event} reason="expired" />;
 
+  return <ReadyEvent event={event} uniqueIdentifier={uniqueIdentifier} />;
+}
+
+function ReadyEvent({ event, uniqueIdentifier }: { event: DeliveryLandingPageData; uniqueIdentifier: string }) {
   const theme = resolveTheme(event.style_variant);
+  // "Continue in the app" or "Continue in browser": phones and tablets only,
+  // once per event per browser session. The in-app-browser escape waits for
+  // the answer.
+  const handoff = useAppHandoff(uniqueIdentifier, event);
   return (
     <EventThemeProvider value={{ theme, event, uniqueIdentifier }}>
       <PolicyProvider>
@@ -68,7 +77,8 @@ export function EventExperience({ uniqueIdentifier }: { uniqueIdentifier: string
         <EventFlow />
         {/* Moves a Guest out of Instagram's / Facebook's own browser, where
             downloads silently fail. Renders nothing in a real browser. */}
-        <InAppBrowserGate />
+        <InAppBrowserGate hold={handoff.state !== "browser"} />
+        {handoff.state === "offer" && <AppHandoffSheet uid={uniqueIdentifier} onChoose={handoff.choose} />}
         <PolicyOverlay />
       </PolicyProvider>
     </EventThemeProvider>

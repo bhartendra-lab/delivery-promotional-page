@@ -30,7 +30,7 @@
  * No aliased imports — this module and its test run under `node --test`.
  */
 
-import type { SaveCapability } from "./capability.ts";
+import type { SaveCapability } from "./types.ts";
 import type { ArchiveTier, TierAudience } from "../quality-tiers.ts";
 
 export type { ArchiveTier };

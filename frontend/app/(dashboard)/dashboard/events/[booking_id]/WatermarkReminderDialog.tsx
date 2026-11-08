@@ -56,7 +56,7 @@ export function WatermarkReminderDialog({
         </span>
         <p className="text-sm text-[var(--color-brand-muted)]">
           <strong className="font-semibold text-[var(--color-brand-ink)]">
-            Photos you upload now won't carry your studio's mark — watermarking happens at upload time.
+            Photos you upload now won&apos;t carry your studio&apos;s mark — watermarking happens at upload time.
           </strong>{" "}
         </p>
         <label className="flex items-center gap-1.5 text-xs text-[var(--color-brand-muted)]">

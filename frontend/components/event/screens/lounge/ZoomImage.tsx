@@ -17,8 +17,20 @@ export function ZoomImage({
   doubleTapZoom = true,
   onZoomChange,
   rounded = true,
+  enabled = true,
+  onLoad,
+  onError,
+  imgStyle,
 }: {
   src: string;
+  /** False until the full photo has loaded (see PhotoStage): pinch, wheel and
+   *  double-tap are ignored, so nobody zooms into the blurred thumbnail. The
+   *  events still bubble, so the reel can page. */
+  enabled?: boolean;
+  onLoad?: () => void;
+  onError?: () => void;
+  /** Merged into the img's style (PhotoStage's opacity fade). */
+  imgStyle?: React.CSSProperties;
   doubleTapZoom?: boolean;
   /** Fired when the photo goes from fit to zoomed, and back. */
   onZoomChange?: (zoomed: boolean) => void;
@@ -48,6 +60,10 @@ export function ZoomImage({
     zoomChange.current = onZoomChange;
   }, [onZoomChange]);
   const reportedZoom = useRef(false);
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
 
   const MIN = 1;
   const MAX = 4;
@@ -94,6 +110,7 @@ export function ZoomImage({
     const img = imgRef.current;
     if (!img) return;
     const onWheel = (e: WheelEvent) => {
+      if (!enabledRef.current) return;
       e.preventDefault();
       const { x, y } = center(e.clientX, e.clientY);
       const next = Math.max(MIN, Math.min(MAX, sRef.current * (e.deltaY < 0 ? 1.18 : 1 / 1.18)));
@@ -104,6 +121,7 @@ export function ZoomImage({
   }, [zoomTo]);
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (!enabled) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -189,11 +207,17 @@ export function ZoomImage({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onLoad={onLoad}
+        onError={onError}
         className={`max-h-full max-w-full select-none object-contain [-webkit-touch-callout:none] ${rounded ? "rounded-xl" : ""}`}
         style={{
+          ...imgStyle,
           transform: `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`,
-          transition: gesturing ? "none" : "transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1)",
-          cursor: scale > 1 ? "grab" : doubleTapZoom ? "zoom-in" : "default",
+          // The zoom's transform transition plus the stage's opacity fade.
+          transition: [gesturing ? null : "transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1)", imgStyle?.transition && imgStyle.transition !== "none" ? imgStyle.transition : null]
+            .filter(Boolean)
+            .join(", ") || "none",
+          cursor: scale > 1 ? "grab" : doubleTapZoom && enabled ? "zoom-in" : "default",
           touchAction: "none",
         }}
       />

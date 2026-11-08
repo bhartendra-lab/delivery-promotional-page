@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   IconBuilding,
@@ -861,6 +861,9 @@ export function SelectField({
  * independent `lg:sticky lg:top-8`.
  */
 export const SECTION_SAVE_BAR_ROOT_ID = "settings-section-save-bar-root";
+const noSubscribe = () => () => {};
+const findSaveBarRoot = () => document.getElementById(SECTION_SAVE_BAR_ROOT_ID);
+const serverSaveBarRoot = () => null;
 
 /**
  * Per-section save bar. Portals into `SECTION_SAVE_BAR_ROOT_ID` so it pins
@@ -904,7 +907,7 @@ export function SaveBar({
    *  nothing left to discard. */
   onDiscard?: () => void;
 }) {
-  // Looked up in an effect, not a lazy initializer: when SettingsChrome's
+  // Looked up through useSyncExternalStore, not a lazy initializer: when SettingsChrome's
   // `load` flips from "loading" to "ready" for the first time, the anchor
   // div and this section's <SaveBar> are created in the SAME render pass.
   // React runs all render-phase code (including a useState lazy
@@ -913,12 +916,10 @@ export function SaveBar({
   // being a lazy initializer, never looked again — the bar silently
   // stayed null for the lifetime of that mount. Navigating between
   // sections worked because the anchor was already committed from an
-  // earlier render by then. An effect runs after commit, so by the time
-  // it fires the anchor is guaranteed to exist, on every mount.
-  const [root, setRoot] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setRoot(document.getElementById(SECTION_SAVE_BAR_ROOT_ID));
-  }, []);
+  // earlier render by then. useSyncExternalStore re-reads the snapshot
+  // after commit and re-renders when it changed, so the anchor is found on
+  // every mount, without a setState inside an effect.
+  const root = useSyncExternalStore(noSubscribe, findSaveBarRoot, serverSaveBarRoot);
 
   const visible = dirty || saveState !== "idle";
   if (!visible || !root) return null;

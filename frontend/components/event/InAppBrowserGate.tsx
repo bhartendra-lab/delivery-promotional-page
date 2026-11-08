@@ -53,13 +53,19 @@ function openInBrowser(browser: InAppBrowser): void {
  *
  * Renders nothing in a real browser, which is what almost every Guest is in.
  */
-export function InAppBrowserGate() {
+/**
+ * `hold`: the app handoff sheet is up. Its automatic escape waits until the
+ * guest has chosen — "Continue in browser" releases it exactly as today,
+ * "Continue in the app" leaves the page and never releases it.
+ */
+export function InAppBrowserGate({ hold = false }: { hold?: boolean } = {}) {
   const { theme: t } = useEventTheme();
   const [browser, setBrowser] = useState<InAppBrowser | null>(null);
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (hold) return;
     let cancelled = false;
     let timer: number | undefined;
     (async () => {
@@ -87,7 +93,7 @@ export function InAppBrowserGate() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [hold]);
 
   if (!browser || !visible) return null;
 

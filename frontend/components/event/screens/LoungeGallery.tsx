@@ -2607,6 +2607,10 @@ export function LoungeGallery({
           onDownload={requestDownloadOne}
           onCollect={curator ? openSaveFor : undefined}
           attribution={curator ? attributionFor : undefined}
+          // As for the reel: Next past the last loaded photo loads the next
+          // page rather than wrapping; never while the set is being replaced.
+          hasMore={hasMore && !refreshing}
+          onLoadMore={loadMore}
         />
       )}
 

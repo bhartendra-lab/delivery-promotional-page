@@ -2,6 +2,26 @@
 
 import { useState } from "react";
 import { SOCIAL_PLATFORM_BY_KEY, type SocialPlatformKey } from "@/lib/social-platforms";
+import {
+  IconFacebook,
+  IconInstagram,
+  IconPinterest,
+  IconVimeo,
+  IconXLogo,
+  IconYoutube,
+  type IconProps,
+} from "@/components/ui/icons";
+
+/** The knockout marks, by platform. Kept here rather than in the registry so
+ *  lib/social-platforms.ts stays pure (the mobile app shares it). */
+const GLYPHS: Partial<Record<SocialPlatformKey, React.FC<IconProps>>> = {
+  instagram: IconInstagram,
+  facebook: IconFacebook,
+  youtube: IconYoutube,
+  vimeo: IconVimeo,
+  pinterest: IconPinterest,
+  x: IconXLogo,
+};
 
 /**
  * One platform's chip, drawn from the registry in lib/social-platforms.ts. Every
@@ -26,8 +46,8 @@ export function SocialChip({ platform, size = 32 }: { platform: SocialPlatformKe
   const innerH = Math.round(size * (1 - (2 * spec.markInset.y) / 100));
   const className = "social-chip flex shrink-0 items-center justify-center overflow-hidden rounded-full";
 
-  if (spec.treatment === "knockout" && spec.glyph) {
-    const Glyph = spec.glyph;
+  const Glyph = GLYPHS[platform];
+  if (spec.treatment === "knockout" && Glyph) {
     return (
       <span aria-hidden className={className} style={{ width: size, height: size, background: spec.chip }}>
         <Glyph size={Math.min(innerW, innerH)} style={{ color: "#fff" }} />

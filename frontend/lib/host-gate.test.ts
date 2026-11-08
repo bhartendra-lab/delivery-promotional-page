@@ -185,3 +185,20 @@ test("isRequestAllowed: the friends approval link is served on a studio host", (
   assert.equal(isRequestAllowed("gallery.studioxyz.com", "/event/priya-rahul/friends"), true);
   assert.equal(isRequestAllowed("deliver.vyavasth.in", "/event/priya-rahul/friends"), true);
 });
+
+/* ── the guest app's handoff host ─────────────────────────────────────── */
+
+test("handoff host serves only the fallback page and the association files", async () => {
+  const { isRequestAllowed, isHandoffHost } = await import("./host-gate.ts");
+  assert.equal(isHandoffHost("open.vyavasth.in"), true);
+  assert.equal(isHandoffHost("open.vyavasth.in:443"), true);
+  assert.equal(isHandoffHost("deliver.vyavasth.in"), false);
+  for (const path of ["/e/priya-rahul", "/.well-known/apple-app-site-association", "/.well-known/assetlinks.json", "/_next/static/chunks/a.js"]) {
+    assert.equal(isRequestAllowed("open.vyavasth.in", path), true, path);
+  }
+  for (const path of ["/", "/dashboard", "/login", "/event/abc", "/api/session", "/delete-account", "/memory-lane/x"]) {
+    assert.equal(isRequestAllowed("open.vyavasth.in", path), false, path);
+  }
+  // Our main host keeps everything, including its own association files.
+  assert.equal(isRequestAllowed("deliver.vyavasth.in", "/.well-known/apple-app-site-association"), true);
+});

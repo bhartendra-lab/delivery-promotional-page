@@ -29,6 +29,23 @@
 const VYAVASTH_HOSTS = new Set(["deliver.vyavasth.in", "dev.deliver.vyavasth.in"]);
 
 /**
+ * The guest app's handoff domain (open.vyavasth.in). It exists only so a tap
+ * from a gallery page is CROSS-DOMAIN, which is what lets iOS open the
+ * installed app from a universal link. It serves exactly two things: the
+ * fallback page `/e/<uid>` (shown only when the app did not open) and the
+ * association files under `/.well-known/`. Everything else is a 404 — the
+ * dashboard must never be reachable there.
+ */
+const HANDOFF_HOSTS = new Set(["open.vyavasth.in"]);
+const HANDOFF_PREFIXES = ["/e/", "/.well-known/", "/_next/static/"];
+
+/** Is this the handoff host? Accepts host or host:port. */
+export function isHandoffHost(host: string | null | undefined): boolean {
+  const raw = (host ?? "").trim().toLowerCase();
+  return HANDOFF_HOSTS.has(raw.split(":")[0]);
+}
+
+/**
  * Loopback hostnames. Local dev and `wrangler dev` must behave exactly like the
  * real domain, and their ports vary (3000/8787/8082), so this is matched on the
  * hostname with the port already stripped.
@@ -119,6 +136,8 @@ export function isGuestSurfacePath(pathname: string): boolean {
  * from that hostname is true.
  */
 export function isRequestAllowed(host: string | null | undefined, pathname: string): boolean {
+  // The guest app's handoff host: its two surfaces and nothing else.
+  if (isHandoffHost(host)) return HANDOFF_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   // First and cheapest branch, deliberately: every request to our own domains —
   // which is all of them today — costs one Set lookup and nothing else.
   if (isVyavasthHost(host)) return true;

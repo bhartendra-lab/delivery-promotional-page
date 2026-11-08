@@ -644,6 +644,10 @@ export function MediaGrid({
               : undefined
           }
           onDownload={downloadOne}
+          // The grid's infinite scroll, so Next past the last loaded photo
+          // loads the next page instead of wrapping to the first.
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
         />
       )}
 

@@ -11,15 +11,9 @@
  * README there before flipping `hasAsset`.
  */
 
-import {
-  IconFacebook,
-  IconInstagram,
-  IconPinterest,
-  IconVimeo,
-  IconXLogo,
-  IconYoutube,
-  type IconProps,
-} from "@/components/ui/icons";
+// PURE: no React and no icon imports, so the mobile app can share this file
+// (its core sync refuses anything browser- or React-bound). The knockout
+// glyphs are mapped by key in components/event/screens/lounge/SocialIcons.tsx.
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { SocialLinks } from "./types";
 
@@ -45,8 +39,6 @@ export type SocialPlatformSpec = {
   treatment: "knockout" | "plate";
   /** Chip fill for "knockout". Ignored for "plate". */
   chip?: string;
-  /** react-icons component, for the original six only. */
-  glyph?: React.FC<IconProps>;
   /**
    * Path under /public for a "plate" mark, e.g. "/social/wedmegood.png".
    * These are RASTER PNGs, not SVGs — the portals do not publish vector marks —
@@ -110,7 +102,6 @@ export const SOCIAL_PLATFORMS = [
     treatment: "knockout",
     // Signature gradient — the one chip that is not a flat fill.
     chip: "linear-gradient(45deg, #F58529, #DD2A7B 45%, #8134AF 75%, #515BD4)",
-    glyph: IconInstagram,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "IG",
@@ -124,7 +115,6 @@ export const SOCIAL_PLATFORMS = [
     placeholder: "facebook.com/yourstudio",
     treatment: "knockout",
     chip: "#1877F2",
-    glyph: IconFacebook,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "FB",
@@ -138,7 +128,6 @@ export const SOCIAL_PLATFORMS = [
     placeholder: "@yourstudio or full URL",
     treatment: "knockout",
     chip: "#FF0000",
-    glyph: IconYoutube,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "YT",
@@ -152,7 +141,6 @@ export const SOCIAL_PLATFORMS = [
     placeholder: "vimeo.com/yourstudio",
     treatment: "knockout",
     chip: "#1AB7EA",
-    glyph: IconVimeo,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "V",
@@ -166,7 +154,6 @@ export const SOCIAL_PLATFORMS = [
     placeholder: "pinterest.com/yourstudio",
     treatment: "knockout",
     chip: "#E60023",
-    glyph: IconPinterest,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "P",
@@ -180,7 +167,6 @@ export const SOCIAL_PLATFORMS = [
     placeholder: "@yourstudio or full URL",
     treatment: "knockout",
     chip: "#0F1419",
-    glyph: IconXLogo,
     hasAsset: false,
     markInset: { x: 21, y: 21 },
     monogram: "X",

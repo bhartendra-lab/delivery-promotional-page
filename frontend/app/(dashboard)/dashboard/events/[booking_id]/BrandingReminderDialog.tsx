@@ -94,7 +94,7 @@ export function BrandingReminderDialog() {
           <IconShieldCheck size={26} />
         </span>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          The gallery's lounge page shows your studio&apos;s branding — every guest who opens this link sees a fully set-up studio.
+          The gallery&apos;s lounge page shows your studio&apos;s branding — every guest who opens this link sees a fully set-up studio.
         </p>
 
         <ul className="w-full space-y-2.5">

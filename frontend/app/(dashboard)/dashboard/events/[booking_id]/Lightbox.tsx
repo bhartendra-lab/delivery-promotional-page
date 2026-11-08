@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MediaItem } from "@/lib/types";
 import { PhotoInfoTip } from "./PhotoInfoTip";
+import { PhotoStage } from "@/components/viewer/PhotoStage";
+import { gridSrc } from "@/lib/media-actions";
+import { useImageWindow, useWindowSize } from "@/lib/use-image-window";
+import { windowIndices, windowNeedsMore } from "@/lib/viewer-window";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { IconChevronLeft, IconChevronRight, IconDownload, IconHeart, IconTrash, IconX, IconZoomIn, IconZoomOut } from "./icons";
 
 const MIN_SCALE = 1;
@@ -21,6 +26,8 @@ export function Lightbox({
   onClose,
   onDelete,
   onDownload,
+  hasMore = false,
+  onLoadMore,
 }: {
   items: MediaItem[];
   index: number;
@@ -37,6 +44,12 @@ export function Lightbox({
    * original is never "too large for the device".
    */
   onDownload: (item: MediaItem) => void;
+  /** More photos exist past the last loaded one (the grid's infinite scroll).
+   *  While true, Next on the last photo loads the next page instead of
+   *  wrapping to the first. */
+  hasMore?: boolean;
+  /** The grid's own page loader. */
+  onLoadMore?: () => void;
 }) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
@@ -46,6 +59,15 @@ export function Lightbox({
 
   const item = items[index];
   const count = items.length;
+  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const canPage = hasMore && !!onLoadMore;
+  /** The photo whose full copy has loaded. Zoom, pan and double-click wait
+   *  for it: nobody zooms into the blurred thumbnail. */
+  const [readyId, setReadyId] = useState<string | null>(null);
+  const ready = !!item && readyId === item._id;
+  /** Next was pressed on this photo, the last loaded one, while more exist. */
+  const [waitingAt, setWaitingAt] = useState<number | null>(null);
+  const waitingNext = waitingAt === index && canPage;
 
   const reset = useCallback(() => {
     setScale(1);
@@ -56,12 +78,50 @@ export function Lightbox({
   const go = useCallback(
     (dir: number) => {
       if (count === 0) return;
+      setWaitingAt(null);
+      if (canPage) {
+        // No wrap while the folder is only partly loaded.
+        if (dir > 0 && index >= count - 1) {
+          setWaitingAt(index);
+          onLoadMore!();
+          return;
+        }
+        if (dir < 0 && index === 0) return;
+        onIndexChange(index + dir);
+        reset();
+        return;
+      }
       const next = (index + dir + count) % count;
       onIndexChange(next);
       reset();
     },
-    [index, count, onIndexChange, reset],
+    [index, count, onIndexChange, reset, canPage, onLoadMore],
   );
+
+  // The page Next was waiting for has arrived (or the folder ended here).
+  // Zoom is already reset: it was reset when this photo was reached.
+  useEffect(() => {
+    if (waitingAt !== index) return;
+    if (count > index + 1) onIndexChange(index + 1);
+    else if (!hasMore && count > 1) onIndexChange(0);
+  }, [waitingAt, count, index, hasMore, onIndexChange]);
+
+  /* ── the sliding window (viewer-window.ts): 5 ahead, 3 behind ── */
+  const win = useWindowSize();
+  useImageWindow(
+    windowIndices(index, count, { ...win, wrap: !canPage }).map((i) => {
+      const m = items[i];
+      return { full: m.type === "video" ? null : m.url, thumb: gridSrc(m) };
+    }),
+  );
+  const askedAt = useRef("");
+  useEffect(() => {
+    if (!onLoadMore || !windowNeedsMore(index, count, hasMore, win.ahead)) return;
+    const at = `${count}:${index}`;
+    if (askedAt.current === at) return;
+    askedAt.current = at;
+    onLoadMore();
+  }, [index, count, hasMore, onLoadMore, win.ahead]);
 
   // Keyboard: Esc close, arrows navigate, +/- zoom.
   useEffect(() => {
@@ -73,6 +133,8 @@ export function Lightbox({
         go(1);
       } else if (e.key === "ArrowLeft") {
         go(-1);
+      } else if (!ready) {
+        // Zoom waits for the full photo.
       } else if (e.key === "+" || e.key === "=") {
         setScale((s) => clamp(s * 1.4));
       } else if (e.key === "-") {
@@ -93,9 +155,10 @@ export function Lightbox({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [go, onClose]);
+  }, [go, onClose, ready]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
+    if (!ready) return;
     // Trackpad pinch arrives as a wheel event with ctrlKey set; treat all
     // vertical wheel as zoom inside the stage.
     const factor = Math.exp(-e.deltaY * 0.0015);
@@ -107,10 +170,10 @@ export function Lightbox({
       }
       return next;
     });
-  }, []);
+  }, [ready]);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (scale <= 1) return;
+    if (scale <= 1 || !ready) return;
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, tx, ty };
     setDragging(true);
@@ -165,7 +228,7 @@ export function Lightbox({
           <span className="w-12 text-center text-[12px] font-semibold tabular-nums text-white/70">
             {Math.round(scale * 100)}%
           </span>
-          <ToolButton label="Zoom in" disabled={scale >= MAX_SCALE} onClick={() => setScale((s) => clamp(s * 1.4))}>
+          <ToolButton label="Zoom in" disabled={scale >= MAX_SCALE || !ready} onClick={() => setScale((s) => clamp(s * 1.4))}>
             <IconZoomIn size={17} />
           </ToolButton>
           <span className="mx-1 h-5 w-px bg-white/20" />
@@ -186,42 +249,63 @@ export function Lightbox({
 
       {/* Stage */}
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden" onWheel={onWheel}>
-        {count > 1 && (
+        {(count > 1 || canPage) && (
           <button
             type="button"
             aria-label="Previous photo"
             onClick={() => go(-1)}
-            className="absolute left-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:left-5"
+            className="absolute left-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-[transform,background-color] duration-100 hover:bg-white/20 active:scale-95 active:bg-white/30 sm:left-5"
           >
             <IconChevronLeft size={22} />
           </button>
         )}
 
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={item.url}
-          alt=""
-          draggable={false}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onDoubleClick={() => (scale > 1 ? reset() : setScale(2.2))}
-          className="max-h-full max-w-full select-none object-contain"
-          style={{
-            transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
-            transition: dragging ? "none" : "transform 140ms ease-out",
-            cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
-            touchAction: "none",
-          }}
-        />
+        {/* Two layers keyed by photo (PhotoStage): the blurred thumbnail at
+            once, the full photo fading in over it. One reused <img> left the
+            previous photo on screen under the new counter until the next one
+            decoded. */}
+        <div className="h-full w-full">
+          <PhotoStage
+            item={{ id: item._id, url: item.url, thumb: item.thumbnail_url || null, width: item.width, height: item.height }}
+            reducedMotion={reduced}
+            waiting={waitingNext}
+            onReadyChange={(r) => setReadyId(r ? item._id : null)}
+            renderFull={(p) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={p.src}
+                alt=""
+                draggable={false}
+                onLoad={p.onLoad}
+                onError={p.onError}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onDoubleClick={() => {
+                  if (!p.ready) return;
+                  if (scale > 1) reset();
+                  else setScale(2.2);
+                }}
+                className="max-h-full max-w-full select-none object-contain"
+                style={{
+                  ...p.style,
+                  transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
+                  transition: [dragging ? null : "transform 140ms ease-out", p.style.transition !== "none" ? p.style.transition : null].filter(Boolean).join(", ") || "none",
+                  cursor: !p.ready ? "default" : scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in",
+                  touchAction: "none",
+                }}
+              />
+            )}
+          />
+        </div>
 
-        {count > 1 && (
+        {(count > 1 || canPage) && (
           <button
             type="button"
             aria-label="Next photo"
             onClick={() => go(1)}
-            className="absolute right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:right-5"
+            className="absolute right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-[transform,background-color] duration-100 hover:bg-white/20 active:scale-95 active:bg-white/30 sm:right-5"
           >
             <IconChevronRight size={22} />
           </button>

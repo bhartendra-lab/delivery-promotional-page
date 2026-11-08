@@ -7,6 +7,9 @@ import { gridSrc } from "@/lib/media-actions";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useEventTheme } from "../../EventThemeContext";
 import { ZoomImage } from "./ZoomImage";
+import { PhotoStage } from "@/components/viewer/PhotoStage";
+import { useImageWindow, useWindowSize } from "@/lib/use-image-window";
+import { windowIndices } from "@/lib/viewer-window";
 import {
   DOUBLE_TAP_MS,
   REEL_ANIM_MS,
@@ -366,16 +369,17 @@ export function ReelViewer({
     onLoadMore();
   }, [index, items.length, hasMore, loadingMore, onLoadMore]);
 
-  // The neighbours load because they are mounted; the one after them is warmed
-  // here, so a quick double swipe lands on a photo already in the cache.
-  const warmNext = items[index + 2];
-  const warmUrl = warmNext && warmNext.type !== "video" ? warmNext.url : null;
-  useEffect(() => {
-    if (!warmUrl) return;
-    const img = new Image();
-    img.decoding = "async";
-    img.src = warmUrl;
-  }, [warmUrl]);
+  // The sliding window (viewer-window.ts): 5 ahead and 3 behind, no wrap, as
+  // the reel itself never wraps. Replaces the old single `index + 2` warm-up,
+  // so a quick run of swipes lands on photos already in the cache. Videos warm
+  // only their thumbnail; their element loads the rest.
+  const win = useWindowSize();
+  useImageWindow(
+    windowIndices(index, items.length, { ...win, wrap: false }).map((i) => {
+      const m = items[i];
+      return { full: m.type === "video" ? null : m.url, thumb: gridSrc(m) };
+    }),
+  );
 
   const backRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -431,6 +435,7 @@ export function ReelViewer({
             top={(i - index) * vh}
             height={vh}
             active={i === index}
+            reducedMotion={reduced}
             onZoomChange={i === index ? (z) => setZoomedId(z ? items[i]._id : null) : undefined}
           />
         ))}
@@ -568,12 +573,14 @@ function ReelSlide({
   top,
   height,
   active,
+  reducedMotion,
   onZoomChange,
 }: {
   item: GuestMediaItem;
   top: number;
   height: number;
   active: boolean;
+  reducedMotion: boolean;
   onZoomChange?: (zoomed: boolean) => void;
 }) {
   const isVideo = item.type === "video";
@@ -597,7 +604,25 @@ function ReelSlide({
       {isVideo ? (
         <ReelVideo src={item.url} active={active} />
       ) : (
-        <ZoomImage src={item.url} doubleTapZoom={false} rounded={false} onZoomChange={onZoomChange} />
+        // The blurred thumbnail sits under the photo until the full copy has
+        // loaded (PhotoStage); pinch waits for the full copy.
+        <PhotoStage
+          item={{ id: item._id, url: item.url, thumb: item.thumbnail_url || null, width: item.width, height: item.height }}
+          active={active}
+          reducedMotion={reducedMotion}
+          renderFull={(p) => (
+            <ZoomImage
+              src={p.src}
+              doubleTapZoom={false}
+              rounded={false}
+              enabled={p.ready}
+              onZoomChange={onZoomChange}
+              onLoad={p.onLoad}
+              onError={p.onError}
+              imgStyle={p.style}
+            />
+          )}
+        />
       )}
     </div>
   );
