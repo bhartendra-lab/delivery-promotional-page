@@ -24,9 +24,13 @@ import { useEventTheme } from "./EventThemeContext";
  * installs it from our CDN, then this sheet stays up with the install steps
  * and an "Open my photos in the app" button that lands on this event.
  *
- *   Android intent:// whose fallback is the APK: Chrome opens the app, or
- *           downloads the APK. In-app browsers (WhatsApp, Instagram) cannot
- *           install apps, so there the download is handed to the real browser.
+ *   Android the tap downloads the APK directly (a download started by the
+ *           tap itself always goes through; Chrome does NOT follow an
+ *           intent's fallback to a download, which is what the first version
+ *           relied on). Once the app has opened from this browser, a later
+ *           visit tries the app first. In-app browsers (WhatsApp, Instagram)
+ *           cannot install apps, so there the download is handed to the real
+ *           browser.
  *   iOS     itms-services:// (an Ad Hoc build: paid Apple account, devices
  *           registered). Unset until then, so iPhones are not offered.
  *
@@ -41,6 +45,23 @@ const ENV: HandoffEnv = {
 };
 /** Shown on the button so a guest on mobile data knows what they're starting. */
 const APK_SIZE_LABEL = process.env.NEXT_PUBLIC_ANDROID_APK_SIZE_MB ? `about ${process.env.NEXT_PUBLIC_ANDROID_APK_SIZE_MB} MB` : null;
+
+/** Set once the app has opened from this browser: later visits try it first. */
+const APP_SEEN_KEY = "vy-app-opened";
+const appSeen = () => {
+  try {
+    return window.localStorage.getItem(APP_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const markAppSeen = () => {
+  try {
+    window.localStorage.setItem(APP_SEEN_KEY, "1");
+  } catch {
+    /* the next visit downloads again: harmless */
+  }
+};
 
 const read = (k: string) => {
   try {
@@ -115,8 +136,10 @@ export function AppHandoffSheet({ uid, onChoose }: { uid: string; onChoose: (c: 
     document.addEventListener("visibilitychange", onHide);
     const timer = window.setTimeout(() => {
       cleanup();
-      if (opened) onChoose("app");
-      else setStep("install");
+      if (opened) {
+        markAppSeen();
+        onChoose("app");
+      } else setStep("install");
     }, 1600);
     const cleanup = () => {
       window.clearTimeout(timer);
@@ -133,15 +156,16 @@ export function AppHandoffSheet({ uid, onChoose }: { uid: string; onChoose: (c: 
   function openApp() {
     if (direct && platform === "android") {
       copyLink();
-      if (inApp) {
-        // WhatsApp / Instagram: intents and downloads are unreliable in here.
-        window.location.href = apkInBrowser;
-        setStep("install");
+      if (!inApp && appSeen()) {
+        // This phone has opened the app from here before: try it first.
+        openOrInstall(() => {
+          window.location.href = buildIntentUrl(pkg, uid, apk);
+        });
         return;
       }
-      openOrInstall(() => {
-        window.location.href = buildIntentUrl(pkg, uid, apk);
-      });
+      // Start the download from the tap itself, then show the steps.
+      window.location.href = apkInBrowser;
+      setStep("install");
       return;
     }
     if (direct && platform === "ios") {
