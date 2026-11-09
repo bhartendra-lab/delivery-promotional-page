@@ -41,7 +41,7 @@ function LoginFallback() {
 function LoginShell() {
   const offers = useLoginOffers();
   return (
-    <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#4A2618] px-4 py-8 sm:px-6 lg:px-10 lg:py-12">
+    <main className="relative flex min-h-dvh w-full items-start justify-center overflow-hidden bg-[#4A2618] px-3 py-4 sm:items-center sm:px-6 sm:py-8 lg:px-10 lg:py-12">
       <SpaceBackdrop />
       <div className="dash-rise relative z-10 grid w-full max-w-[960px] grid-cols-1 overflow-hidden rounded-2xl shadow-[0_40px_100px_-24px_rgba(0,0,0,0.7)] ring-1 ring-white/10 lg:min-h-[540px] lg:grid-cols-2">
         <OfferPanel offers={offers} />
@@ -153,7 +153,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
   const go = (step: number) => setIndex((i) => (Math.min(i, slides.length - 1) + step + slides.length) % slides.length);
 
   return (
-    <aside className="group relative flex flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-7 py-7 text-white sm:px-10 sm:py-9">
+    <aside className="group relative flex flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-5 py-5 text-white sm:px-10 sm:py-9">
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[radial-gradient(closest-side,rgba(255,236,224,0.35),transparent)]" />
         <Grain className="opacity-[0.12]" />
@@ -165,7 +165,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
       </div>
 
       <div
-        className="relative grid flex-1 items-center py-8 lg:py-0"
+        className="relative grid flex-1 items-center py-4 sm:py-8 lg:py-0"
         aria-roledescription="carousel"
         aria-label="Offers"
         aria-live={paused || !autoplay ? "polite" : "off"}
@@ -184,14 +184,14 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
                 active ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
               }`}
             >
-              <p className="text-[40px] font-extrabold leading-[1.04] tracking-[-0.03em] sm:text-[50px] lg:text-[54px]">
+              <p className="text-[28px] font-extrabold leading-[1.08] tracking-[-0.03em] sm:text-[50px] lg:text-[54px]">
                 {slide.headline}
               </p>
               {slide.subline && (
-                <p className="mt-3 text-base font-medium leading-snug text-white/80 sm:text-lg">{slide.subline}</p>
+                <p className="mt-2 text-sm font-medium leading-snug text-white/80 sm:text-lg">{slide.subline}</p>
               )}
               {(slide.code || slide.until) && (
-                <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
                   {slide.code && <CopyCode code={slide.code} />}
                   {slide.until && <span className="text-xs text-white/65">Valid till {slide.until}</span>}
                 </div>
@@ -355,8 +355,8 @@ function LoginForm() {
   }
 
   return (
-    <section className="relative flex items-center justify-center bg-[var(--color-brand-surface-raised)] px-6 py-10 sm:px-10 lg:py-12">
-      <div className="w-full max-w-sm">
+    <section className="relative flex items-center justify-center bg-[var(--color-brand-surface-raised)] px-5 py-8 sm:px-10 sm:py-10 lg:py-12">
+      <div className="w-full min-w-0 max-w-sm">
         {step === "email" && (
           <>
             {invitedBy && (
@@ -366,7 +366,7 @@ function LoginForm() {
               </p>
             )}
             <div className="space-y-2">
-              <h2 className="text-[26px] font-bold leading-tight text-[var(--color-brand-ink)]">
+              <h2 className="text-2xl font-bold leading-tight text-[var(--color-brand-ink)] sm:text-[26px]">
                 Sign in to your studio
               </h2>
               <p className="text-sm leading-relaxed text-[var(--color-brand-muted)]">
