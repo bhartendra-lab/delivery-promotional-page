@@ -120,7 +120,7 @@ export function OtpCodeStep({
         >
           <IconArrowLeft size={14} />
         </button>
-        <p className="text-sm text-[var(--color-brand-muted)]">Code sent to {destination}</p>
+        <p className="text-sm text-[var(--color-brand-muted)]">Code sent to <span className="break-all">{destination}</span></p>
       </div>
 
       <OtpCodeInput ref={codeInputRef} value={code} onChange={onCodeChange} shake={shake} autoFocus length={CODE_LEN} />
