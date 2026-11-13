@@ -196,7 +196,7 @@ test("handoff host serves only the fallback page and the association files", asy
   for (const path of ["/e/priya-rahul", "/.well-known/apple-app-site-association", "/.well-known/assetlinks.json", "/_next/static/chunks/a.js"]) {
     assert.equal(isRequestAllowed("open.vyavasth.in", path), true, path);
   }
-  for (const path of ["/", "/dashboard", "/login", "/event/abc", "/api/session", "/delete-account", "/memory-lane/x"]) {
+  for (const path of ["/", "/dashboard", "/login", "/event/abc", "/api/session", "/delete-account", "/delete-studio-account", "/memory-lane/x"]) {
     assert.equal(isRequestAllowed("open.vyavasth.in", path), false, path);
   }
   // Our main host keeps everything, including its own association files.

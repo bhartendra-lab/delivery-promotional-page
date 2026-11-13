@@ -1,5 +1,6 @@
-// lib/referral.ts — the Studio referral program on the client. PURE apart
-// from the browser storage it is handed (window.localStorage by default).
+// lib/referral.ts — the Studio referral program on the client. PURE: the
+// storage is always handed in (lib/referral-storage.ts binds the browser's
+// localStorage and location; the studio app binds its own store).
 //
 // A Studio invited by another arrives through a link such as
 // /login?ref=PIXL7K2Q (or the short /r/PIXL7K2Q). The code is kept in this
@@ -25,15 +26,8 @@ const CODE_PATTERN = /^[A-Z0-9+_-]{2,24}$/;
 
 export type StoredReferral = { code: string; captured_at: number };
 
-type KeyValueStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-
-function defaultStore(): KeyValueStore | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
+/** Where a referral is kept: localStorage on the web (lib/referral-storage.ts), MMKV in the studio app. */
+export type KeyValueStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** A typed or linked code as the backend stores it (trimmed, uppercased), or null when it cannot be one. */
 export function normalizeReferralCode(input: unknown): string | null {
@@ -43,7 +37,7 @@ export function normalizeReferralCode(input: unknown): string | null {
 }
 
 /** The kept referral, or null when there is none, it is malformed, or it is older than 30 days. */
-export function getStoredReferral(store: KeyValueStore | null = defaultStore(), now: number = Date.now()): StoredReferral | null {
+export function getStoredReferral(store: KeyValueStore | null, now: number = Date.now()): StoredReferral | null {
   if (!store) return null;
   try {
     const raw = store.getItem(REFERRAL_STORAGE_KEY);
@@ -62,7 +56,7 @@ export function getStoredReferral(store: KeyValueStore | null = defaultStore(), 
 }
 
 /** Keeps `code` unless a live referral is already kept (first touch wins). Returns what is kept afterwards. */
-export function storeReferral(rawCode: unknown, store: KeyValueStore | null = defaultStore(), now: number = Date.now()): StoredReferral | null {
+export function storeReferral(rawCode: unknown, store: KeyValueStore | null, now: number = Date.now()): StoredReferral | null {
   const existing = getStoredReferral(store, now);
   if (existing) return existing;
   const code = normalizeReferralCode(rawCode);
@@ -77,7 +71,7 @@ export function storeReferral(rawCode: unknown, store: KeyValueStore | null = de
 }
 
 /** Forgets the kept referral, once it is attached (or the studio already had one). */
-export function clearStoredReferral(store: KeyValueStore | null = defaultStore()): void {
+export function clearStoredReferral(store: KeyValueStore | null): void {
   try {
     store?.removeItem(REFERRAL_STORAGE_KEY);
   } catch {
@@ -87,8 +81,8 @@ export function clearStoredReferral(store: KeyValueStore | null = defaultStore()
 
 /** Reads `?ref=` from a query string (location.search) and keeps it. Called on every page load of the dashboard app. */
 export function captureReferralFromUrl(
-  search: string = typeof window === "undefined" ? "" : window.location.search,
-  store: KeyValueStore | null = defaultStore(),
+  search: string,
+  store: KeyValueStore | null,
   now: number = Date.now(),
 ): StoredReferral | null {
   let ref: string | null = null;

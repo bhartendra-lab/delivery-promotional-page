@@ -6,7 +6,7 @@ import { requestStudioOtp, verifyStudioOtp, resolveReferral, ApiError } from "@/
 import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
-import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral";
+import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral-storage";
 import { setToken, setCompany, sanitizeRedirectPath } from "@/lib/auth";
 import {
   IconMail,

@@ -10,16 +10,20 @@
  *                should re-presign and try again if it wants to recover.
  */
 
-export const MAX_ATTEMPTS = 5;
-const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 15_000;
+import { UPLOAD_SPEC } from "./spec.ts";
+
+export const MAX_ATTEMPTS = UPLOAD_SPEC.retry.maxAttempts;
+const BASE_DELAY_MS = UPLOAD_SPEC.retry.baseDelayMs;
+const MAX_DELAY_MS = UPLOAD_SPEC.retry.maxDelayMs;
+const JITTER = UPLOAD_SPEC.retry.jitter;
+const RETRYABLE_STATUSES: readonly number[] = UPLOAD_SPEC.retry.retryableStatuses;
 
 export type RetryClassification = "retryable" | "terminal";
 
 /** HTTP-aware classifier. */
 export function classifyHttp(status: number): RetryClassification {
-  if (status === 408 || status === 425 || status === 429) return "retryable";
-  if (status >= 500 && status < 600) return "retryable";
+  if (RETRYABLE_STATUSES.includes(status)) return "retryable";
+  if (UPLOAD_SPEC.retry.retryAll5xx && status >= 500 && status < 600) return "retryable";
   return "terminal";
 }
 
@@ -63,7 +67,9 @@ export function classifyError(err: unknown): RetryClassification {
 
 export function backoffMs(attempt: number /* zero-based */): number {
   const base = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-  const jitter = base * (Math.random() * 0.6 - 0.3); // ±30%
+  // ±30%. `2 * JITTER` is exactly 0.6 in doubles (doubling is exact), so this
+  // is the same expression the web always ran.
+  const jitter = base * (Math.random() * (2 * JITTER) - JITTER);
   return Math.max(0, Math.round(base + jitter));
 }
 

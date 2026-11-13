@@ -15,6 +15,7 @@ import {
   SectionSkeleton,
   FetchError,
 } from "../SettingsUI";
+import { DeleteAccountCard } from "./DeleteAccountCard";
 
 const NAME_MAX_LENGTH = 120;
 
@@ -93,53 +94,57 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
   }
 
   return (
-    <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
-      <PersonalInformationHeading />
+    <div className="space-y-6">
+      <form id="personal-information-form" onSubmit={handleSubmit} className="space-y-6">
+        <PersonalInformationHeading />
 
-      <Card title="Your details" icon={<UserIcon />}>
-        <div className="space-y-5">
-          <Field
-            label="Login email"
-            value={profile.email ?? ""}
-            onChange={() => {}}
-            readOnly
-            hint="Used only to sign in. For the address clients see, set a verified Business email on Studio Identity."
-            layout="row"
-          />
-          <Field
-            label="First name"
-            value={firstName}
-            onChange={setFirstName}
-            placeholder="Anjali"
-            maxLength={NAME_MAX_LENGTH}
-            layout="row"
-          />
-          <Field
-            label="Last name"
-            value={lastName}
-            onChange={setLastName}
-            placeholder="Rao"
-            maxLength={NAME_MAX_LENGTH}
-            layout="row"
-          />
-          <PhoneField
-            label="Personal contact"
-            value={personalContact}
-            onChange={setPersonalContact}
-            layout="row"
-          />
-        </div>
-      </Card>
+        <Card title="Your details" icon={<UserIcon />}>
+          <div className="space-y-5">
+            <Field
+              label="Login email"
+              value={profile.email ?? ""}
+              onChange={() => {}}
+              readOnly
+              hint="Used only to sign in. For the address clients see, set a verified Business email on Studio Identity."
+              layout="row"
+            />
+            <Field
+              label="First name"
+              value={firstName}
+              onChange={setFirstName}
+              placeholder="Anjali"
+              maxLength={NAME_MAX_LENGTH}
+              layout="row"
+            />
+            <Field
+              label="Last name"
+              value={lastName}
+              onChange={setLastName}
+              placeholder="Rao"
+              maxLength={NAME_MAX_LENGTH}
+              layout="row"
+            />
+            <PhoneField
+              label="Personal contact"
+              value={personalContact}
+              onChange={setPersonalContact}
+              layout="row"
+            />
+          </div>
+        </Card>
 
-      <SaveBar
-        saveState={saveState}
-        errorMsg={errorMsg}
-        canSave={dirty}
-        dirty={dirty}
-        formId="personal-information-form"
-        idleHint="Only visible to you, never shown on delivery pages."
-        onDiscard={handleDiscard}
-      />
-    </form>
+        <SaveBar
+          saveState={saveState}
+          errorMsg={errorMsg}
+          canSave={dirty}
+          dirty={dirty}
+          formId="personal-information-form"
+          idleHint="Only visible to you, never shown on delivery pages."
+          onDiscard={handleDiscard}
+        />
+      </form>
+      {/* Outside the form: its own flow, never part of the save bar. */}
+      <DeleteAccountCard email={profile.email ?? ""} />
+    </div>
   );
 }

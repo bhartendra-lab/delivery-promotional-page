@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel, setStudioCollectionEditor } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { CustomFolder, Guest } from "@/lib/types";
+import { addressOf, CLIENT_ROLE_LABEL, confirmCopyFor, sentenceStart } from "@/lib/guest-access-copy";
 import {
   accessActionsFor,
   afterEditorChange,
@@ -23,6 +24,7 @@ import {
 import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
+import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { galleryInviteMessage } from "@/lib/share-message";
 import { guestPhotoUrl } from "@/lib/profile-face";
 import {
@@ -88,7 +90,7 @@ export function AccessSharingTab({
   // the same one their guests get by email — their own domain once they have a
   // live one. See lib/gallery-url, which mirrors the backend's rule.
   const company = useCompany();
-  const shareUrl = galleryUrlFor(company, uniqueIdentifier) ?? "";
+  const shareUrl = galleryUrlFor(company, uniqueIdentifier, VYAVASTH_BASE_URL) ?? "";
 
   // This card describes what a Guest will actually meet at the other end of the
   // link, so all three of its sentences follow the event's face search switch.
@@ -531,77 +533,6 @@ function FilterPill({
       {children}
     </button>
   );
-}
-
-/**
- * How to address a Guest in the confirm and toast copy: their first name, or
- * "this Guest" when there is nothing usable. "Guest" is the backend's default
- * name for someone who signed in with a phone number and never told us who they
- * are, so it reads as a placeholder rather than a name and is treated as one.
- */
-function addressOf(name: string): { label: string; possessive: string; isNamed: boolean } {
-  const first = name.trim().split(/\s+/)[0] ?? "";
-  const isNamed = first.length > 0 && first.toLowerCase() !== "guest";
-  return {
-    label: isNamed ? first : "this Guest",
-    possessive: isNamed ? `${first}'s` : "this Guest's",
-    isNamed,
-  };
-}
-
-/** "this Guest is now a Client" opens a toast, so it takes a capital. */
-const sentenceStart = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-
-const CLIENT_ROLE_LABEL: Record<string, string> = { bride: "Bride", groom: "Groom" };
-
-/**
- * The confirm shown under a row for the change that was picked from its menu:
- * the sentence, its tone and the button's name. Giving is not a destructive
- * act, so it gets the neutral surface; anything that takes the full gallery
- * away keeps the warning one.
- */
-function confirmCopyFor(
-  action: GuestAccessAction,
-  from: GuestAccessLevel,
-  who: ReturnType<typeof addressOf>,
-  givenByStudio: boolean,
-): { tone: "warning" | "neutral"; sentence: string; confirmLabel: string } {
-  if (action.to === "client") {
-    return {
-      tone: "neutral",
-      sentence: `Mark ${who.label} as a Client? Clients always have the full gallery and keep it when the passcode changes.`,
-      confirmLabel: "Mark as Client",
-    };
-  }
-  if (action.to === "host") {
-    return from === "client"
-      ? {
-          tone: "neutral",
-          sentence: `Remove ${who.label} as a Client? They keep full access to the gallery.`,
-          confirmLabel: "Remove Client",
-        }
-      : {
-          tone: "neutral",
-          sentence: `Give ${who.label} the full gallery? They will see every photo, the same as with the passcode.`,
-          confirmLabel: "Give access",
-        };
-  }
-  // To "guest". The sentence depends on what is being lost, and (for a Host)
-  // on whether the passcode can undo it behind the Studio's back.
-  if (from === "client") {
-    return {
-      tone: "warning",
-      sentence: `Remove ${who.possessive} full access? They will also stop being a Client and go back to their own photos and public folders.`,
-      confirmLabel: "Confirm",
-    };
-  }
-  return {
-    tone: "warning",
-    sentence: givenByStudio
-      ? `Remove ${who.possessive} full access? They will go back to their own photos and public folders.`
-      : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Regenerate the passcode if you need to keep them out.`,
-    confirmLabel: "Confirm",
-  };
 }
 
 function GuestRow({

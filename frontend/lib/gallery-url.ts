@@ -29,17 +29,22 @@ export function hasLiveCustomDomain(company: Company | null | undefined): boolea
   return Boolean(company?.custom_domain) && company?.custom_domain_status === "active";
 }
 
-/** The Vyavasth domain, trailing slash stripped. The fallback for everything. */
-function vyavasthBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+/**
+ * The Vyavasth domain, trailing slash stripped. The fallback for everything.
+ * Passed in by the caller (the web reads NEXT_PUBLIC_BASE_URL in
+ * `site-url.ts`; the studio app its own config), so this module stays pure
+ * and the app shares it unchanged.
+ */
+function vyavasthBaseUrl(base: string): string {
+  return base.replace(/\/$/, "");
 }
 
 /**
  * The base URL this company's gallery links should use — their own domain when
  * one is live, ours otherwise, which is the case for every company today.
  */
-export function galleryBaseUrl(company: Company | null | undefined): string {
-  return hasLiveCustomDomain(company) ? `https://${company!.custom_domain}` : vyavasthBaseUrl();
+export function galleryBaseUrl(company: Company | null | undefined, base: string): string {
+  return hasLiveCustomDomain(company) ? `https://${company!.custom_domain}` : vyavasthBaseUrl(base);
 }
 
 /**
@@ -52,9 +57,10 @@ export function galleryBaseUrl(company: Company | null | undefined): string {
 export function galleryUrlFor(
   company: Company | null | undefined,
   uniqueIdentifier: string | null | undefined,
+  base: string,
 ): string | null {
   if (!uniqueIdentifier) return null;
-  return `${galleryBaseUrl(company)}/event/${uniqueIdentifier}`;
+  return `${galleryBaseUrl(company, base)}/event/${uniqueIdentifier}`;
 }
 
 /**
@@ -63,8 +69,8 @@ export function galleryUrlFor(
  * hasLiveCustomDomain itself), so a non-empty value here is already the rule
  * above; null means ours.
  */
-export function galleryUrlForDomain(customDomain: string | null | undefined, uniqueIdentifier: string | null | undefined): string | null {
+export function galleryUrlForDomain(customDomain: string | null | undefined, uniqueIdentifier: string | null | undefined, base: string): string | null {
   if (!uniqueIdentifier) return null;
   const domain = (customDomain ?? "").trim();
-  return `${domain ? `https://${domain}` : vyavasthBaseUrl()}/event/${uniqueIdentifier}`;
+  return `${domain ? `https://${domain}` : vyavasthBaseUrl(base)}/event/${uniqueIdentifier}`;
 }

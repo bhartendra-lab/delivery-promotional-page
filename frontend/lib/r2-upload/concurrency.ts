@@ -13,6 +13,8 @@
  * the actual goroutine-style loop.
  */
 
+import { UPLOAD_SPEC } from "./spec.ts";
+
 export type ConcurrencyConfig = {
   start: number;
   max: number;
@@ -22,10 +24,10 @@ export type ConcurrencyConfig = {
 };
 
 export const DEFAULT_CONCURRENCY: ConcurrencyConfig = {
-  start: 2,
-  max: 8,
-  min: 1,
-  stepUpAfter: 8,
+  start: UPLOAD_SPEC.aimd.start,
+  max: UPLOAD_SPEC.aimd.max,
+  min: UPLOAD_SPEC.aimd.min,
+  stepUpAfter: UPLOAD_SPEC.aimd.stepUpAfter,
 };
 
 export class AimdController {

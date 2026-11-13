@@ -32,6 +32,8 @@ import {
   createArchiveMultipart,
   createCustomFolder as apiCreateCustomFolder,
   createMediaBatch,
+  createUploadSession,
+  endUploadSession,
   getApiPhotoCap,
   getUploadedMediaIds,
   getWatermarkPresets,
@@ -52,10 +54,14 @@ import type { UploadVariant } from "./compressor";
 import { WatermarkRenderer } from "./watermark";
 import { AimdController } from "./concurrency";
 import { resolveDedup } from "./dedup.ts";
+import { UPLOAD_SPEC } from "./spec.ts";
+import { applyCreatedFolders, planFolderReuse } from "./selection.ts";
+import { buildMediaMetadataRow } from "./metadata-row.ts";
+import { buildPresignFile } from "./presign-file.ts";
 import { photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
-import { captureFieldsForRecord, captureFieldsForMetadata } from "./capture-time.ts";
+import { captureFieldsForRecord } from "./capture-time.ts";
+import { cameraFieldsForRecord } from "./camera-identity.ts";
 import {
-  archiveMetadataFor,
   shouldDeferEmbedding,
   computeArchiveChecksum,
   planArchivePartQueue,
@@ -85,145 +91,56 @@ import type {
   UploadRecord,
 } from "./types";
 
-/** How many compressed items to gather before asking the backend for a
- *  batch of presigned URLs. Bigger batch = fewer backend round-trips. */
-const PRESIGN_BATCH_SIZE = 50;
-/** Concurrent presign HTTP requests (each batch is independent). */
-const PRESIGN_CONCURRENCY = 3;
-/**
- * Server-side presign lifetime for the delivery pair (900 s), and the margin
- * below it at which a queued item is re-signed before its PUT.
- *
- * The batcher signs "just behind upload", which holds while a tab is in the
- * foreground. It does NOT hold when the tab is backgrounded: browsers throttle
- * background timers to roughly one tick a minute, the dispatch loops crawl, and
- * items already sitting in `presignedQueue` age past 900 s. Every one of them
- * then answers 403 `ExpiredRequest`, which `classifyHttp` calls terminal — so
- * before this existed, a run left in a background tab failed every queued photo
- * and could not recover, which is exactly what "nothing has moved for a while"
- * was reporting.
- */
-const PRESIGN_TTL_MS = 900_000;
-const PRESIGN_REFRESH_MS = 240_000;
-/**
- * End-to-end backpressure cap. `compressedBlobs` holds every compressed blob
- * not yet uploaded (queued to presign, presigned, or in-flight); gating new
- * compressions on this (plus the ones currently compressing) bounds peak memory
- * to roughly this many blobs and — critically — keeps presigned URLs from being
- * minted far ahead of upload (they expire in 15 min). Compression is throttled
- * to roughly the upload rate, which is what makes 7k-image events safe.
- */
-const MAX_OUTSTANDING_BLOBS = 128;
-/** Poll interval while the compressor is held back by the cap above. */
-const BACKPRESSURE_POLL_MS = 60;
-/**
- * When create-media is flushed, per quality tier: a batch SIZE and a maximum
- * AGE, whichever comes first.
- *
- * Two costs pull against each other, and the tier decides the balance because
- * the tier decides how fast photos complete.
- *
- * Batching too little is a load problem. Every call is an insertMany plus a
- * booking update, a pump nudge and a storage $inc; a server carrying several
- * studios at once wants those amortised over as many photos as possible.
- *
- * Batching too much is a data-loss problem. An object is on R2/B2 the instant
- * its PUT returns, but nothing in the product knows it exists until
- * create-media records it. A tab closed before the next flush strands
- * everything since the last one: the objects are orphaned (recoverable only by
- * reclaim-orphaned-media.js) and the studio has to re-upload those photos.
- *
- * So the SIZE falls as the tier gets heavier — losing 25 originals means
- * re-sending ~500 MB over a link that manages a photo every half-minute, while
- * losing 200 web-tier photos is a couple of minutes of re-work. The AGE rises
- * for the same reason: slow tiers need a longer window to fill a batch at all,
- * and without that the timer fires on every single photo, which is exactly the
- * one-call-per-photo behaviour a purely time-based flush produced.
- */
-const METADATA_FLUSH_POLICY: Record<UploadVariant, { size: number; maxAgeMs: number }> = {
-  // Two small objects per photo; a batch fills in seconds.
-  "2560": { size: 200, maxAgeMs: 60_000 },
-  // Adds an ~8 MB archive, so roughly an order of magnitude slower.
-  "4096": { size: 100, maxAgeMs: 120_000 },
-  // Adds the whole camera file. On a slow link this is a photo every ~30 s, so
-  // the age bound is what actually fires — 3 minutes gathers several photos per
-  // call instead of one.
-  original: { size: 25, maxAgeMs: 180_000 },
-};
+// Every number the pipeline runs on lives in spec.ts, each with the reason it
+// exists; the studio app's engine is generated from the same file. Only the
+// env overrides for the embed-defer thresholds are read here, because the spec
+// stays free of `process.env`.
+const PRESIGN_BATCH_SIZE = UPLOAD_SPEC.presign.batchSize;
+const PRESIGN_CONCURRENCY = UPLOAD_SPEC.presign.concurrency;
+const PRESIGN_TTL_MS = UPLOAD_SPEC.presign.ttlMs;
+const PRESIGN_REFRESH_MS = UPLOAD_SPEC.presign.refreshMarginMs;
+const MAX_OUTSTANDING_BLOBS = UPLOAD_SPEC.pipeline.maxOutstandingBlobs;
+const BACKPRESSURE_POLL_MS = UPLOAD_SPEC.pipeline.backpressurePollMs;
+/** Per-tier create-media flush: a batch SIZE and a maximum AGE, whichever
+ *  comes first (`UPLOAD_SPEC.metadata.flushPolicy`). */
+const METADATA_FLUSH_POLICY: Record<UploadVariant, { size: number; maxAgeMs: number }> =
+  UPLOAD_SPEC.metadata.flushPolicy;
 
 /**
- * Fraction of a run that must be uploaded before its rows are allowed to boot
- * the GPU embedding pump. Per tier, because the tier decides how far apart
- * create-media chunks land.
- *
- * On a "2560" run chunks arrive seconds apart, so the pump stays warm on its
- * own and there is nothing to gain by waiting — hence 0, no deferral at all.
- *
- * On an archive-tier run the archive is 10-20x the delivery copy, so chunks
- * arrive minutes apart: further apart than the pump's idle-exit. Left alone the
- * pump boots (~4 min), embeds a handful of photos (~9 s), idles out, and boots
- * again for the next chunk — an instance that spends nearly all its life
- * starting up. Waiting lets ONE pump drain the whole backlog continuously.
- *
- * The thresholds are chosen so the pump finishes at about the same moment the
- * upload does: embedding runs at roughly 0.45 s/photo, so the remaining upload
- * time at the threshold has to cover it. At these values that holds for any
- * uplink below ~4.7 MB/s (original) and ~6.3 MB/s (4096) — comfortably above
- * what a venue connection delivers. Tunable without a rebuild, because the
- * right number depends on a studio's link.
+ * Fraction of a run that must be uploaded before its rows may boot the GPU
+ * embedding pump (`UPLOAD_SPEC.metadata.embedDeferDefaults` says why). Tunable
+ * without a rebuild, in percent, because the right number depends on a
+ * studio's link; unset means the spec's default.
  */
 const EMBED_DEFER_THRESHOLD: Record<UploadVariant, number> = {
-  "2560": 0,
-  "4096": Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_4096 ?? 60) / 100,
-  original: Number(process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_ORIGINAL ?? 70) / 100,
+  "2560": UPLOAD_SPEC.metadata.embedDeferDefaults["2560"],
+  "4096": embedDeferThreshold(
+    process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_4096,
+    UPLOAD_SPEC.metadata.embedDeferDefaults["4096"],
+  ),
+  original: embedDeferThreshold(
+    process.env.NEXT_PUBLIC_EMBED_DEFER_PCT_ORIGINAL,
+    UPLOAD_SPEC.metadata.embedDeferDefaults.original,
+  ),
 };
 
-/** Hard cap on rows per create-media request, independent of tier. */
-const METADATA_CHUNK_SIZE = 200;
+/** `Number(env) / 100` when the env var is set (even to "", which was always
+ *  0), else the spec's fraction. Exactly what `Number(env ?? 60) / 100` did. */
+function embedDeferThreshold(envPercent: string | undefined, fallback: number): number {
+  return envPercent != null ? Number(envPercent) / 100 : fallback;
+}
 
-/** Coalesce per-file IDB writes during the hot path. */
-const IDB_FLUSH_MS = 500;
-/** Throttle progress UI updates (in-memory state stays live). */
-const PROGRESS_EMIT_MS = 200;
-const METADATA_SAVE_ATTEMPTS = 5;
-/** How often the dispatch loops re-check the pause flag. */
-const PAUSE_POLL_MS = 120;
-/**
- * How long cancel() lets in-flight records finish before it stops waiting and
- * aborts them.
- *
- * Long enough for an archive object on a slow link (a 16 MB original is two
- * 8 MiB parts, tens of seconds each), short enough that Stop still feels like
- * a button. It used to be far longer, on the reasoning that timing out would
- * reintroduce the very inconsistency the grace phase prevents — that is no
- * longer true: a record whose archive does not complete is now marked `failed`
- * rather than delivered (see uploadOne), so an expired grace period costs the
- * photo, not the gallery's integrity.
- */
-const CANCEL_GRACE_MS = 3 * 60_000;
+const METADATA_CHUNK_SIZE = UPLOAD_SPEC.metadata.chunkSize;
+const IDB_FLUSH_MS = UPLOAD_SPEC.pipeline.idbFlushMs;
+const PROGRESS_EMIT_MS = UPLOAD_SPEC.pipeline.progressEmitMs;
+const METADATA_SAVE_ATTEMPTS = UPLOAD_SPEC.metadata.saveAttempts;
+const PAUSE_POLL_MS = UPLOAD_SPEC.pipeline.pausePollMs;
+const CANCEL_GRACE_MS = UPLOAD_SPEC.pipeline.cancelGraceMs;
 const BYTES_PER_GB = 1024 ** 3;
-/**
- * Parts of ONE original in flight at once. Measured, not guessed: B2 is
- * single-region (eu-central-003, Amsterdam) and a serial part stream gets
- * nowhere near the link's capacity from India, while several parts in flight
- * roughly quadruples it. This multiplies with the AIMD uploader concurrency,
- * so it is deliberately modest.
- */
-const ARCHIVE_PART_CONCURRENCY = 4;
-/**
- * How many part URLs to sign at a time. Signatures last ARCHIVE_URL_TTL_MS and
- * an archive-tier run lasts hours, so parts are signed just ahead of where the
- * upload actually is — never the whole file up front, which would hand a
- * 10,000-part file a set of URLs that expired before part 100.
- */
-const ARCHIVE_SIGN_WINDOW = 16;
-/** Server-side presign lifetime (900 s). Kept in sync with the backend default. */
-const ARCHIVE_URL_TTL_MS = 900_000;
-/**
- * Re-sign a part whose URL is within this of expiring. A part can wait behind
- * three others on a slow link, so the margin has to cover a whole part upload.
- */
-const ARCHIVE_URL_REFRESH_MS = 180_000;
+const ARCHIVE_PART_CONCURRENCY = UPLOAD_SPEC.archive.partConcurrency;
+const ARCHIVE_SIGN_WINDOW = UPLOAD_SPEC.archive.signWindow;
+const ARCHIVE_URL_TTL_MS = UPLOAD_SPEC.archive.urlTtlMs;
+const ARCHIVE_URL_REFRESH_MS = UPLOAD_SPEC.archive.urlRefreshMs;
 
 type ChangeListener = (p: EngineProgress) => void;
 type UrlListener = (publicUrl: string, customFolderId: string) => void;
@@ -271,6 +188,17 @@ export class UploadEngineCore {
    * publish status; applies to all flushes incl. resume/cancel drains.
    */
   private outOfSync = false;
+  /**
+   * SES-01: this run's upload session. One per run (one press of Start
+   * upload): reset when a run starts, created right away in the background,
+   * and stamped on each record as it is compressed. A record that reaches a
+   * create-media chunk without one (compressed before the session answered,
+   * or flushed on a later mount by a retry) gets it just before the chunk's
+   * first attempt (`stampUploadSession`). Kept after the run ends, so a late
+   * flush of this run's rows (photo-cap resume) still names this session.
+   */
+  private uploadSessionId: string | null = null;
+  private uploadSessionPromise: Promise<string> | null = null;
   /**
    * The studio's default watermark preset, re-resolved from the API at the
    * start of every run (see `prepareWatermark`) rather than snapshotted once —
@@ -503,6 +431,13 @@ export class UploadEngineCore {
     const alreadyUploaded = await this.fetchUploadedMediaIds();
     await this.upsertPendingRecords(inputs, alreadyUploaded ?? new Set<string>(), alreadyUploaded !== null);
     this.seedMetadataQueue();
+    // SES-01: a new run is a new upload session. Started now and not awaited:
+    // compression and uploads need nothing from it, and create-media waits for
+    // it (stampUploadSession), so a slow answer costs nothing and a failure
+    // surfaces as a metadata-save error with every row kept for the retry.
+    this.uploadSessionId = null;
+    this.uploadSessionPromise = null;
+    this.ensureUploadSession().catch(() => {});
     this.scheduleEmit(
       {
         isUploading: true,
@@ -539,6 +474,13 @@ export class UploadEngineCore {
       await this.flushIdb();
       await this.drainAllMetadata();
       await this.flushIdb();
+      // SES-01: the run is over (finished, stopped or cancelled), so is its
+      // session. Best effort: the server tolerates sessions never ended.
+      if (this.uploadSessionId) {
+        endUploadSession(this.bookingId, this.uploadSessionId).catch((err) => {
+          console.warn("[upload] could not end the upload session (harmless)", err);
+        });
+      }
       this.paused = false;
       // While a `cancel()` is in flight, let it own the `isUploading: false`
       // transition (it flips it only after `wipeAll()` fully settles). Emitting
@@ -977,7 +919,7 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const { blob, thumbBlob, archiveBlob, width, height, capturedAt } = await this.compressorPool.run(
+      const { blob, thumbBlob, archiveBlob, width, height, capturedAt, camera } = await this.compressorPool.run(
         input.file,
         this.watermarkRenderer,
         this.variant,
@@ -991,9 +933,17 @@ export class UploadEngineCore {
       // are: create-media may be flushed on a later mount, by which point the
       // record is the only thing left of this file.
       const captured = captureFieldsForRecord(capturedAt, input.file.lastModified);
-      this.queueIdbUpdate(recordId, { status: "compressed", ...dims, ...captured });
+      // SES-01: which camera took it (persisted beside the capture time, for
+      // the same later-mount reason) and this run's session, when it has
+      // answered already. A retry outside a run has no session here and keeps
+      // whatever the record already carries.
+      const origin = {
+        ...cameraFieldsForRecord(camera),
+        ...(this.uploadSessionId ? { uploadSessionId: this.uploadSessionId } : {}),
+      };
+      this.queueIdbUpdate(recordId, { status: "compressed", ...dims, ...captured, ...origin });
       const rec = this.records.get(recordId);
-      if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims, ...captured });
+      if (rec) this.records.set(recordId, { ...rec, status: "compressed", ...dims, ...captured, ...origin });
       this.compressedBlobs.set(recordId, blob);
       this.compressedSizes.set(recordId, blob.size);
       if (thumbBlob) {
@@ -1101,15 +1051,15 @@ export class UploadEngineCore {
 
       // Wait for more compressed items or in-flight presigns to finish.
       if (this.compressedQueue.length === 0 && !this.compressionFinished) {
-        await sleep(60);
+        await sleep(UPLOAD_SPEC.pipeline.presignIdlePollMs);
       } else if (inFlight.size > 0) {
-        await Promise.race([...inFlight, sleep(50)]);
+        await Promise.race([...inFlight, sleep(UPLOAD_SPEC.pipeline.presignRacePollMs)]);
       } else if (
         this.compressedQueue.length > 0 &&
         this.compressedQueue.length < PRESIGN_BATCH_SIZE &&
         !this.compressionFinished
       ) {
-        await sleep(60);
+        await sleep(UPLOAD_SPEC.pipeline.presignIdlePollMs);
       } else {
         await this.waitMicro();
       }
@@ -1172,20 +1122,9 @@ export class UploadEngineCore {
 
     const res = await presignUploads(
       this.bookingId,
-      recs.map((r) => ({
-        filename: r.filename,
-        content_type: "image/jpeg",
-        custom_folder_id: r.customFolderId,
-        // Only ask for a thumbnail PUT when we actually have bytes to put
-        // there — a file whose thumbnail step failed signs one URL, not two.
-        with_thumbnail: this.thumbBlobs.has(r.id),
-        // Sent on every archive-tier run, including "original" (which gets no
-        // archive URL back). It is what makes the plan gate fire HERE, at the
-        // first batch, rather than at the first multipart create: a studio
-        // without a storage plan, or uploading Original into a pay per event
-        // event, finds out before any bytes move.
-        variant: this.variant,
-      })),
+      // Only ask for a thumbnail PUT when we actually have bytes to put there;
+      // `variant` rides on every request (buildPresignFile says why).
+      recs.map((r) => buildPresignFile(r, this.variant, this.thumbBlobs.has(r.id))),
     );
 
     // Backend returns uploads in the same order it received them — one entry
@@ -1310,13 +1249,7 @@ export class UploadEngineCore {
     const staleForSec = Math.round((Date.now() - item.signedAt) / 1000);
     try {
       const res = await presignUploads(this.bookingId, [
-        {
-          filename: rec.filename,
-          content_type: "image/jpeg",
-          custom_folder_id: rec.customFolderId,
-          with_thumbnail: !!item.thumbBlob,
-          variant: this.variant,
-        },
+        buildPresignFile(rec, this.variant, !!item.thumbBlob),
       ]);
       const up = res.uploads[0];
       if (!up) return;
@@ -1462,7 +1395,7 @@ export class UploadEngineCore {
       // stored thumbnail_url pointing at an object the refresh moved away from,
       // which would show as broken tiles in the grid.)
       const requeues = item.expiryRequeues ?? 0;
-      if (isExpiredPresignError(err) && requeues < 2 && !this.abort.signal.aborted) {
+      if (isExpiredPresignError(err) && requeues < UPLOAD_SPEC.presign.maxExpiryRequeues && !this.abort.signal.aborted) {
         console.warn("[upload:put] presigned URL expired mid-upload; re-signing and retrying", {
           file: fileLabel,
           attempt: requeues + 1,
@@ -2078,7 +2011,7 @@ export class UploadEngineCore {
         this.runningUploaders === 0;
       if (uploadsDone || this.abort.signal.aborted) return;
 
-      await sleep(250);
+      await sleep(UPLOAD_SPEC.pipeline.metadataFlushPollMs);
     }
   }
 
@@ -2131,6 +2064,49 @@ export class UploadEngineCore {
     return this.metadataSaveChain;
   }
 
+  /**
+   * SES-01: this run's upload session id, creating the session on first ask.
+   * Concurrent callers share one request; a failure clears it so the next ask
+   * (the next chunk, or Retry) tries again rather than repeating the failure.
+   * Outside a run (a flush on a later mount whose records never got an id)
+   * this opens a session for those leftovers, which is still one session.
+   */
+  private ensureUploadSession(): Promise<string> {
+    if (this.uploadSessionId) return Promise.resolve(this.uploadSessionId);
+    if (!this.uploadSessionPromise) {
+      this.uploadSessionPromise = withRetry(
+        () => createUploadSession(this.bookingId, { source: "web", client: "web" }),
+        { maxAttempts: METADATA_SAVE_ATTEMPTS, classify: classifyError },
+      ).then(
+        (res) => {
+          this.uploadSessionId = res.upload_session_id;
+          return res.upload_session_id;
+        },
+        (err) => {
+          this.uploadSessionPromise = null;
+          console.warn("[upload] could not start an upload session", err);
+          throw err;
+        },
+      );
+    }
+    return this.uploadSessionPromise;
+  }
+
+  /** SES-01: give every record of a chunk that lacks one this run's session,
+   *  persisted before the chunk's first attempt. Updates `recs` in place. */
+  private async stampUploadSession(recs: UploadRecord[]): Promise<void> {
+    if (recs.every((r) => r.uploadSessionId)) return;
+    const uploadSessionId = await this.ensureUploadSession();
+    const patches: Array<{ id: string; patch: Partial<UploadRecord> }> = [];
+    for (let i = 0; i < recs.length; i++) {
+      if (recs[i].uploadSessionId) continue;
+      recs[i] = { ...recs[i], uploadSessionId };
+      this.records.set(recs[i].id, { ...(this.records.get(recs[i].id) ?? recs[i]), uploadSessionId });
+      patches.push({ id: recs[i].id, patch: { uploadSessionId } });
+    }
+    await updateRecords(patches);
+  }
+
   private async flushOneMetadataChunk(): Promise<void> {
     if (this.metadataPendingIds.length === 0) return;
 
@@ -2142,46 +2118,6 @@ export class UploadEngineCore {
 
     this.scheduleEmit({ isSavingMetadata: true, metadataSaveError: null });
 
-    const payload: MediaMetadataItem[] = recs.map((r) => ({
-      url: r.publicUrl as string,
-      type: "image" as const,
-      custom_folder_id: r.customFolderId,
-      media_id: r.id,
-      filename: r.filename,
-      ...(r.width != null ? { width: r.width } : {}),
-      ...(r.height != null ? { height: r.height } : {}),
-      ...((): { size?: number } => {
-        const size = this.compressedSizes.get(r.id);
-        return size != null ? { size } : {};
-      })(),
-      // When the photo was TAKEN — what the guest gallery orders by. Read off
-      // the RECORD, never off the compressor, for the same reason the archive
-      // fields below are. A record compressed before this shipped carries no
-      // capture time, so its file timestamp is sent instead.
-      ...captureFieldsForMetadata(r),
-      // The 480px grid derivative. Omitted wholesale when its PUT failed —
-      // uploadOne clears the record's thumbnailUrl and its size in that case,
-      // so the backend records no thumbnail and readers fall back to `url`.
-      ...(r.thumbnailUrl ? { thumbnail_url: r.thumbnailUrl } : {}),
-      ...((): { thumbnail_size?: number } => {
-        const s = this.thumbSizes.get(r.id);
-        return r.thumbnailUrl && s != null ? { thumbnail_size: s } : {};
-      })(),
-      // The archive copy. Omitted WHOLESALE unless its upload succeeded —
-      // uploadOne clears archiveUrl and the size/checksum on failure, so the
-      // backend records no archive rather than a URL for an object that isn't
-      // there. `archive_variant` rides with the URL because the two are only
-      // ever meaningful together.
-      // Every field read off the RECORD, never off `this` — a flush can happen
-      // on a mount with no active run (see the persistence note in uploadOne).
-      ...archiveMetadataFor({
-        variant: r.archiveVariant,
-        archiveUrl: r.archiveUrl,
-        archiveSize: r.archiveSize,
-        archiveChecksum: r.archiveChecksum,
-      }),
-    }));
-
     // Decided once for this chunk, outside withRetry: a retry must not flip the
     // answer halfway through and release a deferral the first attempt asked for.
     const deferEmbedding = this.deferEmbeddingForThisChunk();
@@ -2189,6 +2125,22 @@ export class UploadEngineCore {
     let storage: StorageMeter | undefined;
     let photoCap: EngineProgress["photoCap"] = null;
     try {
+      // SES-01: no row is ever sent without its upload session. Stamped (and
+      // persisted) before the first attempt so every retry sends the same id;
+      // if the session cannot be had, this throws into the ordinary
+      // metadata-save failure below and the rows wait for the retry.
+      await this.stampUploadSession(recs);
+
+      // One row per record, built off the persisted record (metadata-row.ts,
+      // shared with the studio app). The byte sizes are the only thing read off
+      // `this`: they are measured when the blobs exist and kept after.
+      const payload: MediaMetadataItem[] = recs.map((r) =>
+        buildMediaMetadataRow(r, {
+          size: this.compressedSizes.get(r.id),
+          thumbnailSize: this.thumbSizes.get(r.id),
+        }),
+      );
+
       // Metadata saves are never tied to the upload abort signal — cancelling
       // or interrupting must still persist bytes already on R2.
       await withRetry(
@@ -2667,36 +2619,14 @@ function formatEta(seconds: number, done: number, total: number): string {
  * Called before kicking off the engine, since the engine needs the
  * customFolderId on each input.
  */
-/** Trim + lowercase so "Candids", " candids ", and "CANDIDS" are one folder. */
-function normalizeFolderName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
 export async function ensureFolders(
   bookingId: string,
   folderNames: string[],
   existingMap: Map<string, string>,
 ): Promise<Map<string, string>> {
-  // Look up by normalized name so a folder created moments ago (stale caller
-  // state) or typed with different casing/whitespace is reused instead of
-  // duplicated. `out` stays keyed by the exact requested name so callers can
-  // still `.get(name)` with what they passed in.
-  const byNormalized = new Map<string, string>();
-  for (const [name, id] of existingMap) byNormalized.set(normalizeFolderName(name), id);
-
-  const out = new Map(existingMap);
-  const toCreate: string[] = [];
-  for (const name of folderNames) {
-    const norm = normalizeFolderName(name);
-    if (byNormalized.has(norm)) {
-      out.set(name, byNormalized.get(norm) as string);
-    } else if (!toCreate.some((n) => normalizeFolderName(n) === norm)) {
-      // Not seen yet in this batch either — queue exactly one create per
-      // distinct normalized name (two groups named "Candids"/"candids" in the
-      // same upload share one folder + one create call).
-      toCreate.push(name);
-    }
-  }
+  // Reuse by normalized name (planFolderReuse in selection.ts, shared with the
+  // studio app); one create per distinct normalized name that has no folder.
+  const { resolved: out, toCreate } = planFolderReuse(folderNames, existingMap);
   if (toCreate.length === 0) return out;
 
   const created = await Promise.all(
@@ -2714,14 +2644,7 @@ export async function ensureFolders(
       }
     }),
   );
-  for (const { name, id } of created) byNormalized.set(normalizeFolderName(name), id);
-  for (const name of folderNames) {
-    if (!out.has(name)) {
-      const id = byNormalized.get(normalizeFolderName(name));
-      if (id) out.set(name, id);
-    }
-  }
-  return out;
+  return applyCreatedFolders(folderNames, existingMap, out, created);
 }
 
 /** Resumable: list IDB records that still need work for a given booking. */

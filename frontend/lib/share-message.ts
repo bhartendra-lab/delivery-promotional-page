@@ -39,33 +39,3 @@ export function passcodeShareMessage({ passcode, eventName, url }: { passcode: s
   const what = eventName.trim() ? ` from ${eventName.trim()}` : "";
   return url ? `Use passcode ${passcode} to see all photos${what}: ${url}` : `Use passcode ${passcode} to see all photos${what}.`;
 }
-
-export type TextShareResult = "shared" | "copied" | "cancelled" | "failed";
-
-/**
- * Share text through the native sheet, falling back to the clipboard. The
- * WhatsApp and Instagram in-app browsers often have no Web Share at all, so
- * every Share button in Guest Control ends up as Copy there, with its toast.
- */
-export async function shareTextOrCopy(text: string, title?: string): Promise<TextShareResult> {
-  const nav = typeof navigator !== "undefined" ? navigator : undefined;
-  if (nav?.share) {
-    try {
-      await nav.share({ text, title });
-      return "shared";
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return "cancelled";
-      // Anything else (NotAllowedError in an in-app browser): copy instead.
-    }
-  }
-  return copyText(text);
-}
-
-export async function copyText(text: string): Promise<"copied" | "failed"> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return "copied";
-  } catch {
-    return "failed";
-  }
-}
