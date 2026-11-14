@@ -2,12 +2,12 @@
 
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { requestStudioOtp, verifyStudioOtp, resolveReferral, ApiError } from "@/lib/api";
+import { requestStudioOtp, verifyStudioOtp, resolveReferral, getCompanyDetails, ApiError } from "@/lib/api";
 import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
 import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral";
-import { setToken, setCompany, sanitizeRedirectPath } from "@/lib/auth";
+import { setToken, setCompany, sanitizeRedirectPath, needsOnboarding, isAuthenticated } from "@/lib/auth";
 import {
   IconMail,
   IconWarningCircle,
@@ -38,8 +38,65 @@ function LoginFallback() {
   );
 }
 
+/**
+ * A studio that is already signed in on this browser must not be asked to sign
+ * in again. Opening the app's root goes straight to /dashboard, which restores
+ * the session from the cookie; arriving here from the marketing site's "Log in"
+ * link used to skip that and always show the form.
+ *
+ * The cookie alone is not trusted: it is checked against the API first, so an
+ * expired or revoked token falls through to the form (the API helper clears it
+ * on a 401) instead of dropping the studio into a dashboard that cannot load.
+ * Any other failure (offline, 5xx) also shows the form: signing in is never
+ * blocked by this check. Returns true while the check is in flight.
+ *
+ * `skip` is for a failed Google sign-in (?error=auth_failed): that message
+ * must be seen, not redirected away.
+ */
+function useResumeSession(skip: boolean, redirectTo: string): boolean {
+  const router = useRouter();
+  const [resuming, setResuming] = useState(false);
+
+  useEffect(() => {
+    if (skip || !isAuthenticated()) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cookie is only readable on the client; flips once
+    setResuming(true);
+    getCompanyDetails()
+      .then(({ company }) => {
+        if (cancelled) return;
+        setCompany(company);
+        // Same gate the dashboard applies, so there is no extra hop.
+        router.replace(needsOnboarding(company) ? "/onboarding" : redirectTo);
+      })
+      .catch(() => {
+        if (!cancelled) setResuming(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [skip, redirectTo, router]);
+
+  return resuming;
+}
+
 function LoginShell() {
   const offers = useLoginOffers();
+  const search = useSearchParams();
+  const resuming = useResumeSession(
+    search.get("error") === "auth_failed",
+    sanitizeRedirectPath(search.get("next") ?? search.get("redirect")),
+  );
+  if (resuming) {
+    return (
+      <main className="flex min-h-dvh flex-1 items-center justify-center bg-[#4A2618]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-white/25 border-t-white" />
+          <p className="text-sm text-white/70">Signing you in…</p>
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="relative flex min-h-dvh w-full items-start justify-center overflow-hidden bg-[#4A2618] px-3 py-4 sm:items-center sm:px-6 sm:py-8 lg:px-10 lg:py-12">
       <SpaceBackdrop />
