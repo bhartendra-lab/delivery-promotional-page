@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
+import { GTM_ID, OPEN_CONSENT_EVENT } from "@/lib/analytics";
 import { clearToken, clearCompany } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
 import { useUploadingBookingIds } from "@/lib/r2-upload/useActiveUploads";
@@ -140,6 +141,20 @@ export function AccountMenu({ variant }: { variant: Variant }) {
             <IconGear size={16} className="text-[var(--color-brand-muted)]" />
             Settings
           </Link>
+          {GTM_ID && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new Event(OPEN_CONSENT_EVENT));
+              }}
+              className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-medium text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-bg)]"
+            >
+              <span aria-hidden className="inline-block w-4" />
+              Cookie settings
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

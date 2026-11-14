@@ -7,6 +7,7 @@ import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
 import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral";
+import { trackEvent } from "@/lib/analytics";
 import { setToken, setCompany, sanitizeRedirectPath, needsOnboarding, isAuthenticated } from "@/lib/auth";
 import {
   IconMail,
@@ -403,6 +404,8 @@ function LoginForm() {
     const res = await verifyStudioOtp(email, code);
     await setToken(res.token);
     setCompany(res.company);
+    // A studio that still owes onboarding has just created its account.
+    trackEvent(needsOnboarding(res.company) ? "sign_up" : "login", { method: "email_otp" });
     router.replace(redirectTo);
   }
 
