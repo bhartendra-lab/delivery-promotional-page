@@ -1348,8 +1348,8 @@ export type MediaViewOptions = {
   customFolderId?: string;
   /** "Liked Media" view — only photos with at least one like. */
   onlyLiked?: boolean;
-  /** "likes" → most-liked first (the Liked Media order); "oldest" → oldest-first (manual folder ordering); default is newest-first. */
-  sort?: "likes" | "recent" | "oldest";
+  /** "likes" → most-liked first (the Liked Media order); "captured" → capture time, oldest first (the gallery's order); "oldest" → oldest upload first; default is newest upload first. */
+  sort?: "likes" | "recent" | "oldest" | "captured";
   /** Restrict likes to hosts / guests. */
   likedGuestType?: "host" | "guest";
   /** Restrict likes to guests in these teams (guest_sub_type). */

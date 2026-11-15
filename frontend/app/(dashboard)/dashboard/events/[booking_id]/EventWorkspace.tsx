@@ -108,7 +108,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [activeFolderId, setActiveFolderId] = useState<string>(ALL_MEDIA_ID);
   // Manual display-order override for the plain Media view (see `mediaSort` doc
   // in EventContext). Shared across folders, not per-folder.
-  const [mediaSort, setMediaSort] = useState<"recent" | "oldest">("recent");
+  // Default "captured": the gallery's own order (capture time, oldest first).
+  const [mediaSort, setMediaSort] = useState<"captured" | "recent" | "oldest">("captured");
   // SES-01: narrow the plain Media view to one upload session or one camera
   // (see `originFilter` in EventContext). Null = every photo.
   const [originFilter, setOriginFilter] = useState<OriginFilter | null>(null);
@@ -247,7 +248,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     const origin = originFilterRef.current;
     return {
       customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
-      sort: mediaSortRef.current === "oldest" ? "oldest" : undefined,
+      sort: mediaSortRef.current === "recent" ? undefined : mediaSortRef.current,
       // SES-01. Part of the view, so paging, reloads and Select all (and so a
       // filtered delete) all see exactly the photos the grid shows.
       ...(origin?.kind === "session" ? { uploadSessionId: origin.id } : {}),

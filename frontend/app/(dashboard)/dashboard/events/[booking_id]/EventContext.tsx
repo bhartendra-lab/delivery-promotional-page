@@ -82,14 +82,15 @@ export type EventContextValue = {
   /** Switch the active folder — triggers a fresh first-page load for that view. */
   setActiveFolder: (folderId: string) => void;
   /**
-   * Display order for the plain Media view (All Media + named folders) —
-   * driven by `createdAt`, since the upload engine's concurrent, non-sequential
+   * Display order for the plain Media view (All Media + named folders):
+   * "captured" (the default, capture time oldest first, as the gallery shows
+   * it), or upload order by `createdAt`, since the upload engine's concurrent, non-sequential
    * uploads mean completion order doesn't reliably match local file order.
    * Independent of the Smart Selects (Liked) view's own `likedFilters.sort`.
    * Persists across folder switches; changing it resets the view to page 1.
    */
-  mediaSort: "recent" | "oldest";
-  setMediaSort: React.Dispatch<React.SetStateAction<"recent" | "oldest">>;
+  mediaSort: "captured" | "recent" | "oldest";
+  setMediaSort: React.Dispatch<React.SetStateAction<"captured" | "recent" | "oldest">>;
   /**
    * SES-01: the plain Media view narrowed to one upload session or one camera
    * (with the folder, if one is chosen). Null = every photo. Changing it resets

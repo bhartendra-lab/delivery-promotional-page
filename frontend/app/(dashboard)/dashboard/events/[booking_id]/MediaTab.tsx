@@ -1068,8 +1068,8 @@ function PopulatedBody({
   /** Transient status messages (e.g. download progress). */
   notify?: (msg: string) => void;
   /** Display order for this view, driven by `createdAt` (see EventContext). */
-  mediaSort: "recent" | "oldest";
-  onSortChange: (next: "recent" | "oldest") => void;
+  mediaSort: "captured" | "recent" | "oldest";
+  onSortChange: (next: "captured" | "recent" | "oldest") => void;
   /** SES-01: the Filter button (null when the event has nothing to filter by). */
   originButton: React.ReactNode;
   /** SES-01: the "Showing … from …" bar, while a filter is active. */
@@ -1130,12 +1130,15 @@ function PopulatedBody({
 /* ── media sort options ─────────────────────────────────────────── */
 
 /**
- * "Newest first" / "Oldest first", both driven by `createdAt`. Manual
+ * "Capture time" (the default: the order guests see in the gallery, by the
+ * camera's capture time), then "Newest first" / "Oldest first", both driven by `createdAt`. Manual
  * workaround for the upload engine's concurrent, non-sequential uploads,
  * which mean completion order (and thus `createdAt`) doesn't reliably match
  * the original local file order — studio members can flip it here per event.
  */
 const MEDIA_SORT_OPTIONS = [
+  // The default: the order guests see in the gallery (camera capture time).
+  { value: "captured" as const, label: "Capture time" },
   { value: "recent" as const, label: "Newest first" },
   { value: "oldest" as const, label: "Oldest first" },
 ];
