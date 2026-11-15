@@ -6,6 +6,10 @@ import {
   EVENT_EXPIRY_OPTIONS,
   coupleEventName,
   coupleEventNamePreview,
+  coupleContactsNotice,
+  coupleField,
+  coupleSlotsMissingNumber,
+  validateCoupleContacts,
   createdEventNotice,
   eventExpiryPreview,
   eventField,
@@ -324,4 +328,60 @@ test("createdEventNotice: never mentions WhatsApp when nothing was sent or delib
   assert.equal(createdEventNotice({ status: "sending", count: 0 }), null);
   assert.equal(createdEventNotice(undefined), null);
   assert.equal(createdEventNotice(null), null);
+});
+
+/* ── adding the couple's numbers later ─────────────────────────────────── */
+
+test("coupleSlotsMissingNumber: only couple types, only roles without a number, Bride first", () => {
+  assert.deepEqual(coupleSlotsMissingNumber("Birthday", []), []);
+  assert.deepEqual(coupleSlotsMissingNumber("Wedding", [
+    { role: "groom", name: " Rohan  Mehta " },
+    { role: "bride", name: "Aanya", phone: "919876543210" },
+  ]), [{ role: "groom", name: "Rohan Mehta" }]);
+  // An event made before clients were recorded: both, names unknown.
+  assert.deepEqual(coupleSlotsMissingNumber("Engagement", undefined), [
+    { role: "bride", name: null },
+    { role: "groom", name: null },
+  ]);
+  assert.deepEqual(coupleSlotsMissingNumber("Wedding", [
+    { role: "bride", name: "A", phone: "919000000001" },
+    { role: "groom", name: "R", phone: "919000000002" },
+  ]), []);
+});
+
+test("validateCoupleContacts: sends only rows with a number, and a typed name only when none is on record", () => {
+  const slots = [{ role: "bride" as const, name: "Aanya" }, { role: "groom" as const, name: null }];
+  const ok = validateCoupleContacts(slots, {
+    bride: { name: "", phone: "9876543210" },
+    groom: { name: "", phone: "" },
+  });
+  assert.equal(ok.firstInvalid, null);
+  assert.deepEqual(ok.contacts, [{ role: "bride", phone: "9876543210" }]);
+  const both = validateCoupleContacts(slots, {
+    bride: { name: "ignored", phone: "9876543210" },
+    groom: { name: " Rohan ", phone: "9876543211" },
+  });
+  assert.deepEqual(both.contacts, [
+    { role: "bride", phone: "9876543210" },
+    { role: "groom", name: "Rohan", phone: "9876543211" },
+  ]);
+});
+
+test("validateCoupleContacts: nothing typed, a short number, a shared number, a missing name", () => {
+  const slots = [{ role: "bride" as const, name: "Aanya" }, { role: "groom" as const, name: null }];
+  assert.equal(validateCoupleContacts(slots, {}).firstInvalid, coupleField.phone("bride"));
+  assert.equal(validateCoupleContacts(slots, { bride: { name: "", phone: "98765" } }).errors[coupleField.phone("bride")], "Enter a 10 digit WhatsApp number");
+  const shared = validateCoupleContacts(slots, {
+    bride: { name: "", phone: "9876543210" },
+    groom: { name: "Rohan", phone: "9876543210" },
+  });
+  assert.equal(shared.errors[coupleField.phone("groom")], "The bride and the groom need different numbers");
+  const noName = validateCoupleContacts(slots, { groom: { name: "  ", phone: "9876543210" } });
+  assert.equal(noName.firstInvalid, coupleField.name("groom"));
+});
+
+test("coupleContactsNotice: names who is a Client and what happened on WhatsApp", () => {
+  assert.equal(coupleContactsNotice(["Aanya Sharma"], { status: "sending", count: 1 }), "Aanya is now a Client. Sending the gallery link on WhatsApp.");
+  assert.equal(coupleContactsNotice(["Aanya", "Rohan Mehta"], { status: "skipped", count: 2 }), "Aanya and Rohan are now Clients. Not messaged on WhatsApp.");
+  assert.equal(coupleContactsNotice(["Aanya"], { status: "unavailable", count: 1 }), "Aanya is now a Client.");
 });

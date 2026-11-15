@@ -1,11 +1,11 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { CustomFolder, EventExpiryInput, MediaItem, ServiceType } from "@/lib/types";
+import type { AddCoupleContactsResponse, CustomFolder, EventExpiryInput, MediaItem, ServiceType } from "@/lib/types";
 import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import type { PhotoCap } from "@/lib/billing-types";
-import type { UploadOrigins } from "@/lib/api";
+import type { UploadOrigins, addCoupleContacts as addCoupleContactsApi } from "@/lib/api";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -180,8 +180,19 @@ export type EventContextValue = {
    * Rejects on failure so the caller can keep its dialog open.
    */
   saveDeliveryPreferences: (next: DeliveryPreferences, extra?: { includeBranding?: boolean }) => Promise<void>;
+  /**
+   * Persist the Guest teams asked after sign-in ("Which team are you in?").
+   * `[]` is a real answer (no teams, the step is skipped). Rejects on failure.
+   */
+  saveGuestTypes: (next: string[]) => Promise<void>;
   /** Mint a fresh family passcode; returns the new code. */
   regenerateFamilyPasscode: () => Promise<string>;
+  /**
+   * Give a couple event's Bride and/or Groom the WhatsApp number setup left
+   * out (Access & Sharing). Updates `meta.clients` from the response; rejects
+   * with the server's sentence so the card can show it.
+   */
+  addCoupleContacts: (body: Parameters<typeof addCoupleContactsApi>[1]) => Promise<AddCoupleContactsResponse>;
   /** Set the cover from an already-uploaded R2 url, optionally with a focal position. */
   setCoverFromUrl: (url: string, position?: string) => Promise<void>;
   /** Upload a new cover via the engine, then persist it (optionally with a focal position). */

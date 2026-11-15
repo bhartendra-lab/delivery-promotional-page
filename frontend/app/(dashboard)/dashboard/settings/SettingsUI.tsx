@@ -852,13 +852,11 @@ export function SelectField({
 }
 
 /**
- * DOM id of the anchor mounted at the top of the settings content column
- * (see `SettingsChrome` in layout.tsx). `SaveBar` portals into it so the bar
- * sits in normal flow there instead of in the section form's own document
- * position — `position: sticky; top: 0` then pins it under the Topbar as
- * the user scrolls. Scoped to the content column (not the full `<main>`
- * width) so it never overlaps the settings nav aside, which has its own
- * independent `lg:sticky lg:top-8`.
+ * DOM id of the anchor mounted at the END of the settings content column
+ * (see `SettingsChrome` in layout.tsx). The anchor is the sticky element
+ * (`sticky bottom-0`), so `SaveBar`, portalled into it, stays pinned to the
+ * bottom of the screen while the section scrolls. Scoped to the content
+ * column (not the full `<main>` width) so it never overlaps the settings nav.
  */
 export const SECTION_SAVE_BAR_ROOT_ID = "settings-section-save-bar-root";
 const noSubscribe = () => () => {};
@@ -866,10 +864,12 @@ const findSaveBarRoot = () => document.getElementById(SECTION_SAVE_BAR_ROOT_ID);
 const serverSaveBarRoot = () => null;
 
 /**
- * Per-section save bar. Portals into `SECTION_SAVE_BAR_ROOT_ID` so it pins
- * to the top of the settings content column while scrolling — scoped to
- * whichever section's form is currently mounted, since each section's own
- * page instance renders and unmounts it independently.
+ * Per-section save bar. Portals into `SECTION_SAVE_BAR_ROOT_ID`, so it rises
+ * from the bottom of the screen the moment something changes and stays
+ * pinned there while the section scrolls, never covering the last field (the
+ * anchor keeps its place in the flow). Scoped to whichever section's form is
+ * currently mounted, since each section's own page instance renders and
+ * unmounts it independently.
  *
  * Only visible while there's something to react to: unsaved changes
  * (`dirty`), or a save in flight/just resolved. Idle + clean renders
@@ -902,9 +902,9 @@ export function SaveBar({
    *  permanently disabled button with no indication why. Ignored once a
    *  real save error or the "saved" flash takes over. */
   blockedReason?: string | null;
-  /** Resets the section's local state back to its last-loaded snapshot.
-   *  Rendered only while `dirty`, so it disappears the moment there's
-   *  nothing left to discard. */
+  /** Resets the section's local state back to its last-loaded snapshot
+   *  ("Cancel"). Rendered only while `dirty`, so it disappears the moment
+   *  there's nothing left to discard. */
   onDiscard?: () => void;
 }) {
   // Looked up through useSyncExternalStore, not a lazy initializer: when SettingsChrome's
@@ -924,66 +924,83 @@ export function SaveBar({
   const visible = dirty || saveState !== "idle";
   if (!visible || !root) return null;
 
-  return createPortal(
-    <div className="toast-rise sticky top-0 z-30 mb-4 flex flex-col items-stretch gap-3 rounded-pill border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 py-4 shadow-[0_8px_24px_rgba(42,34,24,0.14)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-      {/* One live region for every state this bar can be in — success, error
-          and the blocked-reason explanation all need announcing, and it's
-          simpler and more reliable than nesting a second (assertive)
-          role="alert" region inside a polite one. Safe against the bar's
-          own portal-in/portal-out lifecycle: submit() only ever fires while
-          `dirty` is already true, so this region is already mounted before
-          any saveState transition happens — there's no case where a fresh
-          mount needs to announce a message that predates it. */}
-      <div role="status" aria-live="polite" aria-atomic="true">
-        {saveState === "error" && errorMsg ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
-            <AlertIcon className="h-4 w-4 shrink-0" />
-            {errorMsg}
-          </p>
-        ) : saveState === "saved" ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-success)]">
-            <CheckIcon className="h-4 w-4 shrink-0" />
-            Changes saved
-          </p>
-        ) : blockedReason ? (
-          <p className="flex items-center gap-2 text-sm text-[var(--color-brand-danger)]">
-            <AlertIcon className="h-4 w-4 shrink-0" />
-            {blockedReason}
-          </p>
-        ) : (
-          <p className="text-sm text-[var(--color-brand-muted)]">{idleHint}</p>
-        )}
-      </div>
+  const showCancel = dirty && !!onDiscard;
 
-      <div className="flex w-full shrink-0 items-center justify-end gap-3 sm:w-auto sm:justify-start">
-        {dirty && onDiscard && (
-          <button
-            type="button"
-            onClick={onDiscard}
-            disabled={saveState === "saving"}
-            className="brand-focus text-sm font-semibold text-[var(--color-brand-muted)] transition-colors hover:text-[var(--color-brand-ink)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Discard
-          </button>
-        )}
-        <button
-          type="submit"
-          form={formId}
-          disabled={saveState === "saving" || !canSave}
-          className="brand-focus inline-flex h-10 shrink-0 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saveState === "saving" ? (
-            <>
-              <Spinner />
-              Saving…
-            </>
+  return createPortal(
+    // Breathing room above it, and above the phone's home indicator below.
+    <div className="save-bar-rise pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="flex flex-col gap-3 rounded-card border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3 shadow-[0_-4px_28px_rgba(42,34,24,0.16)] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
+        {/* One live region for every state this bar can be in — success,
+            error and the blocked-reason explanation all need announcing, and
+            it's simpler and more reliable than nesting a second (assertive)
+            role="alert" region inside a polite one. Safe against the bar's
+            own portal-in/portal-out lifecycle: submit() only ever fires while
+            `dirty` is already true, so this region is already mounted before
+            any saveState transition happens. */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="min-w-0">
+          {saveState === "error" && errorMsg ? (
+            <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-brand-danger)]">
+              <AlertIcon className="h-4 w-4 shrink-0" />
+              {errorMsg}
+            </p>
+          ) : saveState === "saved" ? (
+            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-brand-success)]">
+              <CheckIcon className="h-4 w-4 shrink-0" />
+              Changes saved
+            </p>
           ) : (
             <>
-              <CheckIcon className="h-4 w-4" />
-              Save changes
+              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--color-brand-ink)]">
+                <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-brand-warning)]" />
+                {saveState === "saving" ? "Saving your changes…" : "You have unsaved changes"}
+              </p>
+              {blockedReason ? (
+                <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-[var(--color-brand-danger)]">
+                  <AlertIcon className="h-3.5 w-3.5 shrink-0" />
+                  {blockedReason}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">{idleHint}</p>
+              )}
             </>
           )}
-        </button>
+        </div>
+
+        {/* Two equal buttons side by side on a phone; content-sized on the
+            right from sm up. Hidden once saved and clean (the bar is only
+            confirming then, and leaves on its own). */}
+        {(dirty || saveState === "saving") && (
+          <div className={`grid shrink-0 gap-2 sm:flex sm:items-center ${showCancel ? "grid-cols-2" : "grid-cols-1"}`}>
+            {showCancel && (
+              <button
+                type="button"
+                onClick={onDiscard}
+                disabled={saveState === "saving"}
+                className="brand-focus inline-flex h-10 items-center justify-center whitespace-nowrap rounded-field border border-[var(--color-brand-border)] bg-white px-3 text-sm sm:px-4 font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="submit"
+              form={formId}
+              disabled={saveState === "saving" || !canSave}
+              className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-field bg-[var(--color-brand-navy)] px-3 text-sm sm:gap-2 sm:px-5 font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saveState === "saving" ? (
+                <>
+                  <Spinner />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <CheckIcon className="h-4 w-4" />
+                  Save changes
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     root,

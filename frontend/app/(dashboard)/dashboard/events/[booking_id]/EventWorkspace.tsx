@@ -13,6 +13,7 @@ import {
   recalculateStudioStorage,
   renameUploadDevice,
   regenerateFamilyPasscode,
+  addCoupleContacts,
   restoreBooking,
   updateBooking,
   editLockCodeOf,
@@ -675,12 +676,37 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [persistBooking],
   );
 
+  const saveGuestTypes = useCallback(
+    async (next: string[]) => {
+      await persistBooking({ guest_types: next });
+    },
+    [persistBooking],
+  );
+
   const doRegeneratePasscode = useCallback(async (): Promise<string> => {
     const res = await regenerateFamilyPasscode(bookingId);
     const code = res.family_passcode;
     setMeta((prev) => (prev ? { ...prev, familyPasscode: code } : prev));
     return code;
   }, [bookingId]);
+
+  const doAddCoupleContacts = useCallback(
+    async (body: Parameters<typeof addCoupleContacts>[1]) => {
+      const res = await addCoupleContacts(bookingId, body);
+      setMeta((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, clients: res.clients };
+        try {
+          localStorage.setItem(`event_meta_${bookingId}`, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+      return res;
+    },
+    [bookingId],
+  );
 
   const setCoverFromUrl = useCallback(
     async (url: string, position: string = "50% 50%") => {
@@ -1027,7 +1053,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       serviceType: pub.serviceType,
       saveMeta,
       saveDeliveryPreferences,
+      saveGuestTypes,
       regenerateFamilyPasscode: doRegeneratePasscode,
+      addCoupleContacts: doAddCoupleContacts,
       setCoverFromUrl,
       setCoverFromFile,
       setCoverPosition,
@@ -1036,7 +1064,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -1103,7 +1131,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
                 initialStyleVariant={ctx.meta.styleVariant}
                 initialCustomMessage={ctx.meta.customMessage}
                 initialIncludeBranding={ctx.meta.includeBranding}
-                initialGuestTypes={ctx.meta.guestTypes}
                 allowDownload={allowDownload}
                 showGoogleReview={showGoogleReview}
                 faceSearchEnabled={faceSearchEnabled}

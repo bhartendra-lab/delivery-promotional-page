@@ -5,7 +5,7 @@
  * Split out of EventWorkspace.tsx so the Studio app shares it through its
  * core sync instead of a copy.
  */
-import type { BookingDetail, EmbeddingStatus, EventExpiryChoice, GalleryPublishStatus, ServiceType } from "./types.ts";
+import type { BookingDetail, EmbeddingStatus, EventClient, EventExpiryChoice, GalleryPublishStatus, ServiceType } from "./types.ts";
 import { normalizeDeliveryPreferences, type DeliveryPreferences } from "./delivery-preferences.ts";
 import type { ValidityExtensionRecord, ValidityOption } from "./event-validity.ts";
 
@@ -52,6 +52,13 @@ export type EventMeta = {
    */
   expiryChoice?: EventExpiryChoice | null;
   expiryAt?: number | null;
+  /**
+   * The people the Studio set the event up for (`booking.clients`), phones in
+   * their stored `91XXXXXXXXXX` form. A record only, never an authorisation
+   * source: Access & Sharing reads it to offer the Bride's or Groom's number
+   * when setup left it out. Absent on events made before the field existed.
+   */
+  clients?: EventClient[];
 };
 
 /**
@@ -136,6 +143,8 @@ export function normalizeMeta(
     // that does not carry the field at all) falls back to the cached value.
     expiryChoice: b.event_expiry_choice !== undefined ? b.event_expiry_choice : prev?.expiryChoice,
     expiryAt: b.event_expiry_at !== undefined ? b.event_expiry_at : prev?.expiryAt,
+    // update-booking does not echo it, so an absent field keeps the cached copy.
+    clients: b.clients ?? prev?.clients,
   };
 }
 

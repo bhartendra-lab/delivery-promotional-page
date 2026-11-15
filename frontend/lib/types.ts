@@ -543,6 +543,14 @@ export type ClientInvites = {
   count: number;
 };
 
+/** POST /bookings/add-couple-contacts success body: the booking's updated
+ *  people record, and what became of the WhatsApp invitations. */
+export type AddCoupleContactsResponse = {
+  message: string;
+  clients: EventClient[];
+  client_invites?: ClientInvites;
+};
+
 export type CreateBookingResponse = {
   message: string;
   booking_id: string;

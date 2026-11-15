@@ -353,3 +353,109 @@ export function createdEventNoticeKey(bookingId: string): string {
  */
 export const RESTORED_WITH_EXPIRY_RESET =
   "Restored. Its expiry is now set to Never; change it in Edit event details.";
+
+/* ── adding the couple's numbers later ──────────────────────────────────── */
+
+export type CoupleRole = "bride" | "groom";
+
+/** One half of the couple that still has no number on record. `name` is the
+ *  recorded name, or null on an event made before names were recorded (the
+ *  Studio is then asked for one). */
+export type CoupleSlot = { role: CoupleRole; name: string | null };
+
+/**
+ * The Bride and the Groom that still have no WhatsApp number, Bride first.
+ * Empty on anything that is not a couple type, so the Access & Sharing card
+ * only ever shows where a Bride and Groom exist. A role with no record at all
+ * (an event made before `clients` existed) counts as missing, name unknown.
+ * Mirrors the backend's planCoupleContacts, which is the authority.
+ */
+export function coupleSlotsMissingNumber(
+  eventType: string | null | undefined,
+  clients: EventClient[] | null | undefined,
+): CoupleSlot[] {
+  if (!isCoupleEventType(eventType)) return [];
+  const list = Array.isArray(clients) ? clients : [];
+  const slots: CoupleSlot[] = [];
+  for (const role of ["bride", "groom"] as const) {
+    const record = list.find((c) => c.role === role);
+    if (record?.phone) continue;
+    slots.push({ role, name: collapseWhitespace(record?.name) || null });
+  }
+  return slots;
+}
+
+/** The DOM id / error key of a couple row's field. */
+export const coupleField = {
+  name: (role: CoupleRole) => `couple-${role}-name`,
+  phone: (role: CoupleRole) => `couple-${role}-phone`,
+} as const;
+
+export type CoupleContactDraft = { name: string; phone: string };
+
+export type CoupleContactsResult = {
+  errors: Record<string, string>;
+  firstInvalid: string | null;
+  /** What to send: only rows with a number. Meaningful when valid. */
+  contacts: Array<{ role: CoupleRole; name?: string; phone: string }>;
+};
+
+/**
+ * Check the couple card on submit. A row with no number is left out (the
+ * Studio may have only one of the two). At least one number is needed; each
+ * must be ten digits; the two must differ; and a row whose name is not on
+ * record needs one typed.
+ */
+export function validateCoupleContacts(
+  slots: CoupleSlot[],
+  drafts: Partial<Record<CoupleRole, CoupleContactDraft>>,
+): CoupleContactsResult {
+  const errors: Record<string, string> = {};
+  const order: string[] = [];
+  const flag = (key: string, message: string) => {
+    if (!(key in errors)) {
+      errors[key] = message;
+      order.push(key);
+    }
+  };
+  const contacts: CoupleContactsResult["contacts"] = [];
+  const seen = new Set<string>();
+  for (const slot of slots) {
+    const draft = drafts[slot.role] ?? { name: "", phone: "" };
+    if (!draft.phone) continue;
+    const typedName = collapseWhitespace(draft.name).slice(0, EVENT_CLIENT_NAME_MAX).trim();
+    if (!slot.name && !typedName) {
+      flag(coupleField.name(slot.role), slot.role === "bride" ? "Enter the bride's name" : "Enter the groom's name");
+    }
+    if (draft.phone.length !== PHONE_DIGITS) {
+      flag(coupleField.phone(slot.role), "Enter a 10 digit WhatsApp number");
+    } else if (seen.has(draft.phone)) {
+      flag(coupleField.phone(slot.role), "The bride and the groom need different numbers");
+    } else {
+      seen.add(draft.phone);
+    }
+    contacts.push({ role: slot.role, ...(!slot.name && typedName ? { name: typedName } : {}), phone: draft.phone });
+  }
+  if (contacts.length === 0 && slots.length > 0) {
+    flag(coupleField.phone(slots[0].role), "Enter a 10 digit WhatsApp number");
+  }
+  return { errors, firstInvalid: order[0] ?? null, contacts };
+}
+
+/**
+ * The toast after numbers were added: who is now a Client, and what happened
+ * on WhatsApp. WhatsApp is mentioned only when something was sent or
+ * deliberately not sent, as after create.
+ */
+export function coupleContactsNotice(names: string[], invites: ClientInvites | null | undefined): string {
+  const firsts = names.map((n) => firstNameOf(n) || n).filter(Boolean);
+  const who =
+    firsts.length === 0
+      ? "Number added."
+      : firsts.length === 1
+        ? `${firsts[0]} is now a Client.`
+        : `${firsts.slice(0, -1).join(", ")} and ${firsts[firsts.length - 1]} are now Clients.`;
+  if (invites?.status === "sending" && invites.count > 0) return `${who} Sending the gallery link on WhatsApp.`;
+  if (invites?.status === "skipped") return `${who} Not messaged on WhatsApp.`;
+  return who;
+}

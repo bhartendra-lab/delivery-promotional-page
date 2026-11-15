@@ -39,6 +39,7 @@ import type {
   BookingsListResponse,
   Company,
   CreateBookingResponse,
+  AddCoupleContactsResponse,
   CustomFolder,
   DeliveryLandingPageData,
   DlpUsage,
@@ -1021,6 +1022,25 @@ export function createBooking(body: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...body, service: BOOKING_SERVICE }),
+  });
+}
+
+/**
+ * Give a couple event's Bride and/or Groom the WhatsApp number event setup was
+ * left without. Each becomes a Client Guest (or the Guest who already signed
+ * in with that number does), exactly as at setup; `notify_clients` decides
+ * only whether they are sent the gallery link. Phones as bare 10 digits.
+ * `name` is used only when the event has no name on record for that role.
+ * 400/409 carry a sentence for the Studio.
+ */
+export function addCoupleContacts(
+  bookingId: string,
+  body: { contacts: Array<{ role: "bride" | "groom"; name?: string; phone: string }>; notify_clients: boolean },
+) {
+  return request<AddCoupleContactsResponse>(`/bookings/add-couple-contacts/${encodeURIComponent(bookingId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 

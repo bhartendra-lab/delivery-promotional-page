@@ -232,6 +232,18 @@ body {
   animation: toast-rise 0.22s ease-out both;
 }
 
+/* Settings save bar: rises from the bottom edge when a change is made. */
+@keyframes save-bar-rise {
+  0% { opacity: 0; transform: translateY(24px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.save-bar-rise {
+  animation: save-bar-rise 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .save-bar-rise { animation: none; }
+}
+
 .skeleton {
   background: linear-gradient(
     90deg,
