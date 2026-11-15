@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { CustomFolder, EventExpiryChoice, EventExpiryInput, MediaItem, ServiceType } from "@/lib/types";
+import type { CustomFolder, EventExpiryInput, MediaItem, ServiceType } from "@/lib/types";
 import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import type { PhotoCap } from "@/lib/billing-types";
+import type { UploadOrigins } from "@/lib/api";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -55,47 +56,9 @@ export function hasActiveLikedFilters(f: LikedFilters): boolean {
   return f.audience !== "all" || f.subTypes.length > 0 || f.guestIds.length > 0;
 }
 
-export type EventMeta = {
-  name: string;
-  type: string;
-  /** Epoch ms, or null when unset. */
-  eventDate: number | null;
-  backgroundImage?: string;
-  /** Cover focal point as CSS object-position, e.g. "50% 35%". */
-  backgroundPosition?: string;
-  customMessage?: string;
-  styleVariant?: string;
-  includeBranding?: boolean;
-  /** Public shared-link slug for the guest gallery (`/event/<unique_identifier>`). */
-  uniqueIdentifier?: string;
-  /** Family passcode that unlocks the full gallery in-lounge. */
-  familyPasscode?: string;
-  /** Guest teams / sub-types shown on the client "Which team are you in?" screen. */
-  guestTypes?: string[];
-  /** Reusable QR pointed at this event, if any (joined by `getBookingById`). */
-  qrUniqueId?: string;
-  qrImageUrl?: string;
-  /**
-   * Event-scoped guest delivery preferences, already normalised (defaults
-   * filled) — so consumers can read `deliveryPreferences.allow_download`
-   * directly without re-checking for an absent key.
-   */
-  deliveryPreferences?: DeliveryPreferences;
-  /**
-   * What this event may still change, as the backend decided from the plan the
-   * EVENT was created under (`name_locked` / `cover_locked`). Pay per event:
-   * the name from creation, the cover once one is set. Absent (an older
-   * backend, or before the first load) reads as unlocked.
-   */
-  nameLocked?: boolean;
-  coverLocked?: boolean;
-  /**
-   * The Studio's own expiry for a storage plan event. Null or absent on both
-   * means "never". `expiryAt` is epoch ms, the end of that day in IST.
-   */
-  expiryChoice?: EventExpiryChoice | null;
-  expiryAt?: number | null;
-};
+import type { EventMeta } from "@/lib/event-meta";
+
+export type { EventMeta };
 
 /**
  * Shared state for one event workspace, owned by `EventWorkspace` and consumed
@@ -103,6 +66,9 @@ export type EventMeta = {
  * engine so the engine↔state wiring keeps working regardless of which tab is
  * mounted.
  */
+/** SES-01: what the Media view is narrowed to. `label` is what the bar says. */
+export type OriginFilter = { kind: "session" | "device"; id: string; label: string };
+
 export type EventContextValue = {
   bookingId: string;
   meta: EventMeta;
@@ -124,6 +90,17 @@ export type EventContextValue = {
    */
   mediaSort: "recent" | "oldest";
   setMediaSort: React.Dispatch<React.SetStateAction<"recent" | "oldest">>;
+  /**
+   * SES-01: the plain Media view narrowed to one upload session or one camera
+   * (with the folder, if one is chosen). Null = every photo. Changing it resets
+   * the view to page 1, like `mediaSort`.
+   */
+  originFilter: OriginFilter | null;
+  setOriginFilter: React.Dispatch<React.SetStateAction<OriginFilter | null>>;
+  /** The event's upload sessions and cameras with counts; null until loaded. */
+  uploadOrigins: UploadOrigins | null;
+  /** Rename a camera for the whole studio ("" clears the name). */
+  renameCamera: (deviceId: string, name: string) => Promise<void>;
   /** Per-folder media counts (server-derived), keyed by folder id. */
   folderCounts: Record<string, number>;
   /** Count of liked media in the booking (drives the Smart Selects header). */

@@ -18,6 +18,13 @@ import { getUploadedAndDeletedMediaIds } from "@/lib/api";
 import type { PhotoCap } from "@/lib/billing-types";
 import { photoCapOverBy, photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
 import { resolveDedup } from "@/lib/r2-upload/dedup";
+import {
+  analyze as analyzeSelection,
+  defaultFolderName,
+  filterImages as filterSelectedImages,
+  relParts as selectionRelParts,
+  type SelectedFile,
+} from "@/lib/r2-upload/selection";
 import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
 import {
   IconUpload,
@@ -2081,104 +2088,41 @@ function PopupShell({
 
 /* ── helpers ───────────────────────────────────────────────────── */
 
-// Camera RAW formats can't be displayed in the browser and are huge — block them.
-const RAW_EXTENSIONS =
-  /\.(raw|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|dng|raf|3fr|kdc|mef|mrw|pef|ptx|r3d|rwl|srw|x3f|erf|fff|iiq)$/i;
+// The selection rules (RAW and junk filtering, the default folder name, folder
+// grouping) live in lib/r2-upload/selection.ts, shared with the studio app.
+// These wrappers adapt `File` to the plain shape those rules work on
+// (`webkitRelativePath` -> `relativePath`) and map the result back.
 
-/** macOS AppleDouble sidecar files (`._foo.jpg`) and other dotfiles aren't real
- *  images — they carry an image extension but no decodable pixel data. */
-function isJunkFile(name: string): boolean {
-  const base = name.split("/").pop() ?? name;
-  return base.startsWith("._") || base === ".DS_Store" || base.startsWith(".");
+type PickedFile = SelectedFile & { file: File };
+
+function toSelected(f: File): PickedFile {
+  return {
+    name: f.name,
+    size: f.size,
+    lastModified: f.lastModified,
+    type: f.type,
+    relativePath: (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? "",
+    file: f,
+  };
 }
 
-/**
- * Keep only what we can actually publish, and report how much was dropped —
- * silently discarding files is what made photos appear to "go missing" between
- * the picker and the gallery.
- */
 function filterImages(files: File[]): { kept: File[]; skipped: number } {
-  const kept = files.filter((f) => {
-    if (isJunkFile(f.name)) return false; // macOS AppleDouble / dotfiles
-    if (RAW_EXTENSIONS.test(f.name)) return false; // block RAW
-    return f.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|gif|webp)$/i.test(f.name);
-  });
-  return { kept, skipped: files.length - kept.length };
-}
-
-function defaultFolderName(): string {
-  const d = new Date();
-  const mon = d.toLocaleDateString("en-GB", { month: "short" });
-  return `Photos – ${d.getDate()} ${mon} ${d.getFullYear()}`;
+  const { kept, skipped } = filterSelectedImages(files.map(toSelected));
+  return { kept: kept.map((p) => p.file), skipped };
 }
 
 function analyze(files: File[], firstRoot: string | null): Analysis {
-  if (files.length === 0) {
-    return { kind: "grouped", folderName: "", subGroups: [], looseFiles: [] };
-  }
-
-  // No folder structure at all → individual image selection (§5d).
-  if (files.every((f) => relParts(f).length <= 1)) {
-    return { kind: "direct", folderName: "", subGroups: [], looseFiles: files };
-  }
-
-  // Bucket files by their top-level parent folder (parts[0]) and classify each
-  // parent independently. This is what keeps a previously-picked flat folder
-  // (e.g. "abc") intact when a later selection introduces subfolders — its
-  // photos stay under "abc" instead of being reclassified as uncategorised.
-  const byParent = new Map<string, File[]>();
-  const loose: File[] = [];
-  for (const f of files) {
-    const parts = relParts(f);
-    if (parts.length <= 1) {
-      loose.push(f); // stray individual file mixed in with folder picks
-      continue;
-    }
-    mergeFiles(byParent, parts[0], [f]);
-  }
-
-  const groups = new Map<string, File[]>();
-  for (const [parent, pfiles] of byParent) {
-    // Only the FIRST folder picked this session gets first-level subfolder
-    // grouping. Folders added afterwards are flattened under their own name.
-    if (parent !== firstRoot) {
-      mergeFiles(groups, parent, pfiles);
-      continue;
-    }
-    const hasSub = pfiles.some((f) => relParts(f).length >= 3);
-    if (!hasSub) {
-      // Flat folder → the folder itself is one group (§5b).
-      mergeFiles(groups, parent, pfiles);
-    } else {
-      // Roll every nested descendant up into its first-level subfolder (parts[1]).
-      for (const f of pfiles) {
-        const parts = relParts(f);
-        if (parts.length >= 3) mergeFiles(groups, parts[1], [f]);
-        else loose.push(f); // loose-at-root within a subfoldered folder → §5c
-      }
-    }
-  }
-
-  const subGroups = Array.from(groups.entries()).map(([name, files]) => ({ name, files }));
-  const parents = Array.from(byParent.keys());
-  const folderName = parents.length === 1 ? parents[0] : "";
-
-  if (loose.length > 0) {
-    return { kind: "mixed", folderName, subGroups, looseFiles: loose };
-  }
-  return { kind: "grouped", folderName, subGroups, looseFiles: [] };
+  const a = analyzeSelection(files.map(toSelected), firstRoot);
+  return {
+    kind: a.kind,
+    folderName: a.folderName,
+    subGroups: a.subGroups.map((g) => ({ name: g.name, files: g.files.map((p) => p.file) })),
+    looseFiles: a.looseFiles.map((p) => p.file),
+  };
 }
 
 function relParts(f: File): string[] {
-  return ((f as File & { webkitRelativePath?: string }).webkitRelativePath ?? "")
-    .split("/")
-    .filter(Boolean);
-}
-
-function mergeFiles(map: Map<string, File[]>, key: string, files: File[]): void {
-  const arr = map.get(key) ?? [];
-  arr.push(...files);
-  map.set(key, arr);
+  return selectionRelParts(toSelected(f));
 }
 
 async function walkDirectoryItems(items: DataTransferItemList): Promise<File[]> {

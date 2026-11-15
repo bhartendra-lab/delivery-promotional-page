@@ -8,14 +8,16 @@
  * import below is erased at runtime and pulls in nothing.
  */
 
-import type { UploadVariant } from "./compressor";
+// The variant type from the spec rather than compressor.ts, which pulls in the
+// image libraries; the two are the same union ("2560" | "4096" | "original").
+import { UPLOAD_SPEC, type SpecVariant as UploadVariant } from "./spec.ts";
 
 /**
  * Slice size for the archive checksum. FIXED at 8 MiB regardless of the
  * multipart part size, so the digest of a given file is always reproducible
  * from the file alone. See computeArchiveChecksum.
  */
-const CHECKSUM_SLICE = 8 * 1024 * 1024;
+const CHECKSUM_SLICE = UPLOAD_SPEC.archive.checksumSliceBytes;
 
 /**
  * Pure. No I/O. Which parts of an original still need uploading, and how many
@@ -169,5 +171,5 @@ export async function computeArchiveChecksum(file: File): Promise<string> {
   const hex = Array.from(root)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return `sha256-tree-8MiB-v1:${hex}`;
+  return `${UPLOAD_SPEC.archive.checksumPrefix}${hex}`;
 }

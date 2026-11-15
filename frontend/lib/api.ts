@@ -206,6 +206,44 @@ export function requestStudioOtp(email: string) {
   });
 }
 
+/* ── studio account deletion (BE-02) ─────────────────────────────── */
+
+export type StudioDeletionAccepted = { message: string; scope: "studio" | "user"; purge_at: number };
+
+/** POST /auth/studio/account/deletion-code — signed in: emails a deletion code; answers the scope. */
+export function requestStudioDeletionCode() {
+  return request<{ message: string; scope: "studio" | "user" }>("/auth/studio/account/deletion-code", { method: "POST" });
+}
+
+/** POST /auth/studio/account/deletion — signed in: confirms with the code; 202 with the purge date. */
+export function confirmStudioDeletion(code: string, source: "dashboard" | "app" = "dashboard") {
+  return request<StudioDeletionAccepted>("/auth/studio/account/deletion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, source }),
+  });
+}
+
+/** POST /auth/studio/deletion-requests — the public page: answers the same for any address. */
+export function requestStudioDeletionByEmail(email: string) {
+  return request<{ message: string }>("/auth/studio/deletion-requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+    auth: false,
+  });
+}
+
+/** POST /auth/studio/deletion-requests/verify — the public page's confirm. */
+export function confirmStudioDeletionByEmail(email: string, code: string) {
+  return request<StudioDeletionAccepted>("/auth/studio/deletion-requests/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+    auth: false,
+  });
+}
+
 /** POST /auth/studio/verify-otp — signs in (creating the studio for a new email) and returns a long-lived token. */
 export function verifyStudioOtp(email: string, code: string) {
   return request<LoginResponse>("/auth/studio/verify-otp", {
@@ -1078,6 +1116,11 @@ export type MediaMetadataItem = {
   archive_url?: string;
   archive_size?: number;
   archive_checksum?: string;
+  /** SES-01: the upload session (one run) this photo belongs to. */
+  upload_session_id?: string;
+  /** SES-01: the camera that took it, from its EXIF; the backend derives the
+   *  studio's device from this. */
+  camera?: { make: string; model: string; serial?: string };
 };
 /**
  * Persist a batch of media. When new media is uploaded to an already-published
@@ -1293,6 +1336,10 @@ export type MediaViewOptions = {
   likedGuestSubTypes?: string[];
   /** Restrict likes to these specific guest ids. */
   likedGuestIds?: string[];
+  /** SES-01: only the photos of one upload session (exclusive with uploadDeviceId). */
+  uploadSessionId?: string;
+  /** SES-01: only the photos one camera took. */
+  uploadDeviceId?: string;
 };
 
 function mediaViewParams(opts?: MediaViewOptions): URLSearchParams {
@@ -1305,6 +1352,8 @@ function mediaViewParams(opts?: MediaViewOptions): URLSearchParams {
     params.set("liked_guest_sub_types", opts.likedGuestSubTypes.join(","));
   if (opts?.likedGuestIds?.length)
     params.set("liked_guest_ids", opts.likedGuestIds.join(","));
+  if (opts?.uploadSessionId) params.set("upload_session_id", opts.uploadSessionId);
+  else if (opts?.uploadDeviceId) params.set("upload_device_id", opts.uploadDeviceId);
   return params;
 }
 
@@ -1503,6 +1552,78 @@ export function deleteMedia(mediaIds: string[]) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ media_ids: mediaIds }),
   });
+}
+
+/* ── Upload sessions and devices (SES-01) ────────────────────────────────── */
+
+/** One upload of an event: a run of the web uploader, or (from the studio
+ *  app) a camera connection, a phone folder or a photo-picker run. */
+export type UploadSessionSummary = {
+  id: string;
+  source: "camera" | "folder" | "photos" | "web";
+  client: "web" | "android" | "ios";
+  /** The camera model the app read over USB, or the folder's name. */
+  label: string | null;
+  started_at: string;
+  /** The end, or for a session never ended (`open`), its last photo's time. */
+  ended_at: string | null;
+  open: boolean;
+  photo_count: number;
+  devices: Array<{ id: string; label: string }>;
+};
+
+/** One camera body of the studio, with how many of this event's photos it took. */
+export type UploadDeviceSummary = {
+  id: string;
+  /** The studio's name for it, else "Canon EOS R6" (plus "· …1234" when the
+   *  studio has two bodies of that model). */
+  label: string;
+  make: string;
+  model: string;
+  serial_last4: string | null;
+  name: string | null;
+  photo_count: number;
+};
+
+export type UploadOrigins = {
+  sessions: UploadSessionSummary[];
+  devices: UploadDeviceSummary[];
+  /** Photos uploaded before sessions were recorded. */
+  earlier_uploads: { photo_count: number };
+  /** Photos with no camera EXIF (and every photo from before SES-01). */
+  unknown_device: { photo_count: number };
+};
+
+/** POST /deliverables/upload-sessions/:booking_id — start an upload session. */
+export function createUploadSession(
+  bookingId: string,
+  body: { source: UploadSessionSummary["source"]; client: UploadSessionSummary["client"]; label?: string },
+) {
+  return request<{ upload_session_id: string }>(
+    `/deliverables/upload-sessions/${encodeURIComponent(bookingId)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+}
+
+/** POST /deliverables/upload-sessions/:booking_id/:session_id/end — idempotent. */
+export function endUploadSession(bookingId: string, sessionId: string) {
+  return request<{ message: string }>(
+    `/deliverables/upload-sessions/${encodeURIComponent(bookingId)}/${encodeURIComponent(sessionId)}/end`,
+    { method: "POST" },
+  );
+}
+
+/** GET /deliverables/upload-sessions/:booking_id — the Media tab's Filter lists. */
+export function getUploadOrigins(bookingId: string) {
+  return request<UploadOrigins>(`/deliverables/upload-sessions/${encodeURIComponent(bookingId)}`);
+}
+
+/** PATCH /deliverables/upload-devices/:device_id — rename a camera for the whole studio ("" clears it). */
+export function renameUploadDevice(deviceId: string, name: string) {
+  return request<{ id: string; name: string | null; label: string }>(
+    `/deliverables/upload-devices/${encodeURIComponent(deviceId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) },
+  );
 }
 
 /**

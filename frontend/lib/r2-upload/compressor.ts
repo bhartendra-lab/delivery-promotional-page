@@ -20,26 +20,23 @@
 import imageCompression from "browser-image-compression";
 import piexif from "piexifjs";
 import { captureTimeFromExif } from "./capture-time";
+import { cameraFromExif, type CameraIdentity } from "./camera-identity";
+import { dumpExifForSplice, exifScanNeedsFullFile, readJpegOrientation } from "./exif-bytes.ts";
 import type { WatermarkRenderer } from "./watermark";
+import { thumbDims, viewFromArchiveDims } from "./geometry.ts";
+import { UPLOAD_SPEC } from "./spec.ts";
 
-const MAX_DIM = 2560;
-const QUALITY = 0.80;
-/** Long edge of the 4K archive copy. Lossy, and deliberately never
- *  called an "archive of the original" anywhere a studio can read it — a 4096px
- *  JPEG is not an original file. */
-const ARCHIVE_DIM = 4096;
-/** Long edge of the gallery-grid derivative. The grid never renders larger than
- *  this, so the 2560px delivery copy is reserved for the lightbox, downloads
- *  and the ZIP. Must stay in sync with the backend's
- *  backfill-media-thumbnails.js, which generates the same derivative for media
- *  that predates this. */
-const THUMB_MAX_DIM = 480;
-const THUMB_QUALITY = 0.72;
-/** EXIF/APP1 sits at the very front of a JPEG; read only this much of the source
- *  to extract it rather than base64-ing the whole (often 15–20 MB) file per
- *  photo on the main thread. 256 KB comfortably covers APP0 + a max-size (64 KB)
- *  APP1 (+ any XMP) with margin. */
-const EXIF_HEAD_BYTES = 256 * 1024;
+// Every number below lives in spec.ts, with the reason it exists. The pixel
+// rules for the two canvas draws this file does itself (downscaleToView,
+// drawThumbnail) live in geometry.ts; the library resizes the view and the 4K
+// archive by its own rule, which geometry.ts reproduces as viewDims/archiveDims.
+const MAX_DIM = UPLOAD_SPEC.image.viewMaxDim;
+const QUALITY = UPLOAD_SPEC.image.viewQuality;
+const ARCHIVE_DIM = UPLOAD_SPEC.image.archiveMaxDim;
+const ARCHIVE_QUALITY = UPLOAD_SPEC.image.archiveQuality;
+const THUMB_QUALITY = UPLOAD_SPEC.image.thumbQuality;
+const EXIF_HEAD_BYTES = UPLOAD_SPEC.image.exifHeadBytes;
+const OUTPUT_TYPE = UPLOAD_SPEC.image.outputType;
 
 /** Default pool size: leave one core free for the main thread. */
 export function defaultPoolSize(): number {
@@ -124,6 +121,10 @@ export type CompressResult = {
    *  fall back to the file's own `lastModified` rather than treating a missing
    *  value as an error — a photo must never fail to upload over its date. */
   capturedAt?: number;
+  /** SES-01: the camera that took the photo (EXIF Make, Model,
+   *  BodySerialNumber), read from the SOURCE alongside `capturedAt`.
+   *  Undefined when the source had none (non-JPEG, no EXIF, no make/model). */
+  camera?: CameraIdentity;
 };
 
 /**
@@ -147,42 +148,58 @@ export async function compressWithExif(
 ): Promise<CompressResult> {
   // Read source EXIF before compression destroys it. Only meaningful for JPEG
   // sources (PNG/HEIC don't carry EXIF the same way). We read just the header
-  // slice — EXIF sits right after the SOI marker — and keep the serialized
-  // segment as raw bytes so it can be spliced back in without any base64 or
-  // whole-image string round-trip (both were heavy main-thread work per photo).
+  // slice — EXIF sits among the APPn segments before the scan data, after a
+  // JFIF APP0 in editor exports — and keep the serialized segment as raw bytes
+  // so it can be spliced back in without any base64 or whole-image string
+  // round-trip (both were heavy main-thread work per photo).
   const sourceIsJpeg = file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
   let exifSegmentBytes: Uint8Array | null = null;
   let capturedAt: number | undefined;
+  let camera: CameraIdentity | undefined;
+
+  const head = new Uint8Array(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
+  // Handed to browser-image-compression so it skips its own EXIF reader, which
+  // throws inside a FileReader callback on a broken IFD offset and then never
+  // settles: the upload hung on that photo (QA-01 F4). Same codes it uses.
+  const exifOrientation = readJpegOrientation(head);
 
   if (sourceIsJpeg) {
     try {
-      const exifDict = await loadSourceExifDict(file);
+      const exifDict = loadSourceExifDict(head, file.size) ?? (await loadFullFileExifDict(file));
       // When the photo was TAKEN — read here because this is the only moment
       // the SOURCE's EXIF is in hand, and read BEFORE the orientation reset
       // below mutates the dict. Assigned outside the dump, so a dump failure
       // costs the delivery copy its metadata without also costing us the date.
       capturedAt = captureTimeFromExif(exifDict) ?? undefined;
+      // Which camera took it (SES-01), from the same dict, for the same reason.
+      camera = cameraFromExif(exifDict);
       // browser-image-compression bakes orientation into pixels; reset to 1 to
       // avoid double-rotation when a viewer applies orientation later.
       if (exifDict["0th"]) {
         exifDict["0th"][piexif.ImageIFD.Orientation] = 1;
       }
-      exifSegmentBytes = binaryStringToBytes(piexif.dump(exifDict));
+      // Null when nothing usable fits one APP1; see dumpExifForSplice.
+      exifSegmentBytes = dumpExifForSplice(exifDict);
     } catch {
-      // Not all JPEGs have EXIF; ignore failures and proceed unmarked.
+      // Not all JPEGs have EXIF, and some carry EXIF nobody can read; ignore
+      // failures and proceed without it.
       exifSegmentBytes = null;
     }
   }
 
   if (variant === "4096") {
-    return compressHighRes(file, watermark, exifSegmentBytes, capturedAt);
+    return {
+      ...(await compressHighRes(file, watermark, exifSegmentBytes, capturedAt, exifOrientation)),
+      camera,
+    };
   }
 
   let compressedBlob: Blob = await imageCompression(file, {
+    exifOrientation,
     // No maxSizeMB — preserve visible quality over size targets.
     maxWidthOrHeight: MAX_DIM,
     useWebWorker: true,
-    fileType: "image/jpeg",
+    fileType: OUTPUT_TYPE,
     initialQuality: QUALITY,
     // alwaysKeepResolution doesn't exist, but skipping downscale for small
     // sources is already the library's default behaviour.
@@ -212,7 +229,7 @@ export async function compressWithExif(
 
   if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
-    return { blob: compressedBlob, thumbBlob, width, height, capturedAt };
+    return { blob: compressedBlob, thumbBlob, width, height, capturedAt, camera };
   }
 
   // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
@@ -222,9 +239,9 @@ export async function compressWithExif(
   try {
     const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
     const blob = spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
-    return { blob, thumbBlob, width, height, capturedAt };
+    return { blob, thumbBlob, width, height, capturedAt, camera };
   } catch {
-    return { blob: compressedBlob, thumbBlob, width, height, capturedAt };
+    return { blob: compressedBlob, thumbBlob, width, height, capturedAt, camera };
   }
 }
 
@@ -265,13 +282,16 @@ async function compressHighRes(
   /** Already read from the source dict by the caller — the archive and the
    *  view are both derived from that same source, so they share its date. */
   capturedAt: number | undefined,
+  /** Read by the caller; see compressWithExif. */
+  exifOrientation: number,
 ): Promise<CompressResult> {
   // 1. The archive copy.
   let archiveBlob: Blob = await imageCompression(file, {
+    exifOrientation,
     maxWidthOrHeight: ARCHIVE_DIM,
     useWebWorker: true,
-    fileType: "image/jpeg",
-    initialQuality: QUALITY,
+    fileType: OUTPUT_TYPE,
+    initialQuality: ARCHIVE_QUALITY,
   });
 
   // 2. Watermark the archive. The same never-fail-the-upload contract as the
@@ -309,9 +329,10 @@ async function compressHighRes(
     // optional, and this run still has a usable archive copy to upload.
     console.error("[upload:compress] 4096 blob would not decode; deriving the view from the source instead");
     viewBlob = await imageCompression(file, {
+      exifOrientation,
       maxWidthOrHeight: MAX_DIM,
       useWebWorker: true,
-      fileType: "image/jpeg",
+      fileType: OUTPUT_TYPE,
       initialQuality: QUALITY,
     });
     // Built from the unmarked source, so nothing was inherited.
@@ -357,9 +378,7 @@ async function downscaleToView(blob: Blob): Promise<Blob | undefined> {
     return undefined;
   }
   try {
-    const scale = Math.min(1, MAX_DIM / Math.max(bmp.width, bmp.height));
-    const w = Math.max(1, Math.round(bmp.width * scale));
-    const h = Math.max(1, Math.round(bmp.height * scale));
+    const { width: w, height: h } = viewFromArchiveDims(bmp.width, bmp.height);
     return await drawToJpeg(bmp, w, h, QUALITY);
   } finally {
     bmp.close();
@@ -396,18 +415,16 @@ async function measureAndThumbnail(
 }
 
 /**
- * Draw `bmp` scaled to fit inside THUMB_MAX_DIM (never upscaled — a source
+ * Draw `bmp` scaled to fit inside the thumbnail max (never upscaled — a source
  * already under it is drawn at its own size) and encode it as JPEG. Canvas
  * output carries no EXIF by construction, which is exactly what we want: the
  * grid derivative needs no metadata and spliceExifIntoJpeg is never called for
  * it.
  */
 async function drawThumbnail(bmp: ImageBitmap): Promise<Blob | undefined> {
-  // fit: inside, never upscale — a source already under THUMB_MAX_DIM is drawn
-  // at its own size and used as-is.
-  const scale = Math.min(1, THUMB_MAX_DIM / Math.max(bmp.width, bmp.height));
-  const w = Math.max(1, Math.round(bmp.width * scale));
-  const h = Math.max(1, Math.round(bmp.height * scale));
+  // fit: inside, never upscale — a source already under the thumbnail max is
+  // drawn at its own size and used as-is (thumbDims in geometry.ts).
+  const { width: w, height: h } = thumbDims(bmp.width, bmp.height);
   return drawToJpeg(bmp, w, h, THUMB_QUALITY);
 }
 
@@ -431,7 +448,7 @@ async function drawToJpeg(
     const ctx = canvas.getContext("2d");
     if (!ctx) return undefined;
     ctx.drawImage(bmp, 0, 0, w, h);
-    return canvas.convertToBlob({ type: "image/jpeg", quality });
+    return canvas.convertToBlob({ type: OUTPUT_TYPE, quality });
   }
 
   const canvas = document.createElement("canvas");
@@ -442,24 +459,29 @@ async function drawToJpeg(
   ctx.drawImage(bmp, 0, 0, w, h);
 
   return new Promise<Blob | undefined>((resolve) => {
-    canvas.toBlob((b) => resolve(b ?? undefined), "image/jpeg", quality);
+    canvas.toBlob((b) => resolve(b ?? undefined), OUTPUT_TYPE, quality);
   });
 }
 
 /**
- * Load the source JPEG's EXIF reading only the header slice — EXIF sits before
- * the SOS marker, which is virtually always within the first 256 KB. Falls back
- * to the full file for the rare image whose pre-scan segments (e.g. a giant ICC
- * profile) exceed the slice, so we never silently drop EXIF we used to keep.
+ * Load the source JPEG's EXIF from the header slice — EXIF sits before the SOS
+ * marker, which is virtually always within the first 256 KB. Returns null when
+ * the slice ended mid-segment (e.g. a giant ICC profile), so the caller re-reads
+ * the full file and we never silently drop EXIF we used to keep. Throws when the
+ * EXIF itself is unreadable: re-reading the whole file cannot fix that.
  */
-async function loadSourceExifDict(file: File) {
+function loadSourceExifDict(head: Uint8Array, fileSize: number) {
   try {
-    const head = new Uint8Array(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
     return piexif.load(bytesToBinaryString(head));
-  } catch {
-    const full = new Uint8Array(await file.arrayBuffer());
-    return piexif.load(bytesToBinaryString(full));
+  } catch (err) {
+    if (exifScanNeedsFullFile(head, fileSize)) return null;
+    throw err;
   }
+}
+
+async function loadFullFileExifDict(file: File) {
+  const full = new Uint8Array(await file.arrayBuffer());
+  return piexif.load(bytesToBinaryString(full));
 }
 
 /* ── EXIF byte helpers (piexif speaks latin1 "binary strings") ─────── */
@@ -476,13 +498,6 @@ function bytesToBinaryString(u8: Uint8Array): string {
     s += String.fromCharCode(...u8.subarray(i, i + CHUNK));
   }
   return s;
-}
-
-/** latin1 binary string (piexif.dump output) → raw bytes. */
-function binaryStringToBytes(s: string): Uint8Array {
-  const out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
-  return out;
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { captureReferralFromUrl } from "@/lib/referral";
+import { captureReferralFromUrl } from "@/lib/referral-storage";
 
 /**
  * Keeps a `?ref=` code from whatever dashboard page a link lands on (/login,

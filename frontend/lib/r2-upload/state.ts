@@ -67,17 +67,8 @@ function reqAsPromise<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
-/** The `File` fields a fingerprint is made of — nothing else is read, so pure
- *  logic (and its tests) can work with plain objects instead of real `File`s. */
-export type FingerprintableFile = Pick<File, "name" | "size" | "lastModified">;
-
-/** Compose the deterministic id for a (booking, file) pair. */
-export function makeFingerprint(file: FingerprintableFile): string {
-  return `${file.name}-${file.size}-${file.lastModified}`;
-}
-export function makeRecordId(bookingId: string, fingerprint: string): string {
-  return `${bookingId}__${fingerprint}`;
-}
+// The record id rule lives in fingerprint.ts (pure, shared with the Studio app's Locate Originals).
+export { makeFingerprint, makeRecordId, type FingerprintableFile } from "./fingerprint.ts";
 
 export async function putRecord(record: UploadRecord): Promise<void> {
   await putRecords([record]);

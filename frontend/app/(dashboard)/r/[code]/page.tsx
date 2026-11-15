@@ -2,7 +2,7 @@
 
 import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { storeReferral } from "@/lib/referral";
+import { storeReferral } from "@/lib/referral-storage";
 
 /**
  * The short referral link, /r/PIXL7K2Q: keeps the code (first touch wins, see

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/icons";
 import { setCachedMediaIds } from "@/lib/guest-auth";
 import { toFriendlyError } from "@/lib/selfie-errors";
+import { SHARPNESS_SIZE, laplacianVariance, lumaFromRgba, sharpnessRegion } from "@/lib/selfie-sharpness";
 
 type Phase = "consent" | "processing" | "error";
 
@@ -74,6 +75,8 @@ export function ScanFlow({
   const [camAttempt, setCamAttempt] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const capturingRef = useRef(false);
+  const [capturing, setCapturing] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   /**
    * The policy version of a consent that ticked but could not be logged yet.
@@ -157,7 +160,13 @@ export function ScanFlow({
       try {
         // Race a timeout so a suppressed/disabled permission prompt that never
         // resolves can't trap the guest on a black screen (the reported bug).
-        stream = await getUserMediaWithTimeout({ video: { facingMode: "user" }, audio: false }, 12_000);
+        // Ask for a real resolution: with no size the browser picks its default
+        // (often 640x480), and a small frame is a soft one. `ideal` never fails a
+        // camera that cannot do it; it just gets the closest size it has.
+        stream = await getUserMediaWithTimeout(
+          { video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+          12_000,
+        );
         if (cancelled) {
           stream.getTracks().forEach((tr) => tr.stop());
           return;
@@ -281,9 +290,27 @@ export function ScanFlow({
     }
   }
 
-  function capture() {
+  /**
+   * The sharpest of a few frames over ~0.4 s, not the one frame under the tap:
+   * a single grabbed frame is often motion-blurred, and blur was the main
+   * reason selfies were rejected (see lib/selfie-sharpness.ts). Only the
+   * middle of each frame is scored, and only the best frame is kept at full
+   * size, so this costs a few small canvases.
+   */
+  async function capture() {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) return;
+    if (!v || !v.videoWidth || capturingRef.current) return;
+    capturingRef.current = true;
+    setCapturing(true);
+    try {
+      await captureSharpest(v);
+    } finally {
+      capturingRef.current = false;
+      setCapturing(false);
+    }
+  }
+
+  async function captureSharpest(v: HTMLVideoElement) {
     const maxDim = 1080;
     const scale = Math.min(1, maxDim / Math.max(v.videoWidth, v.videoHeight));
     const canvas = document.createElement("canvas");
@@ -291,7 +318,25 @@ export function ScanFlow({
     canvas.height = Math.round(v.videoHeight * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = SHARPNESS_SIZE;
+    const pctx = probe.getContext("2d", { willReadFrequently: true });
+    let best = -1;
+    for (let i = 0; i < FRAMES_TO_SCORE; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, FRAME_GAP_MS));
+      if (!pctx) {
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        break;
+      }
+      const r = sharpnessRegion(v.videoWidth, v.videoHeight);
+      pctx.drawImage(v, r.x, r.y, r.w, r.h, 0, 0, SHARPNESS_SIZE, SHARPNESS_SIZE);
+      const px = pctx.getImageData(0, 0, SHARPNESS_SIZE, SHARPNESS_SIZE).data;
+      const score = laplacianVariance(lumaFromRgba(px, SHARPNESS_SIZE * SHARPNESS_SIZE), SHARPNESS_SIZE, SHARPNESS_SIZE);
+      if (score > best) {
+        best = score;
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      }
+    }
     canvas.toBlob(
       (blob) => {
         if (!blob) {
@@ -399,8 +444,8 @@ export function ScanFlow({
 
           <button
             type="button"
-            onClick={capture}
-            disabled={!agreed}
+            onClick={() => void capture()}
+            disabled={!agreed || capturing}
             className="cta-shine flex w-full cursor-pointer items-center justify-center gap-2 rounded-full py-4 text-[15px] font-extrabold transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
             style={{
               background: agreed ? t.brand : t.sunken,
@@ -540,6 +585,10 @@ export function ScanFlow({
 
 /** Tries per consent log: the first, then two retries. */
 const CONSENT_ATTEMPTS = 3;
+/** Selfie capture: frames scored for sharpness, and the gap between them (~0.4 s in all). */
+const FRAMES_TO_SCORE = 5;
+const FRAME_GAP_MS = 90;
+
 /** Waits before each retry. */
 const CONSENT_RETRY_MS = [1_000, 3_000];
 

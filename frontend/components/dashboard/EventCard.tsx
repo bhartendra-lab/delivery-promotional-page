@@ -5,6 +5,7 @@ import type { Booking, EventType, GalleryPublishStatus, ServiceType } from "@/li
 import { isStorageBasedPlan } from "@/lib/types";
 import { formatEventDate, getExpiryWarning } from "./shared";
 import { galleryUrlFor } from "@/lib/gallery-url";
+import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { useCompany } from "@/lib/useCompany";
 import { EventBadge } from "./EventBadge";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
@@ -67,7 +68,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
   // Built from the COMPANY, not from NEXT_PUBLIC_BASE_URL: a studio with a live
   // custom domain must copy their own domain here, the same URL their guests
   // receive by email. See lib/gallery-url.
-  const shareUrl = galleryUrlFor(company, row.unique_identifier);
+  const shareUrl = galleryUrlFor(company, row.unique_identifier, VYAVASTH_BASE_URL);
 
   async function copy() {
     if (!shareUrl) return;

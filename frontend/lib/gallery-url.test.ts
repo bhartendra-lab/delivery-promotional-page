@@ -10,6 +10,8 @@ import type { Company } from "./types.ts";
  * the mirror is stale.
  */
 
+const BASE = "https://deliver.vyavasth.in";
+
 const company = (over: Partial<Company> = {}) => ({ _id: "c1", name: "Studio", createdAt: "", updatedAt: "", ...over }) as Company;
 
 test("hasLiveCustomDomain: needs BOTH a hostname and an active status", () => {
@@ -28,51 +30,40 @@ test("hasLiveCustomDomain: a company with no custom-domain fields at all is not 
 });
 
 test("galleryBaseUrl: a live custom domain wins", () => {
-  const url = galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" }));
+  const url = galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" }), BASE);
   assert.equal(url, "https://gallery.studioxyz.com");
 });
 
 test("galleryBaseUrl: always https for a custom domain — Cloudflare terminates TLS for every custom hostname", () => {
-  const url = galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" }));
+  const url = galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" }), BASE);
   assert.ok(url.startsWith("https://"));
 });
 
 test("galleryBaseUrl: falls back to the Vyavasth domain for everyone else", () => {
-  const previous = process.env.NEXT_PUBLIC_BASE_URL;
-  process.env.NEXT_PUBLIC_BASE_URL = "https://deliver.vyavasth.in";
-  try {
-    assert.equal(galleryBaseUrl(company()), "https://deliver.vyavasth.in");
-    assert.equal(galleryBaseUrl(null), "https://deliver.vyavasth.in");
-    // A domain mid-setup must NOT be used yet.
-    assert.equal(
-      galleryBaseUrl(company({ custom_domain_pending: "gallery.studioxyz.com", custom_domain_status: "pending_dns" })),
-      "https://deliver.vyavasth.in",
-    );
-    // A domain that regressed must fall back rather than keep pointing at a
-    // hostname that no longer resolves.
-    assert.equal(
-      galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "moved" })),
-      "https://deliver.vyavasth.in",
-    );
-  } finally {
-    process.env.NEXT_PUBLIC_BASE_URL = previous;
-  }
+  assert.equal(galleryBaseUrl(company(), BASE), "https://deliver.vyavasth.in");
+  assert.equal(galleryBaseUrl(null, BASE), "https://deliver.vyavasth.in");
+  // A domain mid-setup must NOT be used yet.
+  assert.equal(
+    galleryBaseUrl(company({ custom_domain_pending: "gallery.studioxyz.com", custom_domain_status: "pending_dns" }), BASE),
+    "https://deliver.vyavasth.in",
+  );
+  // A domain that regressed must fall back rather than keep pointing at a
+  // hostname that no longer resolves.
+  assert.equal(
+    galleryBaseUrl(company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "moved" }), BASE),
+    "https://deliver.vyavasth.in",
+  );
 });
 
-test("galleryBaseUrl: a trailing slash on the env value is stripped, so links never double up", () => {
-  const previous = process.env.NEXT_PUBLIC_BASE_URL;
-  process.env.NEXT_PUBLIC_BASE_URL = "https://deliver.vyavasth.in/";
-  try {
-    assert.equal(galleryUrlFor(company(), "riya-and-arjun"), "https://deliver.vyavasth.in/event/riya-and-arjun");
-  } finally {
-    process.env.NEXT_PUBLIC_BASE_URL = previous;
-  }
+test("galleryBaseUrl: a trailing slash on the base is stripped, so links never double up", () => {
+  assert.equal(galleryUrlFor(company(), "riya-and-arjun", `${BASE}/`), "https://deliver.vyavasth.in/event/riya-and-arjun");
 });
 
 test("galleryUrlFor: builds the full gallery URL on the studio's own domain", () => {
   const url = galleryUrlFor(
     company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" }),
     "riya-and-arjun",
+    BASE,
   );
   assert.equal(url, "https://gallery.studioxyz.com/event/riya-and-arjun");
 });
@@ -81,20 +72,20 @@ test("galleryUrlFor: returns null without a slug, so callers hide the affordance
   // A booking whose landing page has not been created yet has no gallery. The
   // old code built a URL anyway and handed the studio something that 404s.
   const live = company({ custom_domain: "gallery.studioxyz.com", custom_domain_status: "active" });
-  assert.equal(galleryUrlFor(live, undefined), null);
-  assert.equal(galleryUrlFor(live, null), null);
-  assert.equal(galleryUrlFor(live, ""), null);
+  assert.equal(galleryUrlFor(live, undefined, BASE), null);
+  assert.equal(galleryUrlFor(live, null, BASE), null);
+  assert.equal(galleryUrlFor(live, "", BASE), null);
 });
 
 test("galleryUrlFor: uses /event/<slug>, never the /c/<id> route that never existed", () => {
-  const url = galleryUrlFor(company(), "riya-and-arjun");
+  const url = galleryUrlFor(company(), "riya-and-arjun", BASE);
   assert.ok(url!.includes("/event/riya-and-arjun"));
   assert.ok(!url!.includes("/c/"));
 });
 
 test("galleryUrlForDomain: Guest Control's live domain, else ours, and nothing without a slug", () => {
-  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", "abc"), "https://gallery.studioxyz.com/event/abc");
-  assert.equal(galleryUrlForDomain(null, "abc"), galleryUrlFor(null, "abc"));
-  assert.equal(galleryUrlForDomain("  ", "abc"), galleryUrlFor(null, "abc"));
-  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", null), null);
+  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", "abc", BASE), "https://gallery.studioxyz.com/event/abc");
+  assert.equal(galleryUrlForDomain(null, "abc", BASE), galleryUrlFor(null, "abc", BASE));
+  assert.equal(galleryUrlForDomain("  ", "abc", BASE), galleryUrlFor(null, "abc", BASE));
+  assert.equal(galleryUrlForDomain("gallery.studioxyz.com", null, BASE), null);
 });

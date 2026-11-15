@@ -6,7 +6,7 @@ import { requestStudioOtp, verifyStudioOtp, resolveReferral, getCompanyDetails, 
 import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
-import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral";
+import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral-storage";
 import { trackEvent } from "@/lib/analytics";
 import { setToken, setCompany, sanitizeRedirectPath, needsOnboarding, isAuthenticated } from "@/lib/auth";
 import {

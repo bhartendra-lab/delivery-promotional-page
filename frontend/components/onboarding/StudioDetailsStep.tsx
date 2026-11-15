@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, attachReferral, requestWhatsappOtp, resolveReferral } from "@/lib/api";
-import { clearStoredReferral, getStoredReferral, normalizeReferralCode } from "@/lib/referral";
+import { normalizeReferralCode } from "@/lib/referral";
+import { clearStoredReferral, getStoredReferral } from "@/lib/referral-storage";
 import { IconWarningCircle } from "@/components/ui/icons";
 
 /**

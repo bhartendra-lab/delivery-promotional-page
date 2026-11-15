@@ -8,7 +8,9 @@ import { getGuestControl, regeneratePasscode, setCollectionEditor } from "@/lib/
 import { capFirst, editorCounter, editorSwitchState, levelBadge, matchesPeopleQuery } from "@/lib/collections/logic";
 import type { GuestControl, GuestControlRow } from "@/lib/collections/types";
 import { galleryUrlForDomain } from "@/lib/gallery-url";
-import { copyText, galleryInviteMessage, passcodeShareMessage, shareTextOrCopy } from "@/lib/share-message";
+import { VYAVASTH_BASE_URL } from "@/lib/site-url";
+import { galleryInviteMessage, passcodeShareMessage } from "@/lib/share-message";
+import { copyText, shareTextOrCopy } from "@/lib/share-text";
 import { IconCopy, IconRestore, IconSearch, IconShare } from "@/components/ui/icons";
 import { CollectionSheet } from "./CollectionSheet";
 import { ConfirmDialog } from "./CollectionsSegment";
@@ -75,7 +77,7 @@ export function GuestControlSheet({
     };
   }, [uid, bookingId, onReauth, tick]);
 
-  const url = data ? galleryUrlForDomain(data.custom_domain, data.unique_identifier) : null;
+  const url = data ? galleryUrlForDomain(data.custom_domain, data.unique_identifier, VYAVASTH_BASE_URL) : null;
 
   const shareLink = async () => {
     if (!url) return;

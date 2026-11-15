@@ -9,7 +9,9 @@ import {
   getArchiveTiers,
   getMedia,
   getMediaIdsForView,
+  getUploadOrigins,
   recalculateStudioStorage,
+  renameUploadDevice,
   regenerateFamilyPasscode,
   restoreBooking,
   updateBooking,
@@ -17,22 +19,19 @@ import {
   updateGalleryActivationStatus,
   type MediaViewOptions,
   type UpdateBookingInput,
+  type UploadOrigins,
 } from "@/lib/api";
 import type {
-  BookingDetail,
   CustomFolder,
-  EmbeddingStatus,
   EventExpiryInput,
   GalleryPublishStatus,
   MediaItem,
-  ServiceType,
 } from "@/lib/types";
 import { knownEventType } from "@/lib/types";
 import { RESTORED_WITH_EXPIRY_RESET, createdEventNoticeKey } from "@/lib/event-clients";
 import { OPEN_COLLECTION_EVENT, smartDeepLink, withoutDeepLink, type OpenCollectionDetail } from "@/lib/notifications";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
-  normalizeDeliveryPreferences,
   type ArchiveTier,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
@@ -41,7 +40,7 @@ import { setBookingName } from "@/lib/r2-upload/registry";
 import { usePageBreadcrumb, usePageTopbarExtra, useChrome } from "@/components/dashboard/ChromeContext";
 import { useUploadEngine } from "./useUploadEngine";
 import type { PhotoCap } from "@/lib/billing-types";
-import { formatValidityDate, type ValidityExtensionRecord, type ValidityOption } from "@/lib/event-validity";
+import { formatValidityDate } from "@/lib/event-validity";
 import { ExtendValidityModal } from "@/components/billing/ExtendValidityModal";
 import {
   EventProvider,
@@ -50,9 +49,19 @@ import {
   EMPTY_LIKED_FILTERS,
   type EventMeta,
   type LikedFilters,
+  type OriginFilter,
 } from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
-import { LivePill, type LivePillState } from "./LivePill";
+import { LivePill } from "./LivePill";
+import {
+  DEFAULT_PUB,
+  computePillState,
+  normalizeMeta,
+  normalizePublish,
+  normalizeValidity,
+  type PublishInfo,
+  type ValidityInfo,
+} from "@/lib/event-meta";
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
 import { PostUploadBanner } from "./PostUploadBanner";
@@ -61,146 +70,10 @@ import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
 import { AccessSharingTab } from "./AccessSharingTab";
 
-/**
- * Live/sync snapshot, sourced authoritatively from get-booking-by-id.
- * Events are live from creation — the only user control is activate/
- * deactivate; everything else here is pipeline status.
- */
-type PublishInfo = {
-  status: GalleryPublishStatus;
-  embedding: EmbeddingStatus;
-  isActive: boolean;
-  outOfSync: boolean;
-  unsyncedCount: number;
-  /** The booking's own plan — gates the in-workspace Archive control. */
-  serviceType: ServiceType | null;
-  /**
-   * True once the first photos have SYNCED (`gallery_published_at` set by the
-   * backend on the first completed finalize). It used to lock the event name,
-   * because a rename regenerated the unique_identifier and broke the shared
-   * link. A rename no longer touches the link, so this locks nothing now: what
-   * an event may still change comes from the backend as `name_locked` and
-   * `cover_locked` (see `normalizeMeta`), by the plan the event was made under.
-   */
-  hasBeenPublished: boolean;
-};
-
-const DEFAULT_PUB: PublishInfo = {
-  status: "published",
-  embedding: "not_started",
-  isActive: true,
-  outOfSync: false,
-  unsyncedCount: 0,
-  serviceType: null,
-  hasBeenPublished: false,
-};
 
 // Media grid loads one page on first paint and one more each scroll-to-end.
 const PAGE_SIZE = 100;
 
-function normalizeMeta(
-  b: BookingDetail,
-  prev: EventMeta | null,
-  opts: { qrAuthoritative?: boolean } = {},
-): EventMeta {
-  const date = typeof b.event_date === "number" && Number.isFinite(b.event_date) ? b.event_date : null;
-  // background_image: a non-empty string sets the cover; "" means explicitly
-  // cleared; undefined/null falls back to the cached value (offline resilience).
-  const bg =
-    typeof b.background_image === "string" ? b.background_image || undefined : prev?.backgroundImage;
-  return {
-    name: b.name ?? b.event_name ?? b.lead?.name ?? prev?.name ?? "Untitled event",
-    type: b.event_type ?? b.events?.[0]?.event_type ?? prev?.type ?? "Event",
-    eventDate: date ?? prev?.eventDate ?? null,
-    backgroundImage: bg,
-    backgroundPosition: b.background_position ?? prev?.backgroundPosition,
-    customMessage: b.custom_message ?? prev?.customMessage,
-    styleVariant: b.style_variant ?? prev?.styleVariant,
-    includeBranding: b.include_company_branding ?? prev?.includeBranding,
-    uniqueIdentifier: b.unique_identifier ?? prev?.uniqueIdentifier,
-    familyPasscode: b.family_passcode ?? prev?.familyPasscode,
-    guestTypes: b.guest_types ?? prev?.guestTypes,
-    // Normalised on the way in so every consumer reads a complete object.
-    // The `prev` fallback matters twice over: partial-update responses that
-    // don't echo the field must not wipe it, and a localStorage hydration
-    // carries the last known value until the authoritative read lands.
-    deliveryPreferences: normalizeDeliveryPreferences(
-      b.delivery_preferences ?? prev?.deliveryPreferences,
-    ),
-    // getBookingById (reloadBooking) is the sole source of truth for QR
-    // linking — the QR can be relinked/deleted from the Reusable QR tab
-    // without this workspace ever mounting, so an absent field in that
-    // authoritative response means "unlinked now" and must clear the panel
-    // rather than fall back to `prev` (which can be a stale localStorage
-    // hydration from before the change). Partial-update responses like
-    // updateBooking never report QR fields at all, so they keep falling back
-    // to `prev` there to avoid wiping a real link on an unrelated edit.
-    qrUniqueId: opts.qrAuthoritative ? b.qr_unique_id : (b.qr_unique_id ?? prev?.qrUniqueId),
-    qrImageUrl: opts.qrAuthoritative ? b.qr_image_url : (b.qr_image_url ?? prev?.qrImageUrl),
-    // The per-plan edit locks, decided by the backend so plan rules are never
-    // re-derived here. Absent (an older backend) keeps the cached value, and
-    // with none cached reads as unlocked.
-    nameLocked: b.name_locked ?? prev?.nameLocked,
-    coverLocked: b.cover_locked ?? prev?.coverLocked,
-    // `null` is a real answer here ("never"), so only `undefined` (a response
-    // that does not carry the field at all) falls back to the cached value.
-    expiryChoice: b.event_expiry_choice !== undefined ? b.event_expiry_choice : prev?.expiryChoice,
-    expiryAt: b.event_expiry_at !== undefined ? b.event_expiry_at : prev?.expiryAt,
-  };
-}
-
-function normalizePublish(b: BookingDetail): PublishInfo {
-  return {
-    status: b.gallery_publish_status ?? "published",
-    embedding: b.embedding_status ?? "not_started",
-    isActive: b.is_active !== false,
-    outOfSync: b.media_out_of_sync === true,
-    unsyncedCount: typeof b.unsynced_media_count === "number" ? b.unsynced_media_count : 0,
-    serviceType: (b.service_type as ServiceType | null | undefined) ?? null,
-    // "First photos synced", not a publish action (which no longer exists) —
-    // see the PublishInfo docs.
-    hasBeenPublished: typeof b.gallery_published_at === "number",
-  };
-}
-
-/**
- * When a pay per event event closes and what extending it would cost, from
- * get-booking-by-id. Null for a storage plan event (no validity), and for a
- * backend that predates validity extensions, where the pill simply shows no
- * "Extend validity" row.
- */
-type ValidityInfo = {
-  endsAt: number;
-  lapsed: boolean;
-  extendable: boolean;
-  options: ValidityOption[];
-  /** Whether each option's price includes GST (the Event-based plan's switch). */
-  gstInclusive: boolean;
-  extensions: ValidityExtensionRecord[];
-  extensionCount: number;
-};
-
-function normalizeValidity(b: BookingDetail): ValidityInfo | null {
-  if (typeof b.validity_ends_at !== "number") return null;
-  return {
-    endsAt: b.validity_ends_at,
-    lapsed: b.validity_lapsed === true,
-    extendable: b.validity_extendable === true,
-    options: Array.isArray(b.validity_options) ? b.validity_options : [],
-    // Absent from a backend that predates the switch, where every price included GST.
-    gstInclusive: b.validity_gst_inclusive !== false,
-    extensions: Array.isArray(b.validity_extensions) ? b.validity_extensions : [],
-    extensionCount: typeof b.validity_extension_count === "number" ? b.validity_extension_count : 0,
-  };
-}
-
-function computePillState(pub: PublishInfo): LivePillState {
-  if (!pub.isActive) return "deactivated";
-  // The studio only ever sees "Live". Background processing (embeddings →
-  // face search) runs after every upload but is deliberately NOT surfaced to
-  // the studio — the gallery is live the moment photos finish uploading.
-  return "live";
-}
 
 export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const [meta, setMeta] = useState<EventMeta | null>(null);
@@ -235,6 +108,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // Manual display-order override for the plain Media view (see `mediaSort` doc
   // in EventContext). Shared across folders, not per-folder.
   const [mediaSort, setMediaSort] = useState<"recent" | "oldest">("recent");
+  // SES-01: narrow the plain Media view to one upload session or one camera
+  // (see `originFilter` in EventContext). Null = every photo.
+  const [originFilter, setOriginFilter] = useState<OriginFilter | null>(null);
+  // The Filter lists: the event's sessions and cameras with counts.
+  const [uploadOrigins, setUploadOrigins] = useState<UploadOrigins | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("media");
@@ -304,6 +182,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const totalCountRef = useRef(totalCount);
   const likedFiltersRef = useRef(likedFilters);
   const mediaSortRef = useRef(mediaSort);
+  const originFilterRef = useRef(originFilter);
   const loadingMoreRef = useRef(false);
   useEffect(() => {
     metaRef.current = meta;
@@ -314,6 +193,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     viewIdRef.current = viewId;
     totalForViewRef.current = totalForView;
     mediaSortRef.current = mediaSort;
+    originFilterRef.current = originFilter;
     totalCountRef.current = totalCount;
     likedFiltersRef.current = likedFilters;
   });
@@ -363,9 +243,14 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         likedGuestIds: f.guestIds,
       };
     }
+    const origin = originFilterRef.current;
     return {
       customFolderId: folderId === ALL_MEDIA_ID ? undefined : folderId,
       sort: mediaSortRef.current === "oldest" ? "oldest" : undefined,
+      // SES-01. Part of the view, so paging, reloads and Select all (and so a
+      // filtered delete) all see exactly the photos the grid shows.
+      ...(origin?.kind === "session" ? { uploadSessionId: origin.id } : {}),
+      ...(origin?.kind === "device" ? { uploadDeviceId: origin.id } : {}),
     };
   }, []);
 
@@ -484,7 +369,39 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void loadView(viewId);
-  }, [viewId, mediaSort, loadView]);
+  }, [viewId, mediaSort, originFilter, loadView]);
+
+  /* ── upload sessions and cameras (SES-01) ───────────────────── */
+
+  // The Filter lists. Re-read whenever the event's photo count moves (an
+  // upload landed, a delete went through), which is exactly when a count in
+  // them can change. A failure leaves the last lists (or none: no Filter).
+  const refreshUploadOrigins = useCallback(async () => {
+    try {
+      setUploadOrigins(await getUploadOrigins(bookingId));
+    } catch {
+      /* the Filter simply stays as it was */
+    }
+  }, [bookingId]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
+    void refreshUploadOrigins();
+  }, [refreshUploadOrigins, totalCount]);
+
+  // Renaming is studio-wide; the lists (and the active filter's label) follow.
+  const renameCamera = useCallback(
+    async (deviceId: string, name: string) => {
+      try {
+        const res = await renameUploadDevice(deviceId, name);
+        setOriginFilter((cur) => (cur?.kind === "device" && cur.id === deviceId ? { ...cur, label: res.label } : cur));
+        await refreshUploadOrigins();
+        toast(name ? "Camera renamed" : "Camera name cleared");
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Could not rename the camera", "error");
+      }
+    },
+    [refreshUploadOrigins, toast],
+  );
 
   // Re-fetch the Smart Selects view when its filters change (only while active).
   useEffect(() => {
@@ -1086,6 +1003,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setActiveFolder,
       mediaSort,
       setMediaSort,
+      originFilter,
+      setOriginFilter,
+      uploadOrigins,
+      renameCamera,
       folderCounts,
       likedCount,
       archiveTiers,
@@ -1115,7 +1036,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, doRegeneratePasscode, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

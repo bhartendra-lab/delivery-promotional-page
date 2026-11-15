@@ -1,3 +1,5 @@
+import { UPLOAD_SPEC } from "./r2-upload/spec.ts";
+
 /**
  * The Cache-Control header a presigned PUT sends. The stored object then
  * carries it, so it is what Cloudflare and browsers cache the object by.
@@ -8,9 +10,10 @@
  * keep serving a deleted selfie. When the selfie presign asks for `no_store`,
  * the backend answers with the header to send as `cache_control`.
  *
- * The backend's IMMUTABLE_CACHE_CONTROL must stay identical to this value.
+ * The backend's IMMUTABLE_CACHE_CONTROL must stay identical to this value
+ * (`UPLOAD_SPEC.http.uploadCacheControl`, which the studio app also reads).
  */
-export const UPLOAD_CACHE_CONTROL = "public, max-age=31536000, immutable";
+export const UPLOAD_CACHE_CONTROL: string = UPLOAD_SPEC.http.uploadCacheControl;
 
 /**
  * The header to PUT with: the one the presign answer names, else the default.

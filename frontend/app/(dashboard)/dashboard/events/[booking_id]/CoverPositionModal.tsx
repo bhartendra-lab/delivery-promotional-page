@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { IconX } from "./icons";
-import { clamp, parsePosNums } from "./coverPosition";
+import { clamp, formatPos, parsePosNums } from "./coverPosition";
 
 /**
  * Shown right after a studio picks a cover photo (upload or "Set as cover
@@ -37,7 +37,7 @@ export function CoverPositionModal({
     // Drag the image: moving right reveals the left edge → x% decreases.
     const nx = clamp(dragRef.current.bx - ((e.clientX - dragRef.current.x) / rect.width) * 100);
     const ny = clamp(dragRef.current.by - ((e.clientY - dragRef.current.y) / rect.height) * 100);
-    setDragPos(`${nx.toFixed(1)}% ${ny.toFixed(1)}%`);
+    setDragPos(formatPos(nx, ny));
   };
   const onPointerUp = () => {
     dragRef.current = null;

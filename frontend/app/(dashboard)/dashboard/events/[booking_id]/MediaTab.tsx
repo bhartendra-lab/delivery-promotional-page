@@ -27,6 +27,7 @@ import { CoverBanner } from "./CoverBanner";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
+import { OriginFilterBar, OriginFilterButton } from "./OriginFilter";
 import { WatermarkReminderDialog } from "./WatermarkReminderDialog";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { DELIVERY_PREFERENCE_DEFAULTS } from "@/lib/delivery-preferences";
@@ -59,6 +60,10 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setActiveFolder,
     mediaSort,
     setMediaSort,
+    originFilter,
+    setOriginFilter,
+    uploadOrigins,
+    renameCamera,
     folderCounts,
     archiveTiers,
     uploadQualityTier,
@@ -565,6 +570,40 @@ export function MediaTab({ loading }: { loading: boolean }) {
             }}
             mediaSort={mediaSort}
             onSortChange={setMediaSort}
+            originButton={
+              uploadOrigins && (uploadOrigins.sessions.length > 0 || uploadOrigins.devices.length > 0) ? (
+                <OriginFilterButton
+                  origins={uploadOrigins}
+                  value={originFilter}
+                  onChange={setOriginFilter}
+                  onRenameCamera={renameCamera}
+                />
+              ) : null
+            }
+            originBar={
+              originFilter ? (
+                <OriginFilterBar
+                  filter={originFilter}
+                  count={totalForView}
+                  folderLabel={activeIsSystem ? null : activeFolderLabel}
+                  capNote={
+                    photoCap
+                      ? `Deleted photos still count toward this event’s ${photoCap.cap.toLocaleString("en-IN")} uploads.`
+                      : null
+                  }
+                  disabled={activeLocked}
+                  onClear={() => setOriginFilter(null)}
+                  onDeleteAll={async () => {
+                    // Exactly the photos this view holds (filter AND folder),
+                    // through the selection delete's own path: cover, storage
+                    // meter, photo cap and toast all behave as they do there.
+                    const ids = await selectAllIds();
+                    await deleteMediaIds(ids);
+                    setOriginFilter(null);
+                  }}
+                />
+              ) : null
+            }
           />
         )}
       </div>
@@ -1000,6 +1039,8 @@ function PopulatedBody({
   notify,
   mediaSort,
   onSortChange,
+  originButton,
+  originBar,
 }: {
   activeFolderLabel: string;
   activeIsSystem: boolean;
@@ -1029,6 +1070,10 @@ function PopulatedBody({
   /** Display order for this view, driven by `createdAt` (see EventContext). */
   mediaSort: "recent" | "oldest";
   onSortChange: (next: "recent" | "oldest") => void;
+  /** SES-01: the Filter button (null when the event has nothing to filter by). */
+  originButton: React.ReactNode;
+  /** SES-01: the "Showing … from …" bar, while a filter is active. */
+  originBar: React.ReactNode;
 }) {
   return (
     <section className="px-6 pb-12 pt-6 sm:px-10">
@@ -1056,8 +1101,12 @@ function PopulatedBody({
             )}
           </span>
         </div>
-        <SortDropdown value={mediaSort} onChange={onSortChange} options={MEDIA_SORT_OPTIONS} />
+        <div className="flex items-center gap-2">
+          {originButton}
+          <SortDropdown value={mediaSort} onChange={onSortChange} options={MEDIA_SORT_OPTIONS} />
+        </div>
       </div>
+      {originBar}
       <MediaGrid
         items={items}
         disabled={disabled}
