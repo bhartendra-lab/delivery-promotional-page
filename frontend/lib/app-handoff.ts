@@ -21,6 +21,13 @@ export const HANDOFF_HOST = "open.vyavasth.in";
 export const SESSION_KEY_PREFIX = "vy-app-handoff:";
 
 /**
+ * STORES. `playPackage` also names the app in assetlinks.json, which must be
+ * served BEFORE the listing is public (Play testers, App Link checks), so
+ * Android is sent to Play only once `playStoreLive` is on
+ * (NEXT_PUBLIC_PLAY_STORE_LIVE=1). `appStoreId` exists only for the App Store
+ * listing (NEXT_PUBLIC_APPLE_APP_ID drives the association file), so set it
+ * once the app is live there.
+ *
  * `androidApkUrl` / `iosManifestUrl`: DIRECT INSTALL, the stopgap until the
  * app is in the stores. Android downloads the APK from our CDN; iOS installs
  * an Ad Hoc build through an itms-services manifest (which needs a paid Apple
@@ -31,6 +38,7 @@ export type HandoffEnv = {
   enabled: boolean;
   appStoreId?: string | null;
   playPackage?: string | null;
+  playStoreLive?: boolean;
   androidApkUrl?: string | null;
   iosManifestUrl?: string | null;
 };
@@ -39,7 +47,7 @@ export const APP_PACKAGE = "in.vyavasth.gallery";
 /** How "Continue in the app" gets the app onto this phone. */
 export type InstallRoute = "store" | "direct";
 export function installRoute(platform: HandoffPlatform | null, env: HandoffEnv): InstallRoute | null {
-  if (platform === "android") return env.androidApkUrl ? "direct" : env.playPackage ? "store" : null;
+  if (platform === "android") return env.androidApkUrl ? "direct" : env.playPackage && env.playStoreLive ? "store" : null;
   if (platform === "ios") return env.iosManifestUrl ? "direct" : env.appStoreId ? "store" : null;
   return null;
 }

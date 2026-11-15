@@ -10,7 +10,7 @@ const WA_IOS = `${IPHONE.replace(" Safari/604.1", "")} WhatsApp/24.1`;
 const DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const MAC = IPAD_DESKTOP_UA;
 
-const env = { enabled: true, appStoreId: "123", playPackage: "in.vyavasth.gallery" };
+const env = { enabled: true, appStoreId: "123", playPackage: "in.vyavasth.gallery", playStoreLive: true };
 const live = { is_active: true, gallery_publish_status: "published" };
 const offer = (over: Partial<Parameters<typeof shouldOfferAppHandoff>[0]>) =>
   shouldOfferAppHandoff({ ua: IPHONE, maxTouchPoints: 5, env, event: live, sessionChoice: null, ...over });
@@ -26,6 +26,8 @@ const TABLE: [string, Partial<Parameters<typeof shouldOfferAppHandoff>[0]>, bool
   ["switch off", { env: { ...env, enabled: false } }, false],
   ["no App Store id on iOS", { env: { ...env, appStoreId: null } }, false],
   ["no Play package on Android", { ua: ANDROID, env: { ...env, playPackage: null } }, false],
+  ["Play listing not live yet on Android", { ua: ANDROID, env: { ...env, playStoreLive: false } }, false],
+  ["Play listing not live does not affect iOS", { env: { ...env, playStoreLive: false } }, true],
   ["Android, direct APK, no Play listing", { ua: ANDROID, env: { enabled: true, androidApkUrl: "https://cdn.example/app.apk" } }, true],
   ["iOS, Ad Hoc manifest, no App Store", { env: { enabled: true, iosManifestUrl: "https://cdn.example/manifest.plist" } }, true],
   ["iOS with only an APK: not offered", { env: { enabled: true, androidApkUrl: "https://cdn.example/app.apk" } }, false],
@@ -86,4 +88,9 @@ test("itmsServicesUrl encodes the manifest", () => {
 test("fallbackTarget in direct mode sends Android to the gallery, not Play", () => {
   const direct = { ...env, androidApkUrl: "https://cdn.example/app.apk" };
   assert.equal(fallbackTarget({ platform: "android", uid: "abc", env: direct, galleryBase: "https://deliver.vyavasth.in" }), "https://deliver.vyavasth.in/event/abc");
+});
+
+test("fallbackTarget: Play listing not live yet sends Android to the gallery", () => {
+  const notLive = { ...env, playStoreLive: false };
+  assert.equal(fallbackTarget({ platform: "android", uid: "abc", env: notLive, galleryBase: "https://deliver.vyavasth.in" }), "https://deliver.vyavasth.in/event/abc");
 });
