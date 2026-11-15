@@ -29,6 +29,8 @@ const TABLE: [string, Partial<Parameters<typeof shouldOfferAppHandoff>[0]>, bool
   ["Play listing not live yet on Android", { ua: ANDROID, env: { ...env, playStoreLive: false } }, false],
   ["Play listing not live does not affect iOS", { env: { ...env, playStoreLive: false } }, true],
   ["Android, direct APK, no Play listing", { ua: ANDROID, env: { enabled: true, androidApkUrl: "https://cdn.example/app.apk" } }, true],
+  ["Android, direct APK, Play package set but not live", { ua: ANDROID, env: { enabled: true, playPackage: "in.vyavasth.gallery", androidApkUrl: "https://cdn.example/app.apk" } }, true],
+  ["iOS, APK + Play package only (no App Store id): not offered", { env: { enabled: true, playPackage: "in.vyavasth.gallery", androidApkUrl: "https://cdn.example/app.apk" } }, false],
   ["iOS, Ad Hoc manifest, no App Store", { env: { enabled: true, iosManifestUrl: "https://cdn.example/manifest.plist" } }, true],
   ["iOS with only an APK: not offered", { env: { enabled: true, androidApkUrl: "https://cdn.example/app.apk" } }, false],
   ["already chose this session", { sessionChoice: "browser" }, false],
@@ -93,4 +95,10 @@ test("fallbackTarget in direct mode sends Android to the gallery, not Play", () 
 test("fallbackTarget: Play listing not live yet sends Android to the gallery", () => {
   const notLive = { ...env, playStoreLive: false };
   assert.equal(fallbackTarget({ platform: "android", uid: "abc", env: notLive, galleryBase: "https://deliver.vyavasth.in" }), "https://deliver.vyavasth.in/event/abc");
+});
+
+test("installRoute: today's production setup (APK + Play package, no store switches)", () => {
+  const today = { enabled: true, playPackage: "in.vyavasth.gallery", androidApkUrl: "https://media.vyavasth.in/app/android/vyavasth.apk" };
+  assert.equal(installRoute("android", today), "direct");
+  assert.equal(installRoute("ios", today), null);
 });

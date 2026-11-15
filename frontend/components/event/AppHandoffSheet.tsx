@@ -34,6 +34,14 @@ import { useEventTheme } from "./EventThemeContext";
  *   iOS     itms-services:// (an Ad Hoc build: paid Apple account, devices
  *           registered). Unset until then, so iPhones are not offered.
  *
+ * WHICH ROUTE, per platform (lib/app-handoff.ts installRoute):
+ *   Android NEXT_PUBLIC_ANDROID_APK_URL set → direct download (wins over Play).
+ *           Otherwise Play, but only with NEXT_PUBLIC_PLAY_STORE_LIVE=1.
+ *   iOS     NEXT_PUBLIC_IOS_MANIFEST_URL set → Ad Hoc install. Otherwise the
+ *           App Store, but only with NEXT_PUBLIC_APP_STORE_ID set.
+ *   A platform with none of these is not offered the app at all: no store
+ *   suggestion appears until its variable is set.
+ *
  * Studio custom domains show it too (D9, default on).
  */
 const ENV: HandoffEnv = {
