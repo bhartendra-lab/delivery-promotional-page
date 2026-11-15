@@ -18,9 +18,7 @@ import {
   IconLink,
   IconMobile,
   IconMonitor,
-  IconX,
   IconCaretDown,
-  IconPlus,
 } from "./icons";
 
 const OCCASION_TIP_LABEL: Record<Occasion, string> = {
@@ -48,7 +46,6 @@ export function GalleryDesignTab({
   initialStyleVariant,
   initialCustomMessage,
   initialIncludeBranding,
-  initialGuestTypes,
   allowDownload,
   showGoogleReview,
   faceSearchEnabled,
@@ -62,7 +59,6 @@ export function GalleryDesignTab({
   initialStyleVariant?: string;
   initialCustomMessage?: string;
   initialIncludeBranding?: boolean;
-  initialGuestTypes?: string[];
   /**
    * The event's `allow_download` delivery preference. Read-only here — it's
    * edited from the Media tab's gear — but the preview MUST honour it: a mockup
@@ -86,11 +82,11 @@ export function GalleryDesignTab({
   faceSearchEnabled: boolean;
   /** No `include_company_branding` any more: "Show your studio profile" moved
    *  to the Gallery preferences modal on Access & Sharing, and saving here
-   *  must not write back a stale copy of it. */
+   *  must not write back a stale copy of it. No `guest_types` either, for the
+   *  same reason: the Guest teams card lives on Access & Sharing now. */
   onSave: (vals: {
     style_variant: StyleVariant;
     custom_message: string;
-    guest_types: string[];
   }) => Promise<void>;
 }) {
   const startVariant: StyleVariant =
@@ -117,7 +113,6 @@ export function GalleryDesignTab({
   // preferences modal on Access & Sharing; the preview follows the SAVED value
   // (ctx.meta.includeBranding), so it still shows exactly what Guests get.
   const branding = initialIncludeBranding ?? true;
-  const [guestTypes, setGuestTypes] = useState<string[]>(initialGuestTypes ?? []);
   const [scope, setScope] = useState<"landing" | "gallery">("landing");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [saving, setSaving] = useState(false);
@@ -139,20 +134,7 @@ export function GalleryDesignTab({
   const copyLabel = messageLabelFor(eventType);
   const activeCollection = collections.find((c) => c.id === collectionId) ?? collections[0];
 
-  // Trimmed, non-empty teams — what we actually save and compare for dirty.
-  const cleanGuestTypes = useMemo(() => guestTypes.map((t) => t.trim()).filter(Boolean), [guestTypes]);
-  const initialClean = useMemo(
-    () => (initialGuestTypes ?? []).map((t) => t.trim()).filter(Boolean),
-    [initialGuestTypes],
-  );
-
-  const dirty = useMemo(
-    () =>
-      variant !== startVariant ||
-      message !== (initialCustomMessage ?? "") ||
-      JSON.stringify(cleanGuestTypes) !== JSON.stringify(initialClean),
-    [variant, message, cleanGuestTypes, initialClean, startVariant, initialCustomMessage],
-  );
+  const dirty = variant !== startVariant || message !== (initialCustomMessage ?? "");
 
   async function save() {
     setSaving(true);
@@ -160,7 +142,6 @@ export function GalleryDesignTab({
       await onSave({
         style_variant: variant,
         custom_message: message,
-        guest_types: cleanGuestTypes,
       });
       setSavedTick(true);
       setTimeout(() => setSavedTick(false), 2000);
@@ -259,55 +240,6 @@ export function GalleryDesignTab({
           </div>
         </SectionCard>
 
-        <SectionCard
-          overline="Guest Teams / Sub-types"
-          tip="Shown on the guest “Which team are you in?” screen after sign-in (e.g. Bride Team / Groom Team). Leave empty to skip that step entirely."
-          last
-        >
-          {guestTypes.length > 0 && (
-            <div className="mb-2 flex flex-col gap-2">
-              {guestTypes.map((t, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input
-                    value={t}
-                    onChange={(e) =>
-                      setGuestTypes((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))
-                    }
-                    placeholder="e.g. Bride Team"
-                    aria-label={`Team ${i + 1}`}
-                    // The server keeps 40 characters and 6 teams (see
-                    // sanitizeGuestTypes); the form says so up front rather
-                    // than letting a save quietly trim.
-                    maxLength={40}
-                    className="brand-focus block min-w-0 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[13.5px] text-[var(--color-brand-ink)] outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setGuestTypes((prev) => prev.filter((_, j) => j !== i))}
-                    aria-label="Remove team"
-                    className="brand-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-brand-border)] text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
-                  >
-                    <IconX size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {guestTypes.length < 6 && (
-          <button
-            type="button"
-            onClick={() => setGuestTypes((prev) => [...prev, ""])}
-            className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)]"
-          >
-            <IconPlus size={14} /> Add team
-          </button>
-          )}
-          {guestTypes.length === 0 && (
-            <p className="mt-2 text-[12px] text-[var(--color-brand-muted)]">
-              No teams. Guests skip the team question and go straight to their photos.
-            </p>
-          )}
-        </SectionCard>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
           <button

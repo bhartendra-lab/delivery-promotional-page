@@ -22,7 +22,7 @@ import {
   whenVisible,
 } from "../media-actions.ts";
 import { describeError, noteFailureReason } from "./failure.ts";
-import { dedupeName, sanitiseFilename, type PlanItem } from "./plan.ts";
+import { dedupeName, flattenedName, sanitiseFilename, type PlanItem } from "./plan.ts";
 import { toShareFile } from "./share.ts";
 
 /* ── File System Access types ────────────────────────────────────────────────
@@ -201,6 +201,24 @@ async function withResolvedUrls(
 /* ── 1. directory — the good path ────────────────────────────────────────── */
 
 /**
+ * The browser let the guest pick a folder and then refused to write into it.
+ * Thrown out of `runDirectoryDownload` on the first such refusal — every other
+ * photo would be refused the same way — so the flow can re-plan the download
+ * as a ZIP instead of reporting a failure the guest can only repeat.
+ */
+export class DirectoryRefusedError extends Error {
+  constructor(cause: unknown) {
+    super(describeError(cause));
+    this.name = "DirectoryRefusedError";
+  }
+}
+
+/** A refusal from the File System Access API itself, as opposed to a network
+ *  error while fetching (always a `TypeError`) or a cancel. */
+const isRefusedByBrowser = (err: unknown): boolean =>
+  err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError");
+
+/**
  * Open the folder picker. MUST be called inside the click gesture, before any
  * `await` that could expire the user activation — resolve the plan first, then
  * call this on the confirm click.
@@ -322,7 +340,9 @@ const DIRECTORY_CONCURRENCY = 4;
  * Subdirectories mirror `folderName`. Without that, two photos named
  * DSC_4821.jpg from different folders silently overwrite each other — the
  * upload keys carry a nonce for exactly this reason, and the download has to
- * reintroduce the separation.
+ * reintroduce the separation. Where the browser refuses to create a
+ * subdirectory (Samsung Internet), those photos go into the top of the chosen
+ * folder instead, under a folder-prefixed name (`flattenedName`).
  */
 export async function runDirectoryDownload({
   dir,
@@ -344,16 +364,40 @@ export async function runDirectoryDownload({
   const known = existing ?? new Map<string, number>();
   const progress = progressTracker(resolved, onProgress);
   // Cache of created subdirectory handles — `getDirectoryHandle(create: true)`
-  // per photo would be thousands of redundant SAF round-trips on Android.
-  const dirs = new Map<string, Promise<FsDirHandle>>();
-  const targetDir = (folder: string) => {
+  // per photo would be thousands of redundant SAF round-trips on Android. A
+  // folder the browser refuses to create resolves to null: its photos go into
+  // the top of the chosen folder instead.
+  const dirs = new Map<string, Promise<FsDirHandle | null>>();
+  const targetDir = (folder: string): Promise<FsDirHandle | null> => {
     if (!folder) return Promise.resolve(dir);
     let handle = dirs.get(folder);
     if (!handle) {
-      handle = dir.getDirectoryHandle(folder, { create: true });
+      handle = dir.getDirectoryHandle(folder, { create: true }).catch((err: unknown) => {
+        if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) throw err;
+        console.warn(`[download] could not create folder "${folder}" — saving its photos flat`, err);
+        return null;
+      });
       dirs.set(folder, handle);
     }
     return handle;
+  };
+  // Names already used at the top of the chosen folder, for photos that had to
+  // be saved there with a folder prefix. Seeded with the top-level photos' own
+  // names so a prefixed name can never land on one of them.
+  const topLevelNames = new Set(
+    resolved.filter((item) => !item.folderName).map((item) => item.name.toLowerCase()),
+  );
+  const flatNames = new Map<string, string>();
+  // Set on the first write the browser refuses; the other workers stop taking
+  // photos rather than fetch ones that cannot be saved.
+  let refused = false;
+  const flatNameFor = (item: PlanItem): string => {
+    let name = flatNames.get(item.mediaId);
+    if (!name) {
+      name = flattenedName(topLevelNames, item.folderName, item.name);
+      flatNames.set(item.mediaId, name);
+    }
+    return name;
   };
 
   let saved = 0;
@@ -369,7 +413,9 @@ export async function runDirectoryDownload({
       progress.advance(item.bytes, false);
       return;
     }
-    const into = await targetDir(item.folderName);
+    const sub = await targetDir(item.folderName);
+    const into = sub ?? dir;
+    const fileName = sub ? item.name : flatNameFor(item);
 
     /** One complete attempt: fetch, then stream into a fresh file. */
     const writeFrom = async (url: string): Promise<void> => {
@@ -384,7 +430,7 @@ export async function runDirectoryDownload({
           if (fallback !== url) res = await fetch(fallback, { cache: "no-store", signal });
         }
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-        const handle = await into.getFileHandle(item.name, { create: true });
+        const handle = await into.getFileHandle(fileName, { create: true });
         writable = await handle.createWritable();
         await res.body.pipeTo(writable);
         writable = null; // pipeTo closes it on success
@@ -393,7 +439,7 @@ export async function runDirectoryDownload({
         // writable and remove the entry. The size-matching resume check is the
         // backstop if removal fails.
         if (writable) await writable.abort(err).catch(() => {});
-        await into.removeEntry(item.name).catch(() => {});
+        await into.removeEntry(fileName).catch(() => {});
         throw err;
       }
     };
@@ -407,7 +453,8 @@ export async function runDirectoryDownload({
         // Once more under the cache-keyed URL — see `cacheKeyed` for why that
         // is the attempt that tends to get through on Android.
         const alternate = keyedForThisPage(item.url);
-        if (isCancel(err) || alternate === item.url) throw err;
+        // A browser refusal is not a network problem: another URL can't help.
+        if (isCancel(err) || isRefusedByBrowser(err) || alternate === item.url) throw err;
         await whenVisible();
         await writeFrom(alternate).catch(() => {
           throw err; // the first error is the one worth reporting
@@ -417,6 +464,13 @@ export async function runDirectoryDownload({
       progress.advance(item.bytes);
     } catch (err) {
       if (isCancel(err)) throw ABORTED;
+      // Every remaining photo would be refused the same way: stop here and let
+      // the flow switch to a ZIP rather than fetch the whole selection for
+      // nothing.
+      if (isRefusedByBrowser(err)) {
+        refused = true;
+        throw new DirectoryRefusedError(err);
+      }
       failed += 1;
       failedUrl ??= item.url;
       noteFailureReason(failureReasons, describeError(err));
@@ -430,7 +484,7 @@ export async function runDirectoryDownload({
   const worker = async () => {
     for (;;) {
       const index = next++;
-      if (index >= resolved.length) return;
+      if (index >= resolved.length || refused) return;
       await writeOne(resolved[index]);
     }
   };

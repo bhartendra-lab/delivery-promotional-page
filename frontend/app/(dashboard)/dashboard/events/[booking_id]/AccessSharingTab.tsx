@@ -33,7 +33,10 @@ import {
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
 import { SOCIAL_PLATFORM_BY_KEY, isSocialPlatformKey } from "@/lib/social-platforms";
+import { coupleSlotsMissingNumber } from "@/lib/event-clients";
 import { BrandingReminderDialog } from "./BrandingReminderDialog";
+import { CoupleContactsCard } from "./CoupleContactsCard";
+import { GuestTeamsCard } from "./GuestTeamsCard";
 import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
 import { useEvent } from "./EventContext";
 import {
@@ -113,6 +116,12 @@ export function AccessSharingTab({
    *  place. It used to be a gear on the Media tab, which is where a studio
    *  managed FILES, not what Guests could do with them. */
   const [prefsOpen, setPrefsOpen] = useState(false);
+
+  /** The Bride / Groom still without a number (couple events only). */
+  const coupleSlots = coupleSlotsMissingNumber(meta.type, meta.clients);
+  /** Bumped after numbers are added, so the Guest list shows the new Clients. */
+  const [guestsVersion, setGuestsVersion] = useState(0);
+  const savedTeams = meta.guestTypes ?? [];
 
   /**
    * The Studio's required visit link, if this event actually has a live one.
@@ -225,10 +234,19 @@ export function AccessSharingTab({
             requiredVisitLabel={requiredVisitLabel}
             reviewsEnabledGlobally={company?.google_review_enabled !== false}
           />
+          <GuestTeamsCard key={JSON.stringify(savedTeams)} saved={savedTeams} eventType={meta.type} />
         </div>
 
-        {/* Right — guest list, level filter, export, and each Guest's access. */}
-        <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} />
+        {/* Right — the couple's missing numbers (when there are any), then the
+            guest list, level filter, export, and each Guest's access. In the
+            wide layout this column is bound to the tab's height: the couple
+            card keeps its size and the Guest list takes what is left. */}
+        <div className="flex min-w-0 flex-col gap-4 @4xl:h-full @4xl:min-h-0">
+          {coupleSlots.length > 0 && (
+            <CoupleContactsCard slots={coupleSlots} onAdded={() => setGuestsVersion((v) => v + 1)} />
+          )}
+          <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} reloadKey={guestsVersion} />
+        </div>
       </div>
 
       {/* Every per-event Guest setting, in the tab that is about Guests.
@@ -279,8 +297,11 @@ const EMPTY_LABEL: Record<GuestFilter, string> = {
 function GuestsPanel({
   bookingId,
   fullAccessRedundant,
+  reloadKey,
 }: {
   bookingId: string;
+  /** Changing it reloads the list (after the couple's numbers are added). */
+  reloadKey: number;
   /** Every photo is already public, so the full-access items are left out of
    *  each row's menu. See fullAccessIsRedundant. */
   fullAccessRedundant: boolean;
@@ -309,7 +330,9 @@ function GuestsPanel({
     } finally {
       setLoading(false);
     }
-  }, [bookingId, filter]);
+    // reloadKey is a trigger only: a new value means "the list changed".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, filter, reloadKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
@@ -367,7 +390,7 @@ function GuestsPanel({
     // Fills the grid cell's full height in the wide layout (stretched by the
     // parent grid) instead of growing with content — the row list below is the
     // only part that scrolls, so this box's on-screen height stays fixed.
-    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white @4xl:h-full @4xl:min-h-0">
+    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white @4xl:min-h-0 @4xl:flex-1">
       <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
@@ -652,7 +675,7 @@ function GuestRow({
           {level === "client" && (
             <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
               Client{clientRole ? ` · ${clientRole}` : ""} ·{" "}
-              {guest.client_source === "event_setup" ? "added at setup" : "marked by you"}
+              {guest.client_source === "event_setup" ? "added by you" : "marked by you"}
             </p>
           )}
           {level === "host" && (

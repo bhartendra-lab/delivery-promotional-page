@@ -39,6 +39,7 @@ import type {
   BookingsListResponse,
   Company,
   CreateBookingResponse,
+  AddCoupleContactsResponse,
   CustomFolder,
   DeliveryLandingPageData,
   DlpUsage,
@@ -1024,6 +1025,25 @@ export function createBooking(body: {
   });
 }
 
+/**
+ * Give a couple event's Bride and/or Groom the WhatsApp number event setup was
+ * left without. Each becomes a Client Guest (or the Guest who already signed
+ * in with that number does), exactly as at setup; `notify_clients` decides
+ * only whether they are sent the gallery link. Phones as bare 10 digits.
+ * `name` is used only when the event has no name on record for that role.
+ * 400/409 carry a sentence for the Studio.
+ */
+export function addCoupleContacts(
+  bookingId: string,
+  body: { contacts: Array<{ role: "bride" | "groom"; name?: string; phone: string }>; notify_clients: boolean },
+) {
+  return request<AddCoupleContactsResponse>(`/bookings/add-couple-contacts/${encodeURIComponent(bookingId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export function createCustomFolder(bookingId: string, name: string) {
   return request<{ message: string; custom_folder_id: string }>(
     `/deliverables/create-custom-folder/${encodeURIComponent(bookingId)}`,
@@ -1328,8 +1348,8 @@ export type MediaViewOptions = {
   customFolderId?: string;
   /** "Liked Media" view — only photos with at least one like. */
   onlyLiked?: boolean;
-  /** "likes" → most-liked first (the Liked Media order); "oldest" → oldest-first (manual folder ordering); default is newest-first. */
-  sort?: "likes" | "recent" | "oldest";
+  /** "likes" → most-liked first (the Liked Media order); "captured" → capture time, oldest first (the gallery's order); "oldest" → oldest upload first; default is newest upload first. */
+  sort?: "likes" | "recent" | "oldest" | "captured";
   /** Restrict likes to hosts / guests. */
   likedGuestType?: "host" | "guest";
   /** Restrict likes to guests in these teams (guest_sub_type). */

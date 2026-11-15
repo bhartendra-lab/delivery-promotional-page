@@ -60,10 +60,49 @@ export function probeSaveCapability(host: PickerHost | undefined | null): SaveCa
  */
 export function resolveSaveCapability(
   host: PickerHost | undefined | null,
-  { ios, sharesFiles }: { ios: boolean; sharesFiles: boolean },
+  {
+    ios,
+    sharesFiles,
+    pickersRefused = false,
+  }: {
+    ios: boolean;
+    sharesFiles: boolean;
+    /** This browser offered the pickers before and then refused to write
+     *  through them — see `rememberPickersRefused`. */
+    pickersRefused?: boolean;
+  },
 ): SaveCapability {
   if (ios && sharesFiles) return "share";
+  if (pickersRefused) return "memoryZip";
   return probeSaveCapability(host);
+}
+
+/**
+ * A capability probe can only see that the pickers EXIST. Samsung Internet 30
+ * offers the folder picker and then refuses ("NotAllowedError … not allowed by
+ * the user agent or the platform") to save anything into the folder the guest
+ * picked — which nothing short of trying can discover. When that happens the
+ * browser is remembered here, so its next download is planned as a ZIP from
+ * the start instead of walking the guest through a picker that cannot work.
+ */
+const PICKERS_REFUSED_KEY = "vy-dl-pickers-refused";
+
+function pickersRefused(): boolean {
+  try {
+    return window.localStorage.getItem(PICKERS_REFUSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Record that this browser's pickers refuse to write, and re-probe. */
+export function rememberPickersRefused(): void {
+  try {
+    window.localStorage.setItem(PICKERS_REFUSED_KEY, "1");
+  } catch {
+    /* storage blocked — this visit is still re-planned; the next may ask again */
+  }
+  memoised = "memoryZip";
 }
 
 let memoised: SaveCapability | null = null;
@@ -79,6 +118,7 @@ export function saveCapability(): SaveCapability {
     memoised = resolveSaveCapability(window as unknown as PickerHost, {
       ios: isIOS(),
       sharesFiles: canShareFiles(),
+      pickersRefused: pickersRefused(),
     });
   }
   return memoised;

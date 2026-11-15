@@ -56,13 +56,16 @@ function SettingsChrome({
   }, [isDirty]);
 
   return (
-    <div className="max-w-6xl px-4 pb-8 sm:px-10 sm:pb-10 dash-rise">
+    // At least the height of the scrolling <main>, so the content column can
+    // reach the bottom of the screen and the save bar's anchor (mt-auto, last
+    // in that column) sits on the bottom edge even when a section is short.
+    <div className="flex min-h-full max-w-6xl flex-col px-4 pb-4 sm:px-10 sm:pb-6 dash-rise">
       {/* No top padding here — the aside's border-right should start flush
           with the Topbar below, not offset by page-level padding. Each
           column carries its own small top inset instead, since padding
           lives inside an element's border box and doesn't push the border
           itself down. */}
-      <div className="lg:grid lg:grid-cols-[220px_1fr]">
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[220px_1fr]">
         <aside className="mb-6 pt-4 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
           <div className="lg:hidden">
             <SettingsMobileNav />
@@ -72,11 +75,7 @@ function SettingsChrome({
           </div>
         </aside>
 
-        <div className="min-w-0 max-w-[760px] pt-4 lg:pl-10">
-          {/* Portal target for the active section's sticky save bar — kept
-              as the first child so `position: sticky; top: 0` pins it
-              immediately instead of only once scrolled down to it. */}
-          <div id={SECTION_SAVE_BAR_ROOT_ID} />
+        <div className="flex min-w-0 max-w-[760px] flex-1 flex-col pt-4 lg:pl-10">
           {load.status === "loading" ? (
             <SectionSkeleton />
           ) : load.status === "error" ? (
@@ -84,6 +83,16 @@ function SettingsChrome({
           ) : (
             children
           )}
+          {/* Portal target for the active section's save bar. LAST in this
+              column and itself the sticky element: a sticky box only moves
+              within its parent, and this one's parent is the whole column, so
+              it stays pinned to the bottom of the screen for as long as the
+              section is on screen. (The bar used to be the sticky element,
+              inside an anchor exactly its own height at the TOP of the
+              column, so it had nowhere to stick and scrolled away, and it
+              pushed the form down when it appeared.) Empty, it takes no
+              space; mt-auto keeps it on the bottom edge on a short section. */}
+          <div id={SECTION_SAVE_BAR_ROOT_ID} className="sticky bottom-0 z-30 mt-auto" />
         </div>
       </div>
     </div>
