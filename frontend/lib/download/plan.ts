@@ -124,7 +124,10 @@ export type AlertId =
   | "LARGE_DOWNLOAD"
   | "DEGRADED_ITEMS"
   | "MIXED_ARCHIVE_TIERS"
-  | "SKIPPING_EXISTING";
+  | "SKIPPING_EXISTING"
+  /** The browser let the guest pick a folder, then refused to save into it.
+   *  Appended by the flow, which re-plans the download as a ZIP. */
+  | "FOLDER_UNSUPPORTED";
 
 export type AlertSeverity = "blocking" | "warning" | "info";
 
@@ -271,6 +274,22 @@ function sanitiseFallback(fallback: string): string {
  * engine's collision handling.
  */
 export function dedupeName(taken: Set<string>, name: string): string {
+  return dedupeNameImpl(taken, name);
+}
+
+/**
+ * Pure. The name a photo from `folder` gets when it has to be saved into the
+ * top of the chosen folder because the browser refused to create `folder`
+ * inside it (Samsung Internet does). The folder becomes a prefix — "Haldi -
+ * DSC_4821.jpg" — so photos from different folders still sort together and
+ * cannot overwrite each other; `taken` (the names already used at the top
+ * level) makes it unique.
+ */
+export function flattenedName(taken: Set<string>, folder: string, name: string): string {
+  return dedupeNameImpl(taken, folder ? sanitiseFilename(`${folder} - ${name}`, name) : name);
+}
+
+function dedupeNameImpl(taken: Set<string>, name: string): string {
   const key = name.toLowerCase();
   if (!taken.has(key)) {
     taken.add(key);
@@ -508,6 +527,8 @@ export function alertCopy(
       // getting.
       if (audience === "guest") return null;
       return `${photos} ${were} uploaded at 4K, so ${count === 1 ? "it'll" : "they'll"} download as a 4096px file rather than the original.`;
+    case "FOLDER_UNSUPPORTED":
+      return "Your browser couldn't save into that folder, so this will download as a ZIP instead.";
     case "SKIPPING_EXISTING":
       return `${photos} ${are} already in this folder and will be skipped.`;
   }

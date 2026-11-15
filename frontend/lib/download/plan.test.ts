@@ -696,3 +696,33 @@ test("past the share ceiling an iPhone falls back to a ZIP, as before", () => {
   assert.equal(plan.method, "memoryZip");
   assert.equal(plan.batches.length, 1);
 });
+
+/* ── a browser that refuses to save into the picked folder ───────────────── */
+
+test("a photo whose folder can't be created is saved flat under a prefixed name", async () => {
+  const { flattenedName } = await import("./plan.ts");
+  const taken = new Set(["dsc_1.jpg"]);
+  assert.equal(flattenedName(taken, "Haldi", "DSC_1.jpg"), "Haldi - DSC_1.jpg");
+  // Two folders holding the same filename stay distinct…
+  assert.equal(flattenedName(taken, "Sangeet", "DSC_1.jpg"), "Sangeet - DSC_1.jpg");
+  // …and a second photo with the same prefixed name is numbered, not overwritten.
+  assert.equal(flattenedName(taken, "Haldi", "DSC_1.jpg"), "Haldi - DSC_1 (2).jpg");
+  // A top-level photo keeps its own name.
+  assert.equal(flattenedName(taken, "", "DSC_2.jpg"), "DSC_2.jpg");
+});
+
+test("a browser that refused the folder picker before is planned as a ZIP", async () => {
+  const { resolveSaveCapability } = await import("./capability.ts");
+  const picker = { showDirectoryPicker: () => {}, showSaveFilePicker: () => {} };
+  assert.equal(resolveSaveCapability(picker, { ios: false, sharesFiles: false }), "directory");
+  assert.equal(
+    resolveSaveCapability(picker, { ios: false, sharesFiles: false, pickersRefused: true }),
+    "memoryZip",
+  );
+  // An iPhone's share sheet is unaffected.
+  assert.equal(
+    resolveSaveCapability(picker, { ios: true, sharesFiles: true, pickersRefused: true }),
+    "share",
+  );
+  assert.ok(alertCopy({ id: "FOLDER_UNSUPPORTED", severity: "warning" }, { ios: false }));
+});

@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   batchPartName,
   countSkippable,
+  DirectoryRefusedError,
   fetchShareSet,
   holdWakeLock,
   openDirectoryTarget,
@@ -46,7 +47,11 @@ import {
   type DownloadTier,
   type PlanSource,
 } from "./plan.ts";
-import { downloadEnvironment, type DownloadEnvironment } from "./capability.ts";
+import {
+  downloadEnvironment,
+  rememberPickersRefused,
+  type DownloadEnvironment,
+} from "./capability.ts";
 import { describeError, type DownloadFailure } from "./failure.ts";
 import { shareFiles } from "./share.ts";
 
@@ -250,6 +255,8 @@ export function useDownloadFlow({
           method: plan?.method,
           tier: plan?.tier,
           total: plan?.items.length,
+          // Re-planned as a ZIP by the caller: the guest is not left stuck.
+          recovered: err instanceof DirectoryRefusedError,
         });
         throw err;
       }
@@ -441,6 +448,18 @@ export function useDownloadFlow({
         finish(outcome, Boolean(outcome.aborted));
       } catch (err) {
         stopWakeLock();
+        if (err instanceof DirectoryRefusedError) {
+          // The browser offered the folder picker and then refused to save into
+          // the folder (Samsung Internet). Retrying would fail identically, so
+          // re-plan as a ZIP — remembered, so the next download starts there —
+          // and say why the method changed. The guest taps Download once more.
+          rememberPickersRefused();
+          setEnv(downloadEnvironment());
+          setExtraAlerts([{ id: "FOLDER_UNSUPPORTED", severity: "warning" }]);
+          setProgress(null);
+          setPhase("plan");
+          return;
+        }
         console.warn("[download] directory run failed", err);
         setError("Download failed — please try again.");
         setPhase("plan");
