@@ -90,6 +90,13 @@ export function DeleteAccountForm() {
             </div>
           )}
           {error && <p className="text-[14px] font-bold text-[#E2524C]" role="alert">{error}</p>}
+          <section className="space-y-2 border-t border-[#E8E2D8] pt-5 text-[14px] leading-relaxed text-[#5C5246]">
+            <h2 className="text-[18px] font-extrabold text-[#2A2218]">Delete only some of your Vyavasth data</h2>
+            <p>You don&rsquo;t have to delete your account to delete your face data.</p>
+            <p><b className="text-[#2A2218]">In the app:</b> open Settings and tap <b>Delete my face data</b>. We delete your saved selfie and face template and everything made from it, including the photos we matched to you, within 24 hours. Your account, your events and your likes stay, and you can scan your face again later. We keep the record that you gave and withdrew consent (legal proof), which holds no photos or face data.</p>
+            <p><b className="text-[#2A2218]">Without the app:</b> email <a href="mailto:support@vyavasth.in" className="font-bold text-[#C25A3A] underline">support@vyavasth.in</a> from the address on your account, or write from the WhatsApp number you signed in with, and ask us to delete your face data. We confirm it is you, then delete it as above.</p>
+            <p><b className="text-[#2A2218]">Leaving an event:</b> in the app, open the event&rsquo;s menu on My events and tap <b>Remove from my events</b>. That takes the event off your account only. To have your photos and face data deleted, use one of the options above.</p>
+          </section>
         </>
       )}
     </main>
