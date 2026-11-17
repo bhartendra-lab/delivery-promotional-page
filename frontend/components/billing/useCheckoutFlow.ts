@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { checkout, ApiError, getApiErrorCode } from "@/lib/billing";
 import { openCheckout } from "@/lib/razorpay";
+import { trackEvent } from "@/lib/analytics";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 
 /**
@@ -42,6 +43,12 @@ export type RunCheckoutInput = {
   before: SubscriptionSnapshot | null;
   currentPlanName: string;
   prefill?: { name?: string; email?: string; contact?: string };
+  /**
+   * What the studio is about to pay, in rupees, for analytics only. Used for a
+   * subscription checkout, whose API response carries no amount. Never used to
+   * charge anything.
+   */
+  value?: number;
   /** photo_cap_topup and validity_extension: the event. */
   bookingId?: string;
   /** photo_cap_topup only: how many capacity blocks. */
@@ -62,6 +69,17 @@ export type RunCheckoutInput = {
   onPaid?: () => void;
 };
 
+/** GA4/Meta item list for the checkout events (no personal data). */
+function analyticsItems(input: RunCheckoutInput) {
+  return [
+    {
+      item_id: input.serviceId,
+      item_name: input.description,
+      quantity: input.quantity ?? 1,
+    },
+  ];
+}
+
 /**
  * The single checkout -> narrow -> Razorpay -> confirm sequence, shared by
  * /checkout and <UpgradeModal> so the six POST /billing/checkout response
@@ -79,6 +97,12 @@ export function useCheckoutFlow() {
     if (inFlight.current) return;
     inFlight.current = true;
     setState({ phase: "processing" });
+    trackEvent("begin_checkout", {
+      currency: "INR",
+      ...(input.value != null ? { value: input.value } : {}),
+      items: analyticsItems(input),
+      purpose: input.purpose,
+    });
 
     try {
       const res = await checkout({
@@ -129,6 +153,15 @@ export function useCheckoutFlow() {
           // captured inside a short window: Checkout closes itself with it.
           timeoutSeconds: "checkout_timeout_seconds" in res ? res.checkout_timeout_seconds : undefined,
           onSuccess: () => {
+            // transaction_id is the Razorpay order id: GA4 and Meta both
+            // de-duplicate on it, and the server-side event reuses it.
+            trackEvent("purchase", {
+              transaction_id: res.razorpay_order_id,
+              currency: "INR",
+              value: res.amount,
+              items: analyticsItems(input),
+              purpose: input.purpose,
+            });
             setState({
               phase: "confirming",
               purpose: input.purpose,
@@ -152,6 +185,13 @@ export function useCheckoutFlow() {
           description: input.description,
           prefill: input.prefill,
           onSuccess: () => {
+            trackEvent("purchase", {
+              transaction_id: res.razorpay_subscription_id,
+              currency: "INR",
+              ...(input.value != null ? { value: input.value } : {}),
+              items: analyticsItems(input),
+              purpose: input.purpose,
+            });
             setState({
               phase: "confirming",
               purpose: input.purpose,

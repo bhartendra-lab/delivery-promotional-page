@@ -220,6 +220,7 @@ function CheckoutShell() {
     runCheckout({
       serviceId: sel.plan._id,
       quantity: sel.mode === "event" ? sel.quantity : undefined,
+      value: displayTotal ?? undefined,
       couponCode: appliedCoupon?.code,
       purpose: sel.mode === "event" ? "event_topup" : snapshot?.service ? "tier_upgrade" : "subscription",
       description,

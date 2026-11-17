@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackEvent } from "@/lib/analytics";
 import { isAuthenticated, getCompany, setCompany, needsOnboarding } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import type { Company } from "@/lib/types";
@@ -150,6 +151,7 @@ export default function OnboardingPage() {
             <GoogleBusinessStep
               onDone={(updatedCompany) => {
                 setCompany(updatedCompany);
+                trackEvent("onboarding_complete");
                 router.replace("/dashboard");
               }}
             />

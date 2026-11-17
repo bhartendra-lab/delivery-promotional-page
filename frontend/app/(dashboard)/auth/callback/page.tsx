@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { setToken, setCompany, needsOnboarding } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 
 /**
  * Studio-side Google SSO landing target — the backend redirects here as
@@ -22,8 +23,11 @@ export default function StudioAuthCallbackPage() {
       .then(() => getCompanyDetails())
       .then(({ company }) => {
         setCompany(company);
-        const dest = needsOnboarding(company) ? "/onboarding" : "/dashboard";
-        window.location.replace(dest);
+        const isNewStudio = needsOnboarding(company);
+        trackEvent(isNewStudio ? "sign_up" : "login", { method: "google" });
+        const dest = isNewStudio ? "/onboarding" : "/dashboard";
+        // The redirect is a full page load; give GTM a beat to send the event.
+        window.setTimeout(() => window.location.replace(dest), 150);
       })
       .catch(() => {
         window.location.replace("/login?error=auth_failed");

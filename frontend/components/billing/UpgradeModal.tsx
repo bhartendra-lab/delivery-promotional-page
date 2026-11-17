@@ -154,6 +154,7 @@ export function UpgradeModal({
     runCheckout({
       serviceId: selection.plan._id,
       quantity: selection.mode === "event" ? selection.quantity : undefined,
+      value: displayTotal ?? undefined,
       couponCode: appliedCoupon?.code,
       purpose: selection.mode === "event" ? "event_topup" : snapshot?.service ? "tier_upgrade" : "subscription",
       description,
