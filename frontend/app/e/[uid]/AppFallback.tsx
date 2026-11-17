@@ -17,6 +17,7 @@ export function AppFallback({ uid }: { uid: string }) {
           enabled: true,
           appStoreId: process.env.NEXT_PUBLIC_APP_STORE_ID,
           playPackage: process.env.NEXT_PUBLIC_PLAY_PACKAGE,
+          playStoreLive: process.env.NEXT_PUBLIC_PLAY_STORE_LIVE === "1",
           androidApkUrl: process.env.NEXT_PUBLIC_ANDROID_APK_URL,
           iosManifestUrl: process.env.NEXT_PUBLIC_IOS_MANIFEST_URL,
         },
