@@ -1,3 +1,5 @@
+import { GalleryAnalytics } from "@/components/GalleryAnalytics";
+
 export default function ClientGroupLayout({
   children,
 }: {
@@ -12,6 +14,8 @@ export default function ClientGroupLayout({
   return (
     <div className="notranslate flex min-h-screen flex-col" translate="no">
       {children}
+      {/* Cookieless page-view counts only; see lib/gallery-analytics.ts. */}
+      <GalleryAnalytics />
     </div>
   );
 }
