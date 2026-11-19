@@ -15,7 +15,7 @@ test("UPLOAD_SPEC snapshot", () => {
       "viewMaxDim": 2560,
       "viewQuality": 0.8,
       "archiveMaxDim": 4096,
-      "archiveQuality": 0.8,
+      "archiveQuality": 0.85,
       "thumbMaxDim": 480,
       "thumbQuality": 0.72,
       "watermarkReencodeQuality": 0.85,

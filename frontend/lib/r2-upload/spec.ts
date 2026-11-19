@@ -26,15 +26,18 @@ export const UPLOAD_SPEC = {
      *  when the source is larger, so 24 MP camera shots are scaled and
      *  already-web-sized images keep their size. */
     viewMaxDim: 2560,
-    /** JPEG quality of the delivery view, and of the 4K archive. Visually
-     *  identical to the source for typical wedding photos. No size cap: visible
-     *  quality wins over a size target. */
+    /** JPEG quality of the delivery view (and of the 2560 view the 4K tier
+     *  derives from its archive). Visually identical to the source for typical
+     *  wedding photos. No size cap: visible quality wins over a size target. */
     viewQuality: 0.8,
     /** Long edge of the 4K archive copy. Lossy, and deliberately never called
      *  an "archive of the original" anywhere a studio can read it: a 4096px
      *  JPEG is not an original file. */
     archiveMaxDim: 4096,
-    archiveQuality: 0.8,
+    /** JPEG quality of the 4K archive only. Higher than the delivery view:
+     *  this is the print-resolution copy a studio pays a tier for, so it buys
+     *  detail with size. Still subject to the size guard. */
+    archiveQuality: 0.85,
     /** Long edge of the gallery-grid derivative. The grid never renders larger
      *  than this, so the 2560px delivery copy is reserved for the lightbox,
      *  downloads and the ZIP. Must stay in sync with the backend's
@@ -42,10 +45,12 @@ export const UPLOAD_SPEC = {
      *  media that predates this. */
     thumbMaxDim: 480,
     thumbQuality: 0.72,
-    /** JPEG quality for the watermarked re-encode. The image was already
-     *  downscaled and encoded by the compressor at 0.80; it is re-encoded a
-     *  touch higher so the second pass doesn't compound visible artifacts while
-     *  keeping size reasonable. */
+    /** JPEG quality of the FALLBACK watermark re-encode only. Normally the mark
+     *  is drawn onto the pixels before their one encode (at viewQuality /
+     *  archiveQuality, with the size guard), so a watermarked photo is no
+     *  lower quality than an unmarked one. Only when that cannot run is an
+     *  already-encoded JPEG decoded, stamped and re-encoded at this quality —
+     *  a touch higher than 0.80 so the second generation compounds less. */
     watermarkReencodeQuality: 0.85,
     /**
      * Watermark edge inset, as a fraction of the photo's SHORTER edge.

@@ -23,7 +23,7 @@ import { captureTimeFromExif } from "./capture-time";
 import { cameraFromExif, type CameraIdentity } from "./camera-identity";
 import { dumpExifForSplice, exifScanNeedsFullFile, readJpegOrientation } from "./exif-bytes.ts";
 import type { WatermarkRenderer } from "./watermark";
-import { thumbDims, viewFromArchiveDims } from "./geometry.ts";
+import { sizeGuardQualities, thumbDims, viewFromArchiveDims } from "./geometry.ts";
 import { UPLOAD_SPEC } from "./spec.ts";
 
 // Every number below lives in spec.ts, with the reason it exists. The pixel
@@ -194,28 +194,15 @@ export async function compressWithExif(
     };
   }
 
-  let compressedBlob: Blob = await imageCompression(file, {
+  // No maxSizeMB — preserve visible quality over size targets. Skipping the
+  // downscale for small sources is the library's default behaviour. With a
+  // watermark the mark is drawn onto the pixels before the one encode, so it
+  // costs no quality (see compressMarked).
+  const { blob: compressedBlob } = await compressMarked(file, watermark, {
     exifOrientation,
-    // No maxSizeMB — preserve visible quality over size targets.
     maxWidthOrHeight: MAX_DIM,
-    useWebWorker: true,
-    fileType: OUTPUT_TYPE,
     initialQuality: QUALITY,
-    // alwaysKeepResolution doesn't exist, but skipping downscale for small
-    // sources is already the library's default behaviour.
   });
-
-  // Stamp the studio's default watermark before EXIF is re-injected. The mark
-  // is composited on the already-downscaled image (orientation baked in by the
-  // compressor above), so canvas coordinates map 1:1 to the final pixels.
-  // A watermark failure must never fail the upload — ship the unmarked photo.
-  if (watermark) {
-    try {
-      compressedBlob = await watermark.apply(compressedBlob);
-    } catch (err) {
-      console.error("[upload:watermark] compositing failed; uploading without watermark", err);
-    }
-  }
 
   // Decode the final (post-downscale, post-watermark) blob ONCE and use that
   // single bitmap for both the dimension capture and the thumbnail draw — cheap,
@@ -257,9 +244,10 @@ export async function compressWithExif(
  *
  * The order here is load-bearing:
  *
- *   1. downscale the source to 4096 -> this IS the archive blob
- *   2. watermark the archive (never fails the upload)
- *   3. splice the source EXIF into it (the watermark re-encode drops it)
+ *   1. downscale the source to 4096 and stamp the mark on those pixels,
+ *   2. encoded ONCE -> this IS the archive blob (compressMarked; never fails
+ *      the upload, ships unmarked if every stamp attempt fails)
+ *   3. splice the source EXIF into it (the canvas encode carries none)
  *   4. decode it once and draw a 2560px canvas from that bitmap -> the view
  *   5. watermark the view, unless step 4 inherited the archive's mark
  *   6. thumbnail from the WATERMARKED view
@@ -285,31 +273,21 @@ async function compressHighRes(
   /** Read by the caller; see compressWithExif. */
   exifOrientation: number,
 ): Promise<CompressResult> {
-  // 1. The archive copy.
-  let archiveBlob: Blob = await imageCompression(file, {
+  // 1+2. The archive copy, watermarked in the same single encode (see
+  //      compressMarked). Same never-fail-the-upload contract as the delivery
+  //      view: if the mark could not be applied the archive ships unmarked and
+  //      the view below gets its own attempt.
+  const archive = await compressMarked(file, watermark, {
     exifOrientation,
     maxWidthOrHeight: ARCHIVE_DIM,
-    useWebWorker: true,
-    fileType: OUTPUT_TYPE,
     initialQuality: ARCHIVE_QUALITY,
   });
-
-  // 2. Watermark the archive. The same never-fail-the-upload contract as the
-  //    delivery view: if compositing throws, the photo ships unmarked and the
-  //    view below gets its own attempt.
-  let archiveMarked = false;
-  if (watermark) {
-    try {
-      archiveBlob = await watermark.apply(archiveBlob);
-      archiveMarked = true;
-    } catch (err) {
-      console.error("[upload:watermark] compositing the 4K archive failed; uploading it without watermark", err);
-    }
-  }
+  let archiveBlob: Blob = archive.blob;
+  const archiveMarked = archive.marked;
 
   // 3. Re-inject the source metadata, exactly as the 2560 path does, and with
-  //    the same tolerance: losing metadata beats losing the photo. After the
-  //    watermark, which re-encodes through a canvas and drops it.
+  //    the same tolerance: losing metadata beats losing the photo. The canvas
+  //    encode that produced the archive carries no metadata of its own.
   if (exifSegmentBytes) {
     try {
       const bytes = new Uint8Array(await archiveBlob.arrayBuffer());
@@ -328,19 +306,20 @@ async function compressHighRes(
     // compressing the source straight to 2560 — the delivery pair is never
     // optional, and this run still has a usable archive copy to upload.
     console.error("[upload:compress] 4096 blob would not decode; deriving the view from the source instead");
-    viewBlob = await imageCompression(file, {
+    // Built from the source exactly like the 2560 path, marked in its own
+    // single encode — nothing is inherited from the archive here.
+    const fromSource = await compressMarked(file, watermark, {
       exifOrientation,
       maxWidthOrHeight: MAX_DIM,
-      useWebWorker: true,
-      fileType: OUTPUT_TYPE,
       initialQuality: QUALITY,
     });
-    // Built from the unmarked source, so nothing was inherited.
-    viewMarked = false;
+    viewBlob = fromSource.blob;
+    viewMarked = fromSource.marked;
   }
 
-  // 5. Watermark the view when it did not inherit a mark. Same
-  //    never-fail-the-upload contract as 2560.
+  // 5. Watermark the view when it inherited no mark: the archive went out
+  //    unmarked because every attempt to stamp it failed. A last attempt, on
+  //    the fallback re-encode path; same never-fail-the-upload contract.
   if (watermark && !viewMarked) {
     try {
       viewBlob = await watermark.apply(viewBlob);
@@ -363,6 +342,143 @@ async function compressHighRes(
   }
 
   return { blob: viewBlob, thumbBlob, archiveBlob, width, height, capturedAt };
+}
+
+/* ── single-encode watermarking ───────────────────────────────────── */
+
+type MarkedOptions = {
+  exifOrientation: number;
+  maxWidthOrHeight: number;
+  initialQuality: number;
+};
+
+/**
+ * The library's helpers this file drives directly. They are real runtime
+ * exports of browser-image-compression 2.0.2 (`imageCompression.<name>`) but
+ * only some are in its .d.ts, hence the local shape. Any one missing makes
+ * renderWithMark throw, and compressMarked falls back to the library.
+ */
+type LibraryCanvas = HTMLCanvasElement | OffscreenCanvas;
+type LibraryHelpers = {
+  drawFileInCanvas(file: File, options: { fileType: string }): Promise<[ImageBitmap | HTMLImageElement, LibraryCanvas]>;
+  handleMaxWidthOrHeight(canvas: LibraryCanvas, options: { maxWidthOrHeight: number }): LibraryCanvas;
+  getExifOrientation(file: File): Promise<number>;
+  isAutoOrientationInBrowser(): Promise<boolean>;
+  followExifOrientation(canvas: LibraryCanvas, exifOrientation: number): LibraryCanvas;
+  canvasToFile(canvas: LibraryCanvas, fileType: string, name: string, lastModified: number, quality: number): Promise<Blob>;
+  cleanupCanvasMemory(canvas: LibraryCanvas): void;
+};
+
+/**
+ * Compress `file` to `maxWidthOrHeight` / `initialQuality`, watermarked when
+ * there is a renderer, in ONE lossy JPEG encode.
+ *
+ * Without a watermark this is the plain library call, unchanged.
+ *
+ * With one, stamping an already-encoded JPEG (decode, draw, re-encode) would
+ * put every watermarked photo through a second lossy generation that an
+ * unmarked photo never gets. Instead renderWithMark runs the library's own
+ * steps (decode, resize, orient), draws the mark onto those pixels, and then
+ * encodes once with the library's size guard — so the result is the unmarked
+ * output's pixels plus the mark, at the same quality.
+ *
+ * Fallbacks, in order, never failing the photo: if that path throws (a helper
+ * missing, a canvas the main thread cannot allocate), the library compresses
+ * as before and the mark goes on through `apply` (the old double encode); if
+ * that throws too, the photo ships unmarked. `marked` says which happened.
+ */
+async function compressMarked(
+  file: File,
+  watermark: WatermarkRenderer | null | undefined,
+  opts: MarkedOptions,
+): Promise<{ blob: Blob; marked: boolean }> {
+  if (watermark) {
+    try {
+      return await renderWithMark(file, watermark, opts);
+    } catch (err) {
+      console.error("[upload:watermark] single-encode watermarking failed; falling back to re-encoding", err);
+    }
+  }
+  const blob = await imageCompression(file, {
+    exifOrientation: opts.exifOrientation,
+    maxWidthOrHeight: opts.maxWidthOrHeight,
+    useWebWorker: true,
+    fileType: OUTPUT_TYPE,
+    initialQuality: opts.initialQuality,
+  });
+  if (!watermark) return { blob, marked: false };
+  try {
+    return { blob: await watermark.apply(blob), marked: true };
+  } catch (err) {
+    console.error("[upload:watermark] compositing failed; uploading without watermark", err);
+    return { blob, marked: false };
+  }
+}
+
+/**
+ * browser-image-compression 2.0.2's `compress` (lib/image-compression.js) with
+ * the watermark drawn between the orientation step and the first encode.
+ * Step for step: drawFileInCanvas -> handleMaxWidthOrHeight -> orientation
+ * (skipped where the browser auto-orients) -> encode at the initial quality ->
+ * the size guard (re-encode the same pixels at quality x0.95 while larger than
+ * the source, `sizeGuardQualities`). maxSizeMB is unset, so the guard never
+ * changes dimensions and redrawing the canvas each round, as the library does,
+ * would be a pixel copy — the same canvas is re-encoded instead.
+ *
+ * Runs on the main thread rather than in the library's worker. The heavy parts
+ * (createImageBitmap, convertToBlob) are asynchronous in the browser anyway.
+ * A stamp failure throws, so compressMarked's fallback decides what ships.
+ */
+async function renderWithMark(
+  file: File,
+  watermark: WatermarkRenderer,
+  opts: MarkedOptions,
+): Promise<{ blob: Blob; marked: boolean }> {
+  const lib = imageCompression as unknown as Partial<LibraryHelpers>;
+  const {
+    drawFileInCanvas,
+    handleMaxWidthOrHeight,
+    getExifOrientation,
+    isAutoOrientationInBrowser,
+    followExifOrientation,
+    canvasToFile,
+    cleanupCanvasMemory,
+  } = lib;
+  if (
+    !drawFileInCanvas ||
+    !handleMaxWidthOrHeight ||
+    !getExifOrientation ||
+    !isAutoOrientationInBrowser ||
+    !followExifOrientation ||
+    !canvasToFile ||
+    !cleanupCanvasMemory
+  ) {
+    throw new Error("browser-image-compression helpers unavailable");
+  }
+
+  const [img, original] = await drawFileInCanvas(file, { fileType: OUTPUT_TYPE });
+  if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) img.close();
+  let canvas: LibraryCanvas | undefined;
+  try {
+    const sized = handleMaxWidthOrHeight(original, { maxWidthOrHeight: opts.maxWidthOrHeight });
+    // The library's own expression: `options.exifOrientation || getExifOrientation(file)`.
+    const orientation = opts.exifOrientation || (await getExifOrientation(file));
+    canvas = (await isAutoOrientationInBrowser()) ? sized : followExifOrientation(sized, orientation);
+
+    watermark.stampOnto(canvas);
+
+    let blob: Blob | undefined;
+    for (const quality of sizeGuardQualities(opts.initialQuality)) {
+      blob = await canvasToFile(canvas, OUTPUT_TYPE, file.name, file.lastModified, quality);
+      if (blob.size <= file.size) break;
+    }
+    if (!blob) throw new Error("JPEG encode produced nothing");
+    return { blob, marked: true };
+  } finally {
+    // The library's steps release the canvases they replace; free the last.
+    if (canvas) cleanupCanvasMemory(canvas);
+    else cleanupCanvasMemory(original);
+  }
 }
 
 /**

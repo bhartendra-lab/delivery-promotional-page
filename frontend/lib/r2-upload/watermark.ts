@@ -25,7 +25,7 @@ import { UPLOAD_SPEC } from "./spec.ts";
  * insets from it, so what the studio positions is what gets baked in.
  */
 export const EDGE_MARGIN_RATIO = UPLOAD_SPEC.image.watermarkEdgeMarginRatio;
-/** JPEG quality for the watermarked re-encode (`UPLOAD_SPEC.image.watermarkReencodeQuality`). */
+/** JPEG quality for the fallback re-encode in `apply` (`UPLOAD_SPEC.image.watermarkReencodeQuality`). */
 const REENCODE_QUALITY = UPLOAD_SPEC.image.watermarkReencodeQuality;
 
 export type WatermarkSpec = {
@@ -36,7 +36,7 @@ export type WatermarkSpec = {
   size: number;
 };
 
-type RenderCanvas = OffscreenCanvas | HTMLCanvasElement;
+export type RenderCanvas = OffscreenCanvas | HTMLCanvasElement;
 
 export class WatermarkRenderer {
   private constructor(
@@ -55,32 +55,43 @@ export class WatermarkRenderer {
   }
 
   /**
-   * Composite the watermark onto a compressed JPEG blob and return a new JPEG
-   * blob. The source is expected to be already downscaled with orientation
-   * baked into the pixels, so canvas coordinates map 1:1 to the final image.
+   * Draw the mark straight onto a canvas that already holds the final photo
+   * pixels (downscaled, orientation baked in), BEFORE that canvas is encoded.
+   * This is the normal path: the photo is JPEG-encoded exactly once, mark
+   * included, so a watermarked copy is the same quality as an unmarked one.
+   * Throws if the canvas has no 2D context; the canvas is then untouched.
+   */
+  stampOnto(canvas: RenderCanvas): void {
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+    if (!ctx) throw new Error("2D canvas context unavailable for watermarking");
+    this.draw(ctx, canvas.width, canvas.height);
+  }
+
+  /**
+   * Composite the watermark onto an already-encoded JPEG and return a new JPEG
+   * blob. FALLBACK ONLY: this decodes and re-encodes, a second lossy
+   * generation. The compressor uses it only when the single-encode path
+   * (`stampOnto` before the one encode) could not run.
    */
   async apply(jpeg: Blob): Promise<Blob> {
     const photo = await createImageBitmap(jpeg);
     try {
-      const W = photo.width;
-      const H = photo.height;
-      const { width: wmW, height: wmH } = watermarkSize(
-        W,
-        this.spec.size,
-        this.mark.width,
-        this.mark.height,
-      );
-      const { x, y } = watermarkPlacement(this.spec.position, W, H, wmW, wmH);
-
-      const { canvas, ctx } = makeContext(W, H);
+      const { canvas, ctx } = makeContext(photo.width, photo.height);
       ctx.drawImage(photo, 0, 0);
-      ctx.globalAlpha = watermarkAlpha(this.spec.opacity);
-      ctx.drawImage(this.mark, x, y, wmW, wmH);
-      ctx.globalAlpha = 1;
+      this.draw(ctx, photo.width, photo.height);
       return await canvasToJpeg(canvas);
     } finally {
       photo.close();
     }
+  }
+
+  private draw(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+    const { width: wmW, height: wmH } = watermarkSize(W, this.spec.size, this.mark.width, this.mark.height);
+    const { x, y } = watermarkPlacement(this.spec.position, W, H, wmW, wmH);
+    ctx.save();
+    ctx.globalAlpha = watermarkAlpha(this.spec.opacity);
+    ctx.drawImage(this.mark, x, y, wmW, wmH);
+    ctx.restore();
   }
 
   /** Release the decoded watermark bitmap. */
