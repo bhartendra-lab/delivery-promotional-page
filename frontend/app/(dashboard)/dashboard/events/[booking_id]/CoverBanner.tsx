@@ -10,10 +10,11 @@ const RAW_RE =
   /\.(raw|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|dng|raf|3fr|kdc|mef|mrw|pef|ptx|r3d|rwl|srw|x3f|erf|fff|iiq)$/i;
 
 /**
- * Cover banner shown only once the event has media (the empty/uploading
- * lifecycle never renders this). The cover is set by uploading a new image
- * (pushed through the upload engine → R2 url → `background_image`); already
- * uploaded photos get a "Set as cover photo" action in the media grid itself.
+ * Cover banner, shown in every state but loading, including an event with no
+ * photos yet: a cover never needs one. The cover is set by uploading a new
+ * image (pushed through the upload engine → R2 url → `background_image`, never
+ * a gallery photo); already uploaded photos get a "Set as cover photo" action
+ * in the media grid itself.
  *
  * On a pay per event event the cover locks once it is set (`coverLocked`): the
  * image can no longer be changed, so "Change cover" goes and a small lock chip
@@ -82,9 +83,8 @@ export function CoverBanner({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`group relative w-full shrink-0 overflow-hidden ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
+        className={`group relative h-40 w-full shrink-0 overflow-hidden sm:h-52 md:h-60 ${repositioning ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`}
         style={{
-          height: 240,
           ...(filled
             ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: shownPos }
             : {
@@ -137,8 +137,9 @@ export function CoverBanner({
         ) : filled ? (
           <>
           {coverLocked && <CoverLockChip />}
-          {/* Hover cluster — hidden at rest, revealed on hover/focus. */}
-          <div className="absolute right-4 top-4 z-20 flex items-center divide-x divide-[var(--color-brand-border)] overflow-hidden rounded-md border border-[var(--color-brand-border)] bg-white/90 opacity-0 shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:right-6">
+          {/* Hover cluster — hidden at rest, revealed on hover/focus. Always
+              shown on touch screens, which have no hover to reveal it. */}
+          <div className="absolute right-4 top-4 z-20 flex items-center divide-x divide-[var(--color-brand-border)] overflow-hidden rounded-md border border-[var(--color-brand-border)] bg-white/90 opacity-0 shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:right-6 [@media(hover:none)]:opacity-100">
             {!coverLocked && (
               <CoverActionButton
                 onClick={() => fileRef.current?.click()}

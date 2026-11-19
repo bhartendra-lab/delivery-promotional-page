@@ -457,7 +457,11 @@ export function MediaTab({ loading }: { loading: boolean }) {
           </div>
         )}
 
-        {state === "populated" && (
+        {/* The cover is independent of the photos: it can be set before the
+            first upload (and stays visible, read-only, while one runs), so a
+            gallery can look finished before anything is delivered. A cover
+            alone starts no processing and messages no guest. */}
+        {state !== "loading" && (
           <CoverBanner
             coverUrl={meta.backgroundImage}
             coverPosition={meta.backgroundPosition}

@@ -732,8 +732,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     async (file: File, position: string = "50% 50%") => {
       setCoverBusy(true);
       try {
-        const keyFolderId = folders[0]?._id ?? mediaRef.current[0]?.custom_folder_ids?.[0] ?? "cover";
-        const url = await engine.uploadCover(file, keyFolderId);
+        // Works on an event with no photos yet: the cover is its own object,
+        // never a gallery photo, so it needs no folder.
+        const url = await engine.uploadCover(file);
         await persistBooking({ background_image: url, background_position: position });
         // API response may not echo background_image, so patch meta directly.
         setMeta((prev) => (prev ? { ...prev, backgroundImage: url, backgroundPosition: position } : prev));
@@ -744,7 +745,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         setCoverBusy(false);
       }
     },
-    [engine, folders, persistBooking, toast],
+    [engine, persistBooking, toast],
   );
 
   const setCoverPosition = useCallback(

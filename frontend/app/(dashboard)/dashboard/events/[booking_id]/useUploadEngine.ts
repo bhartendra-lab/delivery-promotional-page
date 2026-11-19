@@ -58,7 +58,7 @@ export type UploadEngineHook = {
   /** Resume a paused run from exactly where it left off (no re-upload). */
   resume: () => void;
   /** Upload a cover image via the same pipeline; returns its R2 public URL. */
-  uploadCover: (file: File, keyFolderId: string) => Promise<string>;
+  uploadCover: (file: File) => Promise<string>;
   /** Tag subsequent metadata saves as out-of-sync with a published gallery. */
   setOutOfSync: (value: boolean) => void;
   /** Resume create-media for uploaded rows left after an interrupt (also on mount). */
@@ -342,7 +342,7 @@ export function useUploadEngine(bookingId: string): UploadEngineHook {
   }, [engine]);
 
   const uploadCover = useCallback(
-    (file: File, keyFolderId: string) => engine.uploadCover(file, keyFolderId),
+    (file: File) => engine.uploadCover(file),
     [engine],
   );
 

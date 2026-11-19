@@ -689,13 +689,16 @@ export class UploadEngineCore {
    * (compress → presign → R2 PUT) but deliberately does NOT call create-media,
    * so the cover lands in R2 and we get a public URL without it appearing as a
    * gallery media item. The caller persists the URL via update-booking's
-   * `background_image`. `keyFolderId` only seeds the R2 key path.
+   * `background_image`.
+   *
+   * No folder: the object key never depended on one, and an event with no
+   * photos has no folder to name. (It used to send the made-up id "cover"
+   * then, which the backend rightly refused, so a cover could not be set
+   * before the first upload.) No thumbnail either, so it never wakes the GPU.
    */
-  async uploadCover(file: File, keyFolderId: string): Promise<string> {
+  async uploadCover(file: File): Promise<string> {
     const { blob } = await this.compressorPool.run(file);
-    const res = await presignUploads(this.bookingId, [
-      { filename: file.name, content_type: "image/jpeg", custom_folder_id: keyFolderId },
-    ]);
+    const res = await presignUploads(this.bookingId, [{ filename: file.name, content_type: "image/jpeg" }]);
     const up = res.uploads[0];
     if (!up) throw new Error("Could not get an upload URL for the cover image");
     await putBlobToPresignedUrl(up.presigned_url, blob, up.content_type);
