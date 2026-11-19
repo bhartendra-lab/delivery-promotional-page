@@ -29,14 +29,14 @@ export const UPLOAD_SPEC = {
     /** JPEG quality of the delivery view (and of the 2560 view the 4K tier
      *  derives from its archive). Visually identical to the source for typical
      *  wedding photos. No size cap: visible quality wins over a size target. */
-    viewQuality: 0.8,
+    viewQuality: 0.85,
     /** Long edge of the 4K archive copy. Lossy, and deliberately never called
      *  an "archive of the original" anywhere a studio can read it: a 4096px
      *  JPEG is not an original file. */
     archiveMaxDim: 4096,
-    /** JPEG quality of the 4K archive only. Higher than the delivery view:
-     *  this is the print-resolution copy a studio pays a tier for, so it buys
-     *  detail with size. Still subject to the size guard. */
+    /** JPEG quality of the 4K archive. Same as the delivery view: the
+     *  print-resolution copy a studio pays a tier for. Still subject to the
+     *  size guard. */
     archiveQuality: 0.85,
     /** Long edge of the gallery-grid derivative. The grid never renders larger
      *  than this, so the 2560px delivery copy is reserved for the lightbox,
@@ -50,7 +50,8 @@ export const UPLOAD_SPEC = {
      *  archiveQuality, with the size guard), so a watermarked photo is no
      *  lower quality than an unmarked one. Only when that cannot run is an
      *  already-encoded JPEG decoded, stamped and re-encoded at this quality —
-     *  a touch higher than 0.80 so the second generation compounds less. */
+     *  the same as the first encode, so the second generation compounds as
+     *  little as it can. */
     watermarkReencodeQuality: 0.85,
     /**
      * Watermark edge inset, as a fraction of the photo's SHORTER edge.

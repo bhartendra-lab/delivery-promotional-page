@@ -235,7 +235,7 @@ export async function compressWithExif(
 /**
  * The "4096" variant: one source decode produces BOTH the archive copy and the
  * delivery view, and the delivery pair comes out identical in kind to what the
- * 2560 path produces — same 2560px long edge, same q0.80, same watermark, same
+ * 2560 path produces — same 2560px long edge, same view quality, same watermark, same
  * thumbnail derived from the watermarked view.
  *
  * The 4K archive carries the watermark too. Only the "original" variant is

@@ -4,7 +4,7 @@
  * Compressing every selected file just to measure it would duplicate the work
  * the engine does on start and freeze the UI. Instead we compress a small,
  * evenly-spread sample through the real pipeline (`compressWithExif` — the same
- * downscale-to-2560px + JPEG q0.80 path the engine uses, which also emits the
+ * downscale-to-2560px + JPEG view-quality path the engine uses, which also emits the
  * 480px grid thumbnail that gets uploaded alongside it) and extrapolate the
  * mean per-photo size across the whole selection. This tracks real output size
  * far better than any fixed KB/photo constant, since sizes vary hugely by source

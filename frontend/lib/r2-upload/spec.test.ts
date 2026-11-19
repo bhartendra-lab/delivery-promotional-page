@@ -13,7 +13,7 @@ test("UPLOAD_SPEC snapshot", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(UPLOAD_SPEC)), {
     "image": {
       "viewMaxDim": 2560,
-      "viewQuality": 0.8,
+      "viewQuality": 0.85,
       "archiveMaxDim": 4096,
       "archiveQuality": 0.85,
       "thumbMaxDim": 480,
