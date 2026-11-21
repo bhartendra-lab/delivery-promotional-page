@@ -24,14 +24,25 @@ export type LivePillState = "live" | "deactivated";
  * When a pay per event event closes, as the API reports it. Null on a storage
  * plan event, which has no validity and gets no row.
  */
-export type LivePillValidity = {
-  /** Epoch ms: the last moment the event is live. */
-  endsAt: number;
-  /** Still live and neither archived nor expired, so it can be extended. */
-  extendable: boolean;
-  /** Its end has passed: closed to Guests, its photos deleted about a day later. */
-  lapsed: boolean;
-};
+export type LivePillValidity =
+  | {
+      pending?: false;
+      /** Epoch ms: the last moment the event is live. */
+      endsAt: number;
+      /** Still live and neither archived nor expired, so it can be extended. */
+      extendable: boolean;
+      /** Its end has passed: closed to Guests, its photos deleted about a day later. */
+      lapsed: boolean;
+    }
+  | {
+      /** Nothing uploaded yet: the validity has not started, so there is no
+       *  end to show and nothing to extend. */
+      pending: true;
+      /** Epoch ms: the latest it starts by itself, or null when unknown. */
+      startsBy: number | null;
+      /** How many days it runs once started. */
+      windowDays: number;
+    };
 
 type Props = {
   state: LivePillState;
@@ -211,6 +222,7 @@ function ExtendRow({
 }) {
   // Mounted only while the menu is open, so this is "now" as of opening it.
   const [now] = useState(() => Date.now());
+  if (validity.pending) return <PendingValidityRow validity={validity} />;
   const date = formatValidityDate(validity.endsAt);
   const closingSoon = !validity.lapsed && validityDaysLeft(validity.endsAt, now) <= VALIDITY_CLOSING_SOON_DAYS;
   const canExtend = validity.extendable && !validity.lapsed && !!onExtend;
@@ -247,6 +259,22 @@ function ExtendRow({
         </span>
       </span>
     </button>
+  );
+}
+
+/** The validity row while nothing is uploaded: informative, never clickable. */
+function PendingValidityRow({ validity }: { validity: Extract<LivePillValidity, { pending: true }> }) {
+  const by = validity.startsBy != null ? formatValidityDate(validity.startsBy) : null;
+  return (
+    <div className="flex w-full items-start gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-3 text-left">
+      <IconClock size={15} className="mt-px shrink-0 text-[var(--color-brand-muted)]" />
+      <span className="flex-1">
+        <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Validity not started</span>
+        <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">
+          {validity.windowDays} days start with your first upload{by ? `, or on ${by} at the latest` : ""}
+        </span>
+      </span>
+    </div>
   );
 }
 

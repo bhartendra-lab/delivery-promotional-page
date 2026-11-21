@@ -610,6 +610,19 @@ export type Booking = {
   /** That moment has passed: the gallery reads as closed to Guests, and its
    *  photos are deleted about a day later. */
   validity_lapsed?: boolean;
+  /**
+   * Pay per event only: the event's validity has not started yet. It starts
+   * on the first photo or video uploaded (or by itself on
+   * `validity_starts_by`), and `validity_ends_at` is null until then. Absent
+   * from a backend that predates the first-upload rule.
+   */
+  validity_pending?: boolean;
+  /** Epoch ms: the latest the validity starts, if nothing is uploaded first. */
+  validity_starts_by?: number | null;
+  /** How many days the validity runs once it starts (90). */
+  validity_window_days?: number | null;
+  /** Epoch ms the validity started (first upload, or creation on an older event). */
+  validity_started_at?: number | null;
   /** Number of custom folders in this booking's gallery. */
   folder_count?: number;
   /** Number of media items (photos/videos) in this booking's gallery. */
@@ -716,6 +729,19 @@ export type BookingDetail = {
    */
   validity_ends_at?: number | null;
   validity_lapsed?: boolean;
+  /**
+   * Pay per event only: the event's validity has not started yet. It starts
+   * on the first photo or video uploaded (or by itself on
+   * `validity_starts_by`), and `validity_ends_at` is null until then. Absent
+   * from a backend that predates the first-upload rule.
+   */
+  validity_pending?: boolean;
+  /** Epoch ms: the latest the validity starts, if nothing is uploaded first. */
+  validity_starts_by?: number | null;
+  /** How many days the validity runs once it starts (90). */
+  validity_window_days?: number | null;
+  /** Epoch ms the validity started (first upload, or creation on an older event). */
+  validity_started_at?: number | null;
   /** Still live and neither archived nor expired: an extension can be bought. */
   validity_extendable?: boolean;
   /** The periods on sale for THIS event, each with the date it would run to.

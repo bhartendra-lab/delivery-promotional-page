@@ -207,8 +207,20 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
       )}
 
       {/* Expiry countdown strip — between the body and the footer. Danger tint in
-          the last week, warning tint before that. Never shown on expired cards. */}
-      {warning && (
+          the last week, warning tint before that. Never shown on expired cards.
+          A pay per event event with nothing uploaded yet gets a neutral strip
+          instead: its validity has not started, so there is nothing to count. */}
+      {warning && warning.tone === "info" && (
+        <div
+          className="mx-4 mb-3 flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-2.5 py-1.5 text-[11.5px] font-semibold text-[var(--color-brand-muted)]"
+          title={warning.detail}
+        >
+          <IconInfo size={13} className="shrink-0" />
+          <span className="min-w-0 truncate">{warning.label}</span>
+          {warning.detail && <span className="sr-only">. {warning.detail}</span>}
+        </div>
+      )}
+      {warning && warning.tone !== "info" && (
         <div
           className="mx-4 mb-3 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold"
           style={

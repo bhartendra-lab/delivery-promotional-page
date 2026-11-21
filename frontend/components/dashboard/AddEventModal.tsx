@@ -36,8 +36,9 @@ import { Modal } from "@/components/ui/Modal";
 import { ChipRadioGroup } from "@/components/ui/ChipRadioGroup";
 import { PhoneInput } from "@/components/ui/PhoneInput";
 import { useTip } from "@/components/ui/Tip";
-import { IconCheck, IconPlus, IconX } from "@/components/ui/icons";
+import { IconCheck, IconClock, IconPlus, IconX } from "@/components/ui/icons";
 import { formatInr } from "@/lib/plans";
+import { PAY_PER_EVENT_VALIDITY_DAYS, VALIDITY_START_LONGSTOP_DAYS } from "@/lib/event-validity";
 
 type Props = {
   open: boolean;
@@ -672,6 +673,24 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
               <div aria-hidden>
                 <div className="skeleton mb-2 h-4 w-28 rounded" />
                 <div className="skeleton h-10 w-full rounded-lg" />
+              </div>
+            ) : payPerEvent ? (
+              /* 6 · Pay per event: when the validity runs. Starting on the first
+                  upload (not today) is what lets a studio set an event up early,
+                  so it is said plainly before the event is created. */
+              <div className="flex gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-3">
+                <IconClock size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-navy)]" />
+                <div className="text-[12.5px] leading-relaxed">
+                  <p className="font-semibold text-[var(--color-brand-ink)]">
+                    {PAY_PER_EVENT_VALIDITY_DAYS} days validity, starting from your first upload
+                  </p>
+                  <p className="mt-0.5 text-[var(--color-brand-muted)]">
+                    Set the event up now: name, clients and cover photo don&apos;t start the clock. It starts the day
+                    you upload the first photo or video, and keeps running even if you delete them later. If nothing
+                    is uploaded within {VALIDITY_START_LONGSTOP_DAYS} days, it starts then.
+                    {!payMode && " Creating it uses one of your events right away."}
+                  </p>
+                </div>
               </div>
             ) : (
               showExpiry && (

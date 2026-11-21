@@ -78,6 +78,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
     activeLocked,
     pauseUpload,
     serviceType,
+    validityPending,
     saveMeta,
     saveDeliveryPreferences,
     coverBusy,
@@ -628,6 +629,7 @@ export function MediaTab({ loading }: { loading: boolean }) {
         photoCap={photoCap}
         eventCapped={photoCap !== null || isCountBasedPlan(serviceType)}
         refreshPhotoCap={refreshPhotoCap}
+        startsValidity={validityPending}
         sessionWatermark={engine.sessionWatermark}
         onStart={(plan) => {
           if (plan.mode === "single") {

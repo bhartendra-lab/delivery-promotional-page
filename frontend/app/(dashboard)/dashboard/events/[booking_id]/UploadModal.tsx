@@ -26,6 +26,7 @@ import {
   type SelectedFile,
 } from "@/lib/r2-upload/selection";
 import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
+import { PAY_PER_EVENT_VALIDITY_DAYS } from "@/lib/event-validity";
 import {
   IconUpload,
   IconFolder,
@@ -143,6 +144,9 @@ type Props = {
   eventCapped: boolean;
   /** Re-reads the cap from the server; resolves with the fresh value. */
   refreshPhotoCap: () => Promise<PhotoCap | null>;
+  /** Pay per event, nothing uploaded yet: this upload starts the event's
+   *  validity, and the dialog says so before the run begins. */
+  startsValidity?: boolean;
   /**
    * The "Allow watermark" choice of this event's unfinished upload, kept in
    * IndexedDB so it survives a reload; null when none is in progress. Seeds the
@@ -179,6 +183,7 @@ export function UploadModal({
   photoCap,
   eventCapped,
   refreshPhotoCap,
+  startsValidity = false,
   sessionWatermark = null,
 }: Props) {
   // One dialog, several views. The destination picker used to be a separate
@@ -885,6 +890,18 @@ export function UploadModal({
                estimate below reacts to it live). Downloads second, because it
                only decides what guests may do once the photos have landed. */
             <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 py-6 sm:px-7">
+              {/* The first upload of a pay per event event starts its validity,
+                  for good. Said here, before the run starts, so a test photo
+                  during setup is never a surprise. */}
+              {startsValidity && (
+                <p
+                  role="note"
+                  className="rounded-lg border border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]"
+                >
+                  <span className="font-semibold">This is the event&apos;s first upload.</span> It starts the event&apos;s{" "}
+                  {PAY_PER_EVENT_VALIDITY_DAYS}-day validity today, and deleting the photos later won&apos;t reset it.
+                </p>
+              )}
               <StepSection
                 title="Upload quality"
                 description=""

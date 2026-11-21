@@ -62,7 +62,13 @@ export function daysRemaining(sinceMs: number, windowDays: number): number {
   return Math.max(0, Math.ceil(windowDays - elapsed / DAY_MS));
 }
 
-export type ExpiryWarning = { daysLeft: number; label: string } | null;
+/**
+ * `tone: "info"` is not a warning at all: a pay per event event whose validity
+ * has not started (nothing uploaded yet). It carries the latest day the clock
+ * starts by itself in `detail`. Absent tone means the countdown tones
+ * (warning, danger in the last week).
+ */
+export type ExpiryWarning = { daysLeft: number; label: string; tone?: "info"; detail?: string } | null;
 
 /** How close a storage plan event's own expiry must be before its card warns. */
 const EXPIRY_WARNING_WINDOW_DAYS = 30;
@@ -94,6 +100,9 @@ export function getExpiryWarning(row: {
   event_expiry_at?: number | null;
   validity_ends_at?: number | null;
   validity_lapsed?: boolean;
+  validity_pending?: boolean;
+  validity_starts_by?: number | null;
+  validity_window_days?: number | null;
 }): ExpiryWarning {
   if (row.gallery_publish_status === "expired") return null; // never a warning
   if (row.gallery_publish_status === "archived") {
@@ -105,6 +114,21 @@ export function getExpiryWarning(row: {
     };
   }
   if (row.service_type === "Free" || row.service_type === "Event-based") {
+    // Nothing uploaded yet: the validity has not started, so there is no
+    // countdown. Checked before the legacy createdAt fallback below, which
+    // would otherwise invent one.
+    if (row.validity_pending) {
+      const days = row.validity_window_days ?? LEGACY_PAY_PER_EVENT_DAYS;
+      const by = typeof row.validity_starts_by === "number" ? formatEventDate(row.validity_starts_by) : null;
+      return {
+        daysLeft: Number.POSITIVE_INFINITY,
+        label: "Validity starts on first upload",
+        tone: "info",
+        detail: by
+          ? `${days} days start the day you upload the first photo or video, or on ${by} if nothing is uploaded by then.`
+          : `${days} days start the day you upload the first photo or video.`,
+      };
+    }
     if (typeof row.validity_ends_at === "number") {
       if (row.validity_lapsed || Date.now() > row.validity_ends_at) return { daysLeft: 0, label: "Closed" };
       // The end is always the last millisecond of a day, so the whole days

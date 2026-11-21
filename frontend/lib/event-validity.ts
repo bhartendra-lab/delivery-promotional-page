@@ -206,6 +206,15 @@ export function validityDaysLeft(endsAt: number, now: number = Date.now()): numb
  *  of the date. The same week the reminders go out in. */
 export const VALIDITY_CLOSING_SOON_DAYS = 7;
 
+/**
+ * Pay per event validity terms, as the create-event form explains them. They
+ * MIRROR the backend (retention.utils.js: AUTO_DELETE_WINDOW_DAYS and
+ * VALIDITY_START_LONGSTOP_DAYS) and decide nothing: an existing event's real
+ * dates always come from the API.
+ */
+export const PAY_PER_EVENT_VALIDITY_DAYS = 90;
+export const VALIDITY_START_LONGSTOP_DAYS = 180;
+
 /** "Closes today" / "Closes tomorrow" / "Closes in 3 days". */
 export function closesInLabel(endsAt: number, now: number = Date.now()): string {
   const days = validityDaysLeft(endsAt, now);

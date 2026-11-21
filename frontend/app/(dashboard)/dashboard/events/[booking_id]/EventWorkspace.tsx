@@ -53,15 +53,17 @@ import {
   type OriginFilter,
 } from "./EventContext";
 import { EventTabStrip, type TabId } from "./EventTabStrip";
-import { LivePill } from "./LivePill";
+import { LivePill, type LivePillValidity } from "./LivePill";
 import {
   DEFAULT_PUB,
   computePillState,
   normalizeMeta,
   normalizePublish,
   normalizeValidity,
+  normalizePendingValidity,
   type PublishInfo,
   type ValidityInfo,
+  type PendingValidityInfo,
 } from "@/lib/event-meta";
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
@@ -124,6 +126,8 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // it straight after a reload, before the state has committed.
   const [validity, setValidity] = useState<ValidityInfo | null>(null);
   const validityRef = useRef<ValidityInfo | null>(null);
+  // Nothing uploaded yet: the validity has not started (null once it has).
+  const [pendingValidity, setPendingValidity] = useState<PendingValidityInfo | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
@@ -423,6 +427,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       setMeta(next);
       setPub(nextPub);
       setValidity(nextValidity);
+      setPendingValidity(normalizePendingValidity(res.booking));
       setBookingName(bookingId, next.name);
       try {
         localStorage.setItem(`event_meta_${bookingId}`, JSON.stringify(next));
@@ -890,10 +895,16 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   const validityEndsAt = validity?.endsAt ?? null;
   const validityExtendable = validity?.extendable === true;
   const validityLapsed = validity?.lapsed === true;
-  const pillValidity = useMemo(
+  const pendingStartsBy = pendingValidity?.startsBy ?? null;
+  const pendingWindowDays = pendingValidity?.windowDays ?? null;
+  const pillValidity = useMemo<LivePillValidity | null>(
     () =>
-      validityEndsAt == null ? null : { endsAt: validityEndsAt, extendable: validityExtendable, lapsed: validityLapsed },
-    [validityEndsAt, validityExtendable, validityLapsed],
+      pendingWindowDays != null
+        ? { pending: true, startsBy: pendingStartsBy, windowDays: pendingWindowDays }
+        : validityEndsAt == null
+          ? null
+          : { endsAt: validityEndsAt, extendable: validityExtendable, lapsed: validityLapsed },
+    [validityEndsAt, validityExtendable, validityLapsed, pendingStartsBy, pendingWindowDays],
   );
 
   // The bell's notices land on ?tab=smart&collection=<id> (and its email on
@@ -1053,6 +1064,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       pauseUpload,
       publishedEver: pub.hasBeenPublished,
       serviceType: pub.serviceType,
+      validityPending: pendingValidity != null,
       saveMeta,
       saveDeliveryPreferences,
       saveGuestTypes,
@@ -1066,7 +1078,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;

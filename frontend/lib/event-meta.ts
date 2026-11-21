@@ -193,6 +193,26 @@ export function normalizeValidity(b: BookingDetail): ValidityInfo | null {
   };
 }
 
+/**
+ * A pay per event event whose validity has not started (nothing uploaded
+ * yet), from get-booking-by-id. Null once it has started, on a storage plan
+ * event, and from a backend that predates the first-upload rule.
+ */
+export type PendingValidityInfo = {
+  /** Epoch ms: the latest the validity starts if nothing is uploaded first. */
+  startsBy: number | null;
+  /** How many days it runs once started. */
+  windowDays: number;
+};
+
+export function normalizePendingValidity(b: BookingDetail): PendingValidityInfo | null {
+  if (b.validity_pending !== true) return null;
+  return {
+    startsBy: typeof b.validity_starts_by === "number" ? b.validity_starts_by : null,
+    windowDays: typeof b.validity_window_days === "number" ? b.validity_window_days : 90,
+  };
+}
+
 export function computePillState(pub: PublishInfo): LivePillState {
   if (!pub.isActive) return "deactivated";
   // The studio only ever sees "Live". Background processing (embeddings →

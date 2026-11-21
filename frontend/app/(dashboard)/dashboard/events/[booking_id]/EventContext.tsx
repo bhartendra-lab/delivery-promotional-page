@@ -163,6 +163,9 @@ export type EventContextValue = {
   publishedEver: boolean;
   /** The plan THIS EVENT was created under (not the company's plan today). */
   serviceType: ServiceType | null;
+  /** Pay per event: nothing uploaded yet, so the next upload starts the
+   *  event's validity. False once it has started, and on a storage plan. */
+  validityPending: boolean;
   /**
    * Edit name + type + date from the edit sheet, and, on a storage plan
    * event, its expiry. `eventExpiry` is passed ONLY when the Studio changed
