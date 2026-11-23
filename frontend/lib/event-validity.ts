@@ -215,6 +215,31 @@ export const VALIDITY_CLOSING_SOON_DAYS = 7;
 export const PAY_PER_EVENT_VALIDITY_DAYS = 90;
 export const VALIDITY_START_LONGSTOP_DAYS = 180;
 
+/**
+ * The words for "validity starts on the first upload", shared by the web
+ * dashboard and the studio app (synced), so neither says it differently.
+ */
+export const FIRST_UPLOAD_VALIDITY = {
+  /** The create-event form's note. */
+  title: `${PAY_PER_EVENT_VALIDITY_DAYS} days validity, starting from your first upload`,
+  body:
+    "Set the event up now: name, clients and cover photo don't start the clock. It starts the day you upload " +
+    "the first photo or video, and keeps running even if you delete them later. If nothing is uploaded within " +
+    `${VALIDITY_START_LONGSTOP_DAYS} days, it starts then.`,
+  /** Appended to `body` when the event is created from an event already held (not bought on the spot). */
+  usesCredit: "Creating it uses one of your events right away.",
+  /** Before an upload that will start the clock. */
+  uploadLead: "This is the event's first upload.",
+  uploadBody: `It starts the event's ${PAY_PER_EVENT_VALIDITY_DAYS}-day validity today, and deleting the photos later won't reset it.`,
+  /** The event page's validity row while pending. */
+  pendingTitle: "Validity not started",
+} as const;
+
+/** The event page's line under "Validity not started". `startsBy` is epoch ms, or null. */
+export function pendingValidityDetail(windowDays: number, startsBy: number | null): string {
+  return `${windowDays} days start with your first upload${startsBy != null ? `, or on ${formatValidityDate(startsBy)} at the latest` : ""}`;
+}
+
 /** "Closes today" / "Closes tomorrow" / "Closes in 3 days". */
 export function closesInLabel(endsAt: number, now: number = Date.now()): string {
   const days = validityDaysLeft(endsAt, now);

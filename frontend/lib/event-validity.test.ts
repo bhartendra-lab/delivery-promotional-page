@@ -153,3 +153,10 @@ test("nothing this module says to a person carries an em dash or an en dash", ()
   ];
   for (const line of said) assert.doesNotMatch(String(line), DASHES);
 });
+
+test("pendingValidityDetail: the window, and the latest start when known", async () => {
+  const { pendingValidityDetail, formatValidityDate: fmt } = await import("./event-validity.ts");
+  const by = Date.UTC(2027, 4, 20, 12);
+  assert.equal(pendingValidityDetail(90, by), `90 days start with your first upload, or on ${fmt(by)} at the latest`);
+  assert.equal(pendingValidityDetail(90, null), "90 days start with your first upload");
+});

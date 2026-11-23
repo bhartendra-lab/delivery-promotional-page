@@ -5,7 +5,14 @@ import type { ServiceType } from "@/lib/types";
 import { isStorageBasedPlan } from "@/lib/types";
 import { TypeConfirmModal, type ConfirmAction } from "./TypeConfirmModal";
 import { IconArchive, IconCaretDown, IconClock, IconLock } from "./icons";
-import { VALIDITY_CLOSING_SOON_DAYS, closesInLabel, formatValidityDate, validityDaysLeft } from "@/lib/event-validity";
+import {
+  FIRST_UPLOAD_VALIDITY,
+  VALIDITY_CLOSING_SOON_DAYS,
+  closesInLabel,
+  formatValidityDate,
+  pendingValidityDetail,
+  validityDaysLeft,
+} from "@/lib/event-validity";
 
 /**
  * Pill state, derived by the workspace from the booking's DB fields.
@@ -264,14 +271,13 @@ function ExtendRow({
 
 /** The validity row while nothing is uploaded: informative, never clickable. */
 function PendingValidityRow({ validity }: { validity: Extract<LivePillValidity, { pending: true }> }) {
-  const by = validity.startsBy != null ? formatValidityDate(validity.startsBy) : null;
   return (
     <div className="flex w-full items-start gap-2.5 border-t border-[var(--color-brand-border)] px-3.5 py-3 text-left">
       <IconClock size={15} className="mt-px shrink-0 text-[var(--color-brand-muted)]" />
       <span className="flex-1">
-        <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">Validity not started</span>
+        <span className="block text-[13px] font-semibold text-[var(--color-brand-ink)]">{FIRST_UPLOAD_VALIDITY.pendingTitle}</span>
         <span className="mt-px block text-[11.5px] text-[var(--color-brand-muted)]">
-          {validity.windowDays} days start with your first upload{by ? `, or on ${by} at the latest` : ""}
+          {pendingValidityDetail(validity.windowDays, validity.startsBy)}
         </span>
       </span>
     </div>

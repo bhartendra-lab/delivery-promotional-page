@@ -26,7 +26,7 @@ import {
   type SelectedFile,
 } from "@/lib/r2-upload/selection";
 import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
-import { PAY_PER_EVENT_VALIDITY_DAYS } from "@/lib/event-validity";
+import { FIRST_UPLOAD_VALIDITY } from "@/lib/event-validity";
 import {
   IconUpload,
   IconFolder,
@@ -898,8 +898,7 @@ export function UploadModal({
                   role="note"
                   className="rounded-lg border border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]"
                 >
-                  <span className="font-semibold">This is the event&apos;s first upload.</span> It starts the event&apos;s{" "}
-                  {PAY_PER_EVENT_VALIDITY_DAYS}-day validity today, and deleting the photos later won&apos;t reset it.
+                  <span className="font-semibold">{FIRST_UPLOAD_VALIDITY.uploadLead}</span> {FIRST_UPLOAD_VALIDITY.uploadBody}
                 </p>
               )}
               <StepSection

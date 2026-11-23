@@ -38,7 +38,7 @@ import { PhoneInput } from "@/components/ui/PhoneInput";
 import { useTip } from "@/components/ui/Tip";
 import { IconCheck, IconClock, IconPlus, IconX } from "@/components/ui/icons";
 import { formatInr } from "@/lib/plans";
-import { PAY_PER_EVENT_VALIDITY_DAYS, VALIDITY_START_LONGSTOP_DAYS } from "@/lib/event-validity";
+import { FIRST_UPLOAD_VALIDITY } from "@/lib/event-validity";
 
 type Props = {
   open: boolean;
@@ -681,14 +681,10 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
               <div className="flex gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-3">
                 <IconClock size={15} className="mt-0.5 shrink-0 text-[var(--color-brand-navy)]" />
                 <div className="text-[12.5px] leading-relaxed">
-                  <p className="font-semibold text-[var(--color-brand-ink)]">
-                    {PAY_PER_EVENT_VALIDITY_DAYS} days validity, starting from your first upload
-                  </p>
+                  <p className="font-semibold text-[var(--color-brand-ink)]">{FIRST_UPLOAD_VALIDITY.title}</p>
                   <p className="mt-0.5 text-[var(--color-brand-muted)]">
-                    Set the event up now: name, clients and cover photo don&apos;t start the clock. It starts the day
-                    you upload the first photo or video, and keeps running even if you delete them later. If nothing
-                    is uploaded within {VALIDITY_START_LONGSTOP_DAYS} days, it starts then.
-                    {!payMode && " Creating it uses one of your events right away."}
+                    {FIRST_UPLOAD_VALIDITY.body}
+                    {!payMode && ` ${FIRST_UPLOAD_VALIDITY.usesCredit}`}
                   </p>
                 </div>
               </div>
