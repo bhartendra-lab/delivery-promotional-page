@@ -706,6 +706,7 @@ function PhotoTile({
             onOpenMenu(item, e.currentTarget);
           }}
           aria-label="Photo options"
+          data-tour="photo-menu"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           className={`absolute right-1 top-1 z-10 flex h-10 w-10 cursor-pointer items-center justify-center ${menuOpen ? "" : reveal}`}
@@ -805,6 +806,7 @@ function TileFooter({
           type="button"
           onClick={(e) => onOpenMenu(e.currentTarget)}
           aria-label="Photo options"
+          data-tour="photo-menu"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           // A full 44px target, wider than the line looks.

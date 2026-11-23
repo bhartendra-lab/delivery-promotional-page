@@ -47,6 +47,9 @@ import { Collapse, useScrollCollapse } from "./gallery/Collapse";
 import { IconHeart, IconGrid, IconHome, IconLock, IconScanFace } from "@/components/ui/icons";
 import type { CollectionsBlock } from "@/lib/collections/types";
 import { attributionLine, bulkLikeMode, capabilities, studioLabel } from "@/lib/collections/logic";
+import { TOUR_CHROME, tourLang } from "@/lib/client-tour";
+import { useDeviceLang } from "@/lib/guest-language-store";
+import { ClientTour } from "../tour/ClientTour";
 import { useCollections } from "./collections/useCollections";
 import { useCuratorActions, type BulkTarget, type ToastAction } from "./collections/useCuratorActions";
 import { CuratorSelectionBar } from "./collections/CuratorSelectionBar";
@@ -1215,6 +1218,14 @@ export function LoungeGallery({
   const [workspaceViewerOpen, setWorkspaceViewerOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [guestControlOpen, setGuestControlOpen] = useState(false);
+  /** The Client tour: bumped by the profile's "Watch the tour". */
+  const [tourReplay, setTourReplay] = useState(0);
+  /** Bumped by the tour to unfold the chrome (the Liked step needs the nav). */
+  const [tourUnfold, setTourUnfold] = useState(0);
+  // Saved on the guest at sign-in; this browser's welcome-screen choice
+  // until the session carries one.
+  const deviceLang = useDeviceLang();
+  const lang = tourLang(session.language ?? deviceLang);
   /** onReauth with a stable identity (EventFlow hands a fresh one every
    *  render), so the collections sheets never refetch on a parent re-render. */
   const reauth = useCallback(() => onReauthRef.current(), []);
@@ -1877,7 +1888,7 @@ export function LoungeGallery({
      the curator's Selection workspace keep their chrome. */
   const mobileGridShown = !isDesktop && view === "gallery" && !selectionShown;
   const desktopGridShown = isDesktop && !selectionShown;
-  const fold = useScrollCollapse(`${isDesktop}|${view}|${tab}|${folder}|${likedView}|${selectMode}|${selectionShown}`);
+  const fold = useScrollCollapse(`${isDesktop}|${view}|${tab}|${folder}|${likedView}|${selectMode}|${selectionShown}|${tourUnfold}`);
   const chromeFolded = mobileGridShown && fold.collapsed;
   const navHidden = mobileGridShown && (fold.collapsed || selectMode);
   const desktopFolded = desktopGridShown && fold.collapsed;
@@ -2690,6 +2701,18 @@ export function LoungeGallery({
                 }
               : undefined
           }
+          tour={
+            caps.canSend
+              ? {
+                  label: TOUR_CHROME[lang].replay,
+                  hint: TOUR_CHROME[lang].replayHint,
+                  onReplay: () => {
+                    setProfileOpen(false);
+                    setTourReplay((n) => n + 1);
+                  },
+                }
+              : undefined
+          }
         />
       )}
 
@@ -2721,6 +2744,27 @@ export function LoungeGallery({
           onReauth={reauth}
         />
       )}
+
+      {/* The Client's guided tour (lib/client-tour.ts): over everything,
+          started only while nothing else is up. */}
+      <ClientTour
+        t={t}
+        uid={uniqueIdentifier}
+        lang={lang}
+        studio={studio}
+        eligible={caps.canSend}
+        idle={!overlayOpen && !selectMode}
+        replaySeq={tourReplay}
+        onAction={(action) => {
+          if (action === "reveal-nav") {
+            setTourUnfold((n) => n + 1);
+            return;
+          }
+          setProfileOpen(false);
+          setGuestControlOpen(false);
+          setReviewOpen(false);
+        }}
+      />
 
       {/* The bulk-download pre-flight, and then the progress surface for the
           same run — one component, deliberately not closed when the download
@@ -3596,6 +3640,7 @@ function BottomNav({
               key={n.key}
               type="button"
               onClick={n.on}
+              data-tour={`nav-${n.key}`}
               className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full py-2 text-[12px] transition-colors"
               style={{ background: on ? t.accentWash : "transparent", color: on ? t.brand : t.muted, fontWeight: on ? 700 : 500 }}
             >

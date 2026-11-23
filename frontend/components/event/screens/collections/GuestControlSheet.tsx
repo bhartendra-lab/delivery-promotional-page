@@ -181,7 +181,7 @@ export function GuestControlSheet({
               )}
             </Section>
 
-            <Section t={t} title="Family passcode" hint="Anyone with this passcode sees every photo.">
+            <Section t={t} tour="gc-passcode" title="Family passcode" hint="Anyone with this passcode sees every photo.">
               <div
                 className="rounded-2xl py-4 text-center text-[28px] font-extrabold tracking-[0.32em] tabular-nums"
                 style={{ background: t.sunken, color: t.text, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
@@ -202,7 +202,7 @@ export function GuestControlSheet({
               </div>
             </Section>
 
-            <Section t={t} title="People" hint={editorCounter(data.editors)}>
+            <Section t={t} tour="gc-people" title="People" hint={editorCounter(data.editors)}>
               <label className="flex items-center gap-2 rounded-xl px-3 py-2.5" style={{ background: t.sunken, color: t.muted }}>
                 <IconSearch size={16} />
                 <input
@@ -290,9 +290,9 @@ export function GuestControlSheet({
   );
 }
 
-function Section({ t, title, hint, children }: { t: ClientTheme; title: string; hint?: string; children: React.ReactNode }) {
+function Section({ t, title, hint, tour, children }: { t: ClientTheme; title: string; hint?: string; tour?: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section data-tour={tour}>
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
         <h3 className="text-[14.5px] font-extrabold" style={{ color: t.text }}>
           {title}

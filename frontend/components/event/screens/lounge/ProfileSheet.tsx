@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useEventTheme } from "../../EventThemeContext";
-import { IconX, IconScanFace, IconLogout, IconGear, IconChevronRight } from "@/components/ui/icons";
+import { IconX, IconScanFace, IconLogout, IconGear, IconChevronRight, IconPlay } from "@/components/ui/icons";
 import { GuestPhoto } from "./GuestPhoto";
 
 /**
@@ -32,6 +32,7 @@ export function ProfileSheet({
   onSignOut,
   onClose,
   onOpenGuestControl,
+  tour,
 }: {
   name?: string;
   /** The guest's picture (lib/profile-face.ts#guestPhotoUrl), or null. */
@@ -49,6 +50,8 @@ export function ProfileSheet({
   /** A Client's Guest Control (collections on). Absent for everyone else,
    *  and then the sheet is exactly what it was. */
   onOpenGuestControl?: () => void;
+  /** A Client's "Watch the tour" (components/event/tour), in their language. */
+  tour?: { label: string; hint: string; onReplay: () => void };
 }) {
   const { theme: t } = useEventTheme();
 
@@ -116,6 +119,7 @@ export function ProfileSheet({
           <button
             type="button"
             onClick={onOpenGuestControl}
+            data-tour="profile-guest-control"
             className="mt-6 flex w-full cursor-pointer items-center gap-3 rounded-2xl px-4 py-3 text-left transition-transform active:scale-[0.99]"
             style={{ background: t.sunken }}
           >
@@ -134,7 +138,30 @@ export function ProfileSheet({
           </button>
         )}
 
-        <div className={`${onOpenGuestControl ? "mt-3" : "mt-6"} flex flex-col gap-2.5`}>
+        {tour && (
+          <button
+            type="button"
+            onClick={tour.onReplay}
+            data-tour="profile-tour"
+            className={`${onOpenGuestControl ? "mt-2.5" : "mt-6"} flex w-full cursor-pointer items-center gap-3 rounded-2xl px-4 py-3 text-left transition-transform active:scale-[0.99]`}
+            style={{ background: t.sunken }}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: t.accentWash, color: t.brand }}>
+              <IconPlay size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-extrabold" style={{ color: t.text }}>
+                {tour.label}
+              </span>
+              <span className="block truncate text-[12px] font-semibold" style={{ color: t.muted }}>
+                {tour.hint}
+              </span>
+            </span>
+            <IconChevronRight size={16} style={{ color: t.muted }} />
+          </button>
+        )}
+
+        <div className={`${onOpenGuestControl || tour ? "mt-3" : "mt-6"} flex flex-col gap-2.5`}>
           {faceSearchOn && (
             <button
               type="button"

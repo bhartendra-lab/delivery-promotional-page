@@ -1010,5 +1010,7 @@ export type GuestSession = {
    * wins when deciding where they land: this only matters while there is none.
    */
   face_scan_skipped_at?: number | null;
+  /** The UI language picked on the welcome screen and saved at sign-in. */
+  language?: "en" | "hi" | null;
 };
 

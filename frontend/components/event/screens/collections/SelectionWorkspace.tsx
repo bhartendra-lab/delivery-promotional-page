@@ -490,6 +490,7 @@ export function SelectionWorkspace({
               type="button"
               role="tab"
               aria-selected={on}
+              data-tour={`segment-${key}`}
               onClick={() => changeView(() => setSegment(key))}
               className="flex-1 cursor-pointer rounded-full py-2 text-[13px] transition-colors"
               style={{ background: on ? t.card : "transparent", color: on ? t.text : t.muted, fontWeight: on ? 800 : 600, boxShadow: on ? t.shadowSm : undefined }}

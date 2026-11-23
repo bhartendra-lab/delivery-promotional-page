@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type { ClientTheme } from "@/lib/client-theme";
 import { ApiError, requestGuestOtp, resendGuestOtp, verifyGuestOtp } from "@/lib/api";
 import { setGuestToken } from "@/lib/guest-auth";
+import { getDeviceLang, useDeviceLang } from "@/lib/guest-language-store";
 import { LockIcon, GoogleG } from "./loginIcons";
 
 const CODE_LEN = 6;
@@ -126,6 +127,7 @@ export function SignInStep({
         uniqueIdentifier,
         phone: sentPhone,
         code: value,
+        language: getDeviceLang(),
       });
       setGuestToken(uniqueIdentifier, token);
       onAuthed();
@@ -180,7 +182,9 @@ export function SignInStep({
    * could be that Guest with any Google account. A Guest whose code never came
    * signs in by their Google account alone.
    */
-  const googleParams = new URLSearchParams({ unique_identifier: uniqueIdentifier });
+  // The welcome screen's language rides through Google's round trip too.
+  const deviceLang = useDeviceLang();
+  const googleParams = new URLSearchParams({ unique_identifier: uniqueIdentifier, ...(deviceLang ? { language: deviceLang } : {}) });
   const googleFallbackHref = `${API_BASE}/auth/google/guest-login?${googleParams.toString()}`;
   const activeIndex = code.length;
   /* The pill's theme colours, as custom properties: the `.guest-sso-btn` rules

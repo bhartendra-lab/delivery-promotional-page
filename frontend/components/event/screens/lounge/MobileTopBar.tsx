@@ -113,6 +113,7 @@ export function MobileTopBar({
           type="button"
           onClick={onOpenProfile}
           aria-label="Your profile"
+          data-tour="profile"
           className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[13px] font-semibold transition-transform active:scale-95"
           style={{ background: t.ring, padding: 2 }}
         >

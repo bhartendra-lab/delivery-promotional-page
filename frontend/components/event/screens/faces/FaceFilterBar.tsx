@@ -485,6 +485,7 @@ export function FaceFilterBar({
     <>
       <div
         ref={barRef}
+        data-tour="face-bar"
         className="flex items-center gap-2 rounded-full pl-2 pr-1"
         style={{
           height: BAR_HEIGHT,
@@ -538,6 +539,7 @@ export function FaceFilterBar({
             <div
               ref={boxRef}
               id={boxId}
+              data-tour="face-box"
               role="region"
               aria-label="Filter by people"
               className="fixed z-[53] overflow-hidden"

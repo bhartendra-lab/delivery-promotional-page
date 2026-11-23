@@ -139,6 +139,7 @@ export function CollectionsSegment({
             <button
               type="button"
               onClick={onReview}
+              data-tour="review-send"
               className="cta-shine w-full max-w-[460px] cursor-pointer rounded-full px-6 py-3.5 text-[14.5px] font-extrabold transition-transform active:scale-[0.99]"
               style={{ background: anySendable ? t.brand : t.card, color: anySendable ? t.onBrand : t.brand, boxShadow: t.shadow }}
             >

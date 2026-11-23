@@ -40,6 +40,7 @@ export function CollectionSheet({
   footer,
   children,
   z = 75,
+  tour,
 }: {
   t: ClientTheme;
   desktop: boolean;
@@ -54,6 +55,8 @@ export function CollectionSheet({
   footer?: React.ReactNode;
   children: React.ReactNode;
   z?: number;
+  /** The panel's name for the Client tour (`data-tour`). */
+  tour?: string;
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -227,6 +230,7 @@ export function CollectionSheet({
         role="dialog"
         aria-modal="true"
         data-collection-sheet=""
+        data-tour={tour}
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={onPanelKey}

@@ -1914,6 +1914,8 @@ export function verifyGuestOtp(input: {
   uniqueIdentifier: string;
   phone: string;
   code: string;
+  /** The welcome screen's language choice (lib/guest-language.ts), saved on the guest. */
+  language?: "en" | "hi" | null;
 }) {
   return request<GuestOtpVerifyResponse>("/auth/verify-otp", {
     method: "POST",
@@ -1922,6 +1924,7 @@ export function verifyGuestOtp(input: {
       phone: input.phone,
       unique_identifier: input.uniqueIdentifier,
       code: input.code,
+      ...(input.language ? { language: input.language } : {}),
     }),
     auth: false,
   });

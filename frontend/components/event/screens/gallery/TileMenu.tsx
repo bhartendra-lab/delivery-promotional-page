@@ -176,6 +176,7 @@ export function TileMenu({
             key={item.key}
             type="button"
             role="menuitem"
+            data-tour={`menu-${item.key}`}
             onClick={() => pick(item)}
             className="flex w-full cursor-pointer items-center gap-2.5 px-4 text-left text-[13.5px] font-bold outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)]"
             style={{ color: t.text, height: POPOVER_ROW, ["--row-hover" as string]: t.sunken }}
@@ -196,6 +197,7 @@ export function TileMenu({
         key={item.key}
         type="button"
         role="menuitem"
+        data-tour={`menu-${item.key}`}
         onClick={() => pick(item)}
         className="flex w-full cursor-pointer items-center gap-3.5 rounded-xl px-3 text-left text-[15px] font-bold outline-none active:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)]"
         style={{ color: t.text, height: SHEET_ROW, ["--row-hover" as string]: t.sunken }}

@@ -141,7 +141,7 @@ export function SaveToCollectionSheet({
   const subtitle = ids ? `${count.toLocaleString("en-IN")} ${count === 1 ? "photo" : "photos"}` : `Getting ${count.toLocaleString("en-IN")} photos ready`;
 
   return (
-    <CollectionSheet t={t} desktop={desktop} title="Save to collection" subtitle={subtitle} onClose={close} footer={<PrimaryButton t={t} onClick={close}>Done</PrimaryButton>}>
+    <CollectionSheet t={t} desktop={desktop} tour="save-sheet" title="Save to collection" subtitle={subtitle} onClose={close} footer={<PrimaryButton t={t} onClick={close}>Done</PrimaryButton>}>
       {notice && notice.id == null && (
         <p className="mb-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold" style={{ background: t.sunken, color: t.text }}>
           {notice.text}

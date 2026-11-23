@@ -410,6 +410,7 @@ export function ActionsCluster({
         t={t}
         icon={<IconHeart size={15} filled={likedView} />}
         label="Liked"
+        tour="nav-liked"
         active={likedView}
         underline
         onClick={onSelectLiked}
@@ -464,10 +465,13 @@ function ActionItem({
   disabled = false,
   onClick,
   iconOnly = false,
+  tour,
 }: {
   t: ClientTheme;
   icon: React.ReactNode;
   label: string;
+  /** Its name for the Client tour (`data-tour`). */
+  tour?: string;
   active?: boolean;
   /** Show the selected state as a bottom underline rather than a fill. */
   underline?: boolean;
@@ -481,6 +485,7 @@ function ActionItem({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
+      data-tour={tour}
       aria-pressed={underline ? active : undefined}
       className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-1.5 py-1.5 text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       style={{
