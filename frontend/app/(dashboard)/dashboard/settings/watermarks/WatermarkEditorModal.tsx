@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import {
   createWatermarkPreset,
@@ -9,6 +9,8 @@ import {
 } from "@/lib/api";
 import type { WatermarkPosition, WatermarkPreset } from "@/lib/types";
 import { EDGE_MARGIN_RATIO } from "@/lib/r2-upload/watermark";
+import { watermarkPixelBox } from "@/lib/watermark-samples";
+import { useWatermarkSamples, type SamplePhoto } from "./useWatermarkSamples";
 import { Spinner } from "../SettingsUI";
 import { IconX } from "@/components/ui/icons";
 
@@ -89,29 +91,120 @@ export function watermarkBoxStyle(
   return style;
 }
 
-/** Sample photo with the watermark composited at the chosen placement. */
+/**
+ * A photo with the watermark composited at the chosen placement.
+ *
+ * With a real `photo` the mark is positioned by the upload engine's own math
+ * (watermarkPixelBox: size as a share of the photo's width, the edge inset as a
+ * share of its shorter edge, opacity as the canvas alpha), applied to the size
+ * the photo has on screen, so the box matches what upload bakes in for any
+ * orientation. Without one (a studio with no photos and no bundled samples yet)
+ * it falls back to the grey gradient and the CSS box it always used.
+ */
 export function WatermarkPreview({
   src,
   position,
   size,
   opacity,
+  photo,
   className = "",
 }: {
+  /** The watermark image. */
   src: string | null;
   position: WatermarkPosition;
   size: number;
   opacity: number;
+  /** A photo to judge it on. */
+  photo?: string | null;
   className?: string;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ W: number; H: number } | null>(null);
+  const [photoAspect, setPhotoAspect] = useState<number | null>(null);
+  const [mark, setMark] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setBox({ W: el.clientWidth, H: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [photo]);
+
+  if (!photo) {
+    return (
+      <div className={`relative overflow-hidden rounded-xl ${className}`} style={{ background: SAMPLE_BG, aspectRatio: "3 / 2" }}>
+        {src && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" className="object-contain" style={watermarkBoxStyle(position, size, opacity)} />
+        )}
+      </div>
+    );
+  }
+
+  const placed = box && mark && box.W > 0 && box.H > 0
+    ? watermarkPixelBox({ position, size, opacity, W: box.W, H: box.H, markW: mark.w, markH: mark.h })
+    : null;
   return (
     <div
-      className={`relative overflow-hidden rounded-xl ${className}`}
-      style={{ background: SAMPLE_BG, aspectRatio: "3 / 2" }}
+      ref={frame}
+      className={`relative overflow-hidden rounded-xl bg-[var(--color-brand-track)] ${className}`}
+      style={{ aspectRatio: photoAspect ? `${photoAspect}` : "3 / 2" }}
     >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={photo}
+        alt="Sample photo"
+        className="absolute inset-0 h-full w-full object-cover"
+        onLoad={(e) => setPhotoAspect(e.currentTarget.naturalWidth / (e.currentTarget.naturalHeight || 1))}
+      />
       {src && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="object-contain" style={watermarkBoxStyle(position, size, opacity)} />
+        <img
+          src={src}
+          alt=""
+          className="absolute max-w-none"
+          style={
+            placed
+              ? { left: placed.left, top: placed.top, width: placed.width, height: placed.height, opacity: placed.opacity }
+              : { visibility: "hidden" }
+          }
+          onLoad={(e) => setMark({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        />
       )}
+    </div>
+  );
+}
+
+/** Which of the sample photos a preview shows, with a switcher to change it. */
+export function SamplePhotoSwitcher({
+  samples,
+  index,
+  onChange,
+}: {
+  samples: SamplePhoto[];
+  index: number;
+  onChange: (i: number) => void;
+}) {
+  if (samples.length < 2) return null;
+  return (
+    <div role="group" aria-label="Preview on" className="flex flex-wrap items-center gap-1.5">
+      <span className="type-label mr-1">Preview on</span>
+      {samples.map((s, i) => (
+        <button
+          key={s.src}
+          type="button"
+          aria-pressed={i === index}
+          onClick={() => onChange(i)}
+          className={`brand-focus rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
+            i === index
+              ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
+              : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+          }`}
+        >
+          {s.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -217,6 +310,9 @@ export function WatermarkEditorModal({
     };
   }, [objectUrl]);
   const previewSrc = objectUrl ?? initial?.image_url ?? null;
+  const samples = useWatermarkSamples();
+  const [sampleIndex, setSampleIndex] = useState(0);
+  const samplePhoto = samples && samples.length > 0 ? samples[Math.min(sampleIndex, samples.length - 1)] : null;
 
   const canSave = useMemo(
     () => (mode === "create" ? !!imageFile : true),
@@ -297,7 +393,8 @@ export function WatermarkEditorModal({
             <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
               Preview
             </span>
-            <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} />
+            <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} photo={samplePhoto?.src ?? null} />
+            <SamplePhotoSwitcher samples={samples ?? []} index={sampleIndex} onChange={setSampleIndex} />
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
