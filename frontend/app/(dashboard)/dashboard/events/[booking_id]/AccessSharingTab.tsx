@@ -6,9 +6,18 @@ import { useRouter } from "next/navigation";
 import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel, setStudioCollectionEditor } from "@/lib/api";
 import { downloadImage } from "@/lib/media-actions";
 import type { CustomFolder, Guest } from "@/lib/types";
-import { addressOf, CLIENT_ROLE_LABEL, confirmCopyFor, sentenceStart } from "@/lib/guest-access-copy";
+import {
+  addressOf,
+  CLIENT_ROLE_LABEL,
+  confirmCopyFor,
+  describeGuestAccess,
+  REGENERATE_PASSCODE_CONFIRM,
+  sentenceStart,
+} from "@/lib/guest-access-copy";
+import { formatPhoneForDisplay, tidyName } from "@/lib/guest-display";
 import {
   accessActionsFor,
+  allMediaIsPublic,
   afterEditorChange,
   editorActionFor,
   editorLine,
@@ -25,7 +34,8 @@ import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
 import { VYAVASTH_BASE_URL } from "@/lib/site-url";
-import { galleryInviteMessage } from "@/lib/share-message";
+import { galleryInviteMessage, passcodeShareMessage, SHARE_LANGUAGES, type ShareLang } from "@/lib/share-message";
+import { readShareLang, saveShareLang } from "@/lib/share-lang-store";
 import { guestPhotoUrl } from "@/lib/profile-face";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
@@ -143,8 +153,26 @@ export function AccessSharingTab({
   const studioProfileOn = meta.includeBranding === true;
   const requiredVisitLabel = studioProfileOn ? visitLabelWhenShown : undefined;
 
+  // One description of who sees what, used by the link card, the passcode card
+  // and the Guests panel, so the page cannot say two things at once.
+  const access = describeGuestAccess({
+    faceSearchOn,
+    hasPublicPhotos,
+    everyPhotoPublic: allMediaIsPublic(folders, folderCounts),
+    fullAccessRedundant,
+  });
+
+  // The language the share messages are written in, remembered per browser.
+  // Read once on mount: this tab only mounts after the event has loaded in the
+  // browser, so there is no server render for it to disagree with.
+  const [lang, setLangState] = useState<ShareLang>(() => readShareLang());
+  const setLang = (next: ShareLang) => {
+    setLangState(next);
+    saveShareLang(next);
+  };
+
   // Shared with the Client's Guest Control, so both send the same words.
-  const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn });
+  const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn, lang });
 
   return (
     // Breakpoints on this tab follow the width the TAB actually gets (a
@@ -152,18 +180,20 @@ export function AccessSharingTab({
     // takes a different share of the screen expanded vs collapsed, and a
     // viewport `lg` switched to two columns at widths where neither was usable.
     //
-    // Narrow: the panels stack and this box scrolls as one region. Wide (@4xl,
-    // ≥ 896px of tab): the left column and the guest panel each own a scroll
-    // region bound to the tab's height, so this box has nothing left to scroll.
-    <div className="@container h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
+    // This box is the ONE vertical scroll surface at every width: the left
+    // column flows at its natural height, and wheel or touch anywhere on the
+    // tab (cards, the gutters between them, the page edges) scrolls it. The
+    // right column sticks while the left scrolls, limited to the height of this
+    // box, so the guest list is the only nested scroller and hands the wheel
+    // back to the page at its ends (default overscroll chaining; no wheel
+    // handlers). It is a size container (`cqh` below is this box's height), which
+    // is safe because its height is set by the layout above it, never by content.
+    <div className="[container-type:size] h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
       <BrandingReminderDialog />
-      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 @2xl:gap-6 @2xl:px-6 @2xl:py-6 @4xl:h-full @4xl:min-h-0 @4xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] @4xl:items-stretch @4xl:px-8">
+      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 @2xl:gap-6 @2xl:px-6 @2xl:py-6 @4xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] @4xl:items-start @4xl:px-8">
         {/* Left — the link, then the passcode, then the preferences behind
-            them both. Every card here is
-            shrink-0: in the wide layout this column has a fixed height and
-            scrolls, and a shrinkable card is squashed to fit instead, clipping
-            its own contents behind overflow-hidden. */}
-        <div className="flex flex-col @4xl:h-full @4xl:min-h-0 @4xl:overflow-y-auto @4xl:pr-1">
+            them both. Natural height: the tab scrolls it, this column does not. */}
+        <div className="flex min-w-0 flex-col">
           <section className="@container flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
             <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
               <span
@@ -175,17 +205,9 @@ export function AccessSharingTab({
               <div className="min-w-0 flex-1">
                 <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
                   Guest gallery link
-                  <Tip
-                    text={
-                      faceSearchOn
-                        ? "One link for everyone. Guests sign in and can take a selfie to find their own photos. The family passcode unlocks the full gallery."
-                        : "One link for everyone. Guests sign in and see your public folders. The family passcode unlocks the full gallery."
-                    }
-                  />
+                  <Tip text={access.tooltip} />
                 </h3>
-                <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-                  Share this with the whole guest list — one link covers all photo access.
-                </p>
+                <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">One link for every guest.</p>
               </div>
             </div>
 
@@ -194,18 +216,12 @@ export function AccessSharingTab({
                 <>
                   <Label>Shared gallery URL</Label>
                   <UrlField url={shareUrl} />
-                  <div className="mt-2.5 flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
-                    <IconShieldCheck size={15} className="shrink-0 text-[var(--color-brand-success)]" />
-                    {/* Three states, because what a Guest can see without the
-                        passcode genuinely differs: their own face matches, the
-                        public folders, or (neither available) nothing at all. */}
-                    <span>
-                      {faceSearchOn
-                        ? "Each Guest sees the photos they appear in and your public folders, until the passcode unlocks the rest."
-                        : hasPublicPhotos
-                          ? "Guests see your public folders until the passcode unlocks the rest."
-                          : "Guests need the passcode to see any photos."}
-                    </span>
+                  <div className="mt-2.5 flex items-start gap-2 text-[13px] text-[var(--color-brand-body)]">
+                    <IconShieldCheck size={15} className="mt-[1px] shrink-0 text-[var(--color-brand-success)]" />
+                    {/* What a Guest can see without the passcode genuinely
+                        differs, so the words come from describeGuestAccess,
+                        the same source the passcode card and Guests panel use. */}
+                    <span>{access.summary}</span>
                   </div>
 
                   {/* Compact message actions (3/4) beside a QR visibility panel
@@ -213,7 +229,7 @@ export function AccessSharingTab({
                       QR panel to hold its button. Stacked below that — message
                       first, then the QR. */}
                   <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 @xl:grid-cols-[3fr_1fr]">
-                    <Dispatch key={shareUrl} eventName={eventName} message={message} />
+                    <Dispatch key={`${shareUrl}|${lang}`} eventName={eventName} message={message} lang={lang} onLangChange={setLang} />
                     <QrPanel qrUniqueId={qrUniqueId} qrImageUrl={qrImageUrl} eventName={eventName} />
                   </div>
                 </>
@@ -226,7 +242,14 @@ export function AccessSharingTab({
             </div>
           </section>
 
-          <PasscodeCard passcode={familyPasscode ?? ""} onRegenerate={onRegenerate} />
+          <PasscodeCard
+            passcode={familyPasscode ?? ""}
+            onRegenerate={onRegenerate}
+            description={access.passcode}
+            eventName={eventName}
+            shareUrl={shareUrl || null}
+            lang={lang}
+          />
           <PreferencesCard
             onOpen={() => setPrefsOpen(true)}
             prefs={prefs}
@@ -239,13 +262,15 @@ export function AccessSharingTab({
 
         {/* Right — the couple's missing numbers (when there are any), then the
             guest list, level filter, export, and each Guest's access. In the
-            wide layout this column is bound to the tab's height: the couple
-            card keeps its size and the Guest list takes what is left. */}
-        <div className="flex min-w-0 flex-col gap-4 @4xl:h-full @4xl:min-h-0">
+            wide layout it sticks (top 1.5rem, the grid's own padding) and is
+            no taller than the tab (100cqh less the padding above and below):
+            the couple card keeps its size and the Guest list takes what is
+            left, scrolling inside itself. */}
+        <div className="flex min-w-0 flex-col gap-4 @4xl:sticky @4xl:top-6 @4xl:max-h-[calc(100cqh-3rem)]">
           {coupleSlots.length > 0 && (
             <CoupleContactsCard slots={coupleSlots} onAdded={() => setGuestsVersion((v) => v + 1)} />
           )}
-          <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} reloadKey={guestsVersion} />
+          <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} reloadKey={guestsVersion} note={access.guestsNote} />
         </div>
       </div>
 
@@ -287,21 +312,28 @@ const FILTERS: ReadonlyArray<{ value: GuestFilter; label: string }> = [
   { value: "guest", label: "Guests" },
 ];
 
+/** Three different empty states: nobody yet (EMPTY_LABEL, per filter), nobody
+ *  matches a search (the search line below), and the filter has no one. */
 const EMPTY_LABEL: Record<GuestFilter, string> = {
-  all: "No guests yet.",
-  client: "No Clients yet.",
-  host: "No Hosts yet.",
-  guest: "No Guests yet.",
+  all: "No guests yet. They appear here once they open your gallery link.",
+  client: "No Clients yet. Open a guest's menu to mark them as a Client.",
+  host: "No Hosts yet. Anyone who enters the passcode, or whom you give full access, appears here.",
+  guest: "No guests without full access yet.",
 };
+
+const FILTER_NOUN: Record<GuestFilter, string> = { all: "guests", client: "Clients", host: "Hosts", guest: "guests without full access" };
 
 function GuestsPanel({
   bookingId,
   fullAccessRedundant,
   reloadKey,
+  note,
 }: {
   bookingId: string;
   /** Changing it reloads the list (after the couple's numbers are added). */
   reloadKey: number;
+  /** The quiet line about what Guests can see, from describeGuestAccess. */
+  note: string;
   /** Every photo is already public, so the full-access items are left out of
    *  each row's menu. See fullAccessIsRedundant. */
   fullAccessRedundant: boolean;
@@ -387,11 +419,10 @@ function GuestsPanel({
   const showDivider = firstOtherIndex > 0;
 
   return (
-    // Fills the grid cell's full height in the wide layout (stretched by the
-    // parent grid) instead of growing with content — the row list below is the
-    // only part that scrolls, so this box's on-screen height stays fixed.
+    // In the wide layout this takes the room the sticky right column leaves
+    // (see the parent) and the row list below is the only part that scrolls.
     <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white @4xl:min-h-0 @4xl:flex-1">
-      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
+      <div className="flex items-start gap-3 border-b border-[#ECE5D8] px-4 py-4">
         <span
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
           style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
@@ -399,10 +430,13 @@ function GuestsPanel({
           <IconUsers size={17} />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">Guests</h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Everyone who has opened the gallery link, plus the Clients you added.
-          </p>
+          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+            Guests
+            {!loading && !error && guests && (
+              <span className="font-semibold tabular-nums text-[var(--color-brand-muted)]"> · {guests.length.toLocaleString("en-IN")}</span>
+            )}
+          </h3>
+          <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">Everyone who opened the link, plus Clients you added.</p>
         </div>
         <button
           type="button"
@@ -454,12 +488,9 @@ function GuestsPanel({
       </div>
 
       {/* Why the menus are shorter than usual, said once for the whole list. */}
-      {fullAccessRedundant && (
-        <p className="border-b border-[#ECE5D8] bg-[var(--color-brand-bg)] px-4 py-2 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
-          Every photo is in a public folder, so every Guest already sees the full gallery. Full access options are
-          hidden.
-        </p>
-      )}
+      <p className="border-b border-[#ECE5D8] bg-[var(--color-brand-bg)] px-4 py-2 text-[12px] leading-relaxed text-[var(--color-brand-muted)]">
+        {note}
+      </p>
 
       {exportError && (
         <div className="border-b border-[#ECE5D8] bg-[var(--color-brand-warning-soft)] px-4 py-2 text-[12px] text-[var(--color-brand-warning)]">
@@ -490,13 +521,13 @@ function GuestsPanel({
           </div>
         )}
         {!loading && !error && (guests?.length ?? 0) === 0 && (
-          <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
+          <div className="px-4 py-8 text-center text-[13px] text-[var(--color-brand-body)]">
             {EMPTY_LABEL[filter]}
           </div>
         )}
         {!loading && !error && (guests?.length ?? 0) > 0 && (visibleGuests?.length ?? 0) === 0 && (
-          <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
-            No one matches &ldquo;{query}&rdquo;.
+          <div className="px-4 py-8 text-center text-[13px] text-[var(--color-brand-body)]">
+            No {FILTER_NOUN[filter]} match &ldquo;{query}&rdquo;.
             <button
               type="button"
               onClick={() => setSearch("")}
@@ -584,11 +615,13 @@ function GuestRow({
   // One value per row, used everywhere below: a Client is stored as a Host
   // with a flag, so the raw fields alone would read every Client as a Host.
   const level = levelOf(guest);
-  const contact = guest.email || guest.phone || "No contact info";
+  // Display only: the stored phone and name are never rewritten.
+  const contact = guest.email || formatPhoneForDisplay(guest.phone) || "No contact info";
+  const shownName = tidyName(guest.name) || "Guest";
   // A Host promoted before the source was recorded can only have come in with
   // the passcode — it was the sole way in — so an absent value reads that way.
   const givenByStudio = guest.full_access_source === "studio";
-  const who = addressOf(guest.name);
+  const who = addressOf(tidyName(guest.name));
   const actions = accessActionsFor(level, { fullAccessRedundant });
   // Collection editing sits with the giving items, before anything that
   // takes access away.
@@ -662,10 +695,10 @@ function GuestRow({
   return (
     <div className="flex flex-col gap-2 border-b border-[#F1ECE2] px-4 py-3 last:border-b-0">
       <div className="flex items-center gap-3">
-        <Avatar name={guest.name} photoUrl={guestPhotoUrl(guest)} />
+        <Avatar name={shownName} photoUrl={guestPhotoUrl(guest)} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{guest.name}</span>
+            <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{shownName}</span>
             <RoleBadge level={level} />
           </div>
           <p className="truncate text-[12px] text-[var(--color-brand-muted)]">{contact}</p>
@@ -946,16 +979,16 @@ function ConfirmBar({
 /** Three levels, three treatments, and never colour alone: the word is always
  *  there. A Client gets the strongest one, since they are who the event is for. */
 function RoleBadge({ level }: { level: GuestAccessLevel }) {
+  // Sentence case in a soft tinted pill: a role is context, not an alarm, and
+  // the old heavy uppercase badge shouted louder than the guest's name.
   const tone =
     level === "client"
-      ? "bg-[var(--color-brand-navy)] text-white"
+      ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
       : level === "host"
-        ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-        : "bg-[#F2F0EB] text-[var(--color-brand-muted)]";
+        ? "bg-[#EFEAE0] text-[var(--color-brand-body)]"
+        : "bg-[#F4F2EE] text-[var(--color-brand-muted)]";
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${tone}`}
-    >
+    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-[1px] text-[11px] font-medium ${tone}`}>
       {level === "client" ? "Client" : level === "host" ? "Host" : "Guest"}
     </span>
   );
@@ -1066,9 +1099,7 @@ function PreferencesCard({
           <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
             Gallery preferences
           </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            What Guests can do in this gallery.
-          </p>
+          <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">What guests can do in this gallery.</p>
         </div>
         <button
           type="button"
@@ -1088,19 +1119,20 @@ function PreferencesCard({
   );
 }
 
-/** One setting's state, at a glance. Never colour alone: the word "On"/"Off"
- *  carries the meaning for anyone who can't tell the two greens apart. */
+/** One setting's state, at a glance. On is the filled brand chip, off is a
+ *  plain grey outline, so the two read differently even without colour; the
+ *  word "On" / "Off" carries the meaning for anyone who can't tell them apart. */
 function StateChip({ label, on }: { label: string; on: boolean }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
         on
-          ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-          : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
+          ? "border-transparent bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
+          : "border-[var(--color-brand-border)] bg-transparent text-[var(--color-brand-muted)]"
       }`}
     >
       {label}
-      <span className="opacity-70">{on ? "On" : "Off"}</span>
+      <span className={on ? "opacity-80" : "font-medium"}>{on ? "On" : "Off"}</span>
     </span>
   );
 }
@@ -1108,9 +1140,19 @@ function StateChip({ label, on }: { label: string; on: boolean }) {
 function PasscodeCard({
   passcode,
   onRegenerate,
+  description,
+  eventName,
+  shareUrl,
+  lang,
 }: {
   passcode: string;
   onRegenerate: () => Promise<string>;
+  /** What the passcode does for this gallery, from describeGuestAccess. */
+  description: string;
+  eventName: string;
+  /** The gallery link, put after the passcode in the WhatsApp message. */
+  shareUrl: string | null;
+  lang: ShareLang;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1139,11 +1181,9 @@ function PasscodeCard({
         <div className="min-w-0 flex-1">
           <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
             Master passcode
-            <Tip text="Share this privately with the couple / immediate family only. Entered inside the lounge, it unlocks the complete gallery (all folders, every photo)." />
+            <Tip text="Share this privately with the couple and close family. They enter it in the gallery to unlock every photo in every folder." />
           </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Share separately — it unlocks the full gallery in-lounge.
-          </p>
+          <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">{description}</p>
         </div>
       </div>
 
@@ -1151,7 +1191,7 @@ function PasscodeCard({
         <div className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2">
           <IconLock size={14} className="text-[var(--color-brand-navy)]" />
           <span className="font-mono text-[17px] font-bold tabular-nums tracking-[0.2em] text-[var(--color-brand-ink)]">
-            {passcode || "——————"}
+            {passcode || "······"}
           </span>
         </div>
 
@@ -1169,6 +1209,23 @@ function PasscodeCard({
           {copied ? "Copied" : "Copy"}
         </button>
 
+        <button
+          type="button"
+          disabled={!passcode}
+          onClick={() =>
+            window.open(
+              `https://wa.me/?text=${encodeURIComponent(passcodeShareMessage({ passcode, eventName, url: shareUrl, lang }))}`,
+              "_blank",
+              "noopener",
+            )
+          }
+          className="brand-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-semibold text-white disabled:opacity-50"
+          style={{ background: "#1FA855" }}
+        >
+          <IconWhatsApp size={15} />
+          Send to family on WhatsApp
+        </button>
+
         {!confirming ? (
           <button
             type="button"
@@ -1179,8 +1236,7 @@ function PasscodeCard({
           </button>
         ) : (
           <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
-            Regenerate? The old code stops working and everyone who unlocked with it loses full access. Guests
-            you gave access to keep it.
+            Make a new passcode? {REGENERATE_PASSCODE_CONFIRM}
             <button
               type="button"
               disabled={busy}
@@ -1232,11 +1288,23 @@ function UrlField({ url }: { url: string }) {
   );
 }
 
-function Dispatch({ eventName, message }: { eventName: string; message: string }) {
+function Dispatch({
+  eventName,
+  message,
+  lang,
+  onLangChange,
+}: {
+  eventName: string;
+  message: string;
+  lang: ShareLang;
+  onLangChange: (lang: ShareLang) => void;
+}) {
   // Seeded once from `message`; the parent remounts this via `key` if the
-  // canonical message changes (e.g. the share URL resolves late).
+  // canonical message changes (a new share URL, or a new language, which
+  // replaces any edits: a different language is a different message).
   const [text, setText] = useState(message);
   const [copied, setCopied] = useState(false);
+  const langId = useId();
 
   const openWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
   const openEmail = () => {
@@ -1251,61 +1319,66 @@ function Dispatch({ eventName, message }: { eventName: string; message: string }
 
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-center justify-between">
-        <Label tip="This text is pre-loaded into WhatsApp / email when you dispatch it.">Message to guests</Label>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <Label tip="This text is pre-loaded into WhatsApp or email when you send it.">Message to guests</Label>
         <button
           type="button"
           onClick={() => setText(message)}
-          className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+          className="brand-focus inline-flex items-center gap-1 rounded text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
         >
-          Reset
+          Reset to default
         </button>
+      </div>
+      <div className="mb-2 flex items-center gap-2">
+        <label htmlFor={langId} className="shrink-0 text-[12px] font-medium text-[var(--color-brand-body)]">
+          Message language
+        </label>
+        <select
+          id={langId}
+          value={lang}
+          onChange={(e) => onLangChange(e.target.value as ShareLang)}
+          className="brand-focus h-8 min-w-0 flex-1 cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-white px-2 text-[12.5px] text-[var(--color-brand-ink)]"
+        >
+          {SHARE_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
+        </select>
       </div>
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={5}
-        className="brand-focus block w-full resize-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 font-[inherit] text-[12.5px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
+        aria-label="Message to guests"
+        className="brand-focus block w-full resize-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 font-[inherit] text-[13px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
       />
-      {/* Icon-only dispatch buttons — the label reveals on hover as a desktop
-          nicety; title + aria-label are always set and tapping fires the action
-          immediately, so touch / screen-reader users never depend on hover. */}
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={openWhatsApp}
-          title="Share on WhatsApp"
-          aria-label="Share on WhatsApp"
-          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg px-3 text-[12.5px] font-semibold text-white transition-colors"
+          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[12.5px] font-semibold text-white transition-colors"
           style={{ background: "#1FA855" }}
         >
           <IconWhatsApp size={16} />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[90px] group-hover:opacity-100">
-            WhatsApp
-          </span>
+          WhatsApp
         </button>
         <button
           type="button"
           onClick={openEmail}
-          title="Share by email"
-          aria-label="Share by email"
-          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg border px-3 text-[12.5px] font-semibold transition-colors"
+          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors hover:bg-[var(--color-brand-navy-soft)]"
           style={{ borderColor: "var(--color-brand-navy)", color: "var(--color-brand-navy)" }}
         >
           <IconMail size={15} />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[70px] group-hover:opacity-100">
-            Email
-          </span>
+          Email
         </button>
         <button
           type="button"
           onClick={copy}
-          title="Copy message"
-          aria-label="Copy message"
-          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)]"
+          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)]"
         >
           {copied ? <IconCheck size={15} className="text-[var(--color-brand-success)]" /> : <IconCopy size={15} />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied" : "Copy message"}
         </button>
       </div>
     </div>
@@ -1348,7 +1421,7 @@ function QrPanel({
 
   return (
     <div className="flex min-w-0 flex-col">
-      <Label tip="A reusable QR pointed at this event. Manage or re-point it from the Reusable QR tab.">
+      <Label tip="A reusable QR is a printed code you generate once and point at whichever event is live. Link one to this event on the Reusable QR page.">
         Event QR
       </Label>
       {assigned ? (
@@ -1366,21 +1439,21 @@ function QrPanel({
             ) : (
               <IconDownload size={14} />
             )}
-            Download
+            Download QR
           </button>
         </div>
       ) : (
         <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] bg-[var(--color-brand-bg)] p-3 text-center">
           <IconQrCode size={22} className="text-[var(--color-brand-outline)]" />
-          <p className="text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
-            No reusable QR points here yet.
+          <p className="text-[12px] leading-relaxed text-[var(--color-brand-body)]">
+            No reusable QR is linked to this event. Link one and its code shows here to download and print.
           </p>
           <button
             type="button"
             onClick={() => router.push("/dashboard/reusable-qr")}
             className="brand-focus inline-flex h-9 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] px-3 text-[12.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
-            Link QR
+            Go to Reusable QR
           </button>
         </div>
       )}
