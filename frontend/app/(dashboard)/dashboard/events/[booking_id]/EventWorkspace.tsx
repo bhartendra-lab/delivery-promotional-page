@@ -67,6 +67,8 @@ import {
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
 import { UploadSuccessModal } from "./UploadSuccessModal";
+import { trackEvent } from "@/lib/analytics";
+import { photoCountBucket } from "@/lib/analytics-params";
 import { RequestChangeDialog } from "./RequestChangeDialog";
 import { MediaTab } from "./MediaTab";
 import { SmartSelectsTab } from "./SmartSelectsTab";
@@ -604,7 +606,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
         const added = ranDone || (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
-        if (added > 0) setBanner({ count: added });
+        if (added > 0) {
+          trackEvent("upload_completed", { photo_count_bucket: photoCountBucket(added) });
+          setBanner({ count: added });
+        }
       })();
     }
     wasActiveRef.current = isActive;
@@ -1212,6 +1217,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           uploadCover={(file) => engine.uploadCover(file)}
           disabledTypes={changeRequests.filter((r) => r.status === "pending").map((r) => r.type)}
           onSubmitted={(created) => {
+            trackEvent("change_request_submitted", { type: created.type });
             setChangeRequests((prev) => [created, ...prev]);
             toast("Request sent. We will let you know.");
           }}

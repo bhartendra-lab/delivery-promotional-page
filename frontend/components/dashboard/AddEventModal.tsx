@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBooking, ApiError } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
+import { planKindOf } from "@/lib/analytics-params";
 import { EVENT_TYPES, isCountBasedPlan, isStorageBasedPlan, type EventExpiryChoice, type EventType } from "@/lib/types";
 import {
   EVENT_CLIENTS_MAX,
@@ -233,6 +235,8 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
 
   /** The new event's page says once what happened to the WhatsApp invites, then opens. */
   function openCreated(res: Awaited<ReturnType<typeof createBooking>>) {
+    // The event type is one of a fixed list and the plan a fixed word: never the event or couple name.
+    trackEvent("event_created", { event_type: eventType ?? undefined, plan_kind: planKindOf(dlpUsage?.service_type) });
     // The event just used one of the plan's events (or the paid one): the
     // shared usage meter (sidebar, dashboard, "N events left") is only read on
     // load, so it is re-read here or it keeps showing the old count until a

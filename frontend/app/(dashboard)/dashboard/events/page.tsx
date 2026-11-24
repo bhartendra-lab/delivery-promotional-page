@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, exportAllLeadsCsv, getAllBookings } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 import type { Booking, BookingsListResponse } from "@/lib/types";
 import { isCountBasedPlan } from "@/lib/types";
 import { EventCard } from "@/components/dashboard/EventCard";
@@ -118,6 +119,7 @@ export default function EventsListPage() {
     setExportLeadsError(null);
     try {
       await exportAllLeadsCsv();
+      trackEvent("leads_exported", { scope: "all" });
     } catch (e) {
       setExportLeadsError(e instanceof ApiError || e instanceof Error ? e.message : "The export did not work. Please try again.");
     } finally {

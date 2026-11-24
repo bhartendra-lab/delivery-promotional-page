@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { UploadPreviewStrip } from "./UploadPreviewStrip";
+import { trackEvent } from "@/lib/analytics";
+import { photoCountBucket, uploadTierWord } from "@/lib/analytics-params";
 import { useChrome } from "@/components/dashboard/ChromeContext";
 import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
@@ -783,6 +785,9 @@ export function UploadModal({
       }
       setSavingPrefs(false);
     }
+
+    // Tier and a count bucket only: never a file or folder name.
+    trackEvent("upload_started", { tier: uploadTierWord(variant), photo_count_bucket: photoCountBucket(uploadCount) });
 
     // Previously deleted files the studio chose to skip leave the run here, so
     // they are neither uploaded nor counted. Groups left empty are dropped.

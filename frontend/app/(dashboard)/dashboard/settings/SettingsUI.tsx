@@ -51,10 +51,13 @@ export function CopyableIdField({
   className = "",
   layout = "stacked",
   helper,
+  onCopied,
 }: {
   label: string;
   value: string;
   className?: string;
+  /** Called once after the value is copied (the referral page uses it for analytics). */
+  onCopied?: () => void;
   /** See `Field`'s `layout` prop — same contract. */
   layout?: "stacked" | "row";
   /** Extra content below the field — in row layout, sits in the right
@@ -74,6 +77,7 @@ export function CopyableIdField({
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(value);
+      onCopied?.();
       setCopied(true);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), 2000);

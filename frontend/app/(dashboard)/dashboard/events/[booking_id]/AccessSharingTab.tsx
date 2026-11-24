@@ -36,6 +36,7 @@ import { galleryUrlFor } from "@/lib/gallery-url";
 import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { galleryInviteMessage, passcodeShareMessage, SHARE_LANGUAGES, type ShareLang } from "@/lib/share-message";
 import { readShareLang, saveShareLang } from "@/lib/share-lang-store";
+import { trackEvent } from "@/lib/analytics";
 import { guestPhotoUrl } from "@/lib/profile-face";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
@@ -399,6 +400,7 @@ function GuestsPanel({
     setExportError(null);
     try {
       await exportGuestsCsv(bookingId, { guestType: filter === "all" ? undefined : filter });
+      trackEvent("leads_exported", { scope: "event" });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -1206,6 +1208,7 @@ function PasscodeCard({
           disabled={!passcode}
           onClick={() => {
             void navigator.clipboard?.writeText(passcode);
+            trackEvent("passcode_shared", { channel: "copy" });
             setCopied(true);
             setTimeout(() => setCopied(false), 1600);
           }}
@@ -1218,13 +1221,14 @@ function PasscodeCard({
         <button
           type="button"
           disabled={!passcode}
-          onClick={() =>
+          onClick={() => {
+            trackEvent("passcode_shared", { channel: "whatsapp", language: lang });
             window.open(
               `https://wa.me/?text=${encodeURIComponent(passcodeShareMessage({ passcode, eventName, url: shareUrl, lang }))}`,
               "_blank",
               "noopener",
-            )
-          }
+            );
+          }}
           className="brand-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-semibold text-white disabled:opacity-50"
           style={{ background: "#1FA855" }}
         >
@@ -1278,6 +1282,7 @@ function UrlField({ url }: { url: string }) {
         type="button"
         onClick={() => {
           void navigator.clipboard?.writeText(url);
+          trackEvent("gallery_link_copied", { location: "access_tab" });
           setCopied(true);
           setTimeout(() => setCopied(false), 1600);
         }}
@@ -1312,13 +1317,18 @@ function Dispatch({
   const [copied, setCopied] = useState(false);
   const langId = useId();
 
-  const openWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  const openWhatsApp = () => {
+    trackEvent("invite_shared", { channel: "whatsapp", language: lang });
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  };
   const openEmail = () => {
+    trackEvent("invite_shared", { channel: "email", language: lang });
     const subject = `Your photos from ${eventName} are ready`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
   };
   const copy = () => {
     void navigator.clipboard?.writeText(text);
+    trackEvent("invite_shared", { channel: "copy", language: lang });
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
@@ -1427,6 +1437,7 @@ function QrPanel({
     try {
       const slug = eventName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "event";
       await downloadImage(qrImageUrl, `qr-${slug}.png`);
+      trackEvent("qr_downloaded", { format: "png" });
     } catch {
       /* best-effort download; the public URL is also visible on the QR tab */
     } finally {
@@ -1450,6 +1461,7 @@ function QrPanel({
         qrImageUrl,
         coverUrl,
       });
+      trackEvent("qr_downloaded", { format: "pptx" });
     } catch (e) {
       setStandeeError(e instanceof Error ? e.message : "We couldn't build the standee designs. Try again.");
     } finally {

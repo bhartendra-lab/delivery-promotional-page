@@ -1,5 +1,6 @@
 "use client";
 
+import { trackEvent } from "@/lib/analytics";
 import { useEffect, useState } from "react";
 import { getMyReferrals } from "@/lib/api";
 import {
@@ -87,9 +88,10 @@ export default function ReferralsSettingsPage() {
       <Card title="Your Referral code" description={reward ?? undefined} icon={<IconGift size={15} />}>
         <div className="space-y-4">
           <CopyableIdField label="Code" value={data.code} />
-          <CopyableIdField label="Link" value={data.link} />
+          <CopyableIdField label="Link" value={data.link} onCopied={() => trackEvent("referral_link_shared", { channel: "copy" })} />
           <a
             href={whatsappShareUrl(data.share_message, data.link)}
+            onClick={() => trackEvent("referral_link_shared", { channel: "whatsapp" })}
             target="_blank"
             rel="noopener noreferrer"
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"

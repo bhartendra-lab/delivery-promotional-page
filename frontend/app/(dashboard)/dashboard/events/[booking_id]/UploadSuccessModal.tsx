@@ -9,6 +9,7 @@ import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { galleryInviteMessage } from "@/lib/share-message";
 import { readShareLang } from "@/lib/share-lang-store";
 import { useCompany } from "@/lib/useCompany";
+import { trackEvent } from "@/lib/analytics";
 import { NOTIFY_FIRST_LINE, NOTIFY_LATER_LINE, reachableLine, uploadSuccessHeadline } from "@/lib/upload-success-copy";
 import { IconCheck, IconCopy, IconWhatsApp } from "./icons";
 
@@ -67,12 +68,15 @@ export function UploadSuccessModal({
   const copyLink = () => {
     if (!shareUrl) return;
     void navigator.clipboard?.writeText(shareUrl);
+    trackEvent("gallery_link_copied", { location: "upload_done" });
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
   const shareWhatsApp = () => {
     if (!shareUrl) return;
-    const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn, lang: readShareLang() });
+    const lang = readShareLang();
+    const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn, lang });
+    trackEvent("invite_shared", { channel: "whatsapp", language: lang });
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener");
   };
 

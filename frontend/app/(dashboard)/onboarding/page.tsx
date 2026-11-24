@@ -132,6 +132,7 @@ export default function OnboardingPage() {
           {step === "details" ? (
             <StudioDetailsStep
               onSent={(name, phone, answers) => {
+                trackEvent("onboarding_step_completed", { step: "studio_details" });
                 setStudioName(name);
                 setAbout(answers);
                 setWhatsappNumber(phone);
@@ -145,6 +146,7 @@ export default function OnboardingPage() {
               about={about}
               onBack={() => setStep("details")}
               onVerified={(updatedCompany) => {
+                trackEvent("onboarding_step_completed", { step: "whatsapp_verified" });
                 setCompany(updatedCompany);
                 setCompanyState(updatedCompany);
                 setStep("google");
@@ -154,6 +156,8 @@ export default function OnboardingPage() {
             <GoogleBusinessStep
               onDone={(updatedCompany) => {
                 setCompany(updatedCompany);
+                trackEvent("onboarding_step_completed", { step: "google_business" });
+                // The existing event for the end of onboarding; not duplicated under a second name.
                 trackEvent("onboarding_complete");
                 router.replace("/dashboard");
               }}
