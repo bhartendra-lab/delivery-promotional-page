@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
-import { IconHome, IconCalendar, IconQrCode, IconSidebar } from "@/components/ui/icons";
+import { IconHome, IconCalendar, IconQrCode, IconSidebar, IconGift } from "@/components/ui/icons";
 import { useChrome } from "./ChromeContext";
 import { AccountMenu } from "./AccountMenu";
 
@@ -15,6 +15,9 @@ const LS_COLLAPSED = "sidebar_collapsed";
 const COLLAPSE_EVENT = "sidebar:collapsed-change";
 
 type NavItem = { id: string; label: string; href: string; Icon: React.FC<{ size?: number; className?: string }> };
+
+/** The studio's Referral code page. The Settings nav keeps its own entry. */
+const REFER_HREF = "/dashboard/settings/referrals";
 
 const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard", Icon: IconHome },
@@ -30,7 +33,8 @@ export function Sidebar({
   setCollapsed: (next: boolean) => void;
 }) {
   const pathname = usePathname();
-  const { dlpUsage, dlpLoading, storageSyncing } = useChrome();
+  const { dlpUsage, dlpLoading, storageSyncing, referralEligible } = useChrome();
+  const referActive = pathname === REFER_HREF || pathname.startsWith(REFER_HREF + "/");
 
   // "/dashboard" only matches itself exactly — otherwise, since every other
   // top-level section also lives under "/dashboard/...", it'd catch any
@@ -164,6 +168,7 @@ export function Sidebar({
 
       {/* Footer: usage meter + account chip (identity + Settings + Sign out) */}
       <div className={`border-t border-[var(--color-brand-border)] ${collapsed ? "px-2 py-3" : "px-3.5 py-3"}`}>
+        {referralEligible && <ReferEntry collapsed={collapsed} active={referActive} />}
         {collapsed ? (
           <CollapsedUsageMeter usage={dlpUsage} loading={dlpLoading} syncing={storageSyncing} />
         ) : (
@@ -172,6 +177,39 @@ export function Sidebar({
         <AccountMenu variant={collapsed ? "icon" : "chip"} />
       </div>
     </aside>
+  );
+}
+
+/**
+ * "Refer a Studio": a compact secondary link just above the usage card, shown
+ * only to a studio that has a Referral code (the Settings page explains the
+ * rule to the rest). Quieter than the main nav: no active pill, a smaller label.
+ */
+function ReferEntry({ collapsed, active }: { collapsed: boolean; active: boolean }) {
+  if (collapsed) {
+    return (
+      <Link
+        href={REFER_HREF}
+        title="Refer a Studio"
+        aria-label="Refer a Studio"
+        aria-current={active ? "page" : undefined}
+        className="brand-focus mb-1.5 flex h-9 items-center justify-center rounded-lg text-[var(--color-brand-muted)] no-underline transition-colors hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
+      >
+        <IconGift size={18} className={active ? "text-[var(--color-brand-navy)]" : ""} />
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href={REFER_HREF}
+      aria-current={active ? "page" : undefined}
+      className={`brand-focus mb-1.5 flex h-8 items-center gap-2 rounded-lg px-2.5 text-[12.5px] no-underline transition-colors hover:bg-[var(--color-brand-hover)] ${
+        active ? "font-medium text-[var(--color-brand-navy)]" : "text-[var(--color-brand-body)] hover:text-[var(--color-brand-ink)]"
+      }`}
+    >
+      <IconGift size={16} className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} />
+      <span className="truncate">Refer a Studio</span>
+    </Link>
   );
 }
 

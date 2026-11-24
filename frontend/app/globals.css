@@ -41,6 +41,8 @@ button:disabled {
   /* Text */
   --color-brand-ink: #2A2218;
   --color-brand-muted: #7A6F63;
+  /* Body copy tier: darker than muted, for sentences (muted is for meta and helper text). */
+  --color-brand-body: #5C5248;
 
   /* ── Surfaces ────────────────────────────────────────────────────
      Exactly two neutral fills exist. The old cream `--color-brand-surface`

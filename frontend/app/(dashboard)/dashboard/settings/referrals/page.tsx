@@ -22,8 +22,8 @@ const formatDate = (when: string) =>
  * Every code, link, figure and message comes from GET /referrals/me; the page
  * words them and nothing more.
  *
- * Only a studio that has paid has a code (the API says `eligible: false`
- * before that), and the reward depends on the plan it is on when a referred
+ * Only a studio that has paid, or whose plan our team set up by hand, has a
+ * code (the API says `eligible: false` before that), and the reward depends on the plan it is on when a referred
  * studio pays, so the sentence follows its current plan.
  */
 export default function ReferralsSettingsPage() {
@@ -69,7 +69,9 @@ export default function ReferralsSettingsPage() {
       <div className="space-y-6">
         {heading}
         <Card title="Your Referral code" icon={<IconGift size={15} />}>
-          <p className="text-sm text-[var(--color-brand-muted)]">Refer other studios after your first purchase.</p>
+          <p className="text-sm text-[var(--color-brand-muted)]">
+            Your Referral code shows up here once you have bought a plan or events, or once our team has set up your plan for you.
+          </p>
         </Card>
         {referredBy}
       </div>
