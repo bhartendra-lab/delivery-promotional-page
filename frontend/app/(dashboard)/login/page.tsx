@@ -198,12 +198,12 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
 
   const slides: OfferSlide[] = offers.coupons.length
     ? offers.coupons.map((coupon) => ({
-        id: coupon.code,
-        headline: coupon.headline ?? "",
-        subline: coupon.subline,
-        code: coupon.code,
-        until: coupon.valid_until != null ? formatOfferDate(coupon.valid_until) : null,
-      }))
+      id: coupon.code,
+      headline: coupon.headline ?? "",
+      subline: coupon.subline,
+      code: coupon.code,
+      until: coupon.valid_until != null ? formatOfferDate(coupon.valid_until) : null,
+    }))
     : [BRAND_SLIDE];
   const autoplay = !reducedMotion && slides.length > 1;
   const current = Math.min(index, slides.length - 1);
@@ -218,6 +218,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
       </div>
 
       <div className="relative flex items-center gap-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/vyavasth-icon.svg" alt="" className="h-6 w-6 [filter:brightness(0)_invert(1)]" />
         <span className="text-lg font-bold tracking-tight">vyavasth</span>
       </div>
@@ -238,9 +239,8 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
               aria-label={`${i + 1} of ${slides.length}`}
               aria-hidden={!active}
               inert={!active}
-              className={`[grid-area:1/1] transition-[opacity,transform] duration-500 ease-out ${
-                active ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
-              }`}
+              className={`[grid-area:1/1] transition-[opacity,transform] duration-500 ease-out ${active ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
+                }`}
             >
               <p className="text-[28px] font-extrabold leading-[1.08] tracking-[-0.03em] sm:text-[50px] lg:text-[54px]">
                 {slide.headline}
@@ -337,7 +337,7 @@ function CopyCode({ code }: { code: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1600);
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 
   return (
@@ -534,7 +534,7 @@ function useInvitedBy(): string | null {
       .then((res) => {
         if (!cancelled && res.valid && res.studio_name) setName(res.studio_name);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       cancelled = true;
     };

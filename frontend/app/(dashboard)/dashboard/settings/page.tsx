@@ -10,6 +10,7 @@ import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
 import { ChangeBusinessEmailModal } from "./ChangeBusinessEmailModal";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { parseGoogleReviewLink } from "@/lib/google-review";
 import {
   SectionHeading,
   Card,
@@ -60,7 +61,9 @@ export default function StudioIdentityPage() {
   // a review button could exist at all — a picked listing, or the legacy GMB
   // link some older Studios still carry. With neither there is no button to
   // switch off.
-  const hasReviewListing = !!googlePlaceId.trim() || !!company.gmb_link?.trim();
+  const [reviewLink, setReviewLink] = useState(company.gmb_link ?? "");
+  const reviewCheck = parseGoogleReviewLink(reviewLink);
+  const hasReviewListing = !!googlePlaceId.trim() || reviewCheck.status !== "invalid";
 
   // The formatted address Google last committed via onPlaceSelect. Initialised
   // from the loaded company address (not "") so an already-saved listing
@@ -75,6 +78,16 @@ export default function StudioIdentityPage() {
     if (value !== committedAddressRef.current) setGooglePlaceId("");
   }
 
+  // The pasted review link and the searched listing are two ways to say the
+  // same thing, and the gallery prefers a place ID when both exist. So the last
+  // one a Studio sets wins here, instead of a stale place ID silently
+  // overriding a link that was just pasted (or the reverse).
+  function handleReviewLinkChange(value: string) {
+    setReviewLink(value);
+    const check = parseGoogleReviewLink(value);
+    if (check.status === "ok") setGooglePlaceId(check.placeId ?? "");
+  }
+
   function handleRemoveListing() {
     if (
       !window.confirm(
@@ -84,6 +97,7 @@ export default function StudioIdentityPage() {
       return;
     }
     setGooglePlaceId("");
+    setReviewLink("");
     setAddress("");
     committedAddressRef.current = "";
   }
@@ -135,6 +149,7 @@ export default function StudioIdentityPage() {
     changed(website, company.website) ||
     changed(address, company.address) ||
     changed(googlePlaceId, company.google_place_id) ||
+    changed(reviewLink, company.gmb_link) ||
     reviewEnabled !== savedReviewEnabled ||
     !!darkFile ||
     !!lightFile;
@@ -147,8 +162,19 @@ export default function StudioIdentityPage() {
   const nameError = name.length > 0 && !name.trim() ? "Studio name can't be blank." : null;
   const trimmedWebsite = website.trim();
   const websiteError = trimmedWebsite && !WEBSITE_RE.test(trimmedWebsite) ? "Enter a valid website address." : null;
-  const canSave = !!name.trim() && !websiteError && dirty;
-  const blockedReason = nameError ?? websiteError ?? null;
+  // Only a link the Studio has just typed is held to the review-link rule. An
+  // older saved listing link stays as it is until the Studio touches it.
+  const reviewLinkTouched = changed(reviewLink, company.gmb_link);
+  const reviewLinkError =
+    !reviewLinkTouched || reviewCheck.status === "ok" || reviewCheck.status === "invalid" && reviewCheck.reason === "empty"
+      ? null
+      : reviewCheck.status === "listing"
+        ? "This opens your Google listing, not the review box. Use the link from Business Profile > Ask for reviews."
+        : reviewCheck.status === "invalid" && reviewCheck.reason === "not-a-link"
+          ? "That doesn't look like a link. Paste the whole review link."
+          : "That isn't a Google link. Paste the review link from your Google Business Profile.";
+  const canSave = !!name.trim() && !websiteError && !reviewLinkError && dirty;
+  const blockedReason = nameError ?? websiteError ?? reviewLinkError ?? null;
 
   // Auto-prefixes a bare domain ("royalorchidbanquet.com") with https:// on
   // blur rather than relying on native `type="url"` validation — that
@@ -171,6 +197,7 @@ export default function StudioIdentityPage() {
     if (changed(website, company.website)) payload.website = trimmedWebsite;
     if (changed(address, company.address)) payload.address = address.trim();
     if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
+    if (reviewLinkTouched) payload.gmb_link = reviewCheck.status === "ok" ? reviewCheck.url : "";
     if (reviewEnabled !== savedReviewEnabled) payload.google_review_enabled = reviewEnabled;
     if (darkFile) payload.logo = darkFile;
     if (lightFile) payload.logo_light = lightFile;
@@ -186,6 +213,7 @@ export default function StudioIdentityPage() {
     setWebsite(company.website ?? "");
     setAddress(company.address ?? "");
     setGooglePlaceId(company.google_place_id ?? "");
+    setReviewLink(company.gmb_link ?? "");
     setReviewEnabled(savedReviewEnabled);
     committedAddressRef.current = company.address ?? "";
     setDarkFile(null);
@@ -265,6 +293,7 @@ export default function StudioIdentityPage() {
               onChange={handleAddressChange}
               onPlaceSelect={({ placeId, address: pickedAddress }) => {
                 setGooglePlaceId(placeId);
+                setReviewLink("");
                 committedAddressRef.current = pickedAddress;
               }}
               placeholder="Search for your studio"
@@ -273,6 +302,44 @@ export default function StudioIdentityPage() {
             <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
               Pick the matching listing from the list. This links your Google reviews automatically.
             </p>
+          </div>
+
+          <div>
+            <Field
+              label="Or paste your review link"
+              value={reviewLink}
+              onChange={handleReviewLinkChange}
+              placeholder="https://g.page/r/.../review"
+              error={reviewLinkError ?? undefined}
+              hint={
+                reviewCheck.status === "ok"
+                  ? "Guests will land straight on your Google review box."
+                  : "Can't find your studio in the search, or the name is in Hindi? Paste the link instead."
+              }
+              layout="row"
+            />
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 lg:ml-[224px]">
+              <a
+                href="/guides/google-review-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
+              >
+                <OpenIcon className="h-3.5 w-3.5" />
+                Show me how to get this link
+              </a>
+              {reviewCheck.status === "ok" && (
+                <a
+                  href={reviewCheck.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
+                >
+                  <OpenIcon className="h-3.5 w-3.5" />
+                  Test this link
+                </a>
+              )}
+            </div>
           </div>
 
           {googlePlaceId && (
@@ -318,7 +385,7 @@ export default function StudioIdentityPage() {
                 Galleries show a Google review button and an occasional prompt. Turn this off to remove both everywhere.
                 {!hasReviewListing && (
                   <span className="mt-1 block font-medium text-[var(--color-brand-ink)]">
-                    Add your Google Business listing first.
+                    Guests see no review button until you pick your listing or paste your review link above.
                   </span>
                 )}
               </p>
