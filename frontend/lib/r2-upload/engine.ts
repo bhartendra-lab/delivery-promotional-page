@@ -2338,6 +2338,17 @@ export class UploadEngineCore {
       // best evidence there is.
       const deletedSinceSaved = galleryKnown && local?.status === "saved" && !match;
       const existing = deletedSinceSaved ? undefined : local;
+      // Bytes already on R2 but no gallery row yet: it is saved on this run, into
+      // the folder the studio picked NOW. The record's own folder is from the run
+      // that left it behind, and that folder may have been deleted since (a
+      // studio clearing up after a crashed upload) — saving into it made photos
+      // that no folder shows and that every later run skipped as "already there".
+      if (existing?.status === "uploaded" && existing.customFolderId !== inp.customFolderId) {
+        const retargeted: UploadRecord = { ...existing, customFolderId: inp.customFolderId, folderName: inp.folderName, updatedAt: Date.now() };
+        toWrite.push(retargeted);
+        this.records.set(id, retargeted);
+        continue;
+      }
       // Already done locally (resume): leave the record — and any `dedupeMatch`
       // an earlier selection wrote — exactly as it stands.
       if (existing && (existing.status === "uploaded" || existing.status === "saved")) continue;
@@ -2357,6 +2368,11 @@ export class UploadEngineCore {
       };
       const next: UploadRecord = {
         ...record,
+        // This run's folder, never the leftover record's: see the "uploaded"
+        // case above. A stale folder id here sent whole folders of photos into
+        // a folder the studio had already deleted.
+        customFolderId: inp.customFolderId,
+        folderName: inp.folderName,
         status: match ? "saved" : "pending",
         // Always written, never inherited: a record re-queued for upload must
         // not keep a `dedupeMatch` left over from an earlier selection.

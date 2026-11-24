@@ -14,7 +14,7 @@ import {
 import { DeliveryPreferencesPanel, ToggleRow } from "./DeliveryPreferencesPanel";
 import { useCompany } from "@/lib/useCompany";
 import { MOBILE_UPLOAD_ENABLED } from "@/lib/upload-flags";
-import { getUploadedAndDeletedMediaIds } from "@/lib/api";
+import { getUploadedAndDeletedMediaIds, getUploadedMediaIds } from "@/lib/api";
 import type { PhotoCap } from "@/lib/billing-types";
 import { photoCapOverBy, photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
 import { resolveDedup } from "@/lib/r2-upload/dedup";
@@ -512,6 +512,37 @@ export function UploadModal({
     // filesFingerprint captures the selection; files is read inside.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, capped, step, filesFingerprint, bookingId]);
+
+  /* ── Already in this event (every plan) ────────────────────────────────
+   * The engine skips a file whose photo is already in this event, in ANY
+   * folder, and says nothing: a selection that is all duplicates ends in a
+   * second with an empty folder, which looks like a broken upload (prod,
+   * 2026-11-24). Counted here, the same way the engine decides, so the studio
+   * sees it before pressing Upload. Best effort: no count on a failed lookup. */
+  const [inEventCount, setInEventCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open || files.length === 0 || step !== "preferences") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears a stale count synchronously when the selection changes or the studio steps back
+      setInEventCount(null);
+      return;
+    }
+    let cancelled = false;
+    getUploadedMediaIds(bookingId)
+      .then((ids) => {
+        if (cancelled) return;
+        const decisions = resolveDedup(bookingId, files, new Set(ids));
+        setInEventCount(decisions.filter((d) => d.match !== null).length);
+      })
+      .catch(() => {
+        if (!cancelled) setInEventCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // filesFingerprint captures the selection; files is read inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, step, filesFingerprint, bookingId]);
+  const allInEvent = inEventCount !== null && inEventCount > 0 && inEventCount === files.length;
 
   const capWeight4k = photoCapWeight4k(capCheck?.cap ?? photoCap);
   /** Previously deleted files this run leaves out: none, unless the studio chose to skip them. */
@@ -1104,6 +1135,20 @@ export function UploadModal({
               an over-quota storage estimate blocks it, and the upload starts by
               itself once a capacity purchase is confirmed. The selection and
               every choice on this step stay exactly as they are throughout. */}
+          {step === "preferences" && hasSelection && inEventCount !== null && inEventCount > 0 && (
+            <p
+              role="status"
+              className={
+                allInEvent
+                  ? "border-t border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-3 text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]"
+                  : "border-t border-[var(--color-brand-border)] px-6 py-2.5 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]"
+              }
+            >
+              {allInEvent
+                ? `All ${files.length.toLocaleString("en-IN")} of these photos are already in this event, so nothing will upload. Look for them in the event's other folders.`
+                : `${inEventCount.toLocaleString("en-IN")} of these photos ${inEventCount === 1 ? "is" : "are"} already in this event and will be skipped.`}
+            </p>
+          )}
           {/* Files deleted from this event before: uploading them again uses
               the allowance again, so the studio decides. Uploaded again by default. */}
           {step === "preferences" && hasSelection && capCheck && capCheck.deletedFiles.length > 0 && (
