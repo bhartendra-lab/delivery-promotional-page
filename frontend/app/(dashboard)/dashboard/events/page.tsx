@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getAllBookings } from "@/lib/api";
+import { ApiError, exportAllLeadsCsv, getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse } from "@/lib/types";
 import { isCountBasedPlan } from "@/lib/types";
 import { EventCard } from "@/components/dashboard/EventCard";
@@ -13,6 +13,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
 import { FirstPurchaseNotice } from "@/components/billing/FirstPurchaseNotice";
 import {
+  IconDownload,
   IconPlus,
   IconSearch,
   IconX,
@@ -107,6 +108,23 @@ export default function EventsListPage() {
     setPage(1);
   }
 
+  // One CSV of every guest and Client across the studio's events. The server
+  // streams it and names it; a failure (or the hourly limit) says so here.
+  const [exportingLeads, setExportingLeads] = useState(false);
+  const [exportLeadsError, setExportLeadsError] = useState<string | null>(null);
+  async function exportLeads() {
+    if (exportingLeads) return;
+    setExportingLeads(true);
+    setExportLeadsError(null);
+    try {
+      await exportAllLeadsCsv();
+    } catch (e) {
+      setExportLeadsError(e instanceof ApiError || e instanceof Error ? e.message : "The export did not work. Please try again.");
+    } finally {
+      setExportingLeads(false);
+    }
+  }
+
   function openEvent(row: Booking) {
     router.push(`/dashboard/events/${row._id}`);
   }
@@ -136,6 +154,21 @@ export default function EventsListPage() {
           )}
         </div>
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void exportLeads()}
+              disabled={exportingLeads}
+              title="One file with every guest and Client from all your events"
+              className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
+            >
+              {exportingLeads ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+              ) : (
+                <IconDownload size={15} />
+              )}
+              Export all leads
+            </button>
           <button
             type="button"
             onClick={() => setModalOpen(true)}
@@ -144,6 +177,12 @@ export default function EventsListPage() {
             <IconPlus />
             Add event
           </button>
+          </div>
+          {exportLeadsError && (
+            <p role="alert" className="max-w-xs text-xs text-[var(--color-brand-danger)] sm:text-right">
+              {exportLeadsError}
+            </p>
+          )}
           {lowRemaining && (
             <p className="text-xs text-[var(--color-brand-muted)]">{dlpUsage?.remaining} events left</p>
           )}

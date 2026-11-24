@@ -1476,22 +1476,33 @@ export function getAllGuests(bookingId: string, opts?: { guestType?: GuestAccess
  * helper) so the CSV blob and its filename survive, then triggers a browser
  * download via a throwaway anchor.
  */
-export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
-  const params = new URLSearchParams({ exportCsv: "true" });
-  if (opts?.guestType) params.set("guest_type", opts.guestType);
+/**
+ * Fetches a CSV from the authenticated API and saves it with the file name the
+ * server chose (its Content-Disposition), so the server is the one place that
+ * names an export. Raw `fetch`, not the JSON `request` helper, so the blob and
+ * its name survive.
+ */
+async function downloadAuthedCsv(path: string, fallbackName: string) {
   const token = getToken();
-  const res = await fetch(
-    `${API_BASE}/deliverables/get-all-guests/${encodeURIComponent(bookingId)}?${params.toString()}`,
-    {
-      cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    },
-  );
+  const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!res.ok) {
-    throw new ApiError(res.status, `Export failed: ${res.status}`, null);
+    // A rate limit answers with a sentence of its own; show that rather than a status code.
+    let message = `Export failed: ${res.status}`;
+    if (res.status === 429) {
+      try {
+        const body = (await res.json()) as { message?: string };
+        if (body?.message) message = body.message;
+      } catch {
+        /* keep the generic line */
+      }
+    }
+    throw new ApiError(res.status, message, null);
   }
   const disposition = res.headers.get("Content-Disposition") ?? "";
-  const filename = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() || `${bookingId}_guests.csv`;
+  const filename = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() || fallbackName;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1501,6 +1512,24 @@ export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: Gu
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
+  const params = new URLSearchParams({ exportCsv: "true" });
+  if (opts?.guestType) params.set("guest_type", opts.guestType);
+  await downloadAuthedCsv(
+    `/deliverables/get-all-guests/${encodeURIComponent(bookingId)}?${params.toString()}`,
+    `${bookingId}_guests.csv`,
+  );
+}
+
+/**
+ * GET /bookings/export-all-leads: one CSV of every guest of every event of this
+ * studio (streamed by the server; the file is saved as it is named there).
+ * 429 carries a plain sentence when the hourly limit is used up.
+ */
+export async function exportAllLeadsCsv() {
+  await downloadAuthedCsv("/bookings/export-all-leads", "all-events-leads.csv");
 }
 
 /**
