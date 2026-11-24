@@ -35,14 +35,28 @@ export function autoCouponFor(offers: readonly AvailableCoupon[] | null | undefi
   return best?.code ?? null;
 }
 
-/** The pay button: the amount once the preview has priced it. */
+/**
+ * Whether the priced purchase costs nothing: a coupon covers the whole event,
+ * so the checkout grants it on the spot and Razorpay never opens.
+ */
+export function isFreeEvent(total: number | null | undefined): boolean {
+  return total === 0;
+}
+
+/** The pay button: the amount once the preview has priced it, or the free wording at ₹0. */
 export function continueToPayLabel(total: number | null | undefined): string {
+  if (isFreeEvent(total)) return "Create event for free";
   return typeof total === "number" && Number.isFinite(total) ? `Continue to pay ${formatInr(total, { paise: true })}` : "Continue to pay";
 }
 
 /** What the applied coupon does to this purchase, as one short line, or null. */
-export function appliedCouponLine(code: string | null | undefined, bonusEvents: number | null | undefined): string | null {
+export function appliedCouponLine(
+  code: string | null | undefined,
+  bonusEvents: number | null | undefined,
+  total?: number | null,
+): string | null {
   if (!code) return null;
+  if (isFreeEvent(total)) return `${code} applied: this event is on us.`;
   const bonus = Number(bonusEvents) || 0;
   if (bonus > 0) return `${code} applied: you also get ${bonus} free event${bonus === 1 ? "" : "s"}.`;
   return `${code} applied.`;

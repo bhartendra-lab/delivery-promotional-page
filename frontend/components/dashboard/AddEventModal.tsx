@@ -21,6 +21,7 @@ import {
   PAID_CREATE_RETRY_MS,
   appliedCouponLine,
   continueToPayLabel,
+  isFreeEvent,
   shouldRetryPaidCreate,
 } from "@/lib/event-pay";
 import { useCompany } from "@/lib/useCompany";
@@ -307,7 +308,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     }
   }
 
-  /** "Continue to pay": Razorpay for one event, straight away. */
+  /** "Continue to pay": Razorpay for one event, straight away (no Razorpay at ₹0: the server grants it). */
   function startPayment() {
     if (purchase.blockedReason) {
       setServerError(purchase.blockedReason);
@@ -434,7 +435,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const actionLabel = paying ? (
     <>
       <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
-      Opening payment…
+      {isFreeEvent(purchase.total) ? "Creating…" : "Opening payment…"}
     </>
   ) : submitting ? (
     <>
@@ -718,16 +719,18 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between gap-3">
               <span className="font-semibold text-[var(--color-brand-ink)]">1 event</span>
               <span className="font-semibold text-[var(--color-brand-ink)]">
-                {purchase.total != null
+                {isFreeEvent(purchase.total)
+                  ? "Free"
+                  : purchase.total != null
                   ? `${formatInr(purchase.total, { paise: true })} incl. GST`
                   : purchase.settled
                     ? ""
                     : "Working out the price…"}
               </span>
             </div>
-            {appliedCouponLine(purchase.couponCode, purchase.bonusEvents) && (
+            {appliedCouponLine(purchase.couponCode, purchase.bonusEvents, purchase.total) && (
               <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[var(--color-brand-success)]">
-                {appliedCouponLine(purchase.couponCode, purchase.bonusEvents)}
+                {appliedCouponLine(purchase.couponCode, purchase.bonusEvents, purchase.total)}
                 <button
                   type="button"
                   onClick={purchase.dropCoupon}

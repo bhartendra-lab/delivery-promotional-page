@@ -44,8 +44,15 @@ import { useEventTheme } from "./EventThemeContext";
  *
  * Studio custom domains show it too (D9, default on).
  */
+/**
+ * ON HOLD: the whole "Get your photos in the app" sheet is switched off for
+ * now, whatever NEXT_PUBLIC_GUEST_APP_ENABLED says. Guests go straight into
+ * the gallery in the browser. Set to true to bring the sheet back.
+ */
+const APP_HANDOFF_ON = false;
+
 const ENV: HandoffEnv = {
-  enabled: process.env.NEXT_PUBLIC_GUEST_APP_ENABLED === "1",
+  enabled: APP_HANDOFF_ON && process.env.NEXT_PUBLIC_GUEST_APP_ENABLED === "1",
   appStoreId: process.env.NEXT_PUBLIC_APP_STORE_ID,
   playPackage: process.env.NEXT_PUBLIC_PLAY_PACKAGE,
   playStoreLive: process.env.NEXT_PUBLIC_PLAY_STORE_LIVE === "1",

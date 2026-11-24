@@ -323,10 +323,11 @@ export const SKIP_HINT: TourStep = {
 };
 
 /** The card's own words. */
-export const TOUR_CHROME: Record<TourLang, { next: string; skip: string; tapHint: string; stepOf: (n: number, total: number) => string; replay: string; replayHint: string }> = {
+export const TOUR_CHROME: Record<TourLang, { next: string; skip: string; tapHint: string; tapHere: string; stepOf: (n: number, total: number) => string; replay: string; replayHint: string }> = {
   en: {
     next: "Next",
-    tapHint: "Tap the highlighted spot",
+    tapHint: "Tap the glowing button",
+    tapHere: "Tap here",
     skip: "Skip tour",
     stepOf: (n, total) => `${n} of ${total}`,
     replay: "Watch the tour",
@@ -335,7 +336,8 @@ export const TOUR_CHROME: Record<TourLang, { next: string; skip: string; tapHint
   hi: {
     next: "आगे",
     skip: "टूर छोड़ें",
-    tapHint: "चमकती जगह पर टैप करें",
+    tapHint: "चमकते बटन पर टैप करें",
+    tapHere: "यहाँ टैप करें",
     stepOf: (n, total) => `${total} में से ${n}`,
     replay: "टूर देखें",
     replayHint: "Guest Control, फ़ेस फ़िल्टर और एल्बम चयन",

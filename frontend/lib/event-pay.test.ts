@@ -50,6 +50,10 @@ test("continueToPayLabel and appliedCouponLine", () => {
   assert.equal(appliedCouponLine("FIRSTFREE", 1), "FIRSTFREE applied: you also get 1 free event.");
   assert.equal(appliedCouponLine("SAVE10", 0), "SAVE10 applied.");
   assert.equal(appliedCouponLine(null, 2), null);
+  // A coupon that covers the whole event: no payment step at all.
+  assert.equal(continueToPayLabel(0), "Create event for free");
+  assert.equal(appliedCouponLine("FIRSTFREE", 0, 0), "FIRSTFREE applied: this event is on us.");
+  assert.equal(appliedCouponLine("SAVE10", 0, 450), "SAVE10 applied.");
 });
 
 test("shouldRetryPaidCreate: only a 402 while the payment lands, and not forever", () => {

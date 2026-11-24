@@ -313,6 +313,8 @@ export function ClientTour({
   const copy = stepCopy(step, lang, studio);
   const chrome = TOUR_CHROME[lang];
   const interactive = stepInteractive(step) && !!rect;
+  // The Client has to press the spot: make it unmissable.
+  const tap = step.advance === "tap" && !!rect;
   const finish = () => {
     if ("hint" in (run ?? {})) setRun(null);
     else advance();
@@ -331,13 +333,26 @@ export function ClientTour({
               width: rect.width,
               height: rect.height,
               borderRadius: Math.min(18, rect.height / 2),
-              boxShadow: "0 0 0 200vmax rgba(18,14,8,0.62)",
+              boxShadow: "0 0 0 200vmax rgba(14,10,6,0.72)",
             }}
           >
+            {/* Always there: a thick brand ring with a white edge and a glow,
+                so the spot reads as "this one" even on a busy photo. */}
             <div
-              className="tour-ring absolute inset-0"
-              style={{ borderRadius: "inherit", border: `2px solid ${t.brand}`, boxShadow: `0 0 0 4px ${t.accentWash}` }}
+              className={`${tap ? "tour-glow" : ""} absolute inset-0`}
+              style={{
+                borderRadius: "inherit",
+                border: `3px solid ${t.brand}`,
+                boxShadow: `0 0 0 2px rgba(255,255,255,0.9), 0 0 24px 6px color-mix(in srgb, ${t.brand} 60%, transparent)`,
+              }}
             />
+            {/* A tap step also sends ripples out of it, like a press. */}
+            {tap && (
+              <>
+                <div className="tour-ripple absolute inset-0" style={{ borderRadius: "inherit", border: `3px solid ${t.brand}` }} />
+                <div className="tour-ripple absolute inset-0" style={{ borderRadius: "inherit", border: `3px solid ${t.brand}`, animationDelay: "0.8s" }} />
+              </>
+            )}
           </div>
           {/* The lock: four panes around the spotlight, plus one over it when
               the step is only to be read. */}
@@ -360,6 +375,7 @@ export function ClientTour({
         body={copy.body}
         cta={step.advance !== "next" && rect ? null : copy.cta}
         tapHint={chrome.tapHint}
+        tapHere={tap ? chrome.tapHere : null}
         position={position}
         skipLabel={"hint" in (run ?? {}) ? null : chrome.skip}
         onCta={finish}
