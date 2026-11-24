@@ -8,6 +8,7 @@ import {
   EVENT_CLIENTS_MAX,
   EVENT_CLIENT_NAME_MAX,
   coupleEventNamePreview,
+  coupleEventNameField,
   createdEventNotice,
   createdEventNoticeKey,
   eventExpiryPreview,
@@ -116,6 +117,12 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const [groom, setGroom] = useState(() => newPerson("groom"));
   const [extras, setExtras] = useState<PersonDraft[]>([]);
   const [eventName, setEventName] = useState("");
+  // A couple event's own Event name. It follows "Bride & Groom" live until the
+  // Studio types in the field, and from then on it is theirs, even when they
+  // later change a name above. Held apart from `eventName` (the other types'
+  // field), so switching type never leaks one into the other.
+  const [coupleEventNameText, setCoupleEventNameText] = useState("");
+  const [coupleEventNameEdited, setCoupleEventNameEdited] = useState(false);
   const [clients, setClients] = useState<PersonDraft[]>(() => [newPerson("client")]);
   // Event date and expiry survive any switch of type.
   const [eventDate, setEventDate] = useState("");
@@ -141,6 +148,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const payPerEvent = isCountBasedPlan(dlpUsage?.service_type);
   const canNotify = hasCompleteNumber(people);
   const namePreview = coupleEventNamePreview(bride.name, groom.name);
+  const coupleEventNameState = coupleEventNameField({ preview: namePreview, edited: coupleEventNameEdited, typed: coupleEventNameText });
 
   // Pay mode: no events left on a pay per event (or Free) plan, as the usage
   // meter says, or as the server said when a create was refused with 402.
@@ -270,8 +278,14 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     const epoch = eventDate ? new Date(`${eventDate}T00:00:00`).getTime() : NaN;
     const body: CreateBody = {
       event_type: eventType,
-      // A couple event is named by the backend from the Bride and Groom.
-      ...(couple ? {} : { event_name: eventName.trim() }),
+      // A couple event sends the Event name shown in its field ("Aanya & Rohan"
+      // until the Studio changes it); left empty, the backend names it from the
+      // Bride and Groom. The couple's own names always travel as `clients`.
+      ...(couple
+        ? coupleEventNameState.send
+          ? { event_name: coupleEventNameState.send }
+          : {}
+        : { event_name: eventName.trim() }),
       ...(Number.isFinite(epoch) ? { event_date: epoch } : {}),
       clients: draft.clients,
       ...(showExpiry && expiryChoice
@@ -576,15 +590,27 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
                 {personRow(bride, { label: "Bride", required: true, what: "Bride" })}
                 {personRow(groom, { label: "Groom", required: true, what: "Groom" })}
                 <div>
-                  <p aria-live="polite" className="text-[13px] text-[var(--color-brand-ink)]">
-                    {namePreview && (
-                      <>
-                        <span className="text-[var(--color-brand-muted)]">Event name: </span>
-                        <span className="font-semibold">{namePreview}</span>
-                      </>
-                    )}
+                  <label htmlFor={eventField.eventName} className={LABEL_CLASS}>
+                    Event name <span className="font-normal normal-case tracking-normal">(optional)</span>
+                  </label>
+                  <input
+                    id={eventField.eventName}
+                    type="text"
+                    value={coupleEventNameState.value}
+                    onChange={(e) => {
+                      setCoupleEventNameText(e.target.value);
+                      setCoupleEventNameEdited(true);
+                    }}
+                    placeholder="Bride & Groom"
+                    disabled={busy}
+                    autoComplete="off"
+                    aria-describedby={`${eventField.eventName}-hint`}
+                    className={`${INPUT_CLASS} ${borderFor(false)}`}
+                  />
+                  <p id={`${eventField.eventName}-hint`} className={`mt-1.5 ${HINT_CLASS}`}>
+                    Shown on your gallery and in your dashboard. It follows the couple&apos;s names until you change it.
+                    {payPerEvent && " It can't be changed after you create it."}
                   </p>
-                  {payPerEvent && <p className={HINT_CLASS}>The event name can&apos;t be changed after you create it.</p>}
                 </div>
                 {extras.length > 0 && (
                   <div className="flex flex-col gap-2.5">

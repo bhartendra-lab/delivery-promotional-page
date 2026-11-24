@@ -6,6 +6,7 @@ import {
   EVENT_EXPIRY_OPTIONS,
   coupleEventName,
   coupleEventNamePreview,
+  coupleEventNameField,
   coupleContactsNotice,
   coupleField,
   coupleSlotsMissingNumber,
@@ -384,4 +385,22 @@ test("coupleContactsNotice: names who is a Client and what happened on WhatsApp"
   assert.equal(coupleContactsNotice(["Aanya Sharma"], { status: "sending", count: 1 }), "Aanya is now a Client. Sending the gallery link on WhatsApp.");
   assert.equal(coupleContactsNotice(["Aanya", "Rohan Mehta"], { status: "skipped", count: 2 }), "Aanya and Rohan are now Clients. Not messaged on WhatsApp.");
   assert.equal(coupleContactsNotice(["Aanya"], { status: "unavailable", count: 1 }), "Aanya is now a Client.");
+});
+
+test("coupleEventNameField: follows the couple until edited, then belongs to the Studio", () => {
+  const preview = "Aanya & Rohan";
+  assert.deepEqual(coupleEventNameField({ preview, edited: false, typed: "" }), { value: "Aanya & Rohan", send: "Aanya & Rohan" });
+  // The names above change: an untouched field follows.
+  assert.equal(coupleEventNameField({ preview: "Aanya & Kabir", edited: false, typed: "" }).value, "Aanya & Kabir");
+  // Edited: the typed text wins over any later change of names.
+  assert.deepEqual(coupleEventNameField({ preview: "Aanya & Kabir", edited: true, typed: "The Sharma Wedding" }), {
+    value: "The Sharma Wedding",
+    send: "The Sharma Wedding",
+  });
+});
+
+test("coupleEventNameField: nothing is sent when the field is empty, so the backend names it from the couple", () => {
+  assert.deepEqual(coupleEventNameField({ preview: null, edited: false, typed: "" }), { value: "", send: null });
+  assert.equal(coupleEventNameField({ preview: "A & B", edited: true, typed: "   " }).send, null);
+  assert.equal(coupleEventNameField({ preview: "A & B", edited: true, typed: "  Our   Day " }).send, "Our Day");
 });
