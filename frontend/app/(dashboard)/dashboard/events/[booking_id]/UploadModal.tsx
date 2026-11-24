@@ -955,7 +955,7 @@ export function UploadModal({
               )}
               <StepSection
                 title="Upload quality"
-                description=""
+                description="How large the saved photos are."
               >
                 <QualityTierSelector
                   value={variant}
@@ -976,7 +976,7 @@ export function UploadModal({
                   they have landed (the mark is baked in as they upload). */}
               <StepSection
                 title="Watermark"
-                description=""
+                description="Stamp your logo on the photos your guests see."
               >
                 <div className="overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
                   <ToggleRow
@@ -995,7 +995,7 @@ export function UploadModal({
 
               <StepSection
                 title="Guest gallery"
-                description=""
+                description="Choose what guests can do with these photos."
               >
                 <DeliveryPreferencesPanel
                   value={effectivePrefs}

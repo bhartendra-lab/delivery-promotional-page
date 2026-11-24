@@ -99,6 +99,102 @@ export function withArchiveDefault(
   return next === draft.archive_download_access ? draft : { ...draft, archive_download_access: next };
 }
 
+/* ── "Who can download?": one question over two stored fields ────────────
+ *
+ * The studio's whole decision about downloads is one question. The two stored
+ * fields (`allow_download`, `archive_download_access`) are unchanged and keep
+ * their meaning; this only reads them as one choice, and writes both back
+ * through `patch`. Both surfaces (the upload dialog and the Gallery preferences
+ * modal) render this, through the shared panel, so they read the same.
+ *
+ * HD is the 2560px copy every guest sees; the archive tiers are the 4K and
+ * original files. "Family" is a guest who entered the passcode.
+ */
+
+export type DownloadChoiceValue = "everyone" | "family_full" | "hd_only" | "nobody";
+
+export type DownloadChoiceOption = {
+  value: DownloadChoiceValue;
+  label: string;
+  /** What choosing it writes: the stored fields it sets. */
+  patch: Partial<DeliveryPreferences>;
+};
+
+export type DownloadChoice = {
+  label: string;
+  options: DownloadChoiceOption[];
+  selected: DownloadChoiceValue;
+  /** The plain sentence under the question: what happens right now. */
+  outcome: string;
+  /** Only where the choice hands over files with no watermark. */
+  note?: string;
+};
+
+/** The archive files, as a short noun phrase inside a sentence. */
+function fullResPhrase(tiers: ArchiveTier[]): string {
+  if (tiers.length === 0) return "full-resolution files";
+  if (tiers.length === 1) return tiers[0] === "4096" ? "4K" : "original files";
+  return "4K and original files";
+}
+
+export const DOWNLOAD_CHOICE_QUESTION = "Who can download?";
+
+export function resolveDownloadChoice(
+  value: DeliveryPreferences,
+  context: DeliveryPreferenceContext = { archiveTiers: [] },
+): DownloadChoice {
+  const tiers = context.archiveTiers;
+  const nobody: DownloadChoiceOption = { value: "nobody", label: "Nobody", patch: { allow_download: false } };
+  const nobodyOutcome = "Downloads are off. No guest can download photos, passcode holders included.";
+
+  // An HD only event has no archive copy: the choice is just on or off.
+  if (tiers.length === 0) {
+    return {
+      label: DOWNLOAD_CHOICE_QUESTION,
+      options: [{ value: "everyone", label: "Every guest", patch: { allow_download: true } }, nobody],
+      selected: value.allow_download ? "everyone" : "nobody",
+      outcome: value.allow_download ? "Every guest can download HD photos." : nobodyOutcome,
+    };
+  }
+
+  const full = fullResPhrase(tiers);
+  const options: DownloadChoiceOption[] = [
+    { value: "everyone", label: "Every guest", patch: { allow_download: true, archive_download_access: "all_guests" } },
+    {
+      value: "family_full",
+      label: `Every guest gets HD, family gets ${full}`,
+      patch: { allow_download: true, archive_download_access: "host_only" },
+    },
+    { value: "hd_only", label: "Every guest gets HD only", patch: { allow_download: true, archive_download_access: "none" } },
+    nobody,
+  ];
+  const selected: DownloadChoiceValue = !value.allow_download
+    ? "nobody"
+    : value.archive_download_access === "all_guests"
+      ? "everyone"
+      : value.archive_download_access === "none"
+        ? "hd_only"
+        : "family_full";
+  const outcomes: Record<DownloadChoiceValue, string> = {
+    everyone: `Every guest can download HD photos and ${full}.`,
+    family_full: `Every guest can download HD photos. Family (passcode) can also download ${full}.`,
+    hd_only: `Every guest can download HD photos. Nobody can download ${full}.`,
+    nobody: nobodyOutcome,
+  };
+  return {
+    label: DOWNLOAD_CHOICE_QUESTION,
+    options,
+    selected,
+    outcome: outcomes[selected],
+    // Blunt where it matters: an original has no watermark, and "every guest"
+    // hands it to everyone who can see the gallery.
+    ...(selected === "everyone" && tiers.includes("original") ? { note: "Original files have no watermark." } : {}),
+  };
+}
+
+/** The two stored keys the question above replaces in a panel's row list. */
+export const DOWNLOAD_CHOICE_KEYS: ReadonlyArray<keyof DeliveryPreferences> = ["allow_download", "archive_download_access"];
+
 /** Allowed values for each non-boolean preference. `normalizeDeliveryPreferences`
  *  checks membership, so a value outside this list (a typo, an older/newer
  *  client, a half-written document) resolves to the conservative default rather
