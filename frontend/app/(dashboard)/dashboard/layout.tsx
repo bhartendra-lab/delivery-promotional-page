@@ -31,7 +31,7 @@ export default function DashboardLayout({
       // with the pathname alone the "?extend=1" was lost. The login page still
       // passes `next` through sanitizeRedirectPath, which only ever allows a
       // same-origin relative path.
-      router.replace(`/login?next=${encodeURIComponent(`${pathname}${window.location.search}`)}`);
+      router.replace(`/login?next=${encodeURIComponent(`${pathname}${window.location.search}${window.location.hash}`)}`);
       return;
     }
     // Keeps this device signed in: a no-op until the token is a day old, then

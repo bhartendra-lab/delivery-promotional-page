@@ -1222,6 +1222,8 @@ export function LoungeGallery({
   const [tourReplay, setTourReplay] = useState(0);
   /** Bumped by the tour to unfold the chrome (the Liked step needs the nav). */
   const [tourUnfold, setTourUnfold] = useState(0);
+  /** The Client tour is up: the review nudge waits until it is over. */
+  const [tourRunning, setTourRunning] = useState(false);
   // Saved on the guest at sign-in; this browser's welcome-screen choice
   // until the session carries one.
   const deviceLang = useDeviceLang();
@@ -2755,11 +2757,11 @@ export function LoungeGallery({
         eligible={caps.canSend}
         idle={!overlayOpen && !selectMode}
         replaySeq={tourReplay}
+        onRunningChange={setTourRunning}
         onAction={(action) => {
-          if (action === "reveal-nav") {
-            setTourUnfold((n) => n + 1);
-            return;
-          }
+          // Both bring back the folded top bar and nav: the step points there.
+          setTourUnfold((n) => n + 1);
+          if (action === "reveal-nav") return;
           setProfileOpen(false);
           setGuestControlOpen(false);
           setReviewOpen(false);
@@ -2843,7 +2845,7 @@ export function LoungeGallery({
       )}
 
       {/* triggered review nudge — mobile bottom sheet, desktop corner card */}
-      {nudge && reviewUrl && (
+      {nudge && reviewUrl && !tourRunning && (
         <ReviewNudge
           t={t}
           variant={isDesktop ? "corner" : "sheet"}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { setToken, setCompany, needsOnboarding } from "@/lib/auth";
+import { setToken, setCompany, needsOnboarding, takePostLoginRedirect } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 
@@ -25,7 +25,10 @@ export default function StudioAuthCallbackPage() {
         setCompany(company);
         const isNewStudio = needsOnboarding(company);
         trackEvent(isNewStudio ? "sign_up" : "login", { method: "google" });
-        const dest = isNewStudio ? "/onboarding" : "/dashboard";
+        // Back to the page the signed-out link pointed at (parked by /login
+        // before the Google hop). Always taken, so it never lingers.
+        const parked = takePostLoginRedirect();
+        const dest = isNewStudio ? "/onboarding" : parked;
         // The redirect is a full page load; give GTM a beat to send the event.
         window.setTimeout(() => window.location.replace(dest), 150);
       })

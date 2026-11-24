@@ -114,8 +114,50 @@ export const PLAN_STEP_PATH = "/checkout?onboarding=1";
  */
 export function sanitizeRedirectPath(raw: string | null | undefined, fallback = "/dashboard"): string {
   if (!raw) return fallback;
-  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) return fallback;
+  // A backslash counts too: browsers read "/\evil.com" as "//evil.com".
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://") || raw.includes("\\")) return fallback;
   return raw;
+}
+
+/**
+ * Where to land after a sign-in that leaves this site (Google SSO).
+ *
+ * The emailed-code sign-in stays on /login and reads `?next=` directly, but
+ * Google goes to the backend → Google → the backend → /auth/callback, and the
+ * `?next=` is gone by then. So the login page parks the target here just
+ * before the hop and the callback takes it back. localStorage rather than
+ * sessionStorage because some in-app browsers (WhatsApp, Instagram) finish the
+ * Google hop in a different tab. Expires after 30 minutes so a stale target
+ * never hijacks a later, unrelated sign-in.
+ */
+const POST_LOGIN_REDIRECT_KEY = "vyv_post_login_redirect";
+const POST_LOGIN_REDIRECT_TTL_MS = 30 * 60 * 1000;
+
+export function rememberPostLoginRedirect(path: string): void {
+  try {
+    const safe = sanitizeRedirectPath(path, "");
+    if (!safe || safe === "/dashboard") {
+      localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+      return;
+    }
+    localStorage.setItem(POST_LOGIN_REDIRECT_KEY, JSON.stringify({ path: safe, at: Date.now() }));
+  } catch {
+    /* storage blocked: the sign-in still works, it just lands on /dashboard */
+  }
+}
+
+/** Reads and clears the parked target; the fallback when none (or expired). */
+export function takePostLoginRedirect(fallback = "/dashboard"): string {
+  try {
+    const raw = localStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+    localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    if (!raw) return fallback;
+    const { path, at } = JSON.parse(raw) as { path?: string; at?: number };
+    if (typeof at !== "number" || Date.now() - at > POST_LOGIN_REDIRECT_TTL_MS) return fallback;
+    return sanitizeRedirectPath(path, fallback);
+  } catch {
+    return fallback;
+  }
 }
 
 export function setCompany(company: Company): void {

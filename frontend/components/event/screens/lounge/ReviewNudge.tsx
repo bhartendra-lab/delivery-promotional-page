@@ -53,9 +53,11 @@ export function ReviewNudge({
 
   if (variant === "sheet") {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-[55] px-4 pb-[calc(env(safe-area-inset-bottom)+84px)]">
+      // The wrapper spans the screen's foot, bottom nav included (the padding
+      // lifts the card above it): it must let taps through to the nav.
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[55] px-4 pb-[calc(env(safe-area-inset-bottom)+84px)]">
         <div
-          className="nudge-rise relative mx-auto flex w-full max-w-[460px] items-center gap-3 rounded-2xl p-4"
+          className="nudge-rise pointer-events-auto relative mx-auto flex w-full max-w-[460px] items-center gap-3 rounded-2xl p-4"
           style={{ background: t.card, boxShadow: t.shadow }}
         >
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: t.accentWash, color: t.brand }}>

@@ -41,7 +41,9 @@ export type TourTarget =
   | "photo-menu"
   | "menu-collect"
   | "save-sheet"
+  | "nav-gallery"
   | "nav-liked"
+  | "open-gallery"
   | "segment-collections"
   | "review-send";
 
@@ -57,7 +59,8 @@ export type TourTarget =
 export type TourAdvance = "tap" | "next" | "gone";
 
 /** Something the platform does as a step opens: close the sheets the tour
- *  opened, or bring back the bottom nav a scroll folded away. */
+ *  opened, or bring back the top bar and bottom nav a scroll folded away.
+ *  "close-overlays" brings them back too: its steps point at that chrome. */
 export type TourAction = "close-overlays" | "reveal-nav";
 
 type Copy = { title: string; body: string; cta?: string };
@@ -103,6 +106,8 @@ const GUEST_CONTROL: readonly TourStep[] = [
     key: "open-profile",
     target: "profile",
     advance: "tap",
+    // The phone's top bar folds away on scroll; bring it back first.
+    action: "reveal-nav",
     copy: {
       en: { title: "Your profile", body: "Your tools live here. Tap your profile to open it." },
       hi: { title: "आपकी प्रोफ़ाइल", body: "आपके सारे टूल यहीं हैं। प्रोफ़ाइल खोलने के लिए इस पर टैप करें।" },
@@ -155,18 +160,19 @@ const GUEST_CONTROL: readonly TourStep[] = [
   },
   {
     key: "next-gallery",
-    target: "profile",
-    advance: "next",
+    // The phone's Gallery tab, or the laptop cover's "scroll to gallery".
+    target: ["nav-gallery", "open-gallery"],
+    advance: "tap",
     action: "close-overlays",
     copy: {
       en: {
-        title: "That’s Guest Control",
-        body: "You’ll find it in your profile anytime. Now open the gallery — we’ll show you how to find photos with your loved ones.",
+        title: "Now, your photos",
+        body: "Guest Control stays in your profile. Open the gallery next — we’ll show you how to find photos with your loved ones.",
         cta: "Got it",
       },
       hi: {
-        title: "यह था Guest Control",
-        body: "यह आपको हमेशा प्रोफ़ाइल में मिलेगा। अब गैलरी खोलें — हम दिखाएँगे कि अपनों के साथ वाली फ़ोटो कैसे ढूँढें।",
+        title: "अब, आपकी फ़ोटो",
+        body: "Guest Control आपकी प्रोफ़ाइल में ही रहेगा। अब गैलरी खोलें — हम दिखाएँगे कि अपनों के साथ वाली फ़ोटो कैसे ढूँढें।",
         cta: "समझ गया",
       },
     },
@@ -289,6 +295,7 @@ const SELECTION: readonly TourStep[] = [
     key: "replay-hint",
     target: "profile",
     advance: "next",
+    action: "reveal-nav",
     copy: {
       en: {
         title: "You’re all set",

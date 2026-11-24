@@ -8,7 +8,14 @@ import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
 import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral-storage";
 import { trackEvent } from "@/lib/analytics";
-import { setToken, setCompany, sanitizeRedirectPath, needsOnboarding, isAuthenticated } from "@/lib/auth";
+import {
+  setToken,
+  setCompany,
+  sanitizeRedirectPath,
+  needsOnboarding,
+  isAuthenticated,
+  rememberPostLoginRedirect,
+} from "@/lib/auth";
 import {
   IconMail,
   IconWarningCircle,
@@ -478,6 +485,8 @@ function LoginForm() {
 
             <a
               href={googleHref}
+              // Google's round trip drops ?next=; park it for /auth/callback.
+              onClick={() => rememberPostLoginRedirect(redirectTo)}
               className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
             >
               <IconGoogle size={16} />

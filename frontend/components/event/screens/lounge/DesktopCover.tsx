@@ -112,6 +112,7 @@ export function DesktopCover({
         type="button"
         onClick={onScrollToGrid}
         aria-label="Scroll to gallery"
+        data-tour="open-gallery"
         className="scroll-cue absolute bottom-6 left-1/2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-white/80"
         style={{ background: "rgba(255,255,255,0.16)" }}
       >
