@@ -1,21 +1,16 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { STYLE_VARIANTS, type StyleVariant, type CustomFolder } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { STYLE_VARIANTS, type StyleVariant } from "@/lib/types";
 import { occasionFor, collectionsFor, messageLabelFor, type Occasion } from "@/lib/event-occasion";
-import { toCompactMessage } from "@/lib/guest-message";
-import { useIsTruncated } from "@/components/event/screens/lounge/useIsTruncated";
-import { resolveTheme, type ClientTheme } from "@/lib/client-theme";
-import { resolveGoogleReviewUrl } from "@/lib/google-review";
+import { resolveTheme } from "@/lib/client-theme";
+import { galleryUrlFor } from "@/lib/gallery-url";
+import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { useCompany } from "@/lib/useCompany";
-import { ALL, UnlockAwareSwitcher, FolderPillsRow, ActionsCluster, type GalleryTab } from "@/components/event/screens/gallery/GalleryControls";
+import { GalleryPreviewFrame } from "./GalleryPreviewFrame";
 import {
-  IconArrowRight,
   IconCheck,
-  IconDownload,
-  IconHeart,
   IconInfo,
-  IconLink,
   IconMobile,
   IconMonitor,
   IconCaretDown,
@@ -30,56 +25,22 @@ const OCCASION_TIP_LABEL: Record<Occasion, string> = {
 
 const MAX = 500;
 
-/** Narrowest the desktop mockup is laid out at. A narrower preview column shows
- *  it scaled down whole — reflowed into a phone's width it stops looking like
- *  anything a desktop guest would see. */
-const DESKTOP_PREVIEW_MIN_WIDTH = 640;
-/** The phone mockup's frame width, fixed like the device it stands for. */
-const PHONE_FRAME_WIDTH = 300;
-
 export function GalleryDesignTab({
-  eventName,
+  bookingId,
+  uniqueIdentifier,
   eventType,
-  eventDateLabel,
-  coverUrl,
-  coverPosition,
   initialStyleVariant,
   initialCustomMessage,
   initialIncludeBranding,
-  allowDownload,
-  showGoogleReview,
-  faceSearchEnabled,
   onSave,
 }: {
-  eventName: string;
+  bookingId: string;
+  /** The event's public slug: the real gallery link, and what the preview opens. */
+  uniqueIdentifier?: string;
   eventType: string;
-  eventDateLabel: string | null;
-  coverUrl?: string;
-  coverPosition?: string;
   initialStyleVariant?: string;
   initialCustomMessage?: string;
   initialIncludeBranding?: boolean;
-  /**
-   * The event's `allow_download` delivery preference. Read-only here — it's
-   * edited from the Media tab's gear — but the preview MUST honour it: a mockup
-   * showing a Download button the real gallery doesn't have is a lie the studio
-   * would act on.
-   */
-  allowDownload: boolean;
-  /**
-   * The event's `show_google_review` preference, also edited from the Media
-   * tab's gear. Combined with the company switch and listing through the same
-   * resolver the guest gallery uses, so the preview never shows a review ask
-   * the real gallery won't make.
-   */
-  showGoogleReview: boolean;
-  /**
-   * The event's `face_search_enabled` preference — edited on Access & Sharing,
-   * read-only here. The gallery preview must honour it for the same reason it
-   * honours `allowDownload`: a mockup showing a My Photos tab this gallery does
-   * not have is a lie the studio would design around.
-   */
-  faceSearchEnabled: boolean;
   /** No `include_company_branding` any more: "Show your studio profile" moved
    *  to the Gallery preferences modal on Access & Sharing, and saving here
    *  must not write back a stale copy of it. No `guest_types` either, for the
@@ -117,20 +78,14 @@ export function GalleryDesignTab({
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
-  const previewWidth = useContentWidth(previewRef);
 
   // Single source of truth — the exact same theme the guest gallery resolves,
   // so this preview can never drift from what guests actually see (it used to
   // keep its own duplicate palette dict, hand-copied from client-theme.ts).
   const theme = resolveTheme(variant);
+  // The real link a guest opens, on the studio's own domain once it has a live one.
   const company = useCompany();
-  const showReviewPrompt = !!resolveGoogleReviewUrl({
-    placeId: company?.google_place_id,
-    gmbLink: company?.gmb_link,
-    enabledGlobally: company?.google_review_enabled,
-    enabledForEvent: showGoogleReview,
-  });
+  const galleryUrl = galleryUrlFor(company, uniqueIdentifier, VYAVASTH_BASE_URL) ?? "";
   const copyLabel = messageLabelFor(eventType);
   const activeCollection = collections.find((c) => c.id === collectionId) ?? collections[0];
 
@@ -289,409 +244,15 @@ export function GalleryDesignTab({
           />
         </div>
 
-        <div ref={previewRef} className="flex flex-1 justify-center p-4 sm:p-6 lg:overflow-hidden">
-          {device === "desktop" ? (
-            <FitWidth available={previewWidth} naturalWidth={DESKTOP_PREVIEW_MIN_WIDTH}>
-              <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-xl border border-[var(--color-brand-outline)] bg-white shadow-[0_14px_36px_rgba(42,34,24,0.12)]">
-                <div className="flex items-center gap-2.5 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-2.5">
-                  <span className="flex gap-1.5">
-                    {["#E0796A", "#E6B84F", "#74B36A"].map((c) => (
-                      <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ background: c }} />
-                    ))}
-                  </span>
-                  <div className="flex flex-1 items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white px-3 py-1 font-mono text-[11px] text-[var(--color-brand-muted)]">
-                    <IconLink size={11} className="text-[var(--color-brand-success)]" />
-                    vyavasth.in/k/{slug(eventName)}
-                  </div>
-                </div>
-                <div className="h-[480px] overflow-hidden">
-                  <ClientPagePreview
-                    theme={theme}
-                    eventName={eventName}
-                    eventType={eventType}
-                    eventDateLabel={eventDateLabel}
-                    coverUrl={coverUrl}
-                    coverPosition={coverPosition}
-                    message={message}
-                    branding={branding}
-                    scope={scope}
-                    allowDownload={allowDownload}
-                    faceSearchEnabled={faceSearchEnabled}
-                    showReviewPrompt={showReviewPrompt}
-                  />
-                </div>
-              </div>
-            </FitWidth>
-          ) : (
-            <FitWidth available={previewWidth} naturalWidth={PHONE_FRAME_WIDTH}>
-              <div className="shrink-0 rounded-[34px] bg-[var(--color-brand-ink)] p-2.5 shadow-[0_14px_36px_rgba(42,34,24,0.18)]" style={{ width: PHONE_FRAME_WIDTH }}>
-                <div className="relative overflow-hidden rounded-[26px] bg-white">
-                  <div className="absolute left-1/2 top-2 z-10 h-5 w-[90px] -translate-x-1/2 rounded-full bg-[var(--color-brand-ink)]" />
-                  <div className="h-[540px] overflow-hidden">
-                    <ClientPagePreview
-                      theme={theme}
-                      eventName={eventName}
-                      eventType={eventType}
-                      eventDateLabel={eventDateLabel}
-                      coverUrl={coverUrl}
-                      coverPosition={coverPosition}
-                      message={message}
-                      branding={branding}
-                      scope={scope}
-                      allowDownload={allowDownload}
-                      faceSearchEnabled={faceSearchEnabled}
-                      showReviewPrompt={showReviewPrompt}
-                      compact
-                    />
-                  </div>
-                </div>
-              </div>
-            </FitWidth>
-          )}
-        </div>
+        <GalleryPreviewFrame
+          bookingId={bookingId}
+          uniqueIdentifier={uniqueIdentifier}
+          galleryUrl={galleryUrl}
+          scope={scope}
+          device={device}
+          draft={{ style_variant: variant, custom_message: message, include_company_branding: branding }}
+        />
       </div>
-    </div>
-  );
-}
-
-/* ── simulated guest-facing page ───────────────────────────────────────── */
-
-function ClientPagePreview({
-  theme,
-  eventName,
-  eventType,
-  eventDateLabel,
-  coverUrl,
-  coverPosition,
-  message,
-  branding,
-  scope,
-  allowDownload,
-  faceSearchEnabled,
-  showReviewPrompt,
-  compact = false,
-}: {
-  theme: ClientTheme;
-  eventName: string;
-  eventType: string;
-  eventDateLabel: string | null;
-  coverUrl?: string;
-  coverPosition?: string;
-  message: string;
-  branding: boolean;
-  scope: "landing" | "gallery";
-  /** The event's `allow_download` preference — gates every download affordance
-   *  in the gallery-scope preview, exactly as it does in the real gallery. */
-  allowDownload: boolean;
-  /** The event's `face_search_enabled` preference — removes the My Photos
-   *  segment from the gallery preview, as it does in the real gallery. */
-  faceSearchEnabled: boolean;
-  /** Whether the real gallery would show any review ask (see the tab's prop). */
-  showReviewPrompt: boolean;
-  compact?: boolean;
-}) {
-  const coverBg = coverUrl
-    ? { backgroundImage: `url(${coverUrl})`, backgroundSize: "cover", backgroundPosition: coverPosition || "center" }
-    : { backgroundImage: `repeating-linear-gradient(40deg, ${theme.cover[0]} 0 22px, ${theme.cover[1]} 22px 44px)` };
-
-  // Same formatter and the same measured clamp as the guest cover, so the
-  // studio can see what guests will see — the preview used to render the raw
-  // string in an unclamped <p>, which hid BOTH the lost line breaks and the
-  // cut-off. It expands in place rather than opening the real `MessageSheet`:
-  // the dashboard has no guest theme provider, and this is a mockup, not the page.
-  const compactMessage = toCompactMessage(message);
-  const [expanded, setExpanded] = useState(false);
-  const messageRef = useRef<HTMLParagraphElement>(null);
-  // `expanded` is in the list so collapsing re-measures in the same commit that
-  // re-applies the clamp, with no frame in between where the control is gone.
-  const truncated = useIsTruncated(messageRef, [compactMessage, expanded, compact]);
-
-  if (scope === "gallery") {
-    return (
-      <GalleryScopePreview
-        theme={theme}
-        compact={compact}
-        allowDownload={allowDownload}
-        faceSearchEnabled={faceSearchEnabled}
-      />
-    );
-  }
-
-  return (
-    <div style={{ background: theme.bg, minHeight: "100%", fontFamily: "var(--font-plus-jakarta), sans-serif" }}>
-      <div
-        className="relative flex flex-col items-center justify-center"
-        style={{ height: compact ? 220 : 300, ...coverBg }}
-      >
-        <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0.34))" }} />
-        <div className="relative text-center text-white">
-          <div style={{ fontSize: compact ? 9 : 11, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", opacity: 0.92, marginBottom: 10 }}>
-            {/* "The Wedding of" reads; "The Corporate of" and "The Sports of" do
-                not, so those two get the plain wording. */}
-            {eventType === "Corporate" || eventType === "Sports" ? "Event Gallery" : `The ${eventType} of`}
-          </div>
-          <div style={{ fontSize: compact ? 22 : 34, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.1 }}>{eventName}</div>
-          {eventDateLabel && (
-            <div style={{ fontSize: compact ? 10 : 12.5, fontWeight: 500, marginTop: 10, opacity: 0.92 }}>{eventDateLabel}</div>
-          )}
-        </div>
-      </div>
-
-      <div style={{ padding: compact ? "22px 18px" : "40px 40px", textAlign: "center" }}>
-        {compactMessage && (
-          <>
-            <p
-              ref={messageRef}
-              style={{
-                margin: "0 auto",
-                maxWidth: compact ? 260 : 460,
-                fontSize: compact ? 13 : 16,
-                lineHeight: 1.7,
-                color: theme.text,
-                // The studio's own line breaks, and the same three-line window
-                // the guest cover shows. `anywhere` so a pasted URL wraps
-                // instead of stretching the mockup past the device frame.
-                whiteSpace: "pre-line",
-                overflowWrap: "anywhere",
-                ...(expanded
-                  ? null
-                  : {
-                      display: "-webkit-box",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 3,
-                      overflow: "hidden",
-                    }),
-              }}
-            >
-              {compactMessage}
-            </p>
-            {/* `|| expanded` because expanding removes the clamp, so the
-                measurement correctly reads "nothing is cut off" — without this
-                the control would vanish the moment it was used. */}
-            {(truncated || expanded) && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="brand-focus mt-1.5 cursor-pointer text-[12px] font-semibold underline underline-offset-2"
-                style={{ color: theme.brand }}
-              >
-                {expanded ? "Show less" : "Read more"}
-              </button>
-            )}
-          </>
-        )}
-        <button
-          className="inline-flex items-center gap-2"
-          style={{
-            marginTop: compactMessage ? (compact ? 20 : 28) : 0,
-            background: theme.brand,
-            color: "#FFFFFF",
-            border: "none",
-            borderRadius: 999,
-            padding: compact ? "10px 20px" : "13px 28px",
-            fontSize: compact ? 12 : 14,
-            fontWeight: 600,
-            letterSpacing: "0.02em",
-          }}
-        >
-          View all photos
-          <IconArrowRight size={compact ? 14 : 16} />
-        </button>
-
-        {branding && (
-          <div
-            className="flex flex-col items-center gap-3"
-            style={{ marginTop: compact ? 22 : 36, paddingTop: compact ? 18 : 28, borderTop: `1px solid ${theme.brand}22` }}
-          >
-            <div className="flex gap-2">
-              {["IG", "FB", "YT"].map((s) => (
-                <span
-                  key={s}
-                  className="inline-flex items-center justify-center rounded-full"
-                  style={{
-                    width: compact ? 30 : 36,
-                    height: compact ? 30 : 36,
-                    border: `1px solid ${theme.brand}55`,
-                    color: theme.brand,
-                    fontSize: compact ? 10 : 11,
-                    fontWeight: 700,
-                  }}
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            {showReviewPrompt && (
-              <span style={{ fontSize: compact ? 11 : 12.5, fontWeight: 600, color: theme.brand }}>★ Leave us a Google review</span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The gallery-scope half of the preview — rebuilt to reuse the guest gallery's
- * real toolbar chrome (`UnlockAwareSwitcher` / `FolderPillsRow` /
- * `ActionsCluster`) instead of a hand-rolled, independently-styled copy. It
- * used to fake its own pill row (no counts, no My/All switcher, no lock, no
- * Liked/Select/Download) that had already drifted from what guests actually
- * see — reusing the real components means it can't drift again: any future
- * change to the toolbar shows up here automatically. Only the photo tiles stay
- * decorative (gradient placeholders) — the real `GalleryGrid`/`PhotoTile` load
- * actual images and own real selection/like state, which this static preview
- * has no need for and shouldn't take on the risk of embedding.
- */
-function GalleryScopePreview({
-  theme,
-  compact,
-  allowDownload,
-  faceSearchEnabled,
-}: {
-  theme: ClientTheme;
-  compact: boolean;
-  allowDownload: boolean;
-  faceSearchEnabled: boolean;
-}) {
-  // Typed as the switcher's full union, though this preview never shows the
-  // third segment (`showGroup` is left false below): My Group belongs to a
-  // real guest with a real friends group, not to a design preview.
-  const [tab, setTab] = useState<GalleryTab>("all");
-  const [folder, setFolder] = useState(ALL);
-  const [likedView, setLikedView] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
-  // Demonstrates the real "Private" behaviour: hidden once "unlocked", which
-  // also reveals Download — exactly like the live gallery.
-  const [previewUnlocked, setPreviewUnlocked] = useState(false);
-
-  const mockFolders: CustomFolder[] = useMemo(
-    () => [
-      { _id: "f1", name: "Ceremony", booking_id: "", createdAt: "" },
-      { _id: "f2", name: "Reception", booking_id: "", createdAt: "" },
-      { _id: "f3", name: "Portraits", booking_id: "", createdAt: "" },
-    ],
-    [],
-  );
-  const mockFolderCounts: Record<string, number> = { f1: 412, f2: 298, f3: 187 };
-  const tileCount = compact ? 8 : 12;
-
-  return (
-    <div style={{ background: theme.bg, minHeight: "100%", fontFamily: "var(--font-plus-jakarta), sans-serif" }}>
-      <div
-        className="flex flex-col gap-2"
-        style={{ padding: compact ? "14px 18px 0" : "16px 40px 0" }}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <UnlockAwareSwitcher t={theme} tab={tab} setTab={setTab} dimmed={likedView} showMine={faceSearchEnabled} />
-          <ActionsCluster
-            t={theme}
-            likedView={likedView}
-            onSelectLiked={() => setLikedView((v) => !v)}
-            selectMode={selectMode}
-            canSelect={allowDownload}
-            onToggleSelectMode={() => setSelectMode((v) => !v)}
-            canDownloadAll={previewUnlocked && allowDownload}
-            zipping={false}
-            onDownloadAll={() => { }}
-            unlocked={previewUnlocked}
-            onOpenPrivate={() => setPreviewUnlocked(true)}
-            iconOnly={compact}
-          />
-        </div>
-        {!likedView && (
-          <FolderPillsRow
-            t={theme}
-            folders={mockFolders}
-            folderCounts={mockFolderCounts}
-            folder={folder}
-            setFolder={setFolder}
-            likedView={likedView}
-            allCount={897}
-          />
-        )}
-      </div>
-
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${compact ? 2 : 4}, 1fr)`,
-          gap: compact ? 6 : 10,
-          // Extra breathing room under the toolbar, matching the real
-          // gallery's sticky-bar-to-grid gap.
-          padding: compact ? "20px 18px 18px" : "28px 40px 40px",
-        }}
-      >
-        {Array.from({ length: tileCount }).map((_, i) => (
-          <div
-            key={i}
-            className="relative overflow-hidden"
-            style={{
-              aspectRatio: "1 / 1",
-              borderRadius: 8,
-              backgroundImage: `repeating-linear-gradient(${(i * 27) % 180}deg, ${theme.cover[0]} 0 9px, ${theme.cover[1]} 9px 18px)`,
-            }}
-          >
-            {/* Static hints of the real tile's hover affordances (select
-                top-left, heart + download bottom-right) — always-on here
-                since a static mockup has no hover state to reveal them. The
-                download glyph follows the event's `allow_download` preference,
-                same as the real tile. */}
-            <span
-              className="absolute left-1 top-1 rounded-full"
-              style={{ width: 14, height: 14, border: "1.5px solid rgba(255,255,255,0.9)", background: "rgba(20,16,8,0.25)" }}
-            />
-            <span className="absolute bottom-1 right-1 flex items-center gap-1">
-              <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
-                <IconHeart size={9} className="text-white" />
-              </span>
-              {allowDownload && (
-                <span className="flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: "rgba(20,16,8,0.38)" }}>
-                  <IconDownload size={9} className="text-white" />
-                </span>
-              )}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ── preview fitting ────────────────────────────────────────────────────── */
-
-/** The content-box width of `ref`'s element, tracked live; null until measured. */
-function useContentWidth(ref: React.RefObject<HTMLElement | null>): number | null {
-  const [width, setWidth] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return width;
-}
-
-/**
- * Lays a mockup out at `naturalWidth` and scales it down whole when the column
- * is narrower. Wide enough, the children render untouched. `zoom` rather than a
- * transform, because zoom shrinks the layout box too — the column's height
- * follows the scaled mockup with nothing to measure.
- */
-function FitWidth({
-  available,
-  naturalWidth,
-  children,
-}: {
-  available: number | null;
-  naturalWidth: number;
-  children: React.ReactNode;
-}) {
-  if (available === null || available >= naturalWidth) return <>{children}</>;
-  return (
-    <div className="shrink-0 self-start" style={{ width: naturalWidth, zoom: available / naturalWidth }}>
-      {children}
     </div>
   );
 }
@@ -877,15 +438,5 @@ function IconChevron({ open }: { open: boolean }) {
       className="shrink-0 text-[var(--color-brand-muted)] transition-transform"
       style={{ transform: open ? "rotate(180deg)" : "none" }}
     />
-  );
-}
-
-function slug(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 22) || "event"
   );
 }
