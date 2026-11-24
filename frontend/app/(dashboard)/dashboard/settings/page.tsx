@@ -10,7 +10,7 @@ import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
 import { ChangeBusinessEmailModal } from "./ChangeBusinessEmailModal";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { parseGoogleReviewLink } from "@/lib/google-review";
+import { googleReviewLinkMessage, parseGoogleReviewLink } from "@/lib/google-review";
 import {
   SectionHeading,
   Card,
@@ -165,14 +165,7 @@ export default function StudioIdentityPage() {
   // Only a link the Studio has just typed is held to the review-link rule. An
   // older saved listing link stays as it is until the Studio touches it.
   const reviewLinkTouched = changed(reviewLink, company.gmb_link);
-  const reviewLinkError =
-    !reviewLinkTouched || reviewCheck.status === "ok" || reviewCheck.status === "invalid" && reviewCheck.reason === "empty"
-      ? null
-      : reviewCheck.status === "listing"
-        ? "This opens your Google listing, not the review box. Use the link from Business Profile > Ask for reviews."
-        : reviewCheck.status === "invalid" && reviewCheck.reason === "not-a-link"
-          ? "That doesn't look like a link. Paste the whole review link."
-          : "That isn't a Google link. Paste the review link from your Google Business Profile.";
+  const reviewLinkError = reviewLinkTouched ? googleReviewLinkMessage(reviewCheck) : null;
   const canSave = !!name.trim() && !websiteError && !reviewLinkError && dirty;
   const blockedReason = nameError ?? websiteError ?? reviewLinkError ?? null;
 

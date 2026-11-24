@@ -98,3 +98,18 @@ export function parseGoogleReviewLink(input?: string | null): GoogleReviewLinkCh
   if (LISTING_HOSTS.has(host)) return { status: "listing", url: url.toString() };
   return { status: "invalid", reason: "not-google" };
 }
+
+/**
+ * The sentence that tells a Studio why a pasted review link will not do, or
+ * null when it is fine (or still empty). One wording for Settings and the
+ * onboarding step, so the two can never explain the same mistake differently.
+ */
+export function googleReviewLinkMessage(check: GoogleReviewLinkCheck): string | null {
+  if (check.status === "ok") return null;
+  if (check.status === "listing") {
+    return "This opens your Google listing, not the review box. Use the link from Business Profile > Ask for reviews.";
+  }
+  if (check.reason === "empty") return null;
+  if (check.reason === "not-a-link") return "That doesn't look like a link. Paste the whole review link.";
+  return "That isn't a Google link. Paste the review link from your Google Business Profile.";
+}

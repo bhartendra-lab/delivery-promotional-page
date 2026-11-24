@@ -338,7 +338,7 @@ export function verifyWhatsappChangeOtp(input: { code: string }) {
 /* ── Onboarding: Google Business step ──────────────────────────── */
 
 /** POST /onboarding/google-business — third onboarding step; requires whatsapp_verified. */
-export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean }) {
+export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean; gmbLink?: string }) {
   return request<CompanyMutationResponse>("/onboarding/google-business", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -346,6 +346,7 @@ export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: st
       google_place_id: input.googlePlaceId,
       address: input.address,
       skipped: input.skipped,
+      gmb_link: input.gmbLink,
     }),
   });
 }
