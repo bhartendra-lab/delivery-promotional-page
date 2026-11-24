@@ -8,16 +8,33 @@
  * moved here unchanged from AccessSharingTab.
  */
 
-/** The invite that goes with the gallery link. */
+import { DEFAULT_SHARE_LANG, SHARE_STRINGS, type ShareLang } from "./share-message-i18n.ts";
+
+export { DEFAULT_SHARE_LANG, SHARE_LANGUAGES, isShareLang, type ShareLang } from "./share-message-i18n.ts";
+
+/**
+ * The invite that goes with the gallery link. `lang` picks the language from
+ * the static table in share-message-i18n.ts; English (the default) is the text
+ * below, unchanged.
+ */
 export function galleryInviteMessage({
   eventName,
   url,
   faceSearchOn,
+  lang = DEFAULT_SHARE_LANG,
 }: {
   eventName: string;
   url: string;
   faceSearchOn: boolean;
+  lang?: ShareLang;
 }): string {
+  if (lang !== "en") {
+    const t = SHARE_STRINGS[lang];
+    return `${t.ready(eventName)}
+
+${faceSearchOn ? t.inviteSelfie : t.inviteSignIn}
+${url}`;
+  }
   // Guests sign in with WhatsApp, not Google — the old message said Google, and
   // rewriting it for the switch is the moment to fix that too.
   return `Namaste! The photos from ${eventName} are ready. 🎉
@@ -35,7 +52,22 @@ ${url}`;
  * as the studio typed it ("Priya & Rahul’s Wedding"): the guest page does not
  * get the couple's names separately.
  */
-export function passcodeShareMessage({ passcode, eventName, url }: { passcode: string; eventName: string; url: string | null }): string {
+export function passcodeShareMessage({
+  passcode,
+  eventName,
+  url,
+  lang = DEFAULT_SHARE_LANG,
+}: {
+  passcode: string;
+  eventName: string;
+  url: string | null;
+  lang?: ShareLang;
+}): string {
+  if (lang !== "en") {
+    const t = SHARE_STRINGS[lang];
+    const body = t.passcode(passcode, eventName.trim() || null);
+    return url ? `${body}: ${url}` : `${body}${t.stop}`;
+  }
   const what = eventName.trim() ? ` from ${eventName.trim()}` : "";
   return url ? `Use passcode ${passcode} to see all photos${what}: ${url}` : `Use passcode ${passcode} to see all photos${what}.`;
 }
