@@ -8,6 +8,7 @@ import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import {
   changedPreferenceKeys,
+  withArchiveDefault,
   type ArchiveTier,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
@@ -218,6 +219,8 @@ export function UploadModal({
   const [resolvedGroups, setResolvedGroups] = useState<Array<{ name: string; files: File[] }> | null>(null);
   /** Step 2's working copy of the event's preferences (persisted at Upload). */
   const [draftPrefs, setDraftPrefs] = useState<DeliveryPreferences>(preferences);
+  /** True once the studio has changed the archive download row themselves in this dialog. */
+  const [archiveAccessTouched, setArchiveAccessTouched] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefError, setPrefError] = useState<string | null>(null);
   /**
@@ -355,6 +358,23 @@ export function UploadModal({
     return [...tiers];
   }, [bookingArchiveTiers, variant]);
 
+  /**
+   * The draft as it will be saved and shown: with the tier aware download
+   * default filled in for a first archive run (see withArchiveDefault). Derived,
+   * never stored, so it follows the quality selector until the studio touches
+   * the row, and never overwrites a saved choice.
+   */
+  const effectivePrefs = useMemo(
+    () =>
+      withArchiveDefault(draftPrefs, {
+        saved: preferences,
+        heldTiers: bookingArchiveTiers ?? [],
+        runTiers: panelArchiveTiers,
+        touched: archiveAccessTouched,
+      }),
+    [draftPrefs, preferences, bookingArchiveTiers, panelArchiveTiers, archiveAccessTouched],
+  );
+
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
@@ -378,6 +398,7 @@ export function UploadModal({
     // Seeded on OPEN, not on entering step 2: the studio can toggle, press
     // Back, and come forward again — their in-progress choice must survive that.
     setDraftPrefs(preferences);
+    setArchiveAccessTouched(false);
     setSavingPrefs(false);
     setPrefError(null);
     setWatermarkOverride(null);
@@ -749,11 +770,11 @@ export function UploadModal({
     // "over", but the cap has grown and the selection now fits.
     if (capPending || (overCap && !opts.capCleared)) return;
 
-    if (changedPreferenceKeys(draftPrefs, preferences).length > 0) {
+    if (changedPreferenceKeys(effectivePrefs, preferences).length > 0) {
       setSavingPrefs(true);
       setPrefError(null);
       try {
-        await onSavePreferences(draftPrefs);
+        await onSavePreferences(effectivePrefs);
       } catch (err) {
         setPrefError(err instanceof Error ? err.message : "Couldn’t save preferences");
         setSavingPrefs(false);
@@ -977,8 +998,11 @@ export function UploadModal({
                 description=""
               >
                 <DeliveryPreferencesPanel
-                  value={draftPrefs}
-                  onChange={setDraftPrefs}
+                  value={effectivePrefs}
+                  onChange={(next) => {
+                    if (next.archive_download_access !== effectivePrefs.archive_download_access) setArchiveAccessTouched(true);
+                    setDraftPrefs(next);
+                  }}
                   disabled={savingPrefs}
                   context={{
                     archiveTiers: panelArchiveTiers,

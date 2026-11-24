@@ -58,6 +58,47 @@ export const DELIVERY_PREFERENCE_DEFAULTS: DeliveryPreferences = {
   face_filter_enabled: true,
 };
 
+/**
+ * Who gets the archive files by default, for the archive tiers an event holds
+ * or is about to hold.
+ *
+ *  - Only 4K (a watermarked copy, like the photos guests already see): every
+ *    guest. There is nothing there a guest could not already screenshot.
+ *  - Any Original file, alone or next to 4K: the family only. Originals carry
+ *    no watermark, and one setting covers both tiers, so the safer answer wins.
+ *  - No archive tier (an HD only event): the setting governs nothing and is not
+ *    shown, so it stays at the conservative default.
+ *
+ * Mirrored by `defaultArchiveDownloadAccess` in the backend's
+ * utils/deliverables.utils.js; the two share their test cases.
+ */
+export function defaultArchiveDownloadAccess(archiveTiers: ArchiveTier[]): ArchiveDownloadAccess {
+  if (archiveTiers.includes("original")) return "host_only";
+  if (archiveTiers.includes("4096")) return "all_guests";
+  return DELIVERY_PREFERENCE_DEFAULTS.archive_download_access;
+}
+
+/**
+ * The upload dialog's draft with the tier aware default applied.
+ *
+ * The default only ever fills a gap, it never overwrites a decision. It applies
+ * when ALL of these hold: the studio has not touched the row in this dialog;
+ * the event holds no archive copy yet (so the stored value was never a choice
+ * the studio could see, the row is hidden for an HD only event); and the stored
+ * value is still the plain default. An event that already has 4K or Original
+ * files, or whose value was set to anything else, keeps exactly what it saved.
+ */
+export function withArchiveDefault(
+  draft: DeliveryPreferences,
+  ctx: { saved: DeliveryPreferences; heldTiers: ArchiveTier[]; runTiers: ArchiveTier[]; touched: boolean },
+): DeliveryPreferences {
+  if (ctx.touched) return draft;
+  if (ctx.heldTiers.length > 0) return draft;
+  if (ctx.saved.archive_download_access !== DELIVERY_PREFERENCE_DEFAULTS.archive_download_access) return draft;
+  const next = defaultArchiveDownloadAccess(ctx.runTiers);
+  return next === draft.archive_download_access ? draft : { ...draft, archive_download_access: next };
+}
+
 /** Allowed values for each non-boolean preference. `normalizeDeliveryPreferences`
  *  checks membership, so a value outside this list (a typo, an older/newer
  *  client, a half-written document) resolves to the conservative default rather
