@@ -64,7 +64,7 @@ export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventTyp
             Guest teams
             <Tip text="Guests pick one of these after signing in, and Smart Selects can be filtered by it. Leave empty to skip the question." />
           </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+          <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">
             Asked after sign-in: &ldquo;Which team are you in?&rdquo;
           </p>
         </div>

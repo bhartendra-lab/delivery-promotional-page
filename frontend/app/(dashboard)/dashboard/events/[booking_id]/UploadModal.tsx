@@ -1656,7 +1656,7 @@ function ContentPanel({
         <h3 className="mt-3 truncate text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
           {headingName}
         </h3>
-        <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+        <p className="type-body mt-0.5">
           {totalImages.toLocaleString("en-IN")} photo{totalImages === 1 ? "" : "s"} ready ·{" "}
           {groups.length} {groups.length === 1 ? "folder" : "folders"}
         </p>
@@ -1745,7 +1745,7 @@ function StorageEstimateNotice({
   }
 
   return (
-    <div className="flex items-center gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-2.5 text-[12.5px] text-[var(--color-brand-muted)]">
+    <div className="flex items-center gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-2.5 text-[12px] text-[var(--color-brand-muted)]">
       {estimating ? (
         <>
           <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
@@ -1785,7 +1785,7 @@ function StepSection({
       <h3 className="text-[13.5px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
         {title}
       </h3>
-      <p className="mt-1 mb-3 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1 mb-3">
         {description}
       </p>
       {children}
@@ -2019,7 +2019,7 @@ function NameFolderPopup({
       <h3 id="name-folder-title" className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
         Name this folder
       </h3>
-      <p className="mt-1 text-[12.5px] text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1">
         These photos will be grouped under one folder.
       </p>
       <input
@@ -2078,7 +2078,7 @@ function MixedFolderPopup({
       <h3 id="mixed-folder-title" className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
         Where should uncategorised photos go?
       </h3>
-      <p className="mt-1 text-[12.5px] text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1">
         {looseCount.toLocaleString("en-IN")} photo{looseCount === 1 ? "" : "s"} sit loose at the top level of your
         folder. Choose a home for them.
       </p>

@@ -724,7 +724,7 @@ function SectionCard({
 
 function FieldLabel({ children, tip }: { children: React.ReactNode; tip?: string }) {
   return (
-    <label className="relative mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-brand-ink)]">
+    <label className="type-label relative mb-1.5 flex items-center gap-1.5">
       {children}
       {tip && <InfoTip text={tip} />}
     </label>

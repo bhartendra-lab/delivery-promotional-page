@@ -89,7 +89,7 @@ export function CopyableIdField({
       className={`${isRow ? "lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6" : ""} ${className}`}
     >
       <span
-        className={`mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-2.5" : ""
+        className={`type-label mb-1.5 block ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-3" : ""
           }`}
       >
         {label}
@@ -139,7 +139,7 @@ export function SectionHeading({
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-[-0.01em] text-[var(--color-brand-ink)] sm:text-[28px]">{title}</h1>
-      <p className="mt-1.5 text-sm text-[var(--color-brand-muted)]">{description}</p>
+      <p className="type-body mt-1.5">{description}</p>
     </div>
   );
 }
@@ -184,7 +184,7 @@ export function Card({
           <div>
             <h2 className="text-[15px] font-semibold text-[var(--color-brand-ink)]">{title}</h2>
             {description && (
-              <p className="mt-0.5 text-[13px] text-[var(--color-brand-muted)]">{description}</p>
+              <p className="type-body mt-0.5">{description}</p>
             )}
           </div>
         </div>

@@ -813,3 +813,31 @@ body {
   .tour-ripple { opacity: 0; }
   .tour-spot { transition: none; }
 }
+
+
+/* ---------------------------------------------------------------- */
+/* Dashboard text tiers (never on the guest gallery)                */
+/*                                                                  */
+/* Title: ink, bold, as before. The three below are for everything  */
+/* under a title. Body is darker than muted because muted is too    */
+/* faint to read a sentence in at 13px; muted stays for meta text.  */
+/* Contrast on white and on --color-brand-bg is checked in          */
+/* lib/type-tiers.test.ts (WCAG AA, 4.5:1).                         */
+/* ---------------------------------------------------------------- */
+.type-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-brand-body);
+}
+.type-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-brand-muted);
+}
+.type-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-brand-muted);
+}

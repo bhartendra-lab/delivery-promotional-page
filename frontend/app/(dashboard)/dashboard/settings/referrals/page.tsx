@@ -59,7 +59,7 @@ export default function ReferralsSettingsPage() {
   if (!data) return <SectionSkeleton />;
 
   const referredBy = data.referred_by?.studio_name ? (
-    <p className="text-sm text-[var(--color-brand-muted)]">
+    <p className="type-body">
       You were referred by <strong className="font-semibold text-[var(--color-brand-ink)]">{data.referred_by.studio_name}</strong>.
     </p>
   ) : null;
@@ -69,7 +69,7 @@ export default function ReferralsSettingsPage() {
       <div className="space-y-6">
         {heading}
         <Card title="Your Referral code" icon={<IconGift size={15} />}>
-          <p className="text-sm text-[var(--color-brand-muted)]">
+          <p className="type-body">
             Your Referral code shows up here once you have bought a plan or events, or once our team has set up your plan for you.
           </p>
         </Card>
@@ -109,7 +109,7 @@ export default function ReferralsSettingsPage() {
           </dl>
         )}
         {data.referrals.length === 0 ? (
-          <p className="text-sm text-[var(--color-brand-muted)]">No studio has joined with your code yet.</p>
+          <p className="type-body">No studio has joined with your code yet.</p>
         ) : (
           <ul className="divide-y divide-[var(--color-brand-border)]">
             {data.referrals.map((referral, i) => (

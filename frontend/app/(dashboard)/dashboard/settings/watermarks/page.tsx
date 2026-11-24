@@ -111,7 +111,7 @@ function WatermarkPresetsPageInner() {
       />
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[var(--color-brand-muted)]">
+        <p className="type-body">
           {presets ? `${presets.length} of ${MAX_PRESETS} presets` : " "}
         </p>
         <button
