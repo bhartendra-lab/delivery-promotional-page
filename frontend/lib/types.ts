@@ -184,6 +184,10 @@ export type Company = {
   business_email_verified?: boolean;
   /** Holds a new address while its OTP is in flight (see `whatsapp_pending_number`). */
   business_email_pending?: string;
+  /** Asked at onboarding. Absent on studios created before they were asked. */
+  city?: string;
+  acquisition_source?: string;
+  acquisition_source_other?: string;
   /** Default (dark) logo, shown on light surfaces. */
   logo?: string;
   /** Optional light logo, shown on dark surfaces; falls back to `logo`. */

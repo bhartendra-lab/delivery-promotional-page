@@ -291,12 +291,25 @@ export function resendWhatsappOtp() {
   return request<{ message: string }>("/onboarding/whatsapp/resend-otp", { method: "POST" });
 }
 
-/** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name and returns the updated Company. */
-export function verifyWhatsappOtp(input: { code: string; studioName: string }) {
+/** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name, city and how they heard about us, and returns the updated Company. */
+export function verifyWhatsappOtp(input: {
+  code: string;
+  studioName: string;
+  /** Asked at the first onboarding step; the server requires both. */
+  city: string;
+  acquisitionSource: string;
+  acquisitionSourceOther?: string;
+}) {
   return request<CompanyMutationResponse>("/onboarding/whatsapp/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: input.code, studio_name: input.studioName }),
+    body: JSON.stringify({
+      code: input.code,
+      studio_name: input.studioName,
+      city: input.city,
+      acquisition_source: input.acquisitionSource,
+      acquisition_source_other: input.acquisitionSourceOther,
+    }),
   });
 }
 

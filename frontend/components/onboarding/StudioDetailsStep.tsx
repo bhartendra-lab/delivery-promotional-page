@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ApiError, attachReferral, requestWhatsappOtp, resolveReferral } from "@/lib/api";
 import { normalizeReferralCode } from "@/lib/referral";
 import { clearStoredReferral, getStoredReferral } from "@/lib/referral-storage";
 import { IconWarningCircle } from "@/components/ui/icons";
+import { INDIAN_CITIES } from "@/lib/indian-cities";
+import {
+  aboutPayload,
+  ACQUISITION_OPTIONS,
+  CITY_MAX,
+  OTHER_MAX,
+  sourceBringsReferralCode,
+  validateStudioAbout,
+  type AcquisitionSource,
+} from "@/lib/studio-about";
 
 /**
  * The optional Referral code, attached when the step is submitted (lib/referral.ts
@@ -27,10 +37,21 @@ type ReferralField = {
 export function StudioDetailsStep({
   onSent,
 }: {
-  onSent: (studioName: string, whatsappNumber: string) => void;
+  onSent: (
+    studioName: string,
+    whatsappNumber: string,
+    about: { city: string; acquisitionSource: string; acquisitionSourceOther: string },
+  ) => void;
 }) {
   const [studioName, setStudioName] = useState("");
   const [phone, setPhone] = useState("");
+  // City and how they heard about us: both required, checked on submit.
+  const [city, setCity] = useState("");
+  const [source, setSource] = useState<AcquisitionSource | "">("");
+  const [sourceOther, setSourceOther] = useState("");
+  const [aboutErrors, setAboutErrors] = useState<{ city?: string; source?: string; other?: string }>({});
+  const cityListId = useId();
+  const referralInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [referral, setReferral] = useState<ReferralField>({
@@ -62,6 +83,13 @@ export function StudioDetailsStep({
   const validPhone = phone.length === 10;
   const canSubmit = studioName.trim().length > 0 && validPhone && !submitting;
 
+  /** The "Referred by a studio" answer brings the optional Referral code into focus, after it has had a moment to appear. */
+  function chooseSource(next: AcquisitionSource | "") {
+    setSource(next);
+    setAboutErrors((e) => ({ ...e, source: undefined, other: undefined }));
+    if (sourceBringsReferralCode(next)) setTimeout(() => referralInputRef.current?.focus(), 0);
+  }
+
   /** Attaches the Referral code if there is one to attach. False only when it was refused just now. */
   async function attachReferralCode(): Promise<boolean> {
     const code = normalizeReferralCode(referral.code);
@@ -87,12 +115,15 @@ export function StudioDetailsStep({
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
+    const problems = validateStudioAbout({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther });
+    setAboutErrors(problems);
+    if (problems.city || problems.source || problems.other) return;
     setSubmitting(true);
     setError(null);
     try {
       if (!(await attachReferralCode())) return;
       await requestWhatsappOtp({ whatsappNumber: phone });
-      onSent(studioName.trim(), phone);
+      onSent(studioName.trim(), phone, aboutPayload({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send the code. Please try again.");
     } finally {
@@ -108,7 +139,7 @@ export function StudioDetailsStep({
         </p>
         <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">Tell us about your studio</h2>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          Confirm your studio name and verify a WhatsApp number — delivery notifications and client
+          Confirm your studio name and verify a WhatsApp number. Delivery notifications and client
           replies go here.
         </p>
       </div>
@@ -149,6 +180,89 @@ export function StudioDetailsStep({
           </div>
         </label>
 
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+            City
+          </span>
+          <input
+            type="text"
+            value={city}
+            onChange={(e) => {
+              setCity(e.target.value.slice(0, CITY_MAX));
+              setAboutErrors((x) => ({ ...x, city: undefined }));
+            }}
+            list={cityListId}
+            required
+            autoComplete="address-level2"
+            placeholder="e.g. Bhopal"
+            aria-invalid={aboutErrors.city ? true : undefined}
+            aria-describedby={aboutErrors.city ? "studio-city-error" : undefined}
+            className="brand-focus h-11 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+          />
+          {/* Suggestions only: any text is accepted, for a town not on the list. */}
+          <datalist id={cityListId}>
+            {INDIAN_CITIES.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          {aboutErrors.city && (
+            <p id="studio-city-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+              {aboutErrors.city}
+            </p>
+          )}
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+            How did you hear about us
+          </span>
+          <select
+            value={source}
+            onChange={(e) => chooseSource(e.target.value as AcquisitionSource | "")}
+            required
+            aria-invalid={aboutErrors.source ? true : undefined}
+            aria-describedby={aboutErrors.source ? "studio-source-error" : undefined}
+            className="brand-focus h-11 w-full cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+          >
+            <option value="">Choose one</option>
+            {ACQUISITION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {aboutErrors.source && (
+            <p id="studio-source-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+              {aboutErrors.source}
+            </p>
+          )}
+        </label>
+
+        {source === "other" && (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              Tell us in a few words
+            </span>
+            <input
+              type="text"
+              value={sourceOther}
+              onChange={(e) => {
+                setSourceOther(e.target.value.slice(0, OTHER_MAX));
+                setAboutErrors((x) => ({ ...x, other: undefined }));
+              }}
+              autoComplete="off"
+              aria-invalid={aboutErrors.other ? true : undefined}
+              aria-describedby={aboutErrors.other ? "studio-other-error" : undefined}
+              className="brand-focus h-11 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+            />
+            {aboutErrors.other && (
+              <p id="studio-other-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+                {aboutErrors.other}
+              </p>
+            )}
+          </label>
+        )}
+
         {!referral.done && (
           <div>
             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
@@ -169,6 +283,7 @@ export function StudioDetailsStep({
               </div>
             ) : (
               <input
+                ref={referralInputRef}
                 type="text"
                 value={referral.code}
                 onChange={(e) =>

@@ -12,11 +12,14 @@ const RESEND_SECONDS = 30;
 export function WhatsappOtpStep({
   whatsappNumber,
   studioName,
+  about,
   onBack,
   onVerified,
 }: {
   whatsappNumber: string;
   studioName: string;
+  /** City and how the studio heard about us, from the first step. */
+  about: { city: string; acquisitionSource: string; acquisitionSourceOther: string };
   onBack: () => void;
   onVerified: (company: Company) => void;
 }) {
@@ -38,7 +41,7 @@ export function WhatsappOtpStep({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await verifyWhatsappOtp({ code: value, studioName });
+      const res = await verifyWhatsappOtp({ code: value, studioName, ...about });
       onVerified(res.company);
     } catch (err) {
       setShake(true);

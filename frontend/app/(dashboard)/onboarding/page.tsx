@@ -54,6 +54,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<Step>("details");
   const [whatsappNumber, setWhatsappNumber] = useState("");
   const [studioName, setStudioName] = useState("");
+  const [about, setAbout] = useState({ city: "", acquisitionSource: "", acquisitionSourceOther: "" });
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -130,8 +131,9 @@ export default function OnboardingPage() {
         <div className="rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-7 shadow-[0_4px_12px_rgba(42,34,24,0.08)] sm:p-9">
           {step === "details" ? (
             <StudioDetailsStep
-              onSent={(name, phone) => {
+              onSent={(name, phone, answers) => {
                 setStudioName(name);
+                setAbout(answers);
                 setWhatsappNumber(phone);
                 setStep("otp");
               }}
@@ -140,6 +142,7 @@ export default function OnboardingPage() {
             <WhatsappOtpStep
               whatsappNumber={whatsappNumber}
               studioName={studioName}
+              about={about}
               onBack={() => setStep("details")}
               onVerified={(updatedCompany) => {
                 setCompany(updatedCompany);
