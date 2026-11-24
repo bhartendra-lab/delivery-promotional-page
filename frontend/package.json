@@ -25,6 +25,7 @@
     "client-zip": "^2.5.0",
     "next": "16.2.6",
     "piexifjs": "^1.0.6",
+    "pptxgenjs": "^4.0.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-icons": "^5.7.0"

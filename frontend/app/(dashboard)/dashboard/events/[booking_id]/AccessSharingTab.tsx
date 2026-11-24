@@ -230,7 +230,13 @@ export function AccessSharingTab({
                       first, then the QR. */}
                   <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 @xl:grid-cols-[3fr_1fr]">
                     <Dispatch key={`${shareUrl}|${lang}`} eventName={eventName} message={message} lang={lang} onLangChange={setLang} />
-                    <QrPanel qrUniqueId={qrUniqueId} qrImageUrl={qrImageUrl} eventName={eventName} />
+                    <QrPanel
+                      qrUniqueId={qrUniqueId}
+                      qrImageUrl={qrImageUrl}
+                      eventName={eventName}
+                      eventDate={meta.eventDate}
+                      coverUrl={meta.backgroundImage}
+                    />
                   </div>
                 </>
               ) : (
@@ -1395,13 +1401,22 @@ function QrPanel({
   qrUniqueId,
   qrImageUrl,
   eventName,
+  eventDate,
+  coverUrl,
 }: {
   qrUniqueId?: string;
   qrImageUrl?: string;
   eventName: string;
+  /** The event's date (epoch ms), for the standee. */
+  eventDate?: number | null;
+  /** The event cover, for the standee's photo design. */
+  coverUrl?: string;
 }) {
   const router = useRouter();
+  const company = useCompany();
   const [downloading, setDownloading] = useState(false);
+  const [standeeBusy, setStandeeBusy] = useState(false);
+  const [standeeError, setStandeeError] = useState<string | null>(null);
   // A QR's identity (unique_id) is the "is one linked?" signal; the image URL
   // is how we render it. The backend always sets both together on linking.
   const assigned = Boolean(qrUniqueId) && Boolean(qrImageUrl);
@@ -1416,6 +1431,29 @@ function QrPanel({
       /* best-effort download; the public URL is also visible on the QR tab */
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function downloadStandee() {
+    if (!qrImageUrl || standeeBusy) return;
+    setStandeeBusy(true);
+    setStandeeError(null);
+    try {
+      // The file builder (pptxgenjs) is loaded only now, on the click.
+      const { downloadStandeeDesigns } = await import("@/lib/standee-download");
+      await downloadStandeeDesigns({
+        studioName: company?.name ?? "",
+        eventName,
+        eventDate,
+        logoUrl: company?.logo,
+        logoLightUrl: company?.logo_light,
+        qrImageUrl,
+        coverUrl,
+      });
+    } catch (e) {
+      setStandeeError(e instanceof Error ? e.message : "We couldn't build the standee designs. Try again.");
+    } finally {
+      setStandeeBusy(false);
     }
   }
 
@@ -1441,6 +1479,25 @@ function QrPanel({
             )}
             Download QR
           </button>
+          <button
+            type="button"
+            onClick={() => void downloadStandee()}
+            disabled={standeeBusy}
+            title="Five editable PowerPoint designs, 2 by 5 feet, with this QR on them"
+            className="brand-focus inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-1.5 text-center text-[12.5px] font-semibold leading-tight text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
+          >
+            {standeeBusy ? (
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
+            ) : (
+              <IconDownload size={14} className="shrink-0" />
+            )}
+            Download standee designs
+          </button>
+          {standeeError && (
+            <p role="alert" className="text-[11.5px] leading-snug text-[var(--color-brand-danger)]">
+              {standeeError}
+            </p>
+          )}
         </div>
       ) : (
         <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] bg-[var(--color-brand-bg)] p-3 text-center">
