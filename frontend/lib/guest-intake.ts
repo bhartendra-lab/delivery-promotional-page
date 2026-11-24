@@ -28,3 +28,14 @@ export function intakeNeeds(
   const needsTeam = teams.length > 0 && !session.guest_sub_type;
   return { needsName, needsTeam, show: needsName || needsTeam };
 }
+
+/**
+ * A like belongs to a signed-in Guest with a name. A Guest the name prompt has
+ * not been answered for yet (a new WhatsApp Guest, or the "Guest" placeholder)
+ * is sent through that prompt first, and the like is applied after it. The
+ * team question never holds a like back: a like needs a name, not a team.
+ * This is the same on every folder, public ones included.
+ */
+export function likeWaitsForName(session: Pick<GuestSession, "name">): boolean {
+  return !session.name || session.name === "Guest";
+}

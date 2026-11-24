@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { intakeNeeds } from "./guest-intake.ts";
+import { intakeNeeds, likeWaitsForName } from "./guest-intake.ts";
 
 /**
  * One rule for both places the intake sheet rises (over the selfie step, and
@@ -27,4 +27,12 @@ test("the team is asked only at an event split into teams, and only once", () =>
   assert.equal(intakeNeeds({ name: "Priya Sharma", guest_sub_type: null }, teams).needsTeam, true);
   assert.equal(intakeNeeds({ name: "Priya Sharma", guest_sub_type: null }, teams).show, true);
   assert.equal(intakeNeeds({ name: "Priya Sharma", guest_sub_type: "Bride's side" }, teams).show, false);
+});
+
+test("a like waits for the name prompt only while the Guest has no name", () => {
+  assert.equal(likeWaitsForName({ name: undefined }), true);
+  assert.equal(likeWaitsForName({ name: "Guest" }), true);
+  assert.equal(likeWaitsForName({ name: "Priya Sharma" }), false);
+  // Same answer whatever folder the photo sits in: the rule has no folder input.
+  assert.equal(likeWaitsForName.length, 1);
 });

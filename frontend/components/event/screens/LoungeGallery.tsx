@@ -33,7 +33,7 @@ import { useViewerHistory } from "./lounge/useViewerHistory";
 import { PasscodeSheet } from "./lounge/PasscodeSheet";
 import { ProfileSheet } from "./lounge/ProfileSheet";
 import { IntakeSheet } from "./lounge/IntakeSheet";
-import { intakeNeeds, type IntakeAnswer } from "@/lib/guest-intake";
+import { intakeNeeds, likeWaitsForName, type IntakeAnswer } from "@/lib/guest-intake";
 import { VisitGateSheet } from "./lounge/VisitGateSheet";
 import { TopBar } from "./lounge/TopBar";
 import { CoverMasthead } from "./lounge/CoverMasthead";
@@ -182,6 +182,9 @@ export function LoungeGallery({
   // returning guest who already has them all never sees either.
   const intakeTeams = event.guest_types ?? [];
   const { needsName, needsTeam, show: showIntakeSheet } = intakeNeeds(session, intakeTeams);
+  /** A like tapped before the Guest gave their name: held here, applied once
+   *  the name prompt is answered (see toggleLike and submitIntake). */
+  const pendingLikeRef = useRef<{ item: GuestMediaItem; extraBump?: (delta: number) => void } | null>(null);
 
   // Only ONE shell is mounted at a time (not two CSS-toggled trees): a hidden
   // `display:none` GalleryGrid measures 0 width and would render nothing, and
@@ -299,6 +302,11 @@ export function LoungeGallery({
 
   async function submitIntake(answer: IntakeAnswer) {
     onSessionChange(await saveIntake(uniqueIdentifier, answer));
+    // A like tapped before the name was given waited for it (see toggleLike):
+    // apply it now that the Guest is signed in with a name.
+    const waiting = pendingLikeRef.current;
+    pendingLikeRef.current = null;
+    if (waiting) toggleLikeRef.current(waiting.item, waiting.extraBump);
   }
 
   /* ── the required visit, at the first download ──────────────────────────
@@ -1122,6 +1130,13 @@ export function LoungeGallery({
     /** `extraBump`: the Selection workspace keeps its own copy of the photo
      *  and its count. The gallery's own items are kept current either way. */
     (item: GuestMediaItem, extraBump?: (delta: number) => void) => {
+      // A Guest who has not given their name is not signed in as anyone yet: a
+      // like needs someone to belong to. Hold it, let the name prompt (always
+      // up for such a Guest) take them through, and apply it when it is saved.
+      if (likeWaitsForName(session)) {
+        pendingLikeRef.current = { item, extraBump };
+        return;
+      }
       const wasLiked = liked.has(item._id);
       const bumpCount = (delta: number) => {
         setItems((prev) =>
@@ -1146,10 +1161,15 @@ export function LoungeGallery({
         setLikedFlag(wasLiked);
         bumpCount(wasLiked ? 1 : -1);
         if (err instanceof GuestAuthError) onReauth();
+        else setToast(wasLiked ? "Could not remove your like. Please try again." : "Could not save your like. Please try again.");
       });
     },
-    [liked, uniqueIdentifier, onReauth],
+    [liked, uniqueIdentifier, onReauth, session],
   );
+  const toggleLikeRef = useRef(toggleLike);
+  useEffect(() => {
+    toggleLikeRef.current = toggleLike;
+  }, [toggleLike]);
 
   const toggleSel = useCallback(
     (item: GuestMediaItem) => {
