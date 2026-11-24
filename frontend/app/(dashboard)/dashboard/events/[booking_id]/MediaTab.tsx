@@ -24,6 +24,7 @@ import { UploadModal, type UploadFolderOption, type UploadModalStep } from "./Up
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
+import { decisionLine, requestChip } from "@/lib/change-request";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
@@ -87,6 +88,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setCoverPosition,
     deleteMediaIds,
     selectAllIds,
+    changeRequests,
+    openChangeRequest,
     toast,
   } = useEvent();
 
@@ -469,6 +472,9 @@ export function MediaTab({ loading }: { loading: boolean }) {
             busy={coverBusy}
             disabled={activeLocked}
             coverLocked={coverLocked}
+            requestChip={requestChip(changeRequests, "cover_photo")}
+            decisionLine={decisionLine(changeRequests, "cover_photo")}
+            onRequestChange={() => openChangeRequest("cover_photo")}
             onSetFromFile={pickCoverFile}
             onSavePosition={setCoverPosition}
           />
@@ -712,6 +718,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
           initialType={meta.type}
           initialDate={meta.eventDate}
           nameLocked={meta.nameLocked === true}
+          requestChip={requestChip(changeRequests, "event_name")}
+          decisionLine={decisionLine(changeRequests, "event_name")}
+          onRequestChange={() => {
+            setEditOpen(false);
+            openChangeRequest("event_name");
+          }}
           // The expiry belongs to storage plan events only, by the event's
           // OWN plan. Absent on every other event, where the sheet shows no
           // expiry control at all.
@@ -1168,6 +1180,9 @@ function EditMetaSheet({
   initialType,
   initialDate,
   nameLocked = false,
+  requestChip: chip,
+  decisionLine: decided,
+  onRequestChange,
   expiry,
   onSave,
   onClose,
@@ -1179,6 +1194,11 @@ function EditMetaSheet({
    *  backend from the plan the event was created under, not by whether its
    *  photos have synced: a rename no longer touches the gallery link. */
   nameLocked?: boolean;
+  /** Next to the lock: ask for a change, or say one is waiting. */
+  requestChip?: ReturnType<typeof requestChip>;
+  /** The last decision on a name request, when there is one. */
+  decisionLine?: string | null;
+  onRequestChange?: () => void;
   /** The stored expiry, on a storage plan event. Undefined on every other
    *  event, which hides the control. `choice` null reads as Never. */
   expiry?: { choice: EventExpiryChoice | null; at: number | null };
@@ -1317,6 +1337,23 @@ function EditMetaSheet({
               Locked
             </span>
           )}
+          {nameLocked && chip?.kind === "ask" && onRequestChange && (
+            <button
+              type="button"
+              onClick={onRequestChange}
+              className="brand-focus rounded-sm px-1 text-[12px] font-semibold text-[var(--color-brand-navy-deep)] hover:underline"
+            >
+              Request change
+            </button>
+          )}
+          {nameLocked && chip?.kind === "waiting" && (
+            <span
+              title={chip.title}
+              className="inline-flex items-center rounded-sm bg-[var(--color-brand-navy-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--color-brand-navy-deep)]"
+            >
+              {chip.label}
+            </span>
+          )}
         </label>
         <input
           id="edit-event-name"
@@ -1330,8 +1367,10 @@ function EditMetaSheet({
         {nameLocked && (
           <p className="mt-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
             The event name can&apos;t be changed on pay per event plans.
+            {chip?.kind === "ask" && " You can ask the Vyavasth team to change it."}
           </p>
         )}
+        {nameLocked && decided && <p className="type-body mt-1.5">{decided}</p>}
         <div className="mb-4" />
 
         <span className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">Event type</span>

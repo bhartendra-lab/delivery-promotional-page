@@ -2084,3 +2084,47 @@ export function listNotifications(limit = 20) {
 export function markNotificationsRead(target: { ids: string[] } | { all: true }) {
   return request<{ unread_count: number }>("/notifications/read", jsonPost(target));
 }
+
+
+/* ── Change requests (a locked event name or cover) ────────────────── */
+
+export type ChangeRequestType = "event_name" | "cover_photo";
+export type ChangeRequestStatus = "pending" | "approved" | "rejected";
+
+/** One request, as the studio sees it. `note` is the team's message once decided. */
+export type ChangeRequest = {
+  _id: string;
+  booking_id: string;
+  type: ChangeRequestType;
+  /** The name, or the cover's URL, when it was asked. */
+  current_value: string;
+  /** The new name, or the new cover's URL. */
+  requested_value: string;
+  reason: string;
+  status: ChangeRequestStatus;
+  note: string | null;
+  decided_at: string | null;
+  createdAt: string;
+};
+
+/** GET /bookings/change-requests/:booking_id: this event's requests, newest first. */
+export function getChangeRequests(bookingId: string) {
+  return request<{ requests: ChangeRequest[] }>(`/bookings/change-requests/${encodeURIComponent(bookingId)}`);
+}
+
+/**
+ * POST /bookings/change-requests/:booking_id: ask the team to change a locked
+ * name or cover. `value` is the new name, or the URL of a cover the studio just
+ * uploaded; `mediaId` is the Media `_id` of one of the event's own photos.
+ * 409 `already_pending` when one of that type is already waiting.
+ */
+export function createChangeRequest(
+  bookingId: string,
+  body: { type: ChangeRequestType; value?: string; mediaId?: string; reason?: string },
+) {
+  return request<{ request: ChangeRequest }>(`/bookings/change-requests/${encodeURIComponent(bookingId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: body.type, value: body.value, media_id: body.mediaId, reason: body.reason }),
+  });
+}

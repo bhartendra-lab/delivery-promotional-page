@@ -20,8 +20,7 @@ import {
   updateGalleryActivationStatus,
   type MediaViewOptions,
   type UpdateBookingInput,
-  type UploadOrigins,
-} from "@/lib/api";
+  type UploadOrigins, getChangeRequests, type ChangeRequest, type ChangeRequestType } from "@/lib/api";
 import type {
   CustomFolder,
   EventExpiryInput,
@@ -68,6 +67,7 @@ import {
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
 import { UploadSuccessModal } from "./UploadSuccessModal";
+import { RequestChangeDialog } from "./RequestChangeDialog";
 import { MediaTab } from "./MediaTab";
 import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
@@ -132,6 +132,9 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   /** Set when an upload run completes: opens the "Your gallery is live" dialog. */
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
+  // Requests to change a locked event name or cover, and the dialog to make one.
+  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([]);
+  const [requestDialog, setRequestDialog] = useState<ChangeRequestType | null>(null);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // The backend now keeps the storage meter current incrementally — create-media
@@ -554,6 +557,23 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void refreshArchiveTiers();
   }, [refreshArchiveTiers]);
+
+  // The event's change requests, read once the event says something is locked
+  // (nothing to ask for otherwise). Best effort: without them the lock simply
+  // shows its "Request change" button.
+  const somethingLocked = meta?.nameLocked === true || meta?.coverLocked === true;
+  useEffect(() => {
+    if (!somethingLocked) return;
+    let cancelled = false;
+    getChangeRequests(bookingId)
+      .then((res) => {
+        if (!cancelled) setChangeRequests(res.requests ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId, somethingLocked]);
 
   // On run completion: reconcile media + booking, then surface the post-upload
   // banner. Purely informational — the pipeline is already embedding + syncing
@@ -1084,9 +1104,11 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       coverBusy,
       deleteMediaIds,
       selectAllIds,
+      changeRequests,
+      openChangeRequest: setRequestDialog,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, changeRequests, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -1191,6 +1213,23 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           />
         )}
       </div>
+
+      {requestDialog && (
+        <RequestChangeDialog
+          open
+          onClose={() => setRequestDialog(null)}
+          bookingId={bookingId}
+          initialType={requestDialog}
+          currentName={meta?.name ?? ""}
+          photos={media}
+          uploadCover={(file) => engine.uploadCover(file)}
+          disabledTypes={changeRequests.filter((r) => r.status === "pending").map((r) => r.type)}
+          onSubmitted={(created) => {
+            setChangeRequests((prev) => [created, ...prev]);
+            toast("Request sent. We will let you know.");
+          }}
+        />
+      )}
 
       {banner && (
         <UploadSuccessModal

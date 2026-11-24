@@ -11,8 +11,10 @@
 export type StudioNotice = {
   _id: string;
   /** "selection_sent": a Client sent collections (about one event).
-   *  "referral_reward": a studio this one referred paid (about no event). */
-  type: "selection_sent" | "referral_reward";
+   *  "referral_reward": a studio this one referred paid (about no event).
+   *  "change_request_decided": the team approved or rejected a request to change
+   *  a locked event name or cover (about one event). */
+  type: "selection_sent" | "referral_reward" | "change_request_decided";
   /** "Priya sent Priya's Side and Rahul's Side (322 photos)" */
   title: string;
   /** The event's name, or null. */
@@ -69,6 +71,8 @@ export const REFERRALS_PATH = "/dashboard/settings/referrals";
 /** Where a notice opens: the event's Smart Selects, on its first collection; a referral notice, the referral page. */
 export function noticeHref(n: Pick<StudioNotice, "booking_id" | "data"> & { type?: StudioNotice["type"] }): string {
   if (n.type === "referral_reward") return REFERRALS_PATH;
+  // A decided change request: the event itself, where its status and the team's note are.
+  if (n.type === "change_request_decided") return `/dashboard/events/${encodeURIComponent(n.booking_id)}`;
   const first = n.data?.collection_ids?.[0];
   const q = new URLSearchParams({ tab: "smart" });
   if (first) q.set("collection", first);

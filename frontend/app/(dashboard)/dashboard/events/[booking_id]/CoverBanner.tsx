@@ -26,6 +26,9 @@ export function CoverBanner({
   busy,
   disabled,
   coverLocked = false,
+  requestChip,
+  decisionLine,
+  onRequestChange,
   onSetFromFile,
   onSavePosition,
 }: {
@@ -36,6 +39,11 @@ export function CoverBanner({
   disabled: boolean;
   /** The image can no longer be changed (pay per event, once set). */
   coverLocked?: boolean;
+  /** Next to the lock: "ask" shows Request change, "waiting" shows Change requested. */
+  requestChip?: { kind: "ask" } | { kind: "waiting"; label: string; title: string };
+  /** The last decision on a cover request, when there is one. */
+  decisionLine?: string | null;
+  onRequestChange?: () => void;
   onSetFromFile: (file: File) => void | Promise<void>;
   onSavePosition: (position: string) => void | Promise<void>;
 }) {
@@ -136,7 +144,33 @@ export function CoverBanner({
           </>
         ) : filled ? (
           <>
-          {coverLocked && <CoverLockChip />}
+          {coverLocked && (
+            <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2 sm:left-6">
+              <CoverLockChip />
+              {requestChip?.kind === "ask" && onRequestChange && (
+                <button
+                  type="button"
+                  onClick={onRequestChange}
+                  className="brand-focus inline-flex items-center rounded-md border border-[var(--color-brand-border)] bg-white/90 px-2 py-1 text-[11.5px] font-semibold text-[var(--color-brand-navy-deep)] shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm hover:bg-white"
+                >
+                  Request change
+                </button>
+              )}
+              {requestChip?.kind === "waiting" && (
+                <span
+                  title={requestChip.title}
+                  className="inline-flex items-center rounded-md border border-[var(--color-brand-border)] bg-[var(--color-brand-navy-soft)]/95 px-2 py-1 text-[11.5px] font-semibold text-[var(--color-brand-navy-deep)] backdrop-blur-sm"
+                >
+                  {requestChip.label}
+                </span>
+              )}
+              {decisionLine && requestChip?.kind === "ask" && (
+                <span className="max-w-[260px] truncate rounded-md bg-white/90 px-2 py-1 text-[11.5px] text-[var(--color-brand-body)] backdrop-blur-sm" title={decisionLine}>
+                  {decisionLine}
+                </span>
+              )}
+            </div>
+          )}
           {/* Hover cluster — hidden at rest, revealed on hover/focus. Always
               shown on touch screens, which have no hover to reveal it. */}
           <div className="absolute right-4 top-4 z-20 flex items-center divide-x divide-[var(--color-brand-border)] overflow-hidden rounded-md border border-[var(--color-brand-border)] bg-white/90 opacity-0 shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:right-6 [@media(hover:none)]:opacity-100">
@@ -223,7 +257,7 @@ function CoverLockChip() {
         type="button"
         {...anchorProps}
         aria-label="Cover locked"
-        className="brand-focus absolute left-4 top-4 z-20 inline-flex cursor-help items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-2 py-1 text-[11.5px] font-semibold text-[var(--color-brand-ink)] shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm sm:left-6"
+        className="brand-focus inline-flex cursor-help items-center gap-1.5 rounded-md border border-[var(--color-brand-border)] bg-white/90 px-2 py-1 text-[11.5px] font-semibold text-[var(--color-brand-ink)] shadow-[0_2px_10px_rgba(42,34,24,0.1)] backdrop-blur-sm"
       >
         <IconLock size={12} className="text-[var(--color-brand-muted)]" />
         Locked
