@@ -67,7 +67,7 @@ import {
 } from "@/lib/event-meta";
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
-import { PostUploadBanner } from "./PostUploadBanner";
+import { UploadSuccessModal } from "./UploadSuccessModal";
 import { MediaTab } from "./MediaTab";
 import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
@@ -129,6 +129,7 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // Nothing uploaded yet: the validity has not started (null once it has).
   const [pendingValidity, setPendingValidity] = useState<PendingValidityInfo | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
+  /** Set when an upload run completes: opens the "Your gallery is live" dialog. */
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -558,9 +559,16 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // banner. Purely informational — the pipeline is already embedding + syncing
   // the new photos (the pill shows "Syncing" until the backend reports done).
   const wasActiveRef = useRef(false);
+  // How many photos this run finished, kept while it is active: the engine
+  // resets its counters when it stops, and the dialog should say "N photos
+  // uploaded" about THIS run, not the whole gallery.
+  const runDoneRef = useRef(0);
   useEffect(() => {
     const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
+    if (isActive) runDoneRef.current = Math.max(runDoneRef.current, engine.progress.photosDone);
     if (wasActiveRef.current && !isActive) {
+      const ranDone = runDoneRef.current;
+      runDoneRef.current = 0;
       void (async () => {
         // All three run together: the media/booking refresh drives the visible
         // hand-off, while the usage re-read settles alongside it. This used to
@@ -575,12 +583,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         ]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
-        const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
+        const added = ranDone || (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
         if (added > 0) setBanner({ count: added });
       })();
     }
     wasActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, refreshDlpUsage, refreshArchiveTiers]);
+  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, engine.progress.photosDone, reload, reloadBooking, refreshDlpUsage, refreshArchiveTiers]);
 
   /* ── derived ────────────────────────────────────────────────── */
 
@@ -1128,9 +1136,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             </div>
           )}
 
-          {banner && (
-            <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
-          )}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {effectiveTab === "media" && <MediaTab loading={loading} />}
@@ -1186,6 +1191,18 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           />
         )}
       </div>
+
+      {banner && (
+        <UploadSuccessModal
+          open
+          onClose={() => setBanner(null)}
+          bookingId={bookingId}
+          count={banner.count}
+          eventName={meta?.name || "your event"}
+          uniqueIdentifier={meta?.uniqueIdentifier}
+          faceSearchOn={faceSearchEnabled}
+        />
+      )}
 
       {validity && (
         <ExtendValidityModal
