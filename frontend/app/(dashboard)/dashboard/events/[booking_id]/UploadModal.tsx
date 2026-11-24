@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { UploadPreviewStrip } from "./UploadPreviewStrip";
 import { useChrome } from "@/components/dashboard/ChromeContext";
 import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
@@ -991,6 +992,14 @@ export function UploadModal({
                     disabled={savingPrefs}
                   />
                 </div>
+              </StepSection>
+
+              <StepSection title="Check before uploading: orientation and watermark" description="The first photos of your selection, made the same way the upload makes them.">
+                <UploadPreviewStrip
+                  files={files.filter((file) => !skippedFiles.includes(file))}
+                  variant={variant}
+                  watermark={allowWatermark}
+                />
               </StepSection>
 
               <StepSection
