@@ -1,4 +1,5 @@
 import type { EventsFilter } from "./event-status.ts";
+import type { AttentionResponse, MonthStatsResponse } from "./dashboard-home.ts";
 import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
@@ -891,6 +892,16 @@ export function getAllBookings(params: {
   return request<BookingsListResponse>(
     `/bookings/get-all-bookings?${sp.toString()}`,
   );
+}
+
+/** GET /bookings/dashboard-attention: the Dashboard's "Needs attention" rows (expiring, deactivated, missing numbers, empty events, open change requests). */
+export function getDashboardAttention() {
+  return request<AttentionResponse>("/bookings/dashboard-attention");
+}
+
+/** GET /bookings/dashboard-stats: this month against last (gallery views, new guest contacts, free WhatsApp messages, review taps). */
+export function getDashboardStats() {
+  return request<MonthStatsResponse>("/bookings/dashboard-stats");
 }
 
 /**
