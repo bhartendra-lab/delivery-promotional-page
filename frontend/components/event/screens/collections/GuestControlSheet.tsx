@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { ClientTheme } from "@/lib/client-theme";
 import { ApiError } from "@/lib/api";
 import { GuestAuthError } from "@/lib/guest-api";
@@ -9,7 +9,8 @@ import { capFirst, editorCounter, editorSwitchState, levelBadge, matchesPeopleQu
 import type { GuestControl, GuestControlRow } from "@/lib/collections/types";
 import { galleryUrlForDomain } from "@/lib/gallery-url";
 import { VYAVASTH_BASE_URL } from "@/lib/site-url";
-import { galleryInviteMessage, passcodeShareMessage } from "@/lib/share-message";
+import { galleryInviteMessage, passcodeShareMessage, SHARE_LANGUAGES, type ShareLang } from "@/lib/share-message";
+import { GUEST_SHARE_LANG_KEY, readShareLang, saveShareLang } from "@/lib/share-lang-store";
 import { copyText, shareTextOrCopy } from "@/lib/share-text";
 import { IconCopy, IconRestore, IconSearch, IconShare } from "@/components/ui/icons";
 import { CollectionSheet } from "./CollectionSheet";
@@ -57,6 +58,15 @@ export function GuestControlSheet({
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [regenOpen, setRegenOpen] = useState(false);
   const [tick, setTick] = useState(0);
+  // The language the invite and the passcode message are written in. The sheet
+  // only mounts after a tap, never during the server render, so reading the
+  // saved choice here is safe.
+  const [lang, setLangState] = useState<ShareLang>(() => readShareLang(undefined, GUEST_SHARE_LANG_KEY));
+  const setLang = (next: ShareLang) => {
+    setLangState(next);
+    saveShareLang(next, undefined, GUEST_SHARE_LANG_KEY);
+  };
+  const langId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +91,7 @@ export function GuestControlSheet({
 
   const shareLink = async () => {
     if (!url) return;
-    const r = await shareTextOrCopy(galleryInviteMessage({ eventName, url, faceSearchOn }), eventName);
+    const r = await shareTextOrCopy(galleryInviteMessage({ eventName, url, faceSearchOn, lang }), eventName);
     if (r === "copied") notify("Link copied");
     else if (r === "failed") notify("Couldn’t share");
   };
@@ -95,7 +105,7 @@ export function GuestControlSheet({
   };
   const sharePasscode = async () => {
     if (!data?.passcode) return;
-    const r = await shareTextOrCopy(passcodeShareMessage({ passcode: data.passcode, eventName, url }), eventName);
+    const r = await shareTextOrCopy(passcodeShareMessage({ passcode: data.passcode, eventName, url, lang }), eventName);
     if (r === "copied") notify("Passcode copied");
     else if (r === "failed") notify("Couldn’t share");
   };
@@ -160,6 +170,24 @@ export function GuestControlSheet({
         ) : (
           <div className="flex flex-col gap-6 pb-4">
             <Section t={t} title="Share the gallery">
+              <div className="mb-2.5 flex items-center gap-2">
+                <label htmlFor={langId} className="shrink-0 text-[12px] font-semibold" style={{ color: t.muted }}>
+                  Message language
+                </label>
+                <select
+                  id={langId}
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value as ShareLang)}
+                  className="h-9 min-w-0 flex-1 cursor-pointer rounded-xl px-2.5 text-[13px] font-semibold outline-none"
+                  style={{ background: t.sunken, color: t.text, border: `1px solid ${t.border}` }}
+                >
+                  {SHARE_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               {url ? (
                 <>
                   <div className="truncate rounded-xl px-3.5 py-3 text-[13px] font-semibold" style={{ background: t.sunken, color: t.text }}>

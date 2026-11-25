@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readShareLang, saveShareLang, SHARE_LANG_KEY } from "./share-lang-store.ts";
+import { GUEST_SHARE_LANG_KEY, readShareLang, saveShareLang, SHARE_LANG_KEY } from "./share-lang-store.ts";
 
 const memory = (initial: Record<string, string> = {}) => {
   const data = { ...initial };
@@ -29,4 +29,13 @@ test("a storage that throws, or none at all, never breaks the page", () => {
   assert.doesNotThrow(() => saveShareLang("hi", broken));
   assert.equal(readShareLang(null), "en");
   assert.doesNotThrow(() => saveShareLang("hi", null));
+});
+
+test("the Client's choice in Guest Control is kept apart from the studio's", () => {
+  const s = memory();
+  saveShareLang("ta", s, GUEST_SHARE_LANG_KEY);
+  assert.equal(readShareLang(s, GUEST_SHARE_LANG_KEY), "ta");
+  assert.equal(readShareLang(s), "en");
+  saveShareLang("hi", s);
+  assert.equal(readShareLang(s, GUEST_SHARE_LANG_KEY), "ta");
 });
