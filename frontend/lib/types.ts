@@ -647,7 +647,7 @@ export type BookingsListResponse = {
   reviewTrackings?: number;
   /** Company-wide status counts (all statuses, ignoring the current page's
    *  status/pagination filter). Optional so older backends still type-check. */
-  summary?: { live: number; archived: number };
+  summary?: { live: number; deactivated?: number; archived: number };
 };
 
 /**

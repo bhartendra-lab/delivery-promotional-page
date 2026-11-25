@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ServiceType } from "@/lib/types";
 import { isStorageBasedPlan } from "@/lib/types";
+import { EVENT_STATUS_DOT, EVENT_STATUS_LABEL } from "@/lib/event-status";
 import { TypeConfirmModal, type ConfirmAction } from "./TypeConfirmModal";
 import { IconArchive, IconCaretDown, IconClock, IconLock } from "./icons";
 import {
@@ -156,7 +157,6 @@ export function LivePill({
     return (
       <span className="inline-flex items-center gap-2 rounded-full border border-[var(--color-brand-border)] bg-[#F2F0EB] py-1.5 pl-3 pr-3 opacity-75">
         <IconLock size={12} className="text-[#B5ADA4]" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#B5ADA4]">Live</span>
         <span className="text-[13px] font-semibold text-[var(--color-brand-muted)]">{word}</span>
       </span>
     );
@@ -165,8 +165,8 @@ export function LivePill({
   // ── Live / Deactivated → status pill + dropdown ───────────────────────────
   const isDeactivated = state === "deactivated";
   const meta = isDeactivated
-    ? { word: "Deactivated", dot: "var(--color-brand-warning)", fg: "var(--color-brand-warning)", tint: "var(--color-brand-warning-soft)", border: "#F0D9B5" }
-    : { word: "Active", dot: "var(--color-brand-success)", fg: "var(--color-brand-ink)", tint: "#FFFFFF", border: "var(--color-brand-border)" };
+    ? { word: EVENT_STATUS_LABEL.deactivated, dot: EVENT_STATUS_DOT.deactivated, fg: "var(--color-brand-muted)", tint: "#FFFFFF", border: "var(--color-brand-border)" }
+    : { word: EVENT_STATUS_LABEL.live, dot: EVENT_STATUS_DOT.live, fg: "var(--color-brand-ink)", tint: "#FFFFFF", border: "var(--color-brand-border)" };
   const nextAction: ConfirmAction = isDeactivated ? "activate" : "deactivate";
   const nextLabel = isDeactivated ? "Activate" : "Deactivate";
   const nextDesc = isDeactivated
@@ -184,7 +184,8 @@ export function LivePill({
           style={{ background: meta.tint, borderColor: meta.border }}
         >
           <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: meta.dot }} />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#B5ADA4]">Live</span>
+          {/* The state's own word only. A fixed "Live" label used to sit in front of it in both states, so a
+              deactivated gallery read "Live Deactivated". */}
           <span className="text-[13px] font-semibold" style={{ color: meta.fg }}>{meta.word}</span>
           <IconCaretDown size={13} className="ml-px text-[var(--color-brand-muted)]" />
         </button>
@@ -311,6 +312,6 @@ const CONFIRM_COPY: Record<ConfirmAction, { title: string; description: string; 
 };
 
 const DISABLED_WORD: Record<LivePillState, string> = {
-  live: "Active",
-  deactivated: "Deactivated",
+  live: EVENT_STATUS_LABEL.live,
+  deactivated: EVENT_STATUS_LABEL.deactivated,
 };

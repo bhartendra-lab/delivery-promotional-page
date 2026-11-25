@@ -6,6 +6,7 @@ import { getAllBookings } from "@/lib/api";
 import type { Booking, BookingsListResponse, DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
+import { isLiveEvent } from "@/lib/event-status";
 import { StatsBar } from "@/components/dashboard/StatsBar";
 import { EventCard } from "@/components/dashboard/EventCard";
 import { useChrome } from "@/components/dashboard/ChromeContext";
@@ -102,14 +103,15 @@ export default function DashboardHomePage() {
   }, [data, page]);
 
   // No aggregate tracking totals from the API — sum what's on this page.
-  // `total` is the visible event count (the ≤20 rows on this page), not a sum
+  // `total` is the number of live events among the ≤20 rows on this page, not a sum
   // of trackings. True company-wide totals need a backend aggregate endpoint.
   const stats = useMemo(() => {
     const rows = data?.bookings ?? [];
     const visits = rows.reduce((s, b) => s + (b.trackings?.visit ?? 0), 0);
     const contacts = rows.reduce((s, b) => s + (b.trackings?.contact ?? 0), 0);
     const reviews = rows.reduce((s, b) => s + (b.trackings?.review ?? 0), 0);
-    return { visits, contacts, reviews, total: rows.length };
+    // Only events that are live count: a deactivated gallery is switched off, an archived one is over.
+    return { visits, contacts, reviews, total: rows.filter(isLiveEvent).length };
   }, [data]);
 
   function openEvent(row: Booking) {
