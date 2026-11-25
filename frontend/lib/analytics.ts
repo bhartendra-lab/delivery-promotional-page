@@ -12,7 +12,13 @@
 // NEVER put personal data in event params: no names, emails, phone numbers,
 // couple/event names or photo content.
 
+import { applyPosthogConsent, capturePosthog } from "./posthog.ts";
+import { posthogEnabled } from "./posthog-config.ts";
+
 export const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID;
+
+/** True when anything is configured that the cookie notice has to cover: GTM, or PostHog. */
+export const analyticsConfigured = (): boolean => Boolean(GTM_ID) || posthogEnabled();
 
 export const CONSENT_KEY = "vyavasth-consent";
 /** Window event the "Cookie settings" control fires to reopen the banner. */
@@ -81,6 +87,8 @@ export function setConsent(choice: ConsentChoice) {
     ad_personalization: choice,
     analytics_storage: choice,
   });
+  // PostHog follows the same choice: Opt out stops capturing and the replay at once.
+  applyPosthogConsent(choice);
 }
 
 type EventParams = Record<string, unknown>;
@@ -92,10 +100,12 @@ const SHARED_PARAM_KEYS = ["location", "method", "plan", "purpose", "step", "eve
 
 /**
  * Push a custom event to the dataLayer. GTM decides what to do with it (GA4
- * event, Meta Pixel event, ...). A no-op when analytics isn't configured, and
+ * event, Meta Pixel event, ...), and PostHog gets the same event. A no-op when analytics isn't configured, and
  * it never throws, so tracking can't break a purchase or sign-in flow.
  */
 export function trackEvent(event: string, params: EventParams = {}) {
+  // The same event and the same non-personal parameters go to PostHog (a no-op unless it is set up and allowed).
+  capturePosthog(event, params);
   try {
     if (!GTM_ID || typeof window === "undefined") return;
     const cleared = Object.fromEntries(SHARED_PARAM_KEYS.map((k) => [k, undefined]));

@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
+import { posthogRewrites } from "./lib/posthog-config.ts";
 
 const nextConfig: NextConfig = {
+  // PostHog's own endpoints use a trailing slash; redirecting them breaks event delivery.
+  skipTrailingSlashRedirect: true,
+  // PostHog (dashboard only) talks to /ingest on our own domain, which is proxied to PostHog, so an ad
+  // blocker that blocks posthog.com does not drop the events. Empty unless NEXT_PUBLIC_POSTHOG_KEY and
+  // NEXT_PUBLIC_POSTHOG_HOST are set at build time.
+  async rewrites() {
+    return posthogRewrites();
+  },
   experimental: {
     optimizePackageImports: [
       "@phosphor-icons/react",

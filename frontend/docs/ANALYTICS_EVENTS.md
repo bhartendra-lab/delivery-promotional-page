@@ -41,3 +41,14 @@ Other existing events: `sign_up` and `login` (`method`: `google` or `email_otp`)
 ## Shared parameter keys
 
 GTM keeps a parameter's last value, so a value set by one event could leak into the next. `trackEvent` therefore clears these keys at the start of every event: `location`, `method`, `plan`, `purpose`, `step`, `event_type`, `plan_kind`, `tier`, `photo_count_bucket`, `channel`, `language`, `format`, `scope`, `type`.
+
+## PostHog (dashboard only)
+
+The same events above also go to PostHog, with the same parameters, plus a `$pageview` on every dashboard page. It does nothing unless `NEXT_PUBLIC_POSTHOG_KEY` and `NEXT_PUBLIC_POSTHOG_HOST` are both set at build time.
+
+- **Proxy.** The browser talks to `/ingest` on our own domain (a Next.js rewrite in `next.config.ts`), so an ad blocker that blocks posthog.com does not drop events.
+- **Who.** A person is known by the company id only (`identify(company_id)`, no person properties). No name, email, phone, or event or couple name.
+- **Pages.** Pageviews carry the path only; every URL field loses its query string and fragment before it is sent.
+- **Replay.** Every input, all text and every image, video and canvas are hidden. No network bodies or headers, no clicks or element text (autocapture is off). It never runs on `/auth/callback` or `/reset-password` (the URL holds a sign-in token) or on the Gallery Design preview.
+- **Consent.** Follows the cookie banner: Opt out stops capturing and the replay at once. A saved choice is read before PostHog loads. In Europe (judged by the device's time zone, erring towards asking) it waits for OK; elsewhere it is on until the visitor opts out.
+- **Never on the guest gallery.** `PosthogProvider` sits in the dashboard layout; `app/(client)`, `app/e` and `/event/...` do not load it.
