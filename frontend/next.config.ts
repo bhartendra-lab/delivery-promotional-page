@@ -19,6 +19,25 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [{ source: "/validity/:token", destination: "/memory-lane/:token", permanent: true }];
   },
+  // `npm run dev` runs webpack, and pptxgenjs (loaded only when a studio clicks
+  // "Download standee designs") has two dynamic `import("node:fs")` calls for
+  // writing files from Node. In the browser they are never reached, but webpack
+  // still tries to bundle them and stops on the `node:` scheme. Turning those two
+  // modules into empty ones for the client bundle fixes dev; the production
+  // build (Turbopack) already copes. The empty `turbopack` object is required
+  // by Next whenever a `webpack` function is present.
+  turbopack: {},
+  webpack: (config, { isServer, webpack }) => {
+    if (!isServer) {
+      // Swapped for an empty module before webpack's scheme check runs.
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/^node:(fs|https)$/, (resource: { request: string }) => {
+          resource.request = "data:text/javascript,module.exports={}";
+        }),
+      );
+    }
+    return config;
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "media.vyavasth.in" },
