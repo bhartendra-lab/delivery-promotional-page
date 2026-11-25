@@ -65,6 +65,9 @@ export function onceKey(uid: string, type: GuestEventType): string | null {
   return ONCE_PER_SESSION.includes(type) ? `vy_gm:${uid}:${type}` : null;
 }
 
+/** Where the "Powered by Vyavasth" link in the guest gallery goes (before it is tagged). */
+export const POWERED_BY_BASE_URL = "https://vyavasth.in";
+
 /**
  * The "Powered by Vyavasth" link, tagged so the dashboard's own analytics can tell a studio who came from a
  * gallery from one who came from anywhere else. Existing parameters are kept.

@@ -17,6 +17,7 @@ import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { guestPhotoUrl, PROFILE_FACE_RECHECK_MS, profileFaceServed } from "@/lib/profile-face";
 import { failedPhotoUrl, nameFromUrl, shareImage } from "@/lib/media-actions";
 import { recordGalleryEvent } from "@/lib/guest-metrics";
+import { POWERED_BY_BASE_URL, poweredByUrl } from "@/lib/guest-metrics-core";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import { describeError, type DownloadFailure } from "@/lib/download/failure";
@@ -2384,7 +2385,7 @@ export function LoungeGallery({
             )}
           </div>
 
-          <PolicyFooter t={t} className="pb-10" />
+          <PolicyFooter t={t} uid={uniqueIdentifier} className="pb-10" />
         </div>
       </div>
       )}
@@ -2427,7 +2428,7 @@ export function LoungeGallery({
               className="mx-auto w-full max-w-[460px] px-5 pt-6"
               style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
             >
-              <PolicyFooter t={t} />
+              <PolicyFooter t={t} uid={uniqueIdentifier} />
             </div>
           </div>
         ) : selectionShown ? (
@@ -2918,25 +2919,35 @@ export function useIsDesktop(): boolean {
   return isDesktop;
 }
 
-function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
+function PolicyFooter({ t, uid, className = "" }: { t: Theme; uid: string; className?: string }) {
   const { openPolicy } = usePolicy();
   const linkCls = "cursor-pointer underline-offset-2 hover:underline";
   return (
-    <div
-      className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11.5px] font-medium ${className}`}
-      style={{ color: t.faint }}
-    >
-      <button type="button" onClick={() => openPolicy("terms")} className={linkCls}>
-        Terms
-      </button>
-      <span aria-hidden>·</span>
-      <button type="button" onClick={() => openPolicy("privacy")} className={linkCls}>
-        Privacy
-      </button>
-      <span aria-hidden>·</span>
-      <button type="button" onClick={() => openPolicy("cookies")} className={linkCls}>
-        Cookies
-      </button>
+    <div className={`flex flex-col items-center gap-1.5 text-[11.5px] font-medium ${className}`} style={{ color: t.faint }}>
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+        <button type="button" onClick={() => openPolicy("terms")} className={linkCls}>
+          Terms
+        </button>
+        <span aria-hidden>·</span>
+        <button type="button" onClick={() => openPolicy("privacy")} className={linkCls}>
+          Privacy
+        </button>
+        <span aria-hidden>·</span>
+        <button type="button" onClick={() => openPolicy("cookies")} className={linkCls}>
+          Cookies
+        </button>
+      </div>
+      {/* Tagged for the dashboard's own analytics. noreferrer keeps the gallery's private address out of the
+          other site's logs; the tap is counted here, by our own metrics, not by a third party. */}
+      <a
+        href={poweredByUrl(POWERED_BY_BASE_URL)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => recordGalleryEvent(uid, "powered_by_click")}
+        className={linkCls}
+      >
+        Powered by Vyavasth
+      </a>
     </div>
   );
 }

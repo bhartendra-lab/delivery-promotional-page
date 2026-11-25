@@ -11,6 +11,7 @@ import {
   METRIC_SOURCES,
   onceKey,
   optedOutByBrowser,
+  POWERED_BY_BASE_URL,
   poweredByUrl,
 } from "./guest-metrics-core.ts";
 
@@ -98,4 +99,20 @@ test("no third-party script or tracker is loaded anywhere on the guest gallery",
   // The guest metrics talk to our own API only.
   const runtime = readFileSync(join(root, "lib/guest-metrics.ts"), "utf8");
   assert.doesNotMatch(runtime, /https?:\/\//);
+});
+
+test("the Powered by Vyavasth link in the gallery is tagged, opened without a referrer, and counted", () => {
+  const root = new URL("..", import.meta.url).pathname;
+  const src = readFileSync(join(root, "components/event/screens/LoungeGallery.tsx"), "utf8");
+  const at = src.indexOf("Powered by Vyavasth");
+  assert.ok(at > 0);
+  const block = src.slice(src.lastIndexOf("<a", at), at);
+  assert.match(block, /poweredByUrl\(POWERED_BY_BASE_URL\)/);
+  assert.match(block, /rel="noopener noreferrer"/);
+  assert.match(block, /recordGalleryEvent\(uid, "powered_by_click"\)/);
+  const u = new URL(poweredByUrl(POWERED_BY_BASE_URL));
+  assert.equal(u.origin, "https://vyavasth.in");
+  assert.equal(u.searchParams.get("utm_source"), "gallery");
+  assert.equal(u.searchParams.get("utm_medium"), "referral");
+  assert.ok(!src.slice(at - 40, at + 40).includes(String.fromCharCode(0x2014)));
 });

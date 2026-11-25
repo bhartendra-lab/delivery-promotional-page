@@ -64,6 +64,6 @@ The guest gallery loads no third-party script, ever (a test fails the build if o
 | `download` | A single photo is saved, or a bulk download starts | `count: 1` (one photo) or `source: gallery` (a bulk download) |
 | `selfie_search` | A guest's selfie is used to find their photos (once per session) | `source`: `visit` or `scan` |
 | `share` | A photo or the gallery link is shared or copied | `source`: `tile`, `viewer`, `native` or `copy` |
-| `powered_by_click` | Reserved for a "Powered by Vyavasth" link: `poweredByUrl()` in `lib/guest-metrics-core.ts` tags such a link with `utm_source=gallery&utm_medium=referral` | |
+| `powered_by_click` | A guest taps "Powered by Vyavasth" at the foot of the gallery (under Terms, Privacy and Cookies) | |
 
-**There is no "Powered by Vyavasth" link in the guest gallery today**, so `powered_by_click` is never sent and nothing is tagged yet. Adding a visible Vyavasth link to studios' galleries is a product decision, so it was left for you.
+The "Powered by Vyavasth" link opens `https://vyavasth.in/?utm_source=gallery&utm_medium=referral` in a new tab with `noopener noreferrer`, so the gallery's private address is not passed on. The tags let the landing page's own analytics tell a visitor who came from a gallery from anyone else.
