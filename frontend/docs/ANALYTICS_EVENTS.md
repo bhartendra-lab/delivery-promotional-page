@@ -52,3 +52,18 @@ The same events above also go to PostHog, with the same parameters, plus a `$pag
 - **Replay.** Every input, all text and every image, video and canvas are hidden. No network bodies or headers, no clicks or element text (autocapture is off). It never runs on `/auth/callback` or `/reset-password` (the URL holds a sign-in token) or on the Gallery Design preview.
 - **Consent.** Follows the cookie banner: Opt out stops capturing and the replay at once. A saved choice is read before PostHog loads. In Europe (judged by the device's time zone, erring towards asking) it waits for OK; elsewhere it is on until the visitor opts out.
 - **Never on the guest gallery.** `PosthogProvider` sits in the dashboard layout; `app/(client)`, `app/e` and `/event/...` do not load it.
+
+## Guest gallery metrics (first-party, no third party)
+
+The guest gallery loads no third-party script, ever (a test fails the build if one appears). What guests do there is counted by our own backend (`POST /deliverables/create-delivery-landing-page-tracking/:slug`, see the backend's `docs/GALLERY_METRICS.md`), with a random device id kept in `localStorage` (`vy_gdev`) and nothing else about them. Guests whose browser sends Do Not Track or Global Privacy Control are not counted, and the Gallery Design preview records nothing.
+
+| Event | Fired when | Extra |
+| --- | --- | --- |
+| `gallery_view` | The gallery opens (once per browser session) | |
+| `photo_open` | A photo opens in the viewer (and each photo paged to) | `source`: `viewer` |
+| `download` | A single photo is saved, or a bulk download starts | `count: 1` (one photo) or `source: gallery` (a bulk download) |
+| `selfie_search` | A guest's selfie is used to find their photos (once per session) | `source`: `visit` or `scan` |
+| `share` | A photo or the gallery link is shared or copied | `source`: `tile`, `viewer`, `native` or `copy` |
+| `powered_by_click` | Reserved for a "Powered by Vyavasth" link: `poweredByUrl()` in `lib/guest-metrics-core.ts` tags such a link with `utm_source=gallery&utm_medium=referral` | |
+
+**There is no "Powered by Vyavasth" link in the guest gallery today**, so `powered_by_click` is never sent and nothing is tagged yet. Adding a visible Vyavasth link to studios' galleries is a product decision, so it was left for you.

@@ -12,6 +12,7 @@ import { VYAVASTH_BASE_URL } from "@/lib/site-url";
 import { galleryInviteMessage, passcodeShareMessage, SHARE_LANGUAGES, type ShareLang } from "@/lib/share-message";
 import { GUEST_SHARE_LANG_KEY, readShareLang, saveShareLang } from "@/lib/share-lang-store";
 import { copyText, shareTextOrCopy } from "@/lib/share-text";
+import { recordGalleryEvent } from "@/lib/guest-metrics";
 import { IconCopy, IconRestore, IconSearch, IconShare } from "@/components/ui/icons";
 import { CollectionSheet } from "./CollectionSheet";
 import { ConfirmDialog } from "./CollectionsSegment";
@@ -91,12 +92,14 @@ export function GuestControlSheet({
 
   const shareLink = async () => {
     if (!url) return;
+    recordGalleryEvent(uid, "share", { source: "native" });
     const r = await shareTextOrCopy(galleryInviteMessage({ eventName, url, faceSearchOn, lang }), eventName);
     if (r === "copied") notify("Link copied");
     else if (r === "failed") notify("Couldn’t share");
   };
   const copyLink = async () => {
     if (!url) return;
+    recordGalleryEvent(uid, "share", { source: "copy" });
     notify((await copyText(url)) === "copied" ? "Link copied" : "Couldn’t copy");
   };
   const copyPasscode = async () => {

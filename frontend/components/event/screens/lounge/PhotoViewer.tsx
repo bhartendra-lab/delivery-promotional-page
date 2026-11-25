@@ -40,6 +40,7 @@ export function PhotoViewer({
   isSelected,
   onToggleSelect,
   onToast,
+  onShared,
   canDownload,
   onDownload,
   onCollect,
@@ -59,6 +60,8 @@ export function PhotoViewer({
   isSelected: (id: string) => boolean;
   onToggleSelect: (item: GuestMediaItem) => void;
   onToast: (msg: string) => void;
+  /** The guest pressed Share (counted by the gallery's own metrics). */
+  onShared?: () => void;
   /** The event's studio preference. False renders no Download chip at all —
    *  applies to every guest, passcode-unlocked hosts included. */
   canDownload: boolean;
@@ -184,6 +187,7 @@ export function PhotoViewer({
   const attributionText = attribution?.(item) ?? null;
 
   async function onShare() {
+    onShared?.();
     const r = await shareImage(item.url, event.event_name);
     if (r === "copied") onToast("Link copied");
     else if (r === "failed") onToast("Couldn’t share");
