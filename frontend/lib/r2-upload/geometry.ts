@@ -107,18 +107,34 @@ export type WatermarkAnchor =
   | "bottom-right";
 
 /**
- * The watermark's drawn size on a photo `W` wide: `size`% of the photo's width,
- * height keeping the mark's own aspect. Not rounded: the canvas draws at
- * fractional sizes, so the engines must too.
+ * The watermark's drawn size on a `W` x `H` photo: its width is `size`% of the
+ * photo's SHORTER edge, height keeping the mark's own aspect. Not rounded: the
+ * canvas draws at fractional sizes, so the engines must too.
+ *
+ * Shorter edge, not width. Measured against width, the same preset drew a mark
+ * 1.5x larger (2.25x the area) on a 3:2 landscape than on the same camera's
+ * portrait, because a landscape's width is its LONG edge — studios reported
+ * landscapes looking stamped over while portraits looked right. Against the
+ * shorter edge a 2560x1706 and a 1706x2560 get the identical mark, and
+ * portraits (where shorter edge == width) render exactly as they always have.
+ *
+ * Capped so the mark never outgrows the frame: on a very wide mark at a large
+ * size the width would otherwise exceed a portrait's width.
  */
 export function watermarkSize(
   W: number,
+  H: number,
   sizePercent: number,
   markW: number,
   markH: number,
 ): { width: number; height: number } {
-  const width = (sizePercent / 100) * W;
-  const height = width * (markH / markW);
+  let width = (sizePercent / 100) * Math.min(W, H);
+  if (width > W) width = W;
+  let height = width * (markH / markW);
+  if (height > H) {
+    height = H;
+    width = height * (markW / markH);
+  }
   return { width, height };
 }
 

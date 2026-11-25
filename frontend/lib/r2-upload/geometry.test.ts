@@ -103,12 +103,29 @@ test("sizeGuardQualities: initial plus ten repeated multiplications by 0.95", ()
 
 /* ── watermark geometry ──────────────────────────────────────────── */
 
-test("watermarkSize: width is size% of the photo, height keeps the mark's aspect", () => {
-  assert.deepEqual(watermarkSize(2560, 20, 1000, 500), { width: 512, height: 256 });
-  assert.deepEqual(watermarkSize(1706, 30, 300, 100), {
+test("watermarkSize: width is size% of the SHORTER edge, height keeps the mark's aspect", () => {
+  assert.deepEqual(watermarkSize(2560, 1706, 20, 1000, 500), {
+    width: (20 / 100) * 1706,
+    height: ((20 / 100) * 1706) * (500 / 1000),
+  });
+  assert.deepEqual(watermarkSize(1706, 2560, 30, 300, 100), {
     width: (30 / 100) * 1706,
     height: ((30 / 100) * 1706) * (100 / 300),
   });
+});
+
+test("watermarkSize: a landscape and a portrait from the same camera get the same mark", () => {
+  // The reported bug: sized off width, the landscape mark was 1.5x the portrait's.
+  assert.deepEqual(watermarkSize(2560, 1706, 8, 1608, 597), watermarkSize(1706, 2560, 8, 1608, 597));
+});
+
+test("watermarkSize: never larger than the frame", () => {
+  // A very wide mark at 100% on a portrait: capped at the photo's width.
+  assert.deepEqual(watermarkSize(1706, 2560, 100, 4000, 500), { width: 1706, height: 1706 * (500 / 4000) });
+  // A very tall mark at 100% on a landscape: capped at the photo's height.
+  const s = watermarkSize(2560, 1706, 100, 300, 3000);
+  assert.equal(s.height, 1706);
+  assert.equal(s.width, 1706 * (300 / 3000));
 });
 
 test("watermarkPlacement: inset is 2.5% of the shorter edge on both axes", () => {

@@ -9,7 +9,7 @@ import { UPLOAD_SPEC, UPLOAD_SPEC_VERSION } from "./spec.ts";
  * and say why in the commit.
  */
 test("UPLOAD_SPEC snapshot", () => {
-  assert.equal(UPLOAD_SPEC_VERSION, 1);
+  assert.equal(UPLOAD_SPEC_VERSION, 2);
   assert.deepEqual(JSON.parse(JSON.stringify(UPLOAD_SPEC)), {
     "image": {
       "viewMaxDim": 2560,
