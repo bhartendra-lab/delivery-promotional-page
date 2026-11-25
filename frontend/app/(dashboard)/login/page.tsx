@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/icons";
 import { OtpCodeStep } from "@/app/(dashboard)/dashboard/settings/OtpCodeStep";
 import { SpaceBackdrop } from "./SpaceBackdrop";
+import { sendStoredAttribution } from "@/lib/attribution-send";
 
 export default function LoginPage() {
   return (
@@ -412,7 +413,10 @@ function LoginForm() {
     await setToken(res.token);
     setCompany(res.company);
     // A studio that still owes onboarding has just created its account.
-    trackEvent(needsOnboarding(res.company) ? "sign_up" : "login", { method: "email_otp" });
+    const isNewStudio = needsOnboarding(res.company);
+    trackEvent(isNewStudio ? "sign_up" : "login", { method: "email_otp" });
+    // Where they came from goes to our own backend once, never to Google. Not awaited: sign in does not wait for it.
+    if (isNewStudio) void sendStoredAttribution();
     router.replace(redirectTo);
   }
 

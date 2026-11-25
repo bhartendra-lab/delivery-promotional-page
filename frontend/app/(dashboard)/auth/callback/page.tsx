@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { setToken, setCompany, needsOnboarding, takePostLoginRedirect } from "@/lib/auth";
 import { getCompanyDetails } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
+import { sendStoredAttributionBeforeLeaving } from "@/lib/attribution-send";
 
 /**
  * Studio-side Google SSO landing target — the backend redirects here as
@@ -30,7 +31,8 @@ export default function StudioAuthCallbackPage() {
         const parked = takePostLoginRedirect();
         const dest = isNewStudio ? "/onboarding" : parked;
         // The redirect is a full page load; give GTM a beat to send the event.
-        window.setTimeout(() => window.location.replace(dest), 150);
+        // A new studio's first touch is sent to our backend first (up to 1.5 s), since the next line leaves the page.
+        void (isNewStudio ? sendStoredAttributionBeforeLeaving() : Promise.resolve()).then(() => window.setTimeout(() => window.location.replace(dest), 150));
       })
       .catch(() => {
         window.location.replace("/login?error=auth_failed");
