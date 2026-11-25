@@ -113,6 +113,11 @@ export type CompressResult = {
    *  touches those bytes, so an original is the one archive that is never
    *  watermarked. */
   archiveBlob?: Blob;
+  /** Whether the delivery view actually carries the mark. False when there was
+   *  no renderer OR every stamp attempt failed; the engine compares it with
+   *  "this run had a watermark" to say so on the progress card, instead of a
+   *  photo going up unmarked with nothing but a console line. */
+  watermarked?: boolean;
   width?: number;
   height?: number;
   /** When the photo was TAKEN, epoch ms, read from the source JPEG's EXIF.
@@ -198,7 +203,7 @@ export async function compressWithExif(
   // downscale for small sources is the library's default behaviour. With a
   // watermark the mark is drawn onto the pixels before the one encode, so it
   // costs no quality (see compressMarked).
-  const { blob: compressedBlob } = await compressMarked(file, watermark, {
+  const { blob: compressedBlob, marked: watermarked } = await compressMarked(file, watermark, {
     exifOrientation,
     maxWidthOrHeight: MAX_DIM,
     initialQuality: QUALITY,
@@ -216,7 +221,7 @@ export async function compressWithExif(
 
   if (!exifSegmentBytes) {
     // No EXIF to re-inject; return as-is.
-    return { blob: compressedBlob, thumbBlob, width, height, capturedAt, camera };
+    return { blob: compressedBlob, thumbBlob, watermarked, width, height, capturedAt, camera };
   }
 
   // Splice the EXIF straight into the compressed JPEG's bytes. A failure here
@@ -226,9 +231,9 @@ export async function compressWithExif(
   try {
     const compBytes = new Uint8Array(await compressedBlob.arrayBuffer());
     const blob = spliceExifIntoJpeg(compBytes, exifSegmentBytes) ?? compressedBlob;
-    return { blob, thumbBlob, width, height, capturedAt, camera };
+    return { blob, thumbBlob, watermarked, width, height, capturedAt, camera };
   } catch {
-    return { blob: compressedBlob, thumbBlob, width, height, capturedAt, camera };
+    return { blob: compressedBlob, thumbBlob, watermarked, width, height, capturedAt, camera };
   }
 }
 
@@ -323,6 +328,7 @@ async function compressHighRes(
   if (watermark && !viewMarked) {
     try {
       viewBlob = await watermark.apply(viewBlob);
+      viewMarked = true;
     } catch (err) {
       console.error("[upload:watermark] compositing failed; uploading without watermark", err);
     }
@@ -341,7 +347,7 @@ async function compressHighRes(
     }
   }
 
-  return { blob: viewBlob, thumbBlob, archiveBlob, width, height, capturedAt };
+  return { blob: viewBlob, thumbBlob, archiveBlob, watermarked: viewMarked, width, height, capturedAt };
 }
 
 /* ── single-encode watermarking ───────────────────────────────────── */

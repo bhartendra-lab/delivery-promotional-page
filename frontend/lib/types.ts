@@ -178,7 +178,8 @@ export type WatermarkPreset = {
   /** Opacity percentage (0–100). */
   opacity: number;
   position: WatermarkPosition;
-  /** Width as a percentage of the media's width (1–100). */
+  /** Mark width as a percentage of the photo's SHORTER edge (1–100), so
+   *  landscape and portrait photos get the same mark (lib/r2-upload/geometry.ts). */
   size: number;
   is_default: boolean;
   createdAt: string;

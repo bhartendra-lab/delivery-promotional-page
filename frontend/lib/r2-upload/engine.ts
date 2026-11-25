@@ -855,8 +855,16 @@ export class UploadEngineCore {
     this.scheduleEmit({ watermarkWarning: message }, true);
   }
 
+  /**
+   * Drop the current renderer WITHOUT closing its bitmap. A photo already in
+   * the compressor (a run still draining while a retry re-resolves the preset,
+   * or a preset changed mid-session) still holds this renderer, and drawing a
+   * closed ImageBitmap throws — every fallback then fails the same way and the
+   * photo ships unmarked. The garbage collector frees the bitmap once the last
+   * photo lets go, exactly as the Studio app's native processors do
+   * (AndroidImageProcessor/IosImageProcessor `release`).
+   */
   private disposeWatermark(): void {
-    this.watermarkRenderer?.dispose();
     this.watermarkRenderer = null;
     this.watermarkRendererKey = null;
   }
@@ -922,12 +930,17 @@ export class UploadEngineCore {
     this.runningCompressors++;
     this.scheduleEmit();
     try {
-      const { blob, thumbBlob, archiveBlob, width, height, capturedAt, camera } = await this.compressorPool.run(
-        input.file,
-        this.watermarkRenderer,
-        this.variant,
-      );
+      // The renderer this photo is stamped with, captured once: if it went up
+      // unmarked while one was meant to be on it, the card has to say so.
+      const renderer = this.watermarkEnabled ? this.watermarkRenderer : null;
+      const { blob, thumbBlob, archiveBlob, width, height, capturedAt, camera, watermarked } =
+        await this.compressorPool.run(input.file, renderer, this.variant);
       if (this.abort.signal.aborted) return;
+      if (renderer && watermarked === false) {
+        this.setWatermarkWarning(
+          "Some photos couldn't be watermarked and uploaded without it. Check the gallery and re-upload those photos.",
+        );
+      }
       console.log("[upload:compress] done", input.file.name, `→ ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
       const dims = width != null && height != null ? { width, height } : {};
       // When the photo was TAKEN — EXIF if the compressor found a date, the

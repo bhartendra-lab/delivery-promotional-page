@@ -11,6 +11,7 @@ import type { WatermarkPosition, WatermarkPreset } from "@/lib/types";
 import { EDGE_MARGIN_RATIO } from "@/lib/r2-upload/watermark";
 import { watermarkPixelBox } from "@/lib/watermark-samples";
 import { useWatermarkSamples, type SamplePhoto } from "./useWatermarkSamples";
+import { trimmedPreviewUrl } from "@/lib/watermark-trim";
 import { Spinner } from "../SettingsUI";
 import { IconX } from "@/components/ui/icons";
 
@@ -29,23 +30,23 @@ export const WATERMARK_POSITIONS: WatermarkPosition[] = [
 // Neutral mid-tone sample "photo" so watermark opacity/placement reads clearly.
 const SAMPLE_BG = "linear-gradient(135deg, #6b7280 0%, #9ca3af 45%, #d1d5db 100%)";
 
-// This preview is calibrated to the exact frame the renderer bakes onto: the
-// compressor caps every photo's long edge at 2560px (REFERENCE_W), so a 3:2
-// landscape export is 2560×1707. The watermark width is `size`% of width in
-// both preview and renderer, so the size set here is what gets rendered.
+// This preview is calibrated to the exact frames the renderer bakes onto: the
+// compressor caps every photo's long edge at 2560px, so a 3:2 export is
+// 2560x1707 (landscape) or 1707x2560 (portrait). The renderer sizes the mark as
+// `size`% of the photo's SHORTER edge (geometry.ts `watermarkSize`), so both
+// orientations get the identical mark — the editor shows both frames so the
+// studio sees that.
 //
 // The edge gap is imported from the renderer rather than restated, so the two
-// cannot drift. Converting it to CSS takes one step: the renderer insets by the
-// same number of PIXELS on both axes (EDGE_MARGIN_RATIO of the shorter edge),
-// but CSS percentages resolve per axis — top/bottom against the container's
-// height, left/right against its width. So the vertical inset is the ratio
-// as-is, and the horizontal one is scaled by the reference aspect ratio to land
-// on the same pixel amount.
-const REFERENCE_W = 2560;
-const REFERENCE_H = Math.round((REFERENCE_W * 2) / 3); // 3:2 landscape → 1707
-const EDGE_MARGIN_PX = EDGE_MARGIN_RATIO * REFERENCE_H; // shorter edge of the reference
-const EDGE_MARGIN_H = `${(EDGE_MARGIN_PX / REFERENCE_W) * 100}%`; // ≈ 1.67%
-const EDGE_MARGIN_V = `${(EDGE_MARGIN_PX / REFERENCE_H) * 100}%`; // ≈ 2.5%
+// cannot drift. The renderer insets by the same number of PIXELS on both axes
+// (EDGE_MARGIN_RATIO of the shorter edge), but CSS percentages resolve per
+// axis — top/bottom against the container's height, left/right against its
+// width. So the inset along the shorter axis is the ratio as-is, and along the
+// longer one it is scaled by the aspect ratio to land on the same pixels. The
+// mark's CSS width (a % of the container's WIDTH) is converted the same way.
+export type PreviewOrientation = "landscape" | "portrait";
+/** Shorter edge / longer edge of the reference 3:2 frame. */
+const SHORT_OVER_LONG = Math.round((2560 * 2) / 3) / 2560; // 1707 / 2560
 
 /**
  * Smallest available "Watermark N" — fills gaps left by deleted presets
@@ -59,16 +60,25 @@ function nextWatermarkName(existingNames: string[]): string {
   return `Watermark ${n}`;
 }
 
-/** Absolute-position style for the watermark box given anchor/size/opacity. */
+/** Absolute-position style for the watermark box given anchor/size/opacity,
+ *  on a 3:2 frame of the given orientation. */
 export function watermarkBoxStyle(
   position: WatermarkPosition,
   sizePct: number,
   opacity: number,
+  orientation: PreviewOrientation = "landscape",
 ): React.CSSProperties {
   const [v, h] = position === "center" ? ["middle", "center"] : position.split("-");
+  const landscape = orientation === "landscape";
+  const marginPct = EDGE_MARGIN_RATIO * 100;
+  // Width is the long edge on a landscape, the short edge on a portrait.
+  const widthPct = landscape ? sizePct * SHORT_OVER_LONG : sizePct;
+  const EDGE_MARGIN_H = `${landscape ? marginPct * SHORT_OVER_LONG : marginPct}%`;
+  const EDGE_MARGIN_V = `${landscape ? marginPct : marginPct * SHORT_OVER_LONG}%`;
   const style: React.CSSProperties = {
     position: "absolute",
-    width: `${sizePct}%`,
+    width: `${Math.min(100, widthPct)}%`,
+    maxHeight: "100%",
     opacity: opacity / 100,
   };
   const transforms: string[] = [];
@@ -95,8 +105,8 @@ export function watermarkBoxStyle(
  * A photo with the watermark composited at the chosen placement.
  *
  * With a real `photo` the mark is positioned by the upload engine's own math
- * (watermarkPixelBox: size as a share of the photo's width, the edge inset as a
- * share of its shorter edge, opacity as the canvas alpha), applied to the size
+ * (watermarkPixelBox: size and the edge inset as a share of the photo's shorter
+ * edge, opacity as the canvas alpha), applied to the size
  * the photo has on screen, so the box matches what upload bakes in for any
  * orientation. Without one (a studio with no photos and no bundled samples yet)
  * it falls back to the grey gradient and the CSS box it always used.
@@ -107,6 +117,7 @@ export function WatermarkPreview({
   size,
   opacity,
   photo,
+  orientation = "landscape",
   className = "",
 }: {
   /** The watermark image. */
@@ -116,6 +127,7 @@ export function WatermarkPreview({
   opacity: number;
   /** A photo to judge it on. */
   photo?: string | null;
+  orientation?: PreviewOrientation;
   className?: string;
 }) {
   const frame = useRef<HTMLDivElement>(null);
@@ -133,10 +145,13 @@ export function WatermarkPreview({
 
   if (!photo) {
     return (
-      <div className={`relative overflow-hidden rounded-xl ${className}`} style={{ background: SAMPLE_BG, aspectRatio: "3 / 2" }}>
+      <div
+        className={`relative overflow-hidden rounded-xl ${className}`}
+        style={{ background: SAMPLE_BG, aspectRatio: orientation === "landscape" ? "3 / 2" : "2 / 3" }}
+      >
         {src && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="" className="object-contain" style={watermarkBoxStyle(position, size, opacity)} />
+          <img src={src} alt="" className="object-contain" style={watermarkBoxStyle(position, size, opacity, orientation)} />
         )}
       </div>
     );
@@ -299,17 +314,32 @@ export function WatermarkEditorModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Live preview source: the freshly picked file, else the existing image.
-  const objectUrl = useMemo(
-    () => (imageFile ? URL.createObjectURL(imageFile) : null),
-    [imageFile],
-  );
+  // Live preview source: the freshly picked file with its empty border
+  // cropped off exactly as the server will crop it on save (watermark-trim.ts),
+  // else the existing (already trimmed) image.
+  const [trimmed, setTrimmed] = useState<{ file: File; url: string } | null>(null);
   useEffect(() => {
+    if (!imageFile) return;
+    let url: string | null = null;
+    let live = true;
+    trimmedPreviewUrl(imageFile).then((u) => {
+      if (live) {
+        url = u;
+        setTrimmed({ file: imageFile, url: u });
+      } else URL.revokeObjectURL(u);
+    });
     return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      live = false;
+      if (url) URL.revokeObjectURL(url);
     };
-  }, [objectUrl]);
-  const previewSrc = objectUrl ?? initial?.image_url ?? null;
+  }, [imageFile]);
+  // A picked file shows nothing until its trimmed copy is ready (a few ms),
+  // rather than flashing the untrimmed image.
+  const previewSrc = imageFile
+    ? trimmed?.file === imageFile
+      ? trimmed.url
+      : null
+    : (initial?.image_url ?? null);
   const samples = useWatermarkSamples();
   const [sampleIndex, setSampleIndex] = useState(0);
   const samplePhoto = samples && samples.length > 0 ? samples[Math.min(sampleIndex, samples.length - 1)] : null;
@@ -389,12 +419,24 @@ export function WatermarkEditorModal({
             />
           </label>
 
-          <div className="mx-auto w-full max-w-sm space-y-1.5">
+          <div className="mx-auto w-full max-w-md space-y-1.5">
             <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
               Preview
             </span>
-            <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} photo={samplePhoto?.src ?? null} />
-            <SamplePhotoSwitcher samples={samples ?? []} index={sampleIndex} onChange={setSampleIndex} />
+            {samplePhoto ? (
+              <>
+                <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} photo={samplePhoto.src} />
+                <SamplePhotoSwitcher samples={samples ?? []} index={sampleIndex} onChange={setSampleIndex} />
+              </>
+            ) : (
+              /* No sample photo to show (a studio with no photos and none bundled yet): both orientations.
+                 The mark is sized off the shorter edge, so it comes out the same on each: what the studio
+                 sees here is what lands on every photo. 3fr:2fr gives the two frames the same height. */
+              <div className="grid grid-cols-[3fr_2fr] items-start gap-2">
+                <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} />
+                <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} orientation="portrait" />
+              </div>
+            )}
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
@@ -406,7 +448,8 @@ export function WatermarkEditorModal({
                 onChange={setImageFile}
               />
               <p className="text-xs text-[var(--color-brand-muted)]">
-                PNG with transparency recommended. Max 5 MB.
+                PNG with transparency recommended. Max 5 MB. Empty space around
+                the logo is trimmed automatically.
               </p>
             </div>
             <div>
@@ -418,7 +461,7 @@ export function WatermarkEditorModal({
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Slider label="Size" value={size} min={5} max={60} onChange={setSize} />
+            <Slider label="Size" value={size} min={2} max={60} onChange={setSize} />
             <Slider label="Opacity" value={opacity} min={5} max={100} onChange={setOpacity} />
           </div>
         </div>

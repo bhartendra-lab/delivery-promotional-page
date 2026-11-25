@@ -10,7 +10,7 @@ import { watermarkAlpha, watermarkPlacement, watermarkSize, type WatermarkAnchor
  * pixels. This is the upload engine's own math (WatermarkRenderer.draw uses
  * watermarkSize, watermarkPlacement and watermarkAlpha), applied to the size on
  * screen instead of the 2560px delivery frame. Every rule in it is a ratio of
- * the photo (width percentage, edge inset as a share of the shorter edge), so
+ * the photo (size as a share of the shorter edge, edge inset as a share of the shorter edge), so
  * scaling the frame scales the answer and the preview matches the output.
  */
 export function watermarkPixelBox(args: {
@@ -24,7 +24,7 @@ export function watermarkPixelBox(args: {
   markW: number;
   markH: number;
 }): { left: number; top: number; width: number; height: number; opacity: number } {
-  const { width, height } = watermarkSize(args.W, args.size, args.markW, args.markH);
+  const { width, height } = watermarkSize(args.W, args.H, args.size, args.markW, args.markH);
   const { x, y } = watermarkPlacement(args.position, args.W, args.H, width, height);
   return { left: x, top: y, width, height, opacity: watermarkAlpha(args.opacity) };
 }

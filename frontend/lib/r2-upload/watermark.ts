@@ -6,8 +6,9 @@
  * before the JPEG is uploaded to R2. Geometry mirrors the dashboard preview
  * (`watermarkBoxStyle` in WatermarkEditorModal) exactly, so what the studio
  * configured is what gets baked in:
- *   - width  = `size`%  of the photo's width (height keeps the mark's aspect)
- *   - margin = 5% (of width for left/right, of height for top/bottom)
+ *   - width  = `size`% of the photo's SHORTER edge (height keeps the mark's
+ *     aspect), so landscape and portrait get the same mark — see watermarkSize
+ *   - margin = `watermarkEdgeMarginRatio` of the shorter edge, on both axes
  *   - opacity applied via `globalAlpha`
  *
  * The watermark bytes are fetched directly from the public R2 URL (CORS must
@@ -86,7 +87,7 @@ export class WatermarkRenderer {
   }
 
   private draw(ctx: CanvasRenderingContext2D, W: number, H: number): void {
-    const { width: wmW, height: wmH } = watermarkSize(W, this.spec.size, this.mark.width, this.mark.height);
+    const { width: wmW, height: wmH } = watermarkSize(W, H, this.spec.size, this.mark.width, this.mark.height);
     const { x, y } = watermarkPlacement(this.spec.position, W, H, wmW, wmH);
     ctx.save();
     ctx.globalAlpha = watermarkAlpha(this.spec.opacity);
