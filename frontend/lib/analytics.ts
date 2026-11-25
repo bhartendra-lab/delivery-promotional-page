@@ -35,15 +35,28 @@ function gtag(...args: unknown[]) {
 }
 
 /**
- * Runs before GTM loads: every storage type starts denied, then a previously
- * saved "granted" choice is re-applied. Kept as a string so it can be inlined
- * (it must run before any tag fires).
+ * Where tracking waits for "OK": the EEA, the UK and Switzerland, whose rules
+ * require opt-in. Everywhere else (India, our market) it is on by default and
+ * the banner is a notice with an opt-out. Google applies a region-specific
+ * default over the general one whatever the order. Revisit before the DPDP
+ * consent obligations start (13 May 2027).
+ */
+export const CONSENT_REQUIRED_REGIONS = [
+  "AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE",
+  "IS","LI","NO","GB","CH",
+];
+
+/**
+ * Runs before GTM loads: denied by default in CONSENT_REQUIRED_REGIONS,
+ * granted elsewhere, then a saved choice (OK or opt out) is re-applied. Kept
+ * as a string so it can be inlined (it must run before any tag fires).
  */
 export const CONSENT_BOOTSTRAP_SCRIPT = `
 window.dataLayer=window.dataLayer||[];
 function gtag(){dataLayer.push(arguments)}
-gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',wait_for_update:500});
-try{if(localStorage.getItem('${CONSENT_KEY}')==='granted'){gtag('consent','update',{ad_storage:'granted',ad_user_data:'granted',ad_personalization:'granted',analytics_storage:'granted'})}}catch(e){}
+gtag('consent','default',{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',region:${JSON.stringify(CONSENT_REQUIRED_REGIONS)},wait_for_update:500});
+gtag('consent','default',{ad_storage:'granted',ad_user_data:'granted',ad_personalization:'granted',analytics_storage:'granted'});
+try{var c=localStorage.getItem('${CONSENT_KEY}');if(c==='granted'||c==='denied'){gtag('consent','update',{ad_storage:c,ad_user_data:c,ad_personalization:c,analytics_storage:c})}}catch(e){}
 `.trim();
 
 export function getStoredConsent(): ConsentChoice | null {
@@ -75,7 +88,7 @@ type EventParams = Record<string, unknown>;
 // GTM's data model keeps values pushed earlier, so a `location` set by one
 // event would leak into the next event that maps it. Every event therefore
 // starts by clearing the shared parameter keys (undefined resets a key).
-const SHARED_PARAM_KEYS = ["location", "method", "plan", "purpose", "step", "event_type", "plan_kind", "tier", "photo_count_bucket", "channel", "language", "format", "scope", "type"] as const;
+const SHARED_PARAM_KEYS = ["location", "method", "plan", "purpose", "step", "event_type", "plan_kind", "tier", "photo_count_bucket", "channel", "language", "format", "scope", "type", "coupon"] as const;
 
 /**
  * Push a custom event to the dataLayer. GTM decides what to do with it (GA4

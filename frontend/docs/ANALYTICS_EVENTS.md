@@ -4,14 +4,16 @@ Everything here is pushed to the `dataLayer` by `trackEvent` in `lib/analytics.t
 
 The guest gallery (`app/(client)/…`, `app/e/…`, `/event/…`) does not load GTM or call `trackEvent`, and nothing in this file fires there. The Gallery Design preview (a dashboard route that shows the guest screens) records nothing at all.
 
-**TODO(abhishek): add the GA4 event tag and trigger in GTM.** GA4 custom events only reach Google if a GA4 Event tag in the GTM container forwards them: one tag whose trigger is a Custom Event matching these names (a regex trigger such as `^(onboarding_step_completed|event_created|upload_started|upload_completed|gallery_link_copied|invite_shared|passcode_shared|qr_downloaded|leads_exported|change_request_submitted|referral_link_shared)$`), with the parameters below as event parameters (Data Layer Variables for `step`, `event_type`, `plan_kind`, `tier`, `photo_count_bucket`, `channel`, `language`, `format`, `scope`, `type`, `location`). Register the ones you want to report on as custom dimensions in GA4.
+**TODO(abhishek): add the GA4 event tag and trigger in GTM.** GA4 custom events only reach Google if a GA4 Event tag in the GTM container forwards them: one tag whose trigger is a Custom Event matching these names (a regex trigger such as `^(onboarding_step_completed|free_event_claimed|coupon_plan_activated|event_created|upload_started|upload_completed|gallery_link_copied|invite_shared|passcode_shared|qr_downloaded|leads_exported|change_request_submitted|referral_link_shared)$`), with the parameters below as event parameters (Data Layer Variables for `step`, `event_type`, `plan_kind`, `tier`, `photo_count_bucket`, `channel`, `language`, `format`, `scope`, `type`, `location`, `coupon`). Register the ones you want to report on as custom dimensions in GA4.
 
 ## New events
 
 | Event | Parameters | Fired when |
 | --- | --- | --- |
 | `onboarding_step_completed` | `step`: `studio_details`, `whatsapp_verified` or `google_business` | A studio finishes an onboarding step: details sent (code requested), WhatsApp code verified, Google step done |
-| `event_created` | `event_type`: the event type (Wedding, Birthday, …); `plan_kind`: `free`, `event_based`, `monthly`, `yearly` or `unknown` | An event is created |
+| `event_created` | `event_type`: the event type (Wedding, Birthday, …); `plan_kind`: `free`, `event_based`, `monthly`, `yearly` or `unknown`; `method`: `bought` (paid for on the spot) or `plan` | An event is created |
+| `free_event_claimed` | `currency`, `value` (0), `coupon`, `items`, `purpose` | A 100% coupon pays for one event (the campaign's core conversion; mark it a GA4 key event) |
+| `coupon_plan_activated` | `currency`, `value` (0), `coupon`, `items`, `purpose` | A 100% coupon activates a plan |
 | `upload_started` | `tier`: `hd`, `4k` or `original`; `photo_count_bucket` | The studio presses Upload on step 2 |
 | `upload_completed` | `photo_count_bucket` | An upload run finishes |
 | `gallery_link_copied` | `location`: `access_tab` or `upload_done` | The gallery link is copied |

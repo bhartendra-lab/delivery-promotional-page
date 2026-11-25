@@ -235,8 +235,14 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
 
   /** The new event's page says once what happened to the WhatsApp invites, then opens. */
   function openCreated(res: Awaited<ReturnType<typeof createBooking>>) {
-    // The event type is one of a fixed list and the plan a fixed word: never the event or couple name.
-    trackEvent("event_created", { event_type: eventType ?? undefined, plan_kind: planKindOf(dlpUsage?.service_type) });
+    // Funnel step after sign_up / free_event_claimed. The event type is one of a
+    // fixed list, the plan a fixed word, the method says whether this event was
+    // bought on the spot: never the event or couple name.
+    trackEvent("event_created", {
+      event_type: eventType ?? undefined,
+      plan_kind: planKindOf(dlpUsage?.service_type),
+      method: pendingBody.current ? "bought" : "plan",
+    });
     // The event just used one of the plan's events (or the paid one): the
     // shared usage meter (sidebar, dashboard, "N events left") is only read on
     // load, so it is re-read here or it keeps showing the old count until a
