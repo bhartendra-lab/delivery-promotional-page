@@ -47,7 +47,8 @@ function GalleryPreviewInner({ bookingId }: { bookingId: string }) {
   const [event, setEvent] = useState<DeliveryLandingPageData | null>(null);
   const [failed, setFailed] = useState(false);
   const [draft, setDraft] = useState<PreviewDraft | null>(null);
-  const [session, setSession] = useState<GuestSession>(() => previewGuestSession());
+  // Local changes to the preview guest (none in practice); the base follows the event's teams.
+  const [sessionPatch, setSessionPatch] = useState<Partial<GuestSession>>({});
 
   // Preview mode is on for as long as this page is: every guest call is answered locally.
   useEffect(() => {
@@ -86,6 +87,7 @@ function GalleryPreviewInner({ bookingId }: { bookingId: string }) {
   }, []);
 
   const shown = useMemo(() => (event ? applyDraft(event, draft) : null), [event, draft]);
+  const session = useMemo<GuestSession>(() => ({ ...previewGuestSession(event?.guest_types ?? []), ...sessionPatch }), [event?.guest_types, sessionPatch]);
   const theme = useMemo(() => resolveTheme(shown?.style_variant), [shown?.style_variant]);
 
   if (!uid) return <PreviewMessage text="This preview needs the event's link." />;
@@ -102,7 +104,7 @@ function GalleryPreviewInner({ bookingId }: { bookingId: string }) {
           ) : (
             <LoungeGallery
               session={session}
-              onSessionChange={(patch) => setSession((s) => ({ ...s, ...patch }))}
+              onSessionChange={(patch) => setSessionPatch((s) => ({ ...s, ...patch }))}
               friendFinder={null}
               onFriendFinderChange={() => {}}
               collections={null}

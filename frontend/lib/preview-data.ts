@@ -5,14 +5,15 @@
  */
 import type { DeliveryLandingPageData, GuestMediaItem, GuestSession, MediaItem } from "./types";
 
-/** The one guest the preview shows the gallery as: signed in, named, with the full gallery (a Host). No selfie, no team, nothing to answer. */
-export function previewGuestSession(): GuestSession {
+/** The one guest the preview shows the gallery as: signed in, named, with the full gallery (a Host). No selfie, nothing to answer (not even the team question). */
+export function previewGuestSession(teams: readonly string[] = []): GuestSession {
   return {
     name: "Preview",
     guest_type: "host",
     is_client: false,
     client_role: null,
-    guest_sub_type: null,
+    // An event with teams asks a new guest "Which team are you in?"; the preview guest is already in the first one, so nothing blocks the view.
+    guest_sub_type: teams[0] ?? null,
     selfie_url: null,
     has_selfie: true,
     selfie_id: null,

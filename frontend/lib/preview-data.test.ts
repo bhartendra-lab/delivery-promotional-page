@@ -12,6 +12,8 @@ test("the preview guest is signed in with the full gallery and has nothing left 
   assert.ok(s.name && s.name !== "Guest", "a real name, so the name prompt never rises");
   assert.equal(s.selfie_id, null);
   assert.equal(s.is_client, false);
+  assert.equal(s.guest_sub_type, null);
+  assert.equal(previewGuestSession(["Bride's side", "Groom's side"]).guest_sub_type, "Bride's side", "an event with teams: already in one, so the team question never rises");
 });
 
 test("studio media becomes guest media, with the likes it really has and none of them the viewer's", () => {
