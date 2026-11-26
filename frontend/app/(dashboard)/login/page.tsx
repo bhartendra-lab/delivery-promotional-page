@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/icons";
 import { OtpCodeStep } from "@/app/(dashboard)/dashboard/settings/OtpCodeStep";
 import { SpaceBackdrop } from "./SpaceBackdrop";
-import { sendStoredAttribution } from "@/lib/attribution-send";
+import { markSignup, sendPendingSignup } from "@/lib/signup-attribution";
 
 export default function LoginPage() {
   return (
@@ -415,8 +415,11 @@ function LoginForm() {
     // A studio that still owes onboarding has just created its account.
     const isNewStudio = needsOnboarding(res.company);
     trackEvent(isNewStudio ? "sign_up" : "login", { method: "email_otp" });
-    // Where they came from goes to our own backend once, never to Google. Not awaited: sign in does not wait for it.
-    if (isNewStudio) void sendStoredAttribution();
+    // Which campaign message brought them goes to our own CRM, never to Google. Not awaited: sign in does not wait for it.
+    if (isNewStudio) {
+      markSignup();
+      void sendPendingSignup();
+    }
     router.replace(redirectTo);
   }
 

@@ -691,19 +691,6 @@ export function attachReferral(input: { code: string; source: "link" | "manual" 
   });
 }
 
-/**
- * POST /onboarding/attribution — the first-touch marketing tags kept in this
- * browser (lib/attribution.ts), sent once right after sign up. The backend
- * saves them write-once; `saved: false` means it already had one.
- */
-export function saveAttribution(input: Record<string, unknown>) {
-  return request<{ saved: boolean; reason?: string }>("/onboarding/attribution", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-}
-
 /** POST /billing/coupons/validate. Both outcomes are HTTP 200 — branch on `valid`, never on status. */
 export function validateCoupon(input: { coupon_code: string; service_id: string; quantity?: number }) {
   return request<CouponValidation>("/billing/coupons/validate", {

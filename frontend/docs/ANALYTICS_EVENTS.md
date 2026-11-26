@@ -61,3 +61,7 @@ The same events above also go to PostHog, with the same parameters, plus a `$pag
 The guest gallery loads no third-party script and records no analytics events of its own (a test fails if a third-party script appears). How many guests opened a gallery comes from the guest records that already exist.
 
 The "Powered by Vyavasth" link at the foot of the gallery opens `https://vyavasth.in/?utm_source=gallery&utm_medium=referral` in a new tab with `noopener noreferrer`. Those tags are the only tracking on it.
+
+## Campaign sign ups (our CRM, not Google)
+
+A tap on `deliver.vyavasth.in/w/<id>` sets the `vy_acq` cookie for 30 days. If that browser then signs up, `POST /api/signup-attribution` (our server) confirms which studio is signed in and tells the CRM (`/webhooks/signup`). Settings: `CRM_CLICK_URL` and `CRM_CLICK_SECRET`. Nothing about it is stored in the product backend.

@@ -1,6 +1,6 @@
 import { GoogleTagManager } from "@next/third-parties/google";
 import { ConsentBanner } from "@/components/ConsentBanner";
-import { AttributionCapture } from "@/components/onboarding/AttributionCapture";
+import { SignupReport } from "@/components/onboarding/SignupReport";
 import { PosthogProvider } from "@/components/PosthogProvider";
 import { ReferralCapture } from "@/components/onboarding/ReferralCapture";
 import { CONSENT_BOOTSTRAP_SCRIPT, GTM_ID } from "@/lib/analytics";
@@ -25,7 +25,7 @@ export default function DashboardGroupLayout({
         </>
       )}
       <ReferralCapture />
-      <AttributionCapture />
+      <SignupReport />
       <PosthogProvider />
       {children}
       <ConsentBanner />
