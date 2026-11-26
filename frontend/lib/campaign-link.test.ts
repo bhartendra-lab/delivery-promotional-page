@@ -11,10 +11,10 @@ test("recipient tokens are CRM ULIDs only", () => {
   assert.equal(isRecipientToken(undefined), false);
 });
 
-test("landing is /login with utm tags, slug sanitised", () => {
+test("landing is the website with utm tags, slug sanitised", () => {
   assert.equal(
     campaignLanding("free-event-b1"),
-    "/login?utm_source=whatsapp&utm_medium=campaign&utm_campaign=free-event-b1",
+    "https://vyavasth.in/?utm_source=whatsapp&utm_medium=campaign&utm_campaign=free-event-b1",
   );
   assert.match(campaignLanding(null), /utm_campaign=whatsapp-campaign$/);
   assert.match(campaignLanding("Bad Slug<script>"), /utm_campaign=whatsapp-campaign$/);

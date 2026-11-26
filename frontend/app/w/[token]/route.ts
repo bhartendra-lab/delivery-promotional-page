@@ -5,12 +5,14 @@ import { campaignLanding, isRecipientToken, ACQ_COOKIE, ACQ_COOKIE_MAX_AGE } fro
  * (button link https://deliver.vyavasth.in/w/{{1}}, filled per studio by the CRM).
  *
  * Tells the CRM about the tap (server to server, so the studio's browser never
- * talks to the CRM), then sends the studio to sign-in with utm tags for GA4.
+ * talks to the CRM), then sends the studio to vyavasth.in with utm tags for GA4.
  * The recipient id goes in a first-party cookie, not the URL, so it never
  * reaches Google; a later signup can read it to tie the account to the send.
+ * The cookie belongs to this host, so it is still here when the studio comes
+ * back from the website to sign up.
  *
  * Never fails the visitor: a bad token, an unset CRM, a slow or broken CRM
- * all still land on /login.
+ * all still land on the website.
  */
 const CRM_TIMEOUT_MS = 1500;
 

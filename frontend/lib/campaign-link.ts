@@ -11,9 +11,12 @@ export function isRecipientToken(v: unknown): v is string {
   return typeof v === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(v);
 }
 
-/** Where a tap lands: sign-in, tagged for GA4. The slug comes from the CRM campaign name. */
+/** The website a campaign tap lands on. */
+export const CAMPAIGN_LANDING_URL = "https://vyavasth.in/";
+
+/** Where a tap lands: the website, tagged for GA4. The slug comes from the CRM campaign name. */
 export function campaignLanding(campaignSlug: string | null | undefined): string {
   const slug = campaignSlug && /^[a-z0-9-]{1,60}$/.test(campaignSlug) ? campaignSlug : "whatsapp-campaign";
   const q = new URLSearchParams({ utm_source: "whatsapp", utm_medium: "campaign", utm_campaign: slug });
-  return `/login?${q.toString()}`;
+  return `${CAMPAIGN_LANDING_URL}?${q.toString()}`;
 }
