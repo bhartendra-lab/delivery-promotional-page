@@ -125,6 +125,16 @@ export function useCheckoutFlow() {
       // "scheduled" screen and render undefined copy and an Invalid Date.
       if ("status" in res) {
         if (res.status === "activated") {
+          // No Razorpay step, so no `purchase` event: a 100% coupon gets its
+          // own event. For one event bought with "first event free" this is
+          // the campaign's core conversion (GA4 key event free_event_claimed).
+          trackEvent(input.purpose === "event_topup" ? "free_event_claimed" : "coupon_plan_activated", {
+            currency: "INR",
+            value: 0,
+            coupon: input.couponCode ?? undefined,
+            items: analyticsItems(input),
+            purpose: input.purpose,
+          });
           // A 100%-off coupon: the server already granted the plan, with no
           // Razorpay step at all. Straight to the same confirmation screen a
           // paid checkout lands on — its first poll of GET /billing/subscription

@@ -10,9 +10,9 @@ import {
 } from "@/lib/analytics";
 
 /**
- * Cookie consent banner for the studio dashboard. Renders nothing unless
- * analytics is configured. Both choices carry equal weight; nothing is tracked
- * until "Accept".
+ * Cookie notice, shown until the visitor picks OK or Opt out. Renders nothing
+ * unless analytics is configured. Tracking is on by default outside
+ * CONSENT_REQUIRED_REGIONS (lib/analytics.ts); there it waits for OK.
  */
 export function ConsentBanner() {
   const [open, setOpen] = useState(false);
@@ -43,12 +43,12 @@ export function ConsentBanner() {
     <div
       role="dialog"
       aria-live="polite"
-      aria-label="Cookie preferences"
+      aria-label="Cookie notice"
       className="fixed bottom-4 left-4 right-4 z-[60] rounded-2xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-4 shadow-lg sm:right-auto sm:max-w-[440px]"
     >
       <p className="m-0 mb-3.5 text-[13px] leading-relaxed text-[var(--color-brand-ink)]">
         We use cookies to measure how Vyavasth is used and to show our ads on other platforms.
-        Declining changes nothing about how the dashboard works.{" "}
+        Opting out changes nothing about how the dashboard works.{" "}
         <a
           href="https://vyavasth.in/cookie-policy"
           target="_blank"
@@ -64,14 +64,14 @@ export function ConsentBanner() {
           onClick={() => choose("denied")}
           className={`${btn} border-[var(--color-brand-outline)] text-[var(--color-brand-ink)] hover:bg-[var(--color-brand-hover)]`}
         >
-          Decline
+          Opt out
         </button>
         <button
           type="button"
           onClick={() => choose("granted")}
           className={`${btn} border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white hover:bg-[var(--color-brand-navy-deep)]`}
         >
-          Accept
+          OK
         </button>
       </div>
     </div>
