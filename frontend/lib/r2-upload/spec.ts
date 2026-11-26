@@ -18,7 +18,7 @@
  * The comments are why each number exists. Move them with the number.
  */
 
-export const UPLOAD_SPEC_VERSION = 1;
+export const UPLOAD_SPEC_VERSION = 2; // 2: watermark size is a % of the SHORTER edge (was width)
 
 export const UPLOAD_SPEC = {
   image: {

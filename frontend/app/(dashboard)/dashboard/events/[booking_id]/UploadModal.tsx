@@ -224,19 +224,17 @@ export function UploadModal({
    * Step 2's "Allow watermark" switch: whether this run stamps the studio's
    * default watermark.
    *
-   * Until the studio flips it, it shows what the event's unfinished upload was
-   * started with (`sessionWatermark`), else on. That keeps the choice across a
-   * reload: re-selecting the folder to resume must not silently put the mark
-   * back on photos whose earlier batch went up without one. Derived rather than
-   * seeded in an effect because `sessionWatermark` is read from IndexedDB and
-   * can arrive after the dialog is already open. `watermarkOverride` is the
-   * studio's own pick this time, and is cleared on open: leaving a mark off is a
-   * decision about one upload session, not a standing setting, so it must not
-   * carry into the next one by surprise (a finished or cancelled session leaves
-   * nothing in IndexedDB, so the next dialog starts from on).
+   * ON for every new upload unless the studio switches it off in THIS dialog.
+   * It used to start from the choice of the event's unfinished upload
+   * (`sessionWatermark`), so one run with the mark switched off — then
+   * interrupted — silently made every later upload on that event go up
+   * without a mark too. The Wedding Booth lost 348 photos' watermark that way
+   * (24 Nov 2026), and a missing mark cannot be added afterwards. Leaving the
+   * mark off must be a fresh, visible decision each time, so the old choice is
+   * only SHOWN (the hint below), never applied. Cleared on open.
    */
   const [watermarkOverride, setWatermarkOverride] = useState<boolean | null>(null);
-  const allowWatermark = watermarkOverride ?? sessionWatermark ?? true;
+  const allowWatermark = watermarkOverride ?? true;
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // <input webkitdirectory> (the one-shot folder flow) isn't supported on mobile
@@ -962,7 +960,7 @@ export function UploadModal({
                     label="Allow watermark"
                     hint={`${WATERMARK_HINT[variant]} It is applied as the photos upload and cannot be added to them afterwards.${
                       sessionWatermark === false && watermarkOverride === null
-                        ? " Kept off, as in your unfinished upload on this event."
+                        ? " Note: your unfinished upload on this event went up without a watermark."
                         : ""
                     }`}
                     checked={allowWatermark}
