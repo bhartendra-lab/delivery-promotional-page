@@ -64,4 +64,4 @@ The "Powered by Vyavasth" link at the foot of the gallery opens `https://vyavast
 
 ## Campaign sign ups (our CRM, not Google)
 
-A tap on `deliver.vyavasth.in/w/<id>` sets the `vy_acq` cookie for 30 days and lands on `https://vyavasth.in/` with utm tags. If that browser then signs up, `POST /api/signup-attribution` (our server) confirms which studio is signed in and tells the CRM (`/webhooks/signup`). Settings: `CRM_CLICK_URL` and `CRM_CLICK_SECRET`. Nothing about it is stored in the product backend.
+A tap on `vyavasth.in/w/<id>` (landing repo) records the tap, sets the `vy_acq` cookie on `vyavasth.in` for 30 days and shows the home page with utm tags. If that browser then signs up, `POST /api/signup-attribution` (our server) confirms which studio is signed in and tells the CRM (`/webhooks/signup`). Settings: `CRM_CLICK_URL` and `CRM_CLICK_SECRET`. Nothing about it is stored in the product backend.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { campaignLanding, isRecipientToken } from "./campaign-link.ts";
+import { isRecipientToken } from "./campaign-link.ts";
 
 test("recipient tokens are CRM ULIDs only", () => {
   assert.equal(isRecipientToken("01KAXQ6Z3V8M9N2P4R5S6T7W8X"), true);
@@ -11,11 +11,3 @@ test("recipient tokens are CRM ULIDs only", () => {
   assert.equal(isRecipientToken(undefined), false);
 });
 
-test("landing is the website with utm tags, slug sanitised", () => {
-  assert.equal(
-    campaignLanding("free-event-b1"),
-    "https://vyavasth.in/?utm_source=whatsapp&utm_medium=campaign&utm_campaign=free-event-b1",
-  );
-  assert.match(campaignLanding(null), /utm_campaign=whatsapp-campaign$/);
-  assert.match(campaignLanding("Bad Slug<script>"), /utm_campaign=whatsapp-campaign$/);
-});

@@ -13,6 +13,6 @@ export async function POST(request: Request) {
   );
   const headers = new Headers({ "cache-control": "no-store" });
   // Reported: forget the link, so it is never counted again.
-  if (result.done) headers.append("set-cookie", `${ACQ_COOKIE}=; Max-Age=0; Path=/; Secure; SameSite=Lax`);
+  if (result.done) headers.append("set-cookie", `${ACQ_COOKIE}=; Max-Age=0; Path=/; Domain=vyavasth.in; Secure; SameSite=Lax`);
   return Response.json(result, { headers });
 }
