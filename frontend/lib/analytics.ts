@@ -96,7 +96,7 @@ type EventParams = Record<string, unknown>;
 // GTM's data model keeps values pushed earlier, so a `location` set by one
 // event would leak into the next event that maps it. Every event therefore
 // starts by clearing the shared parameter keys (undefined resets a key).
-const SHARED_PARAM_KEYS = ["location", "method", "plan", "purpose", "step", "event_type", "plan_kind", "tier", "photo_count_bucket", "channel", "language", "format", "scope", "type", "coupon"] as const;
+const SHARED_PARAM_KEYS = ["location", "method", "plan", "purpose", "step", "event_type", "plan_kind", "tier", "photo_count_bucket", "channel", "language", "format", "scope", "type", "coupon", "filter", "sort", "kind"] as const;
 
 /**
  * Push a custom event to the dataLayer. GTM decides what to do with it (GA4

@@ -6,6 +6,7 @@
  * core sync instead of a copy.
  */
 import type { BookingDetail, EmbeddingStatus, EventClient, EventExpiryChoice, GalleryPublishStatus, ServiceType } from "./types.ts";
+import { eventDisplayStatus } from "./event-status.ts";
 import { normalizeDeliveryPreferences, type DeliveryPreferences } from "./delivery-preferences.ts";
 import type { ValidityExtensionRecord, ValidityOption } from "./event-validity.ts";
 
@@ -214,9 +215,9 @@ export function normalizePendingValidity(b: BookingDetail): PendingValidityInfo 
 }
 
 export function computePillState(pub: PublishInfo): LivePillState {
-  if (!pub.isActive) return "deactivated";
-  // The studio only ever sees "Live". Background processing (embeddings →
-  // face search) runs after every upload but is deliberately NOT surfaced to
-  // the studio — the gallery is live the moment photos finish uploading.
-  return "live";
+  // The same reading the event cards and lists use (event-status.ts). A switched
+  // off gallery is "deactivated"; everything else the pill is shown for is "live".
+  // The studio only ever sees "Live" otherwise: background processing (embeddings
+  // -> face search) runs after every upload but is deliberately NOT surfaced.
+  return eventDisplayStatus({ gallery_publish_status: pub.status, is_active: pub.isActive }) === "deactivated" ? "deactivated" : "live";
 }

@@ -1,3 +1,5 @@
+import type { EventsFilter } from "./event-status.ts";
+import type { AttentionResponse, MonthStatsResponse } from "./dashboard-home.ts";
 import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
@@ -876,22 +878,43 @@ export function validityReceiptUrl(token: string, orderRef: string): string {
  */
 export const BOOKING_SERVICE = "DH";
 
-/** GET /bookings/get-all-bookings?page=&limit=&search=&service= */
+/**
+ * GET /bookings/get-all-bookings?page=&limit=&search=&service=&view=&sort=
+ *
+ * `view` is the Events page's filter (all, active, deactivated, archived) and
+ * `sort` its order (created_desc, created_asc, date_desc, date_asc); the response
+ * carries `counts` for the four filters. `status` is the older parameter, kept
+ * working for anything that still sends it (it is ignored when `view` is set).
+ */
 export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
   status?: GalleryPublishStatus | "all";
+  view?: EventsFilter;
+  sort?: string;
 }) {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
   if (params.limit) sp.set("limit", String(params.limit));
   if (params.search) sp.set("search", params.search);
   if (params.status) sp.set("status", params.status);
+  if (params.view) sp.set("view", params.view);
+  if (params.sort) sp.set("sort", params.sort);
   sp.set("service", BOOKING_SERVICE);
   return request<BookingsListResponse>(
     `/bookings/get-all-bookings?${sp.toString()}`,
   );
+}
+
+/** GET /bookings/dashboard-attention: the Dashboard's "Needs attention" rows (expiring, deactivated, missing numbers, empty events, open change requests). */
+export function getDashboardAttention() {
+  return request<AttentionResponse>("/bookings/dashboard-attention");
+}
+
+/** GET /bookings/dashboard-stats: this month against last (gallery views, new guest contacts, free WhatsApp messages, review taps). */
+export function getDashboardStats() {
+  return request<MonthStatsResponse>("/bookings/dashboard-stats");
 }
 
 /**
