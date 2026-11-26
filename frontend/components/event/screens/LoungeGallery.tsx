@@ -16,8 +16,7 @@ import { catchGuestBehavior, GuestAuthError, getArchiveDownloadUrls, getGuestMed
 import { getCachedMediaIds, setCachedMediaIds } from "@/lib/guest-auth";
 import { guestPhotoUrl, PROFILE_FACE_RECHECK_MS, profileFaceServed } from "@/lib/profile-face";
 import { failedPhotoUrl, nameFromUrl, shareImage } from "@/lib/media-actions";
-import { recordGalleryEvent } from "@/lib/guest-metrics";
-import { POWERED_BY_BASE_URL, poweredByUrl } from "@/lib/guest-metrics-core";
+import { poweredByUrl } from "@/lib/powered-by";
 import { useDownloadFlow } from "@/lib/download/useDownloadFlow";
 import { useSinglePhotoDownload } from "@/lib/download/useSinglePhotoDownload";
 import { describeError, type DownloadFailure } from "@/lib/download/failure";
@@ -751,16 +750,6 @@ export function LoungeGallery({
     [],
   );
 
-  // First-party gallery metrics (counted by us, sent to nobody; lib/guest-metrics.ts). A view is counted
-  // once per browser session however often this screen mounts.
-  useEffect(() => {
-    recordGalleryEvent(uniqueIdentifier, "gallery_view");
-  }, [uniqueIdentifier]);
-  // A photo opened in the viewer (and each photo paged to).
-  useEffect(() => {
-    if (viewerIndex !== null) recordGalleryEvent(uniqueIdentifier, "photo_open", { source: "viewer" });
-  }, [viewerIndex, uniqueIdentifier]);
-
   useEffect(() => {
     // Nothing to search for, and the backend would refuse anyway (it checks the
     // same switch on the way in, to catch exactly this tab).
@@ -774,8 +763,6 @@ export function LoungeGallery({
         setSearchSettled(true);
         return;
       }
-      // A guest who found their photos with a selfie (counted once per session).
-      recordGalleryEvent(uniqueIdentifier, "selfie_search", { source: "visit" });
       try {
         const res = await searchSelfie(uniqueIdentifier, {
           selfie_id: session.selfie_id,
@@ -1495,7 +1482,6 @@ export function LoungeGallery({
   const startDownload = useCallback(
     (baseName: string, resolveSources: (signal: AbortSignal) => Promise<PlanSource[]>) => {
       if (zipping) return;
-      recordGalleryEvent(uniqueIdentifier, "download", { source: "gallery" });
       setToast(null);
       // Close the photo viewer first. The pre-flight is a full-attention
       // surface that stays up for the whole run, so leaving a viewer mounted
@@ -1510,7 +1496,7 @@ export function LoungeGallery({
         resolveArchiveUrls,
       });
     },
-    [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls, closeViewer, uniqueIdentifier],
+    [zipping, downloadFlow, bookingId, archiveAccess, resolveArchiveUrls, closeViewer],
   );
 
   /**
@@ -1575,14 +1561,13 @@ export function LoungeGallery({
 
   const downloadOne = useCallback(
     (item: GuestMediaItem) => {
-      recordGalleryEvent(uniqueIdentifier, "download", { count: 1 });
       singleDownload.request({
         mediaId: item.media_id,
         url: item.url,
         archiveVariant: item.archive_variant ?? null,
       });
     },
-    [singleDownload, uniqueIdentifier],
+    [singleDownload],
   );
   /** `downloadOne` behind the required visit — what the grid tile, the
    *  lightbox chip and every other single-photo entry point call. The
@@ -1596,12 +1581,11 @@ export function LoungeGallery({
    *  the viewer's Share chip makes (`shareImage`), with the same toasts. */
   const shareOne = useCallback(
     async (item: GuestMediaItem) => {
-      recordGalleryEvent(uniqueIdentifier, "share", { source: "tile" });
       const r = await shareImage(item.url, event.event_name);
       if (r === "copied") setToast("Link copied");
       else if (r === "failed") setToast("Couldn’t share");
     },
-    [event.event_name, uniqueIdentifier],
+    [event.event_name],
   );
 
   /** One media row as the download planner wants it. `folderName` comes from the
@@ -2385,7 +2369,7 @@ export function LoungeGallery({
             )}
           </div>
 
-          <PolicyFooter t={t} uid={uniqueIdentifier} className="pb-10" />
+          <PolicyFooter t={t} className="pb-10" />
         </div>
       </div>
       )}
@@ -2428,7 +2412,7 @@ export function LoungeGallery({
               className="mx-auto w-full max-w-[460px] px-5 pt-6"
               style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom))" }}
             >
-              <PolicyFooter t={t} uid={uniqueIdentifier} />
+              <PolicyFooter t={t} />
             </div>
           </div>
         ) : selectionShown ? (
@@ -2653,7 +2637,6 @@ export function LoungeGallery({
           isSelected={isSelected}
           onToggleSelect={toggleSel}
           onToast={setToast}
-          onShared={() => recordGalleryEvent(uniqueIdentifier, "share", { source: "viewer" })}
           canDownload={canDownload}
           onDownload={requestDownloadOne}
           onCollect={curator ? openSaveFor : undefined}
@@ -2919,7 +2902,7 @@ export function useIsDesktop(): boolean {
   return isDesktop;
 }
 
-function PolicyFooter({ t, uid, className = "" }: { t: Theme; uid: string; className?: string }) {
+function PolicyFooter({ t, className = "" }: { t: Theme; className?: string }) {
   const { openPolicy } = usePolicy();
   const linkCls = "cursor-pointer underline-offset-2 hover:underline";
   return (
@@ -2937,15 +2920,8 @@ function PolicyFooter({ t, uid, className = "" }: { t: Theme; uid: string; class
           Cookies
         </button>
       </div>
-      {/* Tagged for the dashboard's own analytics. noreferrer keeps the gallery's private address out of the
-          other site's logs; the tap is counted here, by our own metrics, not by a third party. */}
-      <a
-        href={poweredByUrl(POWERED_BY_BASE_URL)}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() => recordGalleryEvent(uid, "powered_by_click")}
-        className={linkCls}
-      >
+      {/* noreferrer keeps the gallery's private address out of the other site's logs. */}
+      <a href={poweredByUrl()} target="_blank" rel="noopener noreferrer" className={linkCls}>
         Powered by Vyavasth
       </a>
     </div>

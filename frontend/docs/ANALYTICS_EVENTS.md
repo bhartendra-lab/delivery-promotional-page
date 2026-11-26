@@ -56,17 +56,8 @@ The same events above also go to PostHog, with the same parameters, plus a `$pag
 - **Consent.** Follows the cookie banner: Opt out stops capturing and the replay at once. A saved choice is read before PostHog loads. In Europe (judged by the device's time zone, erring towards asking) it waits for OK; elsewhere it is on until the visitor opts out.
 - **Never on the guest gallery.** `PosthogProvider` sits in the dashboard layout; `app/(client)`, `app/e` and `/event/...` do not load it.
 
-## Guest gallery metrics (first-party, no third party)
+## Guest gallery
 
-The guest gallery loads no third-party script, ever (a test fails the build if one appears). What guests do there is counted by our own backend (`POST /deliverables/create-delivery-landing-page-tracking/:slug`, see the backend's `docs/GALLERY_METRICS.md`), with a random device id kept in `localStorage` (`vy_gdev`) and nothing else about them. Guests whose browser sends Do Not Track or Global Privacy Control are not counted, and the Gallery Design preview records nothing.
+The guest gallery loads no third-party script and records no analytics events of its own (a test fails if a third-party script appears). How many guests opened a gallery comes from the guest records that already exist.
 
-| Event | Fired when | Extra |
-| --- | --- | --- |
-| `gallery_view` | The gallery opens (once per browser session) | |
-| `photo_open` | A photo opens in the viewer (and each photo paged to) | `source`: `viewer` |
-| `download` | A single photo is saved, or a bulk download starts | `count: 1` (one photo) or `source: gallery` (a bulk download) |
-| `selfie_search` | A guest's selfie is used to find their photos (once per session) | `source`: `visit` or `scan` |
-| `share` | A photo or the gallery link is shared or copied | `source`: `tile`, `viewer`, `native` or `copy` |
-| `powered_by_click` | A guest taps "Powered by Vyavasth" at the foot of the gallery (under Terms, Privacy and Cookies) | |
-
-The "Powered by Vyavasth" link opens `https://vyavasth.in/?utm_source=gallery&utm_medium=referral` in a new tab with `noopener noreferrer`, so the gallery's private address is not passed on. The tags let the landing page's own analytics tell a visitor who came from a gallery from anyone else.
+The "Powered by Vyavasth" link at the foot of the gallery opens `https://vyavasth.in/?utm_source=gallery&utm_medium=referral` in a new tab with `noopener noreferrer`. Those tags are the only tracking on it.

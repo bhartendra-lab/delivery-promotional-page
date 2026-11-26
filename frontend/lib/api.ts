@@ -2010,34 +2010,44 @@ export function verifyGuestOtp(input: {
 }
 
 /**
- * The tracking endpoint (POST /deliverables/create-delivery-landing-page-tracking/:id).
- * It is public on purpose: the guest gallery is not signed in when it opens, so
- * no Authorization header is sent. `id` is the gallery's link slug or its id.
- * (An older note here called it auth-protected: that was a backend bug, now
- * gone. See backend docs/GALLERY_METRICS.md.)
- *
- * Fire and forget: `keepalive` so a click that leaves the page (a download, a
- * link) still gets counted, and a failure is never thrown or logged loudly,
- * because a metric must not break the user flow.
+ * Tracking endpoint. Per BACKEND_NOTES, this endpoint is currently auth-protected
+ * (backend bug) — we still call it without an Authorization header because the
+ * client view is unauthenticated. Failures are logged but never thrown so they
+ * cannot break the user flow.
  */
 export async function trackEvent(
   id: string,
   trackingType: TrackingType,
   trackingData?: Record<string, unknown>,
 ): Promise<void> {
+  const payload = {
+    tracking_type: trackingType,
+    // Always send an object so JSON.stringify never drops the field.
+    tracking_data: trackingData ?? {},
+  };
   try {
-    await fetch(`${API_BASE}/deliverables/create-delivery-landing-page-tracking/${encodeURIComponent(id)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      keepalive: true,
-      body: JSON.stringify({
-        tracking_type: trackingType,
-        // Always send an object so JSON.stringify never drops the field.
-        tracking_data: trackingData ?? {},
-      }),
-    });
-  } catch {
-    // Dropped: a missed metric is fine.
+    const res = await fetch(
+      `${API_BASE}/deliverables/create-delivery-landing-page-tracking/${encodeURIComponent(id)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = await res.text();
+      } catch {
+        // ignore
+      }
+      console.warn(
+        `[trackEvent] ${trackingType} → ${res.status} ${res.statusText}`,
+        detail,
+      );
+    }
+  } catch (err) {
+    console.warn(`[trackEvent] ${trackingType} failed`, err);
   }
 }
 

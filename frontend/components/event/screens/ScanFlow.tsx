@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, putBlobToPresignedUrl } from "@/lib/api";
 import { uploadCacheControlFor } from "@/lib/upload-cache-control";
 import { GuestAuthError, presignGuestUploads, recordConsent, searchSelfie, validateSelfie } from "@/lib/guest-api";
-import { recordGalleryEvent } from "@/lib/guest-metrics";
 import { getFaceFilter } from "@/lib/face-filter/api";
 import { whenVisible } from "@/lib/media-actions";
 import { reportBug } from "@/lib/report-bug";
@@ -271,7 +270,6 @@ export function ScanFlow({
       setTarget(80);
       setStatus("Matching faces…");
       const res = await searchSelfie(uniqueIdentifier, { selfie_id: selfieId, booking_id: bookingId });
-      recordGalleryEvent(uniqueIdentifier, "selfie_search", { source: "scan" });
       const ids = res.data || [];
       // Cache the matched set for this tab session so the lounge has something
       // to paint on first render; it re-runs the search itself on mount and

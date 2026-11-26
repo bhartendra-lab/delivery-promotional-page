@@ -131,17 +131,7 @@ export type DeliveryUrl = {
   provider: Provider;
 };
 
-export type TrackingType =
-  | "visit"
-  | "delivery"
-  | "review"
-  // What the guest gallery records itself (lib/guest-metrics.ts).
-  | "gallery_view"
-  | "photo_open"
-  | "download"
-  | "selfie_search"
-  | "share"
-  | "powered_by_click";
+export type TrackingType = "visit" | "delivery" | "review";
 
 /**
  * Guest-derived engagement counts for a booking's gallery (from `getAllBookings`).
