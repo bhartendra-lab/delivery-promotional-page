@@ -6,6 +6,7 @@ import { requestStudioOtp, verifyStudioOtp, resolveReferral, getCompanyDetails, 
 import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
+import { exclusiveValidity } from "@/lib/offer-urgency";
 import { captureReferralFromUrl, getStoredReferral } from "@/lib/referral-storage";
 import { trackEvent } from "@/lib/analytics";
 import {
@@ -188,6 +189,8 @@ type OfferSlide = {
   subline: string | null;
   code: string | null;
   until: string | null;
+  /** The exclusive offer: first, dressed apart, and held on screen longer. */
+  exclusive: { urgency: string; ends: string } | null;
 };
 
 /** Shown when nothing is showcased or the offers could not load: no code, nothing to go stale. */
@@ -197,22 +200,30 @@ const BRAND_SLIDE: OfferSlide = {
   subline: "Every guest finds their photos.",
   code: null,
   until: null,
+  exclusive: null,
 };
 
 function OfferPanel({ offers }: { offers: LoginOffers }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [now] = useState(() => Date.now());
   const reducedMotion = usePrefersReducedMotion();
 
-  const slides: OfferSlide[] = offers.coupons.length
-    ? offers.coupons.map((coupon) => ({
+  // The API already puts the exclusive offer first; kept first here too.
+  const ordered = [...offers.coupons.filter((c) => c.exclusive), ...offers.coupons.filter((c) => !c.exclusive)];
+  const slides: OfferSlide[] = ordered.length
+    ? ordered.map((coupon) => ({
       id: coupon.code,
       headline: coupon.headline ?? "",
       subline: coupon.subline,
       code: coupon.code,
       until: coupon.valid_until != null ? formatOfferDate(coupon.valid_until) : null,
+      exclusive: coupon.exclusive
+        ? (exclusiveValidity(coupon.valid_until, now) ?? { urgency: "Limited time", ends: "" })
+        : null,
     }))
     : [BRAND_SLIDE];
+  const exclusiveActive = Boolean(slides[Math.min(index, slides.length - 1)]?.exclusive);
   const autoplay = !reducedMotion && slides.length > 1;
   const current = Math.min(index, slides.length - 1);
 
@@ -222,6 +233,10 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
     <aside className="group relative flex flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-5 py-5 text-white sm:px-10 sm:py-9">
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[radial-gradient(closest-side,rgba(255,236,224,0.35),transparent)]" />
+        {/* A warm gold light while the exclusive offer is on screen. */}
+        <div
+          className={`absolute -left-32 bottom-[-30%] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(closest-side,rgba(246,198,106,0.42),transparent)] transition-opacity duration-700 ${exclusiveActive ? "opacity-100" : "opacity-0"}`}
+        />
         <Grain className="opacity-[0.12]" />
       </div>
 
@@ -250,6 +265,10 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
               className={`[grid-area:1/1] transition-[opacity,transform] duration-500 ease-out ${active ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
                 }`}
             >
+              {slide.exclusive ? (
+                <ExclusiveSlide slide={slide} validity={slide.exclusive} />
+              ) : (
+              <>
               <p className="text-[28px] font-extrabold leading-[1.08] tracking-[-0.03em] sm:text-[50px] lg:text-[54px]">
                 {slide.headline}
               </p>
@@ -261,6 +280,8 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
                   {slide.code && <CopyCode code={slide.code} />}
                   {slide.until && <span className="text-xs text-white/65">Valid till {slide.until}</span>}
                 </div>
+              )}
+              </>
               )}
             </div>
           );
@@ -285,7 +306,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
                   {active && (
                     <span
                       key={current}
-                      className={`absolute inset-0 rounded-full bg-white ${autoplay ? "offer-progress" : ""}`}
+                      className={`absolute inset-0 rounded-full ${slide.exclusive ? "bg-[#F6C66A]" : "bg-white"} ${autoplay ? (slide.exclusive ? "offer-progress offer-progress-long" : "offer-progress") : ""}`}
                       style={autoplay && paused ? { animationPlayState: "paused" } : undefined}
                       onAnimationEnd={autoplay ? () => go(1) : undefined}
                     />
@@ -318,6 +339,36 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
   );
 }
 
+/**
+ * The exclusive offer's slide: a gold "Exclusive offer" seal, its headline,
+ * a gold code, and how long is left, so it reads as rare, not as one more
+ * coupon. Every word but the seal and the countdown comes from the API.
+ */
+function ExclusiveSlide({ slide, validity }: { slide: OfferSlide; validity: { urgency: string; ends: string } }) {
+  return (
+    <>
+      <span className="exclusive-seal inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#2B140D] sm:text-xs">
+        <span aria-hidden className="exclusive-twinkle">✦</span>
+        Exclusive offer
+      </span>
+      <p className="mt-3 bg-[linear-gradient(180deg,#FFFFFF_30%,#FFE3A3_100%)] bg-clip-text text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] text-transparent sm:text-[54px] lg:text-[60px]">
+        {slide.headline}
+      </p>
+      {slide.subline && (
+        <p className="mt-2 text-sm font-medium leading-snug text-white/85 sm:text-lg">{slide.subline}</p>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {slide.code && <CopyCode code={slide.code} gold />}
+        <span className="inline-flex items-center gap-2 rounded-full bg-black/20 px-3 py-1.5 text-xs font-bold text-[#FFE3A3] ring-1 ring-[#F6C66A]/40">
+          <span aria-hidden className="exclusive-pulse h-1.5 w-1.5 rounded-full bg-[#F6C66A]" />
+          {validity.urgency}
+          {validity.ends && <span className="font-semibold text-white/70">· {validity.ends}</span>}
+        </span>
+      </div>
+    </>
+  );
+}
+
 function ControlButton({ label, pressed, onClick, children }: {
   label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode;
 }) {
@@ -335,7 +386,7 @@ function ControlButton({ label, pressed, onClick, children }: {
 }
 
 /** White code pill: tap anywhere on it to copy. */
-function CopyCode({ code }: { code: string }) {
+function CopyCode({ code, gold = false }: { code: string; gold?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   function copy() {
@@ -353,7 +404,10 @@ function CopyCode({ code }: { code: string }) {
       type="button"
       onClick={copy}
       aria-label={copied ? `Copied ${code}` : `Copy code ${code}`}
-      className="brand-focus inline-flex items-center gap-2.5 rounded-full bg-white px-3.5 py-2 text-[var(--color-brand-navy-deep)] shadow-[0_6px_16px_-6px_rgba(0,0,0,0.35)] transition-transform hover:-translate-y-px active:translate-y-0"
+      className={`brand-focus inline-flex items-center gap-2.5 rounded-full px-3.5 py-2 text-[var(--color-brand-navy-deep)] transition-transform hover:-translate-y-px active:translate-y-0 ${gold
+        ? "bg-[linear-gradient(180deg,#FFF3D6,#F6C66A)] shadow-[0_8px_24px_-6px_rgba(246,198,106,0.7)] ring-1 ring-white/60"
+        : "bg-white shadow-[0_6px_16px_-6px_rgba(0,0,0,0.35)]"
+        }`}
     >
       <span className="font-mono text-[13px] font-bold tracking-[0.12em]">{code}</span>
       <span className="h-3.5 w-px bg-[var(--color-brand-navy)]/25" />

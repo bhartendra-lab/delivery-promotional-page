@@ -42,6 +42,14 @@ export type PublicCoupon = {
   audience: "event" | "storage" | null;
   headline: string | null;
   subline: string | null;
+  /**
+   * The one exclusive offer (also the marketing site's banner and pop-up). It
+   * comes first in the list; its headline and subline are its exclusive ones.
+   * Absent from an older API.
+   */
+  exclusive?: boolean;
+  /** The exclusive offer's button words, or null. */
+  cta_label?: string | null;
 };
 
 /** GET /billing/coupons/available: what this studio can use on this plan right now ("Offers for you"). */
