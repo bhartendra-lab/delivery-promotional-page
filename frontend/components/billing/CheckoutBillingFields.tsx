@@ -32,6 +32,7 @@ export function CheckoutBillingFields({
   city,
   address,
   onStatus,
+  nudge = 0,
 }: {
   studioName?: string | null;
   /** The onboarding city (Company.city). */
@@ -39,6 +40,8 @@ export function CheckoutBillingFields({
   /** The studio's address (Company.address). */
   address?: string | null;
   onStatus: (status: BillingFieldsStatus, version: number) => void;
+  /** Bumped by the parent when the studio pressed Pay with no state: the field turns red and takes focus. */
+  nudge?: number;
 }) {
   const [stateCode, setStateCode] = useState("");
   const [gstin, setGstin] = useState("");
@@ -47,6 +50,8 @@ export function CheckoutBillingFields({
   const [filledFrom, setFilledFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gstinError, setGstinError] = useState<string | null>(null);
+  const [stateMissing, setStateMissing] = useState(false);
+  const stateRef = useRef<HTMLSelectElement>(null);
   const version = useRef(0);
   const report = useRef(onStatus);
   useEffect(() => {
@@ -112,7 +117,20 @@ export function CheckoutBillingFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Pay was pressed without a state: say so on the field itself.
+  useEffect(() => {
+    if (nudge === 0) return;
+    if (!stateCode) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts to the parent's Pay press
+      setStateMissing(true);
+      stateRef.current?.focus();
+    }
+    // Only a new press matters, not a state chosen since.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nudge]);
+
   function chooseState(code: string) {
+    setStateMissing(false);
     setStateCode(code);
     setFilledFrom(null);
     const gstinState = stateOfGstin(gstin);
@@ -160,10 +178,15 @@ export function CheckoutBillingFields({
           </span>
           <span className="relative block">
             <select
+              ref={stateRef}
               value={stateCode}
               onChange={(e) => chooseState(e.target.value)}
-              className={`brand-focus h-10 w-full cursor-pointer appearance-none truncate rounded-lg border bg-[var(--color-brand-bg)] pl-3 pr-8 text-sm text-[var(--color-brand-ink)] ${
-                stateCode ? "border-[var(--color-brand-border)]" : "border-[var(--color-brand-navy)]/60"
+              aria-invalid={stateMissing ? true : undefined}
+              aria-describedby={stateMissing ? "checkout-state-missing" : undefined}
+              className={`brand-focus h-10 w-full cursor-pointer appearance-none truncate rounded-lg border bg-[var(--color-brand-bg)] pl-3 pr-8 text-sm ${
+                stateMissing
+                  ? "border-[var(--color-brand-danger)] bg-[var(--color-brand-danger-soft)] text-[var(--color-brand-danger)] ring-2 ring-[var(--color-brand-danger)]/20"
+                  : `border-[var(--color-brand-border)] ${stateCode ? "text-[var(--color-brand-ink)]" : "text-[var(--color-brand-muted)]"}`
               }`}
             >
               <option value="" disabled>
@@ -206,6 +229,11 @@ export function CheckoutBillingFields({
           />
         </label>
       </div>
+      {stateMissing && (
+        <p id="checkout-state-missing" role="alert" className="text-xs font-medium text-[var(--color-brand-danger)]">
+          Choose your state to continue. It decides how GST is split on your invoice.
+        </p>
+      )}
       {(gstinError || error) && (
         <p role="alert" className="text-xs text-[var(--color-brand-danger)]">
           {gstinError || error}

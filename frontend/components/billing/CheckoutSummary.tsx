@@ -33,6 +33,8 @@ export function CheckoutSummary({
   prorationDetail,
   note,
   bare = false,
+  collapsible = false,
+  collapsedHint,
 }: {
   title?: string;
   subtitle?: string;
@@ -63,9 +65,16 @@ export function CheckoutSummary({
   note?: string;
   /** No card of its own: for a parent that already draws one. */
   bare?: boolean;
+  /** Only the Total shows until it is tapped; then the whole breakdown opens above it. */
+  collapsible?: boolean;
+  /** One short line under a collapsed Total, e.g. "1 event · you save ₹399 · with taxes". */
+  collapsedHint?: string;
 }) {
   const [taxesOpen, setTaxesOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const taxesId = useId();
+  const detailsId = useId();
+  const showDetails = !collapsible || detailsOpen;
   const hasTaxes = Array.isArray(taxLines) && taxLines.length > 0;
   const taxTotal = hasTaxes ? taxLines.reduce((sum, l) => sum + l.amount, 0) : 0;
   const taxPercent = hasTaxes ? taxLines.reduce((sum, l) => sum + l.percent, 0) : 0;
@@ -80,6 +89,8 @@ export function CheckoutSummary({
           : "flex flex-col gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] p-5"
       }
     >
+      {showDetails && (
+      <div id={collapsible ? detailsId : undefined} className="flex flex-col gap-3">
       {(title || subtitle) && (
         <div>
           {title && (
@@ -146,16 +157,39 @@ export function CheckoutSummary({
         </div>
       )}
 
-      <div className="flex items-baseline justify-between border-t border-[var(--color-brand-border)] pt-3">
-        <span className="text-sm font-semibold text-[var(--color-brand-ink)]">Total</span>
-        <span aria-live="polite" className="text-2xl font-bold tabular-nums text-[var(--color-brand-ink)]">
-          {total === null ? (
-            <span className="text-sm font-medium text-[var(--color-brand-muted)]">{totalPendingLabel}</span>
-          ) : (
-            formatInr(total, { paise: true })
-          )}
-        </span>
       </div>
+      )}
+
+      {collapsible ? (
+        <div className={showDetails ? "border-t border-[var(--color-brand-border)] pt-3" : ""}>
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((o) => !o)}
+            aria-expanded={detailsOpen}
+            aria-controls={detailsId}
+            className="brand-focus flex w-full items-center justify-between gap-3 rounded-lg text-left"
+          >
+            <span className="flex flex-col">
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-brand-ink)]">
+                Total
+                <span className="inline-flex items-center gap-0.5 text-xs font-medium text-[var(--color-brand-navy)]">
+                  {detailsOpen ? "Hide details" : "Details"}
+                  <IconCaretDown size={11} className={`transition-transform duration-200 ${detailsOpen ? "rotate-180" : ""}`} />
+                </span>
+              </span>
+              {!detailsOpen && collapsedHint && (
+                <span className="mt-0.5 text-xs text-[var(--color-brand-muted)]">{collapsedHint}</span>
+              )}
+            </span>
+            <TotalAmount total={total} pendingLabel={totalPendingLabel} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-baseline justify-between border-t border-[var(--color-brand-border)] pt-3">
+          <span className="text-sm font-semibold text-[var(--color-brand-ink)]">Total</span>
+          <TotalAmount total={total} pendingLabel={totalPendingLabel} />
+        </div>
+      )}
       {totalIsEstimate && total !== null && (
         <p className="-mt-2 text-xs text-[var(--color-brand-muted)]">
           {prorationDetail ?? "Prorated for the rest of your current cycle."}
@@ -164,6 +198,18 @@ export function CheckoutSummary({
 
       {note && <p className="text-xs leading-relaxed text-[var(--color-brand-muted)]">{note}</p>}
     </div>
+  );
+}
+
+function TotalAmount({ total, pendingLabel }: { total: number | null; pendingLabel: string }) {
+  return (
+    <span aria-live="polite" className="shrink-0 text-2xl font-bold tabular-nums text-[var(--color-brand-ink)]">
+      {total === null ? (
+        <span className="text-sm font-medium text-[var(--color-brand-muted)]">{pendingLabel}</span>
+      ) : (
+        formatInr(total, { paise: true })
+      )}
+    </span>
   );
 }
 

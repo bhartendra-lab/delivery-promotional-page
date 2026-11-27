@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconMinus, IconPlus } from "@/components/ui/icons";
 
-const PRESETS = [1, 5, 10, 25];
+const PRESETS = [1, 5, 10, 15, 20, 25];
 const MAX_QTY = 100;
 
 export function EventQuantity({

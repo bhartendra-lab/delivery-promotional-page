@@ -67,8 +67,13 @@ export function CheckoutPanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [confirmStorageClear, setConfirmStorageClear] = useState(false);
+  /** Bumped when Pay is pressed with no state chosen: the State field turns red and takes focus. */
+  const [stateNudge, setStateNudge] = useState(0);
 
+  // The total is worked out with or without a state (18% GST either way; only
+  // the CGST+SGST or IGST split waits for it). Only a save in flight holds it.
   const billingReady = billing.status === "ready";
+  const billingSettled = billing.status !== "loading" && billing.status !== "saving";
   const selectionKey = selection
     ? `${selection.plan._id}:${selection.mode === "event" ? selection.quantity : "s"}`
     : null;
@@ -80,7 +85,7 @@ export function CheckoutPanel({
   }, [selectionKey]);
 
   useEffect(() => {
-    if (!selection || !billingReady) {
+    if (!selection || !billingSettled) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- nothing to price yet: drop a stale total
       setPreview(null);
       setPreviewLoading(false);
@@ -117,7 +122,7 @@ export function CheckoutPanel({
     };
     // selectionKey stands for the selection; billing.version moves on with every saved state or GSTIN.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionKey, appliedCoupon?.code, billingReady, billing.version]);
+  }, [selectionKey, appliedCoupon?.code, billingSettled, billing.version]);
 
   const isEvent = selection?.mode === "event";
   const eventUnitPrice = isEvent ? selection.plan.event_unit_price ?? 0 : 0;
@@ -142,18 +147,12 @@ export function CheckoutPanel({
   const prorationCredit =
     proration?.mode === "interval_upgrade" && rows?.unusedCredit ? { label: "Unused plan credit", amount: rows.unusedCredit } : null;
 
-  const waitingForState = billing.status === "needs_state" || (billing.status === "error" && !priced);
-  const pendingLabel = waitingForState
-    ? "Choose your state"
-    : billing.status === "loading" || billing.status === "saving" || previewLoading
-      ? "Calculating…"
-      : isScheduled
-        ? "No charge now"
-        : "—";
+  const pendingLabel = !billingSettled || previewLoading ? "Calculating…" : isScheduled ? "No charge now" : "—";
 
+  // Pressable before a state is chosen: pressing then asks for the state (see pay()).
   const canPay =
     !!selection &&
-    billingReady &&
+    billingSettled &&
     !previewLoading &&
     !paying &&
     (isScheduled || total !== null) &&
@@ -168,12 +167,15 @@ export function CheckoutPanel({
         ? "Activate plan"
         : total !== null && !previewLoading
           ? `Pay ${formatInr(total, { paise: true })}`
-          : waitingForState
-            ? "Choose your state to continue"
-            : "Calculating…";
+          : "Calculating…";
 
   function pay() {
     if (!selection || !canPay) return;
+    // The one thing checkout cannot do without: the place of supply.
+    if (!billingReady) {
+      setStateNudge((n) => n + 1);
+      return;
+    }
     onPay({
       selection,
       total,
@@ -182,6 +184,18 @@ export function CheckoutPanel({
       onCouponRejected: () => setAppliedCoupon(null),
     });
   }
+
+  // Under the collapsed Total: what it is for, and what the coupon saved.
+  const savings = rows ? rows.discountAmount : (appliedCoupon?.discountAmount ?? 0);
+  const collapsedHint = selection
+    ? [
+        isEvent ? `${selection.quantity} event${selection.quantity === 1 ? "" : "s"}` : planLabel(selection.plan),
+        savings > 0 ? `you save ${formatInr(savings, { paise: savings % 1 !== 0 })}` : null,
+        priced?.tax_lines?.length ? (rows?.gstInclusive ? "taxes included" : "with taxes") : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
 
   const note: ReactNode = !selection
     ? null
@@ -246,7 +260,9 @@ export function CheckoutPanel({
                 total={isScheduled ? null : total}
                 totalIsEstimate={!!proration}
                 totalPendingLabel={pendingLabel}
-                taxPendingLabel={waitingForState ? "Choose your state" : pendingLabel === "—" ? undefined : pendingLabel}
+                taxPendingLabel={pendingLabel === "—" ? undefined : pendingLabel}
+                collapsible
+                collapsedHint={collapsedHint}
                 prorationDetail={
                   proration
                     ? `Prorated for the remaining ${Math.round(proration.remaining_fraction * 100)}% of your current cycle.`
@@ -274,6 +290,7 @@ export function CheckoutPanel({
             city={company?.city}
             address={company?.address}
             onStatus={(status, version) => setBilling({ status, version })}
+            nudge={stateNudge}
           />
         </div>
 
