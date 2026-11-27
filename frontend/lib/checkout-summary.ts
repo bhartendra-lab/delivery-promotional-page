@@ -78,3 +78,16 @@ export function couponChipLabel(coupon: Pick<AvailableCoupon, "code" | "reward_t
 export function appliedBonusLabel(bonusEvents: number | null | undefined): string | null {
   return bonusEvents && bonusEvents > 0 ? `+${freeEvents(bonusEvents)}` : null;
 }
+
+/**
+ * Whether a public coupon is the "first event on us" offer (FIRSTONUS while it
+ * runs): the exclusive offer, for events, at 100% off. While it is, a new
+ * studio's first dashboard visit opens checkout with one event and this code
+ * applied. When it ends, the public list stops sending it (or the next coupon
+ * is not exclusive), and the usual welcome dialog comes back by itself.
+ */
+export function isFreeFirstEventOffer(
+  coupon: Pick<AvailableCoupon, "exclusive" | "audience" | "reward_type" | "percent_off"> | null | undefined,
+): boolean {
+  return !!coupon && coupon.exclusive === true && coupon.audience === "event" && coupon.reward_type === "percent_off" && coupon.percent_off === 100;
+}

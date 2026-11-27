@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
+import { BUY_EVENTS_PATH, isAuthenticated } from "@/lib/auth";
 import { useCompany } from "@/lib/useCompany";
 import { getBillingPlans, previewCheckout, getApiErrorCode } from "@/lib/billing";
 import type { PlansResponse, CheckoutPreview } from "@/lib/billing-types";
@@ -16,7 +16,6 @@ import { CouponField, type AppliedCoupon } from "@/components/billing/CouponFiel
 import { CheckoutSummary } from "@/components/billing/CheckoutSummary";
 import { CheckoutFlowStatus } from "@/components/billing/CheckoutFlowStatus";
 import { useCheckoutFlow } from "@/components/billing/useCheckoutFlow";
-import { OnboardingPlanStep } from "@/components/billing/OnboardingPlanStep";
 import { StorageClearConfirm } from "@/components/billing/StorageClearConfirm";
 import { planHasLapsed } from "@/lib/subscription-status";
 
@@ -31,14 +30,21 @@ export default function CheckoutPage() {
 }
 
 /**
- * `?onboarding=1` is the plan selection flow a new studio opens from the
- * dashboard's welcome dialog. Same route and the same purchase pieces, but a
- * different frame: no plan is pre-chosen, and "Not now" leads back to the
- * dashboard.
+ * `?onboarding=1` was a full-page plan flow for a studio's first purchase. The
+ * first purchase now happens in the same modal as every other one, so an old
+ * link lands on the dashboard with that modal open.
  */
 function CheckoutRoute() {
   const search = useSearchParams();
-  return search.get("onboarding") === "1" ? <OnboardingPlanStep /> : <CheckoutShell />;
+  return search.get("onboarding") === "1" ? <ToPurchaseModal /> : <CheckoutShell />;
+}
+
+function ToPurchaseModal() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(BUY_EVENTS_PATH);
+  }, [router]);
+  return <CheckoutFallback />;
 }
 
 function CheckoutFallback() {
@@ -384,6 +390,7 @@ function CheckoutShell() {
         nextBonusTier={hasPreview ? preview.next_bonus_tier : null}
         taxableValue={hasPreview ? preview.taxable_value : null}
         taxLines={hasPreview ? preview.tax_lines : null}
+        gstInclusive={rows ? rows.gstInclusive : true}
         prorationCredit={prorationCredit}
         total={isScheduled ? null : displayTotal}
         totalIsEstimate={!!proration}

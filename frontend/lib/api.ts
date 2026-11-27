@@ -766,9 +766,11 @@ export function getBillingProfile() {
 }
 
 export type BillingProfileInput = {
-  legal_name: string;
+  /** Left out (checkout), the saved one stays; invoices fall back to the studio's name. */
+  legal_name?: string;
   gstin?: string;
-  billing_address: string;
+  /** Left out (checkout), the saved one stays. */
+  billing_address?: string;
   place_of_supply_state: string;
 };
 

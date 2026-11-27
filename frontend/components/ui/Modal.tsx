@@ -7,7 +7,7 @@ import { IconX } from "@/components/ui/icons";
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-type Size = "sm" | "md" | "lg";
+type Size = "sm" | "md" | "lg" | "xl";
 
 /**
  * Open modals, bottom to top. A dialog can now open over another one (the
@@ -21,6 +21,7 @@ const SIZE_CLASSES: Record<Size, string> = {
   sm: "sm:max-w-md",
   md: "sm:max-w-lg",
   lg: "sm:max-w-2xl",
+  xl: "sm:max-w-5xl",
 };
 
 type ModalProps = {
@@ -28,7 +29,7 @@ type ModalProps = {
   onClose: () => void;
   title: string;
   subtitle?: string;
-  /** sm ≈ max-w-md, md ≈ max-w-lg (default), lg ≈ max-w-2xl — desktop only. */
+  /** sm ≈ max-w-md, md ≈ max-w-lg (default), lg ≈ max-w-2xl, xl ≈ max-w-5xl — desktop only. */
   size?: Size;
   /** Defaults true. Set false for the welcome dialog — Escape and the X still close it. */
   dismissOnBackdrop?: boolean;

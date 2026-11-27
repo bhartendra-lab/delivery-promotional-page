@@ -103,8 +103,12 @@ export function needsPlan(company: Company): boolean {
   return company.plan_required === true;
 }
 
-/** The plan selection flow a studio that has not paid yet is offered. */
-export const PLAN_STEP_PATH = "/checkout?onboarding=1";
+/**
+ * Where to send a studio to buy: the dashboard, which opens the one purchase
+ * modal (UpgradeModal) on `?buy=`. Every purchase, the first one included,
+ * happens in that modal.
+ */
+export const BUY_EVENTS_PATH = "/dashboard?buy=events";
 
 /**
  * Only allows a same-origin relative path as a post-login redirect target —

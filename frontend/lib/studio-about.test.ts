@@ -13,12 +13,12 @@ test("the eight answers the studio can give, in the order asked, with the words 
 
 test("both answers are required, and Other needs its few words", () => {
   assert.deepEqual(validateStudioAbout({ city: "Bhopal", acquisitionSource: "instagram", acquisitionSourceOther: "" }), {});
-  assert.equal(validateStudioAbout({ city: " ", acquisitionSource: "instagram", acquisitionSourceOther: "" }).city, "Tell us your city.");
-  assert.equal(validateStudioAbout({ city: "Bhopal", acquisitionSource: "", acquisitionSourceOther: "" }).source, "Tell us how you heard about Vyavasth.");
+  // Both questions are optional: blank answers are fine.
+  assert.deepEqual(validateStudioAbout({ city: " ", acquisitionSource: "", acquisitionSourceOther: "" }), {});
   assert.match(validateStudioAbout({ city: "Bhopal", acquisitionSource: "other", acquisitionSourceOther: "  " }).other ?? "", /few words/);
   assert.equal(validateStudioAbout({ city: "Bhopal", acquisitionSource: "other", acquisitionSourceOther: "a friend" }).other, undefined);
   assert.ok(validateStudioAbout({ city: "x".repeat(200), acquisitionSource: "instagram", acquisitionSourceOther: "" }).city);
-  for (const e of Object.values(validateStudioAbout({ city: "", acquisitionSource: "other", acquisitionSourceOther: "" }))) assert.doesNotMatch(e, /[–—]/);
+  for (const e of Object.values(validateStudioAbout({ city: "x".repeat(200), acquisitionSource: "other", acquisitionSourceOther: "" }))) assert.doesNotMatch(e, /[–—]/);
 });
 
 test("the payload is clean, and free text goes only with Other", () => {
@@ -40,4 +40,8 @@ test("the city list is compact, has no repeats, and suggests by what is typed", 
   assert.deepEqual(suggestCities("zzzz"), []);
   assert.ok(suggestCities("pur").length > 0, "also matches inside a name");
   assert.ok(suggestCities("a", 3).length <= 3);
+});
+
+test("blank answers go to the server blank, never as \"other\"", () => {
+  assert.deepEqual(aboutPayload({ city: "  ", acquisitionSource: "", acquisitionSourceOther: "x" }), { city: "", acquisitionSource: "", acquisitionSourceOther: "" });
 });

@@ -12,7 +12,7 @@ import { useLoader } from "./useLoader";
 const RECENT_COUNT = 4;
 
 /** Recent events: the four most recently active live events as compact rows, and a way to all of them. */
-export function RecentEvents({ onCreate }: { onCreate: () => void }) {
+export function RecentEvents() {
   const load = useCallback(() => getAllBookings({ view: "active", sort: "activity_desc", limit: RECENT_COUNT }), []);
   const { state, reload } = useLoader(load);
   return (
@@ -39,12 +39,8 @@ export function RecentEvents({ onCreate }: { onCreate: () => void }) {
       ) : state.status === "error" ? (
         <BlockError message="Could not load your recent events." onRetry={reload} />
       ) : state.data.bookings.length === 0 ? (
-        <div className="type-body flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-[var(--color-brand-border)] px-4 py-4">
-          <span>No live events yet. Create one and share the link with your client.</span>
-          <button type="button" onClick={onCreate} className="brand-focus inline-flex h-9 items-center rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-brand-navy-deep)]">
-            Create your first event
-          </button>
-        </div>
+        // A line, not a button: "Add event" at the top of the Dashboard is the one way in.
+        <p className="type-body rounded-xl border border-dashed border-[var(--color-brand-border)] px-4 py-4">No live events yet.</p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
           {state.data.bookings.map((row) => (

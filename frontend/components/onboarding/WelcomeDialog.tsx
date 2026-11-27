@@ -1,14 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { useCompany } from "@/lib/useCompany";
-import { needsPlan, setCompany, PLAN_STEP_PATH } from "@/lib/auth";
+import { needsPlan, setCompany } from "@/lib/auth";
 import { markWelcomeDialogSeen } from "@/lib/api";
 import { useSubscription } from "@/components/billing/SubscriptionProvider";
+import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { useShowcasedEventCoupon } from "@/components/billing/useFirstPurchase";
 import { CopyCouponCode } from "@/components/billing/FirstPurchaseNotice";
 import { isStorageSnapshot } from "@/lib/billing-types";
+import { isFreeFirstEventOffer } from "@/lib/checkout-summary";
 import type { SubscriptionSnapshot } from "@/lib/billing-types";
 import { formatOfferDate, formatStorage } from "@/lib/plans";
 import { Modal } from "@/components/ui/Modal";
@@ -43,10 +44,15 @@ function readyToUse(snapshot: SubscriptionSnapshot | null): string | null {
  *    coupon Vyavasth showcases for event purchases when there is one (its
  *    headline and code, from the API). "Not now" leaves the studio on the
  *    dashboard, where FirstPurchaseNotice keeps the coupon in view.
+ *
+ * While the first event is free (the exclusive offer at 100% off, FIRSTONUS),
+ * a studio that cannot create an event yet skips the invitation: checkout
+ * opens straight away with one event and that coupon applied, so the studio
+ * only has to press Activate. When the offer ends, the invitation is back.
  */
 export function WelcomeDialog() {
-  const router = useRouter();
   const company = useCompany();
+  const { openUpgradeModal } = useUpgradeModal();
   const { snapshot } = useSubscription();
   const seenRef = useRef(false);
   const [dismissed, setDismissed] = useState(false);
@@ -86,12 +92,25 @@ export function WelcomeDialog() {
     void markSeen();
   }
 
+  /** The same purchase modal every later purchase uses, opened over the dashboard. */
+  // First visit, first event free: straight to checkout, once.
+  const freeFirstEvent = unpaid && isFreeFirstEventOffer(coupon);
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!open || !freeFirstEvent || !coupon || autoOpened.current) return;
+    autoOpened.current = true;
+    handleClose();
+    openUpgradeModal({ preset: "event", coupon: coupon.code });
+    // handleClose only marks the dialog seen; it is stable enough here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, freeFirstEvent, coupon, openUpgradeModal]);
+
   function choosePlan() {
     handleClose();
-    router.push(PLAN_STEP_PATH);
+    openUpgradeModal({ preset: "event" });
   }
 
-  if (!open) return null;
+  if (!open || freeFirstEvent) return null;
 
   if (unpaid) {
     return (

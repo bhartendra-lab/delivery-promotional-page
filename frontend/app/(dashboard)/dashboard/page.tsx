@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
@@ -32,6 +32,16 @@ export default function DashboardHomePage() {
   // until the studio actually links a Google listing.
   const [gmbNudgeDismissed, setGmbNudgeDismissed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+
+  // `?buy=events` (or `?buy=storage`): opened from a link that means "buy now",
+  // e.g. an old /checkout?onboarding=1 link. Opens the purchase modal once and
+  // takes the flag off the address, so a reload does not open it again.
+  useEffect(() => {
+    const buy = new URLSearchParams(window.location.search).get("buy");
+    if (buy !== "events" && buy !== "storage") return;
+    openUpgradeModal({ preset: buy === "storage" ? "storage" : "event" });
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [openUpgradeModal]);
 
   // With no events left this still opens Add event: the studio fills it in and
   // pays for this one event from there ("Continue to pay").
@@ -117,7 +127,7 @@ export default function DashboardHomePage() {
 
       <ThisMonth />
       <NeedsAttention />
-      <RecentEvents onCreate={openCreate} />
+      <RecentEvents />
 
       <AddEventModal open={modalOpen} onClose={() => setModalOpen(false)} />
       <WelcomeDialog />

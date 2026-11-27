@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ApiError, attachReferral, requestWhatsappOtp, resolveReferral } from "@/lib/api";
 import { normalizeReferralCode } from "@/lib/referral";
 import { clearStoredReferral, getStoredReferral } from "@/lib/referral-storage";
-import { IconWarningCircle } from "@/components/ui/icons";
+import { IconWarningCircle, IconWhatsApp } from "@/components/ui/icons";
 import { INDIAN_CITIES } from "@/lib/indian-cities";
 import {
   aboutPayload,
@@ -45,7 +45,8 @@ export function StudioDetailsStep({
 }) {
   const [studioName, setStudioName] = useState("");
   const [phone, setPhone] = useState("");
-  // City and how they heard about us: both required, checked on submit.
+  // City and how they heard about us: both optional (only the studio name and
+  // the WhatsApp number, marked with a red asterisk, are required).
   const [city, setCity] = useState("");
   const [source, setSource] = useState<AcquisitionSource | "">("");
   const [sourceOther, setSourceOther] = useState("");
@@ -148,6 +149,7 @@ export function StudioDetailsStep({
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             Studio name
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
           </span>
           <input
             type="text"
@@ -162,6 +164,7 @@ export function StudioDetailsStep({
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             WhatsApp number
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
           </span>
           <div className="flex h-11 items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
             <span className="flex h-full items-center border-r border-[var(--color-brand-border)] px-3 text-sm font-medium text-[var(--color-brand-muted)]">
@@ -192,7 +195,6 @@ export function StudioDetailsStep({
               setAboutErrors((x) => ({ ...x, city: undefined }));
             }}
             list={cityListId}
-            required
             autoComplete="address-level2"
             placeholder="e.g. Bhopal"
             aria-invalid={aboutErrors.city ? true : undefined}
@@ -219,7 +221,6 @@ export function StudioDetailsStep({
           <select
             value={source}
             onChange={(e) => chooseSource(e.target.value as AcquisitionSource | "")}
-            required
             aria-invalid={aboutErrors.source ? true : undefined}
             aria-describedby={aboutErrors.source ? "studio-source-error" : undefined}
             className="brand-focus h-11 w-full cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
@@ -321,7 +322,8 @@ export function StudioDetailsStep({
           disabled={!canSubmit}
           className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitting ? "Sending code…" : "Send code"}
+          <IconWhatsApp size={16} />
+          {submitting ? "Sending code on WhatsApp…" : "Send code on WhatsApp"}
         </button>
       </form>
     </>

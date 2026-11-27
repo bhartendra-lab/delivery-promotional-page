@@ -1,6 +1,7 @@
 /**
  * The two questions added to the first onboarding step: the studio's city and
- * how it heard about Vyavasth. Both required. The values are the same fixed
+ * how it heard about Vyavasth. Both optional (only the studio name and the
+ * WhatsApp number are required there). The values are the same fixed
  * keys the backend stores (utils/acquisition.utils.js); the labels are what the
  * studio reads.
  */
@@ -37,21 +38,19 @@ export const OTHER_MAX = 120;
 
 const collapse = (value: string) => value.replace(/\s+/g, " ").trim();
 
-/** Per-field problems, in plain words; an empty object means both answers are fine. */
+/** Per-field problems, in plain words; an empty object means the answers are fine (blank ones included). */
 export function validateStudioAbout(about: StudioAbout): Partial<Record<"city" | "source" | "other", string>> {
   const errors: Partial<Record<"city" | "source" | "other", string>> = {};
-  if (!collapse(about.city)) errors.city = "Tell us your city.";
-  else if (collapse(about.city).length > CITY_MAX) errors.city = "That city name is too long.";
-  if (!about.acquisitionSource) errors.source = "Tell us how you heard about Vyavasth.";
-  else if (about.acquisitionSource === "other" && !collapse(about.acquisitionSourceOther)) {
+  if (collapse(about.city).length > CITY_MAX) errors.city = "That city name is too long.";
+  if (about.acquisitionSource === "other" && !collapse(about.acquisitionSourceOther)) {
     errors.other = "Tell us in a few words how you heard about Vyavasth.";
   }
   return errors;
 }
 
-/** What goes to the server: cleaned, and the free text only for "other". */
-export function aboutPayload(about: StudioAbout): { city: string; acquisitionSource: AcquisitionSource; acquisitionSourceOther: string } {
-  const source = (about.acquisitionSource || "other") as AcquisitionSource;
+/** What goes to the server: cleaned, and the free text only for "other". A blank answer stays blank. */
+export function aboutPayload(about: StudioAbout): { city: string; acquisitionSource: AcquisitionSource | ""; acquisitionSourceOther: string } {
+  const source = about.acquisitionSource;
   return {
     city: collapse(about.city),
     acquisitionSource: source,

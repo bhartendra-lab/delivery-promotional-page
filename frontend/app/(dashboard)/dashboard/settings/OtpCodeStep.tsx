@@ -57,6 +57,10 @@ export function OtpCodeStep({
   const [deadline, setDeadline] = useState(() => Date.now() + RESEND_SECONDS * 1000);
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  // One check at a time. Auto-submit at 6 digits and a Verify tap (or an
+  // autofill that fires twice) would otherwise send the same code twice; the
+  // second loses the race and shows an error over a sign-in that worked.
+  const verifying = useRef(false);
 
   useEffect(() => {
     function tick() {
@@ -68,6 +72,8 @@ export function OtpCodeStep({
   }, [deadline]);
 
   async function submitCode(value: string) {
+    if (verifying.current) return;
+    verifying.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -79,6 +85,7 @@ export function OtpCodeStep({
       codeInputRef.current?.focus();
       setError(err instanceof Error ? err.message : "Invalid code");
     } finally {
+      verifying.current = false;
       setSubmitting(false);
     }
   }

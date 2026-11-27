@@ -1,23 +1,22 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getBillingPlans, getBillingProfile } from "@/lib/billing";
+import { getBillingPlans } from "@/lib/billing";
 import type { Plan } from "@/lib/plans";
-import type { BillingProfile } from "@/lib/billing-types";
 import { UpgradeModal } from "./UpgradeModal";
 
-type OpenOptions = { preset?: "event" | "storage" };
+type OpenOptions = {
+  preset?: "event" | "storage";
+  /** A coupon to apply as the modal opens (the first visit's free event). */
+  coupon?: string;
+};
 
 const UpgradeModalCtx = createContext<{ openUpgradeModal: (opts?: OpenOptions) => void }>({
   openUpgradeModal: () => {},
 });
 
-function isBillingComplete(profile: BillingProfile | null): boolean {
-  return Boolean(profile?.legal_name && profile.billing_address && profile.place_of_supply_state);
-}
-
 /**
- * Owns the plan-catalog + billing-profile fetch and open/close state for the
+ * Owns the plan-catalog fetch and open/close state for the
  * single in-app upgrade modal — any dashboard page can trigger it via
  * `useUpgradeModal().openUpgradeModal()` (e.g. a 402 on event creation, or
  * the "Upgrade plan" button in billing settings) without re-fetching either.
@@ -25,22 +24,22 @@ function isBillingComplete(profile: BillingProfile | null): boolean {
 export function UpgradeModalProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [preset, setPreset] = useState<"event" | "storage" | undefined>(undefined);
+  const [coupon, setCoupon] = useState<string | undefined>(undefined);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [billingProfile, setBillingProfile] = useState<BillingProfile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
   const openUpgradeModal = useCallback((opts?: OpenOptions) => {
     setPreset(opts?.preset);
+    setCoupon(opts?.coupon);
     setOpen(true);
   }, []);
 
   const loadCatalog = useCallback(() => {
     setLoadFailed(false);
-    Promise.all([getBillingPlans(), getBillingProfile().catch(() => null)])
-      .then(([plansRes, profileRes]) => {
+    getBillingPlans()
+      .then((plansRes) => {
         setPlans(plansRes.plans);
-        setBillingProfile(profileRes?.billing ?? null);
         setLoaded(true);
       })
       .catch(() => {
@@ -71,10 +70,10 @@ export function UpgradeModalProvider({ children }: { children: React.ReactNode }
         onClose={() => setOpen(false)}
         plans={plans}
         preset={preset}
+        initialCoupon={coupon}
         loaded={loaded}
         loadFailed={loadFailed}
         onRetryLoad={loadCatalog}
-        billingComplete={loaded ? isBillingComplete(billingProfile) : null}
       />
     </UpgradeModalCtx.Provider>
   );
