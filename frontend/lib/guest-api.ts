@@ -7,15 +7,13 @@
  * again (the flow falls back to Google login).
  */
 
-import { ApiError, getMedia as getStudioMedia, type PresignRequest, type PresignedUpload } from "./api";
+import { ApiError, type PresignRequest, type PresignedUpload } from "./api";
 import { ensureGuestToken, refreshGuest } from "./guest-auth";
 import type { ArchiveDownloadUrl, GuestMediaResponse, GuestSession } from "./types";
 import type { FriendFinderBlock } from "./friend-finder/types";
 import type { FaceFilterBlock, FaceFilterMedia } from "./face-filter/types";
 import type { IntakeAnswer } from "./guest-intake";
 import type { CollectionsBlock } from "./collections/types";
-import { isPreviewMode } from "./preview-mode.ts";
-import { previewGuestFetch } from "./preview-guest-api.ts";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -39,8 +37,6 @@ function safeParse(text: string): unknown {
  *  Exported for `lib/friend-finder/api.ts`, which needs the same token and
  *  refresh-and-retry behaviour but lives in its own lazily-loaded chunk. */
 export async function guestFetch<T>(uid: string, path: string, init: RequestInit = {}): Promise<T> {
-  // The studio's gallery preview: answered locally, no token, no request, nothing recorded.
-  if (isPreviewMode()) return previewGuestFetch<T>(path, init, getStudioMedia);
   const token = await ensureGuestToken(uid);
   if (!token) throw new GuestAuthError();
 

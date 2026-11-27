@@ -1116,9 +1116,17 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, changeRequests, toast],
   );
 
-  // Face search, for the upload dialog's "Your gallery is live" invite message.
+  const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
   // `meta` is null until the first load lands, and `normalizeMeta` fills the
-  // object on every path after that, so the fallback only covers first paint.
+  // object on every path after that — so the fallback only covers first paint.
+  const allowDownload =
+    meta?.deliveryPreferences?.allow_download ?? DELIVERY_PREFERENCE_DEFAULTS.allow_download;
+  // Same for the review preference: the design preview must not show a review
+  // prompt the real gallery won't.
+  const showGoogleReview =
+    meta?.deliveryPreferences?.show_google_review ?? DELIVERY_PREFERENCE_DEFAULTS.show_google_review;
+  // Same again for face search: the gallery preview must not show a My Photos
+  // tab an event with it switched off doesn't have.
   const faceSearchEnabled =
     meta?.deliveryPreferences?.face_search_enabled ?? DELIVERY_PREFERENCE_DEFAULTS.face_search_enabled;
 
@@ -1161,12 +1169,17 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             {effectiveTab === "smart" && <SmartSelectsTab loading={loading} focus={smartFocus} />}
             {effectiveTab === "gallery" && (
               <GalleryDesignTab
-                bookingId={bookingId}
-                uniqueIdentifier={ctx.meta.uniqueIdentifier}
+                eventName={ctx.meta.name}
                 eventType={ctx.meta.type}
+                eventDateLabel={eventDateLabel}
+                coverUrl={ctx.meta.backgroundImage}
+                coverPosition={ctx.meta.backgroundPosition}
                 initialStyleVariant={ctx.meta.styleVariant}
                 initialCustomMessage={ctx.meta.customMessage}
                 initialIncludeBranding={ctx.meta.includeBranding}
+                allowDownload={allowDownload}
+                showGoogleReview={showGoogleReview}
+                faceSearchEnabled={faceSearchEnabled}
                 onSave={async (vals) => {
                   // Pass through current event_type/date (never event_name): this is
                   // a landing-page save, and it must not rename or clobber the event.
@@ -1273,6 +1286,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       )}
     </EventProvider>
   );
+}
+
+function formatDate(epoch: number): string {
+  const d = new Date(epoch);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 /**

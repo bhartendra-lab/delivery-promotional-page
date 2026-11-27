@@ -30,6 +30,8 @@ export type AttentionRow = {
   text: string;
   /** The one action, or null for a status only row. */
   action: { label: string; href: string } | { label: string; reactivate: true } | null;
+  /** What closing this row stores on its booking (POST .../dismiss), or null when it cannot be closed (an upload in this browser). */
+  dismissKey: string | null;
 };
 
 /** Most rows the Dashboard shows before "View all". */
@@ -44,8 +46,14 @@ function daysWord(n: number): string {
   return n === 1 ? "in 1 day" : `in ${n} days`;
 }
 
+/** The key a row is closed by; the server keeps the same list (dashboardHome.service.js attentionDismissKey). */
+export function attentionDismissKey(item: ServerAttentionItem): string {
+  return item.kind === "change_request" ? `change_request:${item.request_type}` : item.kind;
+}
+
 export function attentionRowOf(item: ServerAttentionItem): AttentionRow {
-  const base = { key: `${item.kind}:${item.booking_id}`, kind: item.kind, booking_id: item.booking_id, name: item.name };
+  const dismissKey = attentionDismissKey(item);
+  const base = { key: `${dismissKey}:${item.booking_id}`, kind: item.kind, booking_id: item.booking_id, name: item.name, dismissKey };
   switch (item.kind) {
     case "expiring":
       return {
@@ -81,6 +89,7 @@ export function mergeAttention(
     name: u.name,
     text: u.paused ? `Upload paused at ${Math.round(u.percent)}%` : `Uploading, ${Math.round(u.percent)}% done`,
     action: { label: "Open", href: eventHref(u.booking_id) },
+    dismissKey: null,
   }));
   const all = [...uploadRows, ...server.map(attentionRowOf)];
   const total = uploadRows.length + Math.max(serverTotal, server.length);

@@ -31,6 +31,7 @@ import {
   type GuestAccessLevel,
 } from "@/lib/guest-access";
 import { Tip } from "@/components/ui/Tip";
+import { IconCaretDown } from "@/components/ui/icons";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
 import { VYAVASTH_BASE_URL } from "@/lib/site-url";
@@ -1349,18 +1350,23 @@ function Dispatch({
         <label htmlFor={langId} className="shrink-0 text-[12px] font-medium text-[var(--color-brand-body)]">
           Message language
         </label>
-        <select
-          id={langId}
-          value={lang}
-          onChange={(e) => onLangChange(e.target.value as ShareLang)}
-          className="brand-focus h-8 min-w-0 flex-1 cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-white px-2 text-[12.5px] text-[var(--color-brand-ink)]"
-        >
-          {SHARE_LANGUAGES.map((l) => (
-            <option key={l.code} value={l.code}>
-              {l.label}
-            </option>
-          ))}
-        </select>
+        <span className="relative min-w-0 max-w-[220px]">
+          <select
+            id={langId}
+            value={lang}
+            onChange={(e) => onLangChange(e.target.value as ShareLang)}
+            className="brand-focus h-8 w-full min-w-0 cursor-pointer appearance-none truncate rounded-lg border border-[var(--color-brand-border)] bg-white pl-2.5 pr-8 text-[12.5px] text-[var(--color-brand-ink)]"
+          >
+            {SHARE_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[var(--color-brand-muted)]">
+            <IconCaretDown size={12} />
+          </span>
+        </span>
       </div>
       <textarea
         value={text}

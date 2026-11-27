@@ -10,8 +10,8 @@ import {
 import type { WatermarkPreset } from "@/lib/types";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { SectionHeading, SectionSkeleton, FetchError, Spinner, Card } from "../SettingsUI";
-import { SamplePhotoSwitcher, WatermarkEditorModal, WatermarkPreview } from "./WatermarkEditorModal";
-import { useWatermarkSamples } from "./useWatermarkSamples";
+import { SampleToneSwitcher, WatermarkEditorModal, WatermarkSamplePair } from "./WatermarkEditorModal";
+import type { SampleTone } from "./sample-photos";
 import { IconPlus } from "@/components/ui/icons";
 
 const MAX_PRESETS = 20;
@@ -39,10 +39,8 @@ function WatermarkPresetsPageInner() {
   const [modal, setModal] = useState<ModalState>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  // Real photos from the studio's latest event (or the bundled set) to judge the marks on.
-  const samples = useWatermarkSamples();
-  const [sampleIndex, setSampleIndex] = useState(0);
-  const samplePhoto = samples && samples.length > 0 ? samples[Math.min(sampleIndex, samples.length - 1)] : null;
+  // Light or dark stock photos (a landscape and a portrait) to judge the marks on.
+  const [tone, setTone] = useState<SampleTone>("light");
 
   async function refresh() {
     const res = await getWatermarkPresets();
@@ -133,9 +131,7 @@ function WatermarkPresetsPageInner() {
 
       {error && <FetchError message={error} />}
 
-      {samples && samples.length > 1 && presets && presets.length > 0 && (
-        <SamplePhotoSwitcher samples={samples} index={sampleIndex} onChange={setSampleIndex} />
-      )}
+      {presets && presets.length > 0 && <SampleToneSwitcher tone={tone} onChange={setTone} />}
 
       {presets === null && !error ? (
         <SectionSkeleton />
@@ -145,7 +141,7 @@ function WatermarkPresetsPageInner() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {presets?.map((p) => (
             <Card key={p._id} padded={false}>
-              <WatermarkPreview src={p.image_url ?? null} position={p.position} size={p.size} opacity={p.opacity} photo={samplePhoto?.src ?? null} />
+              <WatermarkSamplePair src={p.image_url ?? null} position={p.position} size={p.size} opacity={p.opacity} tone={tone} className="p-2" />
               <div className="space-y-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-semibold text-[var(--color-brand-ink)]">

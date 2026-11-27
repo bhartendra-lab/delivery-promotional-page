@@ -34,6 +34,7 @@ import {
   IconWarningCircle,
   IconCalendar,
   IconZoomOut,
+  IconCaretDown,
 } from "@/components/ui/icons";
 
 const PAGE_SIZE = 20;
@@ -253,17 +254,22 @@ function EventsList() {
 
           <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--color-brand-muted)]">
             Sort
-            <select
-              value={view.sort}
-              onChange={(e) => pickSort(e.target.value as EventsSort)}
-              className="brand-focus h-10 rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-3 text-sm font-medium text-[var(--color-brand-ink)]"
-            >
-              {EVENTS_SORTS.map((s) => (
-                <option key={s} value={s}>
-                  {SORT_LABEL[s]}
-                </option>
-              ))}
-            </select>
+            <span className="relative">
+              <select
+                value={view.sort}
+                onChange={(e) => pickSort(e.target.value as EventsSort)}
+                className="brand-focus h-10 cursor-pointer appearance-none rounded-field border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] pl-3 pr-9 text-sm font-medium text-[var(--color-brand-ink)]"
+              >
+                {EVENTS_SORTS.map((s) => (
+                  <option key={s} value={s}>
+                    {SORT_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[var(--color-brand-muted)]">
+                <IconCaretDown size={14} />
+              </span>
+            </span>
           </label>
         </div>
 

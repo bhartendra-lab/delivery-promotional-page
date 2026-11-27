@@ -13,7 +13,6 @@ import { UpgradeModalProvider } from "@/components/billing/UpgradeModalProvider"
 import { SubscriptionBanner } from "@/components/billing/SubscriptionBanner";
 import { RemindersProvider } from "@/components/dashboard/RemindersProvider";
 import { CustomDomainDialog } from "@/components/dashboard/CustomDomainDialog";
-import { isGalleryPreviewPath } from "@/lib/preview-route";
 
 export default function DashboardLayout({
   children,
@@ -92,10 +91,6 @@ export default function DashboardLayout({
       </div>
     );
   }
-
-  // The Gallery Design preview lives in an iframe: just the page, none of the
-  // dashboard's chrome or providers. The studio sign-in check above still ran.
-  if (isGalleryPreviewPath(pathname)) return <>{children}</>;
 
   return (
     <ChromeProvider>

@@ -90,3 +90,13 @@ test("no em dashes in the dashboard copy", () => {
   const src = readFileSync(new URL("./dashboard-home.ts", import.meta.url), "utf8");
   assert.ok(!src.includes(String.fromCharCode(0x2014)));
 });
+
+test("each server row can be closed by its own key; a change request per type; an upload row cannot be closed", () => {
+  assert.equal(attentionRowOf(item({ kind: "deactivated" })).dismissKey, "deactivated");
+  const name = attentionRowOf(item({ kind: "change_request", request_type: "event_name" }));
+  const cover = attentionRowOf(item({ kind: "change_request", request_type: "cover_photo" }));
+  assert.equal(name.dismissKey, "change_request:event_name");
+  assert.notEqual(name.key, cover.key);
+  const { rows } = mergeAttention([], [{ booking_id: "u", name: "N", paused: false, percent: 1 }]);
+  assert.equal(rows[0].dismissKey, null);
+});

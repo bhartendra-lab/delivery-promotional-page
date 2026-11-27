@@ -899,6 +899,15 @@ export function getDashboardAttention() {
   return request<AttentionResponse>("/bookings/dashboard-attention");
 }
 
+/** POST /bookings/dashboard-attention/:booking_id/dismiss: close one Needs attention row for this event, for good. */
+export function dismissDashboardAttention(bookingId: string, key: string) {
+  return request<{ booking_id: string; key: string }>(`/bookings/dashboard-attention/${encodeURIComponent(bookingId)}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+}
+
 /** GET /bookings/dashboard-stats: this month against last (gallery views, new guest contacts, free WhatsApp messages, review taps). */
 export function getDashboardStats() {
   return request<MonthStatsResponse>("/bookings/dashboard-stats");

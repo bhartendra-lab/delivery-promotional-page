@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
-import { getDashboardAttention, updateGalleryActivationStatus } from "@/lib/api";
+import { dismissDashboardAttention, getDashboardAttention, updateGalleryActivationStatus } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
-import { ATTENTION_MAX_ROWS, mergeAttention, viewAllHref, type AttentionRow, type UploadItem } from "@/lib/dashboard-home";
+import { ATTENTION_MAX_ROWS, attentionDismissKey, mergeAttention, viewAllHref, type AttentionRow, type UploadItem } from "@/lib/dashboard-home";
+import { IconX } from "@/components/ui/icons";
 import { useActiveUploads } from "@/lib/r2-upload/useActiveUploads";
 import { BlockError, BlockShell } from "./BlockShell";
 import { useLoader } from "./useLoader";
@@ -12,7 +13,8 @@ import { useLoader } from "./useLoader";
 /**
  * Needs attention: a short list (at most 6 rows), each with one clear action,
  * or one calm line when nothing needs doing. Events needing attention come
- * from the server; uploads running in this browser are added on top.
+ * from the server; uploads running in this browser are added on top. The cross
+ * on a row closes it for good, for that event only (stored on its booking).
  */
 export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
   const load = useCallback(() => getDashboardAttention(), []);
@@ -22,15 +24,36 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
     () => active.map((u) => ({ booking_id: u.bookingId, name: u.name, paused: u.paused, percent: u.percent })),
     [active],
   );
-  const merged = useMemo(
-    () => (state.status === "ok" ? mergeAttention(state.data.items, uploads, ATTENTION_MAX_ROWS, state.data.total) : null),
-    [state, uploads],
-  );
+  // Rows closed in this visit, hidden at once while the server records it.
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  const merged = useMemo(() => {
+    if (state.status !== "ok") return null;
+    const items = state.data.items.filter((i) => !closed.has(`${attentionDismissKey(i)}:${i.booking_id}`));
+    const total = Math.max(items.length, state.data.total - (state.data.items.length - items.length));
+    return mergeAttention(items, uploads, ATTENTION_MAX_ROWS, total);
+  }, [state, uploads, closed]);
 
   // Reactivate is a one tap action with a confirm step on the row, so a stray tap cannot put a gallery live.
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+
+  async function dismiss(row: AttentionRow) {
+    if (!row.dismissKey) return;
+    setRowError(null);
+    setClosed((prev) => new Set(prev).add(row.key));
+    try {
+      await dismissDashboardAttention(row.booking_id, row.dismissKey);
+      reload();
+    } catch (err) {
+      setClosed((prev) => {
+        const next = new Set(prev);
+        next.delete(row.key);
+        return next;
+      });
+      setRowError({ id: row.booking_id, message: err instanceof Error ? err.message : "Could not remove this. Try again." });
+    }
+  }
 
   async function reactivate(row: AttentionRow) {
     setBusyId(row.booking_id);
@@ -111,6 +134,17 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
                   {row.action.label}
                 </Link>
               ) : null}
+              {row.dismissKey && (
+                <button
+                  type="button"
+                  onClick={() => void dismiss(row)}
+                  aria-label={`Remove this from Needs attention for ${row.name}`}
+                  title="Don't show this again"
+                  className="brand-focus -mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--color-brand-muted)] transition-colors hover:bg-[var(--color-brand-border)] hover:text-[var(--color-brand-ink)]"
+                >
+                  <IconX size={13} />
+                </button>
+              )}
             </li>
           ))}
         </ul>

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import type { DlpUsage } from "@/lib/types";
 import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
@@ -17,15 +16,15 @@ import { useAwaitingFirstPayment } from "@/components/billing/useFirstPurchase";
 import { IconPlus, IconX, IconWarningCircle, IconGlobe } from "@/components/ui/icons";
 
 /**
- * Dashboard: what needs me today, and how is my studio doing. Three blocks (Needs
- * attention, This month, Recent events), each with its own request, skeleton and
+ * Dashboard: what needs me today, and how is my studio doing. Three blocks (This
+ * month, Needs attention, Recent events), each with its own request, skeleton and
  * error, so a slow or failed one never holds up the others. Managing every event
  * (filters, sort, search, pages, exports) is the Events page.
  */
 export default function DashboardHomePage() {
   // Events meter / usage shared via ChromeContext: single fetch for the whole
   // dashboard (Sidebar meter + header pill read the same value).
-  const { dlpUsage, dlpLoading, referralEligible } = useChrome();
+  const { dlpUsage, dlpLoading } = useChrome();
   const { openUpgradeModal } = useUpgradeModal();
   const company = useCompany();
   const awaitingFirstPayment = useAwaitingFirstPayment();
@@ -116,21 +115,8 @@ export default function DashboardHomePage() {
         </div>
       </section>
 
-      {referralEligible && (
-        <Link
-          href="/dashboard/settings/referrals"
-          className="brand-focus flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3 transition-colors hover:border-[var(--color-brand-outline)]"
-        >
-          <span>
-            <span className="block text-sm font-semibold text-[var(--color-brand-ink)]">Refer a Studio</span>
-            <span className="type-meta block">Invite another studio with your link. You are rewarded when it joins and pays.</span>
-          </span>
-          <span className="text-sm font-semibold text-[var(--color-brand-navy)]">Get your link</span>
-        </Link>
-      )}
-
-      <NeedsAttention />
       <ThisMonth />
+      <NeedsAttention />
       <RecentEvents onCreate={openCreate} />
 
       <AddEventModal open={modalOpen} onClose={() => setModalOpen(false)} />
