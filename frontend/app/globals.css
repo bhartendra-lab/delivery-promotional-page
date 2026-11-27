@@ -19,6 +19,17 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* iOS Safari zooms the page into any text field under 16px when it takes
+   focus, and leaves it zoomed. On touch phones every field gets 16px. It sits
+   outside @layer, so it outranks Tailwind's text-sm/text-xs utilities. */
+@media (max-width: 639.98px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 :root {
   --background: #FAFAF8;
   --foreground: #2A2218;

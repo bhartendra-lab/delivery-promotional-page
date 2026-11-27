@@ -55,7 +55,7 @@ const TYPE_OPTIONS = EVENT_TYPES.map((type) => ({ value: type, label: type }));
 /** Text inputs here share the +91 control's height and surface, so a name and
  *  the number beside it read as one row. */
 const INPUT_CLASS =
-  "brand-focus block h-10 w-full rounded-field border bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 disabled:cursor-not-allowed disabled:opacity-60";
+  "brand-focus block h-11 w-full rounded-field border sm:h-10 bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 disabled:cursor-not-allowed disabled:opacity-60";
 const LABEL_CLASS = "mb-1.5 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]";
 const HINT_CLASS = "text-[12px] leading-relaxed text-[var(--color-brand-muted)]";
 const ERROR_CLASS = "mt-1 text-[12px] text-[var(--color-brand-danger)]";
@@ -473,12 +473,13 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   );
 
   const buttons = (
-    <div className="flex shrink-0 items-center justify-end gap-2.5">
+    // Phones: two full-width thumb-sized buttons, the primary one wider.
+    <div className="flex shrink-0 items-center gap-2.5 sm:justify-end">
       <button
         type="button"
         onClick={onClose}
         disabled={busy}
-        className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
+        className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg border sm:h-10 sm:flex-none border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
       >
         Cancel
       </button>
@@ -489,7 +490,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         type="submit"
         form={FORM_ID}
         disabled={!eventType || dlpLoading || busy || (payMode && !purchase.settled)}
-        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="brand-focus inline-flex h-11 flex-[2] items-center justify-center gap-2 rounded-lg sm:h-10 sm:flex-none bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {actionLabel}
       </button>
@@ -522,7 +523,9 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         billingStage
           ? "Needed once, for your GST invoice. Then you go straight to payment."
           : payMode
-            ? "You've used all your events. Fill this in and pay for this one event: it's created the moment your payment goes through."
+            ? isFreeEvent(purchase.total)
+              ? "This one is on us. Fill this in and your event is created right away."
+              : "You've used all your events. Fill this in and pay for this one event: it's created the moment your payment goes through."
             : "Create a page for this booking. You can upload photos and share the link in the next step."
       }
       // "lg", not "md": seven type chips in four columns need about 120px a

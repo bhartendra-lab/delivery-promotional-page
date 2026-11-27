@@ -41,7 +41,12 @@ type ModalProps = {
 
 /**
  * Shared modal primitive: full-screen sheet under 640px (sticky
- * header/footer, scrolling body), centered card at 640px+. Every new dialog
+ * header/footer, scrolling body), centered card at 640px+.
+ *
+ * The sheet is exactly one dynamic viewport tall (100dvh, so a phone's
+ * collapsing URL bar never hides the footer), and the panel and body carry
+ * min-h-0: a flex item's default min-height is its content, so without it a
+ * long form grew the panel past the screen and the body never scrolled. Every new dialog
  * in this app should build on this rather than a bespoke overlay.
  */
 export function Modal({
@@ -131,7 +136,7 @@ export function Modal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-4">
+    <div className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] flex-col sm:items-center sm:justify-center sm:p-4">
       <button
         type="button"
         aria-label="Close dialog"
@@ -149,7 +154,7 @@ export function Modal({
         aria-labelledby={titleId}
         aria-describedby={subtitle ? subtitleId : undefined}
         tabIndex={-1}
-        className={`modal-pop modal-slide-up relative flex w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-card sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
+        className={`modal-pop modal-slide-up relative flex min-h-0 w-full flex-1 flex-col bg-[var(--color-brand-bg)] sm:flex-none sm:rounded-card sm:border sm:border-[var(--color-brand-border)] sm:shadow-[0_24px_60px_rgba(42,34,24,0.18)] sm:max-h-[85vh] ${SIZE_CLASSES[size]}`}
       >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] sm:static sm:rounded-t-card sm:px-7 sm:py-5">
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -175,7 +180,7 @@ export function Modal({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7 sm:py-6">{children}</div>
 
         {footer && (
           <footer className="sticky bottom-0 z-10 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:static sm:rounded-b-card sm:px-7 sm:py-5">

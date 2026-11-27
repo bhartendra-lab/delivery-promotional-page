@@ -231,7 +231,7 @@ export function CheckoutBillingFields({
       </div>
       {stateMissing && (
         <p id="checkout-state-missing" role="alert" className="text-xs font-medium text-[var(--color-brand-danger)]">
-          Choose your state to continue. It decides how GST is split on your invoice.
+          Please choose your state to continue.
         </p>
       )}
       {(gstinError || error) && (

@@ -293,6 +293,8 @@ export function PlanChooser({
 
       {mode === "event" && eventPlan && (
         <div className="flex flex-col gap-4">
+          {/* The live checkout's card above already says all of this. */}
+          {!(isLive && bothAvailable) && (
           <div className="flex flex-col gap-1.5">
             <p className="text-sm text-[var(--color-brand-muted)]">
               {formatInr(eventPlan.event_unit_price ?? 0)} per event · {gstNote(gstInclusiveOf(eventPlan))}
@@ -302,6 +304,7 @@ export function PlanChooser({
               <PhotoLimitTermsLink eventPlan={eventPlan} />
             </p>
           </div>
+          )}
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--color-brand-ink)]">How many events?</p>
             <EventQuantity quantity={qty} onChange={setQty} />
@@ -384,7 +387,10 @@ export function PlanChooser({
             <div className="flex flex-col gap-1 rounded-lg bg-[var(--color-brand-bg)] px-4 py-3">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-[var(--color-brand-muted)]">
-                  {planLabel(activeStoragePlan)} · {formatStorage(tier.storage_limit)}
+                  {/* A plan's name often already carries its size ("200 GB · Yearly"). */}
+                  {planLabel(activeStoragePlan).includes(formatStorage(tier.storage_limit))
+                    ? planLabel(activeStoragePlan)
+                    : `${planLabel(activeStoragePlan)} · ${formatStorage(tier.storage_limit)}`}
                 </span>
                 <span className="text-lg font-bold tabular-nums text-[var(--color-brand-ink)]">
                   {formatInr(activeStoragePlan.price ?? 0)}
