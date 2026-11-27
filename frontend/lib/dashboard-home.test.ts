@@ -7,7 +7,6 @@ import {
   changeLabel,
   mergeAttention,
   monthTiles,
-  viewAllHref,
   type ServerAttentionItem,
   type UploadItem,
 } from "./dashboard-home.ts";
@@ -58,13 +57,6 @@ test("nothing to do gives no rows", () => {
   assert.deepEqual(mergeAttention([], []), { rows: [], hidden: 0 });
 });
 
-test("View all opens the Deactivated filter only when every shown row is a deactivated gallery", () => {
-  const rows = (kinds: ServerAttentionItem["kind"][]) => kinds.map((kind, i) => attentionRowOf(item({ kind, days_left: 1, ends_at: 1, plan: "storage", roles: ["bride"], created_at: 1, request_type: "event_name" } as never, i)));
-  assert.equal(viewAllHref(rows(["deactivated", "deactivated"])), "/dashboard/events?filter=deactivated");
-  assert.equal(viewAllHref(rows(["deactivated", "no_photos"])), "/dashboard/events?filter=active");
-  assert.equal(viewAllHref([]), "/dashboard/events?filter=active");
-});
-
 test("the change against last month reads in words; no change figure gives no line", () => {
   assert.equal(changeLabel(50), "Up 50% on last month");
   assert.equal(changeLabel(-20), "Down 20% on last month");
@@ -99,4 +91,12 @@ test("each server row can be closed by its own key; a change request per type; a
   assert.notEqual(name.key, cover.key);
   const { rows } = mergeAttention([], [{ booking_id: "u", name: "N", paused: false, percent: 1 }]);
   assert.equal(rows[0].dismissKey, null);
+});
+
+test("View all opened lists every row with none left over; closed again it is back to 6", () => {
+  const server = Array.from({ length: 9 }, (_, i) => item({ kind: "deactivated" }, i + 1));
+  const open = mergeAttention(server, [], Number.POSITIVE_INFINITY);
+  assert.equal(open.rows.length, 9);
+  assert.equal(open.hidden, 0);
+  assert.equal(mergeAttention(server, []).rows.length, ATTENTION_MAX_ROWS);
 });

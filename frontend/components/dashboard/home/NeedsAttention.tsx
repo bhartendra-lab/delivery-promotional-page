@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { dismissDashboardAttention, getDashboardAttention, updateGalleryActivationStatus } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
-import { ATTENTION_MAX_ROWS, attentionDismissKey, mergeAttention, viewAllHref, type AttentionRow, type UploadItem } from "@/lib/dashboard-home";
+import { ATTENTION_MAX_ROWS, attentionDismissKey, mergeAttention, type AttentionRow, type UploadItem } from "@/lib/dashboard-home";
 import { IconX } from "@/components/ui/icons";
 import { useActiveUploads } from "@/lib/r2-upload/useActiveUploads";
 import { BlockError, BlockShell } from "./BlockShell";
 import { useLoader } from "./useLoader";
 
 /**
- * Needs attention: a short list (at most 6 rows), each with one clear action,
+ * Needs attention: a short list (6 rows, and every row once View all is
+ * opened, in place), each with one clear action,
  * or one calm line when nothing needs doing. Events needing attention come
  * from the server; uploads running in this browser are added on top. The cross
  * on a row closes it for good, for that event only (stored on its booking).
@@ -26,12 +27,13 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
   );
   // Rows closed in this visit, hidden at once while the server records it.
   const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  const [expanded, setExpanded] = useState(false);
   const merged = useMemo(() => {
     if (state.status !== "ok") return null;
     const items = state.data.items.filter((i) => !closed.has(`${attentionDismissKey(i)}:${i.booking_id}`));
     const total = Math.max(items.length, state.data.total - (state.data.items.length - items.length));
-    return mergeAttention(items, uploads, ATTENTION_MAX_ROWS, total);
-  }, [state, uploads, closed]);
+    return mergeAttention(items, uploads, expanded ? Number.POSITIVE_INFINITY : ATTENTION_MAX_ROWS, total);
+  }, [state, uploads, closed, expanded]);
 
   // Reactivate is a one tap action with a confirm step on the row, so a stray tap cannot put a gallery live.
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -74,10 +76,15 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
     <BlockShell
       title="Needs attention"
       action={
-        merged && merged.rows.length > 0 ? (
-          <Link href={viewAllHref(merged.rows)} className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline">
-            View all{merged.hidden > 0 ? ` (${merged.hidden} more)` : ""}
-          </Link>
+        merged && (expanded || merged.hidden > 0) ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            className="brand-focus text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+          >
+            {expanded ? "Show less" : `View all (${merged.hidden} more)`}
+          </button>
         ) : undefined
       }
     >

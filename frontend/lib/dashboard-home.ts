@@ -34,7 +34,7 @@ export type AttentionRow = {
   dismissKey: string | null;
 };
 
-/** Most rows the Dashboard shows before "View all". */
+/** Most rows the Dashboard shows until the studio opens "View all", which lists every row in place. */
 export const ATTENTION_MAX_ROWS = 6;
 
 const eventHref = (id: string, query = "") => `/dashboard/events/${encodeURIComponent(id)}${query}`;
@@ -94,12 +94,6 @@ export function mergeAttention(
   const all = [...uploadRows, ...server.map(attentionRowOf)];
   const total = uploadRows.length + Math.max(serverTotal, server.length);
   return { rows: all.slice(0, max), hidden: Math.max(0, total - Math.min(all.length, max)) };
-}
-
-/** Where "View all" goes: deactivated galleries have their own filter, everything else is in Active. */
-export function viewAllHref(rows: AttentionRow[]): string {
-  const onlyDeactivated = rows.length > 0 && rows.every((r) => r.kind === "deactivated");
-  return `/dashboard/events?filter=${onlyDeactivated ? "deactivated" : "active"}`;
 }
 
 /** "Up 50% on last month", "Down 20% on last month", "Same as last month", or null when there is nothing to compare with. */
