@@ -14,7 +14,9 @@ test("the eight answers the studio can give, in the order asked, with the words 
 test("both answers are required, and Other needs its few words", () => {
   assert.deepEqual(validateStudioAbout({ city: "Bhopal", acquisitionSource: "instagram", acquisitionSourceOther: "" }), {});
   // Both questions are optional: blank answers are fine.
-  assert.deepEqual(validateStudioAbout({ city: " ", acquisitionSource: "", acquisitionSourceOther: "" }), {});
+  // The city is required now; how they heard about us is not.
+  assert.match(validateStudioAbout({ city: " ", acquisitionSource: "", acquisitionSourceOther: "" }).city ?? "", /city/);
+  assert.deepEqual(validateStudioAbout({ city: "Bhopal", acquisitionSource: "", acquisitionSourceOther: "" }), {});
   assert.match(validateStudioAbout({ city: "Bhopal", acquisitionSource: "other", acquisitionSourceOther: "  " }).other ?? "", /few words/);
   assert.equal(validateStudioAbout({ city: "Bhopal", acquisitionSource: "other", acquisitionSourceOther: "a friend" }).other, undefined);
   assert.ok(validateStudioAbout({ city: "x".repeat(200), acquisitionSource: "instagram", acquisitionSourceOther: "" }).city);

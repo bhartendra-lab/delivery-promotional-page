@@ -38,10 +38,16 @@ export const OTHER_MAX = 120;
 
 const collapse = (value: string) => value.replace(/\s+/g, " ").trim();
 
-/** Per-field problems, in plain words; an empty object means the answers are fine (blank ones included). */
+/**
+ * Per-field problems, in plain words; an empty object means the answers are
+ * fine. The city is required (since 2026-11: it decides the place of supply,
+ * so checkout never asks); how they heard about us stays optional.
+ */
 export function validateStudioAbout(about: StudioAbout): Partial<Record<"city" | "source" | "other", string>> {
   const errors: Partial<Record<"city" | "source" | "other", string>> = {};
-  if (collapse(about.city).length > CITY_MAX) errors.city = "That city name is too long.";
+  const city = collapse(about.city);
+  if (!city) errors.city = "Enter the city your studio works in.";
+  else if (city.length > CITY_MAX) errors.city = "That city name is too long.";
   if (about.acquisitionSource === "other" && !collapse(about.acquisitionSourceOther)) {
     errors.other = "Tell us in a few words how you heard about Vyavasth.";
   }

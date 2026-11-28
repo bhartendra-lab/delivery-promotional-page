@@ -244,7 +244,7 @@ export default function StudioIdentityPage() {
         </div>
         {emailVerifiedFlash && (
           <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
-            Business email verified.
+            Email verified. You can sign in with it now.
           </p>
         )}
         <div className="mt-5">

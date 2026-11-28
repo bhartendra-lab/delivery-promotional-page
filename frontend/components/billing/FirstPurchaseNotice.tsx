@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IconCheck, IconCopy, IconSparkle } from "@/components/ui/icons";
 import { useUpgradeModal } from "./UpgradeModalProvider";
 import { useAwaitingFirstPayment, useShowcasedEventCoupon } from "./useFirstPurchase";
+import { isFreeFirstEventOffer } from "@/lib/checkout-summary";
 
 /**
  * Shown on the dashboard home and the events tab until the studio's first
@@ -17,6 +18,8 @@ export function FirstPurchaseNotice() {
   const { openUpgradeModal } = useUpgradeModal();
 
   if (!awaiting) return null;
+  // While the first event is free, ClaimFreeEventCard is the one card shown.
+  if (isFreeFirstEventOffer(coupon)) return null;
 
   // The headline is written in the database ("Your first event, free!"): add
   // a full stop only when it has no closing punctuation of its own.

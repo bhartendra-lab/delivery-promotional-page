@@ -2,7 +2,16 @@
 
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { requestStudioOtp, verifyStudioOtp, resolveReferral, getCompanyDetails, ApiError } from "@/lib/api";
+import {
+  requestStudioOtp,
+  verifyStudioOtp,
+  requestStudioWhatsappOtp,
+  verifyStudioWhatsappOtp,
+  apiErrorCode,
+  resolveReferral,
+  getCompanyDetails,
+  ApiError,
+} from "@/lib/api";
 import { getPublicCoupons } from "@/lib/billing";
 import type { PublicCoupon } from "@/lib/billing";
 import { formatOfferDate } from "@/lib/plans";
@@ -27,6 +36,8 @@ import {
   IconCheck,
   IconPause,
   IconPlay,
+  IconWhatsApp,
+  IconCaretDown,
 } from "@/components/ui/icons";
 import { OtpCodeStep } from "@/app/(dashboard)/dashboard/settings/OtpCodeStep";
 import { SpaceBackdrop } from "./SpaceBackdrop";
@@ -112,6 +123,8 @@ function LoginShell() {
       <SpaceBackdrop />
       <div className="dash-rise relative z-10 grid w-full max-w-[960px] grid-cols-1 overflow-hidden rounded-2xl shadow-[0_40px_100px_-24px_rgba(0,0,0,0.7)] ring-1 ring-white/10 lg:min-h-[540px] lg:grid-cols-2">
         <OfferPanel offers={offers} />
+        {/* On a phone the form comes first: the offer is one slim strip above it. */}
+        <MobileOfferStrip offers={offers} />
         <LoginForm />
       </div>
     </main>
@@ -203,6 +216,35 @@ const BRAND_SLIDE: OfferSlide = {
   exclusive: null,
 };
 
+/**
+ * The phone version of the offer: one strip, the first offer (the exclusive
+ * one when it is on), its code and how long it lasts. The coupon is applied
+ * by itself at checkout, so nothing here needs a tap.
+ */
+function MobileOfferStrip({ offers }: { offers: LoginOffers }) {
+  const [now] = useState(() => Date.now());
+  const coupon = offers.coupons.find((c) => c.exclusive) ?? offers.coupons[0];
+  if (!coupon) return null;
+  const validity = coupon.exclusive ? exclusiveValidity(coupon.valid_until, now) : null;
+  return (
+    <div className="relative overflow-hidden bg-[linear-gradient(110deg,#2b140d_0%,#5a2416_45%,#9b482e_100%)] px-5 py-3.5 text-white lg:hidden">
+      <div className="flex items-center gap-2">
+        {coupon.exclusive && (
+          <span className="shrink-0 rounded-full bg-[linear-gradient(180deg,#ffe3a3,#f6c66a_55%,#d99a2b)] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#2b140d]">
+            Exclusive
+          </span>
+        )}
+        <p className="min-w-0 truncate text-sm font-bold">{coupon.headline}</p>
+      </div>
+      <p className="mt-1 text-xs text-white/75">
+        Code <span className="font-extrabold tracking-wide text-[#f6c66a]">{coupon.code}</span>
+        {validity?.urgency ? <> · {validity.urgency}</> : coupon.valid_until != null ? <> · till {formatOfferDate(coupon.valid_until)}</> : null}
+        <span className="text-white/60"> · applied for you</span>
+      </p>
+    </div>
+  );
+}
+
 function OfferPanel({ offers }: { offers: LoginOffers }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -230,7 +272,7 @@ function OfferPanel({ offers }: { offers: LoginOffers }) {
   const go = (step: number) => setIndex((i) => (Math.min(i, slides.length - 1) + step + slides.length) % slides.length);
 
   return (
-    <aside className="group relative flex flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-5 py-5 text-white sm:px-10 sm:py-9">
+    <aside className="group relative hidden flex-col overflow-clip bg-[linear-gradient(150deg,#CF6646_0%,var(--color-brand-navy)_45%,var(--color-brand-navy-deep)_100%)] px-5 py-5 text-white sm:px-10 sm:py-9 lg:flex">
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[radial-gradient(closest-side,rgba(255,236,224,0.35),transparent)]" />
         {/* A warm gold light while the exclusive offer is on screen. */}
@@ -419,7 +461,27 @@ function CopyCode({ code, gold = false }: { code: string; gold?: boolean }) {
   );
 }
 
-type Step = "email" | "code";
+/**
+ * "phone": the WhatsApp number (the main way in), with email and Google
+ * folded away below it. "phone-code" / "email-code": the code steps.
+ */
+type Step = "phone" | "phone-code" | "email-code";
+
+/** A 10-digit Indian mobile number from whatever was typed or pasted (+91, spaces, a leading 0). */
+function tenDigits(raw: string): string {
+  let d = raw.replace(/\D/g, "");
+  if (d.length > 10 && d.startsWith("91")) d = d.slice(2);
+  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  return d.slice(0, 10);
+}
+
+/** "+91 98273 88808", for the code step. */
+function displayNumber(ten: string): string {
+  return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
+}
+
+/** Errors after which the email way in is the useful next step: opened for the Studio. */
+const OPEN_EMAIL_FOR = new Set(["WHATSAPP_UNDELIVERABLE", "WHATSAPP_SEND_FAILED", "WHATSAPP_NUMBER_AMBIGUOUS"]);
 
 function LoginForm() {
   const router = useRouter();
@@ -428,47 +490,71 @@ function LoginForm() {
   const oauthFailed = search.get("error") === "auth_failed";
 
   const invitedBy = useInvitedBy();
-  const [step, setStep] = useState<Step>("email");
+  const [step, setStep] = useState<Step>("phone");
+  // ?phone= from onboarding's "Sign in with this WhatsApp number instead".
+  const [phone, setPhone] = useState(() => tenDigits(search.get("phone") ?? ""));
   const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // A failed Google round trip comes back here: its way in stays open.
+  const [emailOpen, setEmailOpen] = useState(oauthFailed);
+  const [submitting, setSubmitting] = useState<"phone" | "email" | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const googleHref = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/auth/google/studio-login`;
+  const phoneReady = phone.length === 10;
 
-  async function handleSendCode(e: React.FormEvent<HTMLFormElement>) {
+  /** The server's own resend cooldown means a code went out seconds ago: go and enter it. */
+  const isCooldown = (err: unknown) =>
+    err instanceof ApiError && err.status === 429 && !!err.body && typeof err.body === "object" && "retryAfter" in err.body;
+
+  async function handleSendPhoneCode(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    setSubmitting(true);
-    setError(null);
+    if (!phoneReady || submitting) return;
+    setSubmitting("phone");
+    setPhoneError(null);
     try {
-      await requestStudioOtp(trimmed);
-      setEmail(trimmed);
-      setStep("code");
+      await requestStudioWhatsappOtp(phone);
+      setStep("phone-code");
     } catch (err) {
-      // The server's resend cooldown (it carries `retryAfter`; the IP rate
-      // limiter's 429 doesn't) means a code went to this address seconds ago —
-      // typically "Back" then "Send code" again. That code is still good, so
-      // go and enter it.
-      if (err instanceof ApiError && err.status === 429 && err.body && typeof err.body === "object" && "retryAfter" in err.body) {
-        setEmail(trimmed);
-        setStep("code");
+      if (isCooldown(err)) {
+        setStep("phone-code");
       } else {
-        setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+        setPhoneError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+        if (OPEN_EMAIL_FOR.has(apiErrorCode(err) ?? "")) setEmailOpen(true);
       }
     } finally {
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
-  async function handleVerify(code: string) {
-    // Throws on a bad code; OtpCodeStep shows the message and clears the boxes.
-    const res = await verifyStudioOtp(email, code);
+  async function handleSendEmailCode(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = email.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting("email");
+    setEmailError(null);
+    try {
+      await requestStudioOtp(trimmed);
+      setEmail(trimmed);
+      setStep("email-code");
+    } catch (err) {
+      if (isCooldown(err)) {
+        setEmail(trimmed);
+        setStep("email-code");
+      } else {
+        setEmailError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      }
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function signedIn(res: Awaited<ReturnType<typeof verifyStudioOtp>>, method: "whatsapp_otp" | "email_otp") {
     await setToken(res.token);
     setCompany(res.company);
     // A studio that still owes onboarding has just created its account.
     const isNewStudio = needsOnboarding(res.company);
-    trackEvent(isNewStudio ? "sign_up" : "login", { method: "email_otp" });
+    trackEvent(isNewStudio ? "sign_up" : "login", { method });
     // Which campaign message brought them goes to our own CRM, never to Google. Not awaited: sign in does not wait for it.
     if (isNewStudio) {
       markSignup();
@@ -477,15 +563,18 @@ function LoginForm() {
     router.replace(redirectTo);
   }
 
-  function backToEmail() {
-    setStep("email");
-    setError(null);
+  /** From a code step back to the first screen; `withEmail` opens the email way in there. */
+  function backToStart(withEmail = false) {
+    setStep("phone");
+    setPhoneError(null);
+    setEmailError(null);
+    if (withEmail) setEmailOpen(true);
   }
 
   return (
-    <section className="relative flex items-center justify-center bg-[var(--color-brand-surface-raised)] px-5 py-8 sm:px-10 sm:py-10 lg:py-12">
+    <section className="relative flex items-start justify-center bg-[var(--color-brand-surface-raised)] px-5 py-7 sm:items-center sm:px-10 sm:py-10 lg:py-12">
       <div className="w-full min-w-0 max-w-sm">
-        {step === "email" && (
+        {step === "phone" && (
           <>
             {invitedBy && (
               <p className="mb-5 inline-flex max-w-full items-center gap-2 rounded-full bg-[var(--color-brand-hover)] px-3 py-1.5 text-xs font-semibold text-[var(--color-brand-ink)] ring-1 ring-[var(--color-brand-border)]">
@@ -498,88 +587,145 @@ function LoginForm() {
                 Sign in to your studio
               </h2>
               <p className="text-sm leading-relaxed text-[var(--color-brand-muted)]">
-                We&apos;ll email you a 6-digit code. New here? The same code sets up your studio.
+                Enter your WhatsApp number. We&apos;ll send a 6-digit code on WhatsApp. New here? The same code sets up your studio.
               </p>
             </div>
 
             {oauthFailed && (
-              <p
-                role="alert"
-                className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--color-brand-danger)]/30 bg-[var(--color-brand-danger-soft)] px-3 py-2.5 text-sm text-[var(--color-brand-danger)]"
-              >
-                <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>Sign-in didn&apos;t complete. Please try again.</span>
+              <p className="mt-4">
+                <ErrorBanner message="Sign-in didn't complete. Please try again." />
               </p>
             )}
 
-            <form onSubmit={handleSendCode} className="mt-7 space-y-4">
-              <Field
-                label="Email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={setEmail}
-                icon={<IconMail size={16} />}
-              />
+            <form onSubmit={handleSendPhoneCode} className="mt-6 space-y-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+                  WhatsApp number
+                </span>
+                <div className="flex h-12 items-center overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] focus-within:border-[var(--color-brand-outline)]">
+                  <span className="flex h-full items-center gap-1.5 border-r border-[var(--color-brand-border)] px-3 text-sm font-semibold text-[var(--color-brand-ink)]">
+                    <IconWhatsApp size={16} />
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    autoFocus
+                    placeholder="98765 43210"
+                    aria-label="WhatsApp number"
+                    value={phone}
+                    onChange={(e) => setPhone(tenDigits(e.target.value))}
+                    className="h-full min-w-0 flex-1 bg-transparent px-3 text-base tracking-wide text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60"
+                  />
+                </div>
+              </label>
 
-              {error && <ErrorBanner message={error} />}
+              {phoneError && <ErrorBanner message={phoneError} />}
 
               <button
                 type="submit"
-                disabled={submitting || !email.trim()}
-                className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!phoneReady || submitting !== null}
+                className="brand-focus flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? (
+                {submitting === "phone" ? (
                   <><Spinner />Sending code…</>
                 ) : (
-                  <>Send code<IconArrowRight size={15} /></>
+                  <>Send code on WhatsApp<IconArrowRight size={15} /></>
                 )}
               </button>
             </form>
 
-            <div className="my-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
-              <span className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--color-brand-muted)]">or</span>
-              <span className="h-px flex-1 bg-[var(--color-brand-border)]" />
+            <div className="mt-6 border-t border-[var(--color-brand-border)] pt-4">
+              <button
+                type="button"
+                aria-expanded={emailOpen}
+                onClick={() => setEmailOpen((open) => !open)}
+                className="brand-focus flex w-full items-center justify-center gap-1.5 rounded-md py-1 text-sm font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+              >
+                <IconMail size={15} />
+                Sign in with email instead
+                <IconCaretDown size={13} className={`transition-transform ${emailOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {emailOpen && (
+                <div className="dash-rise mt-4 space-y-4">
+                  <form onSubmit={handleSendEmailCode} className="space-y-3">
+                    <Field
+                      label="Email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={setEmail}
+                      icon={<IconMail size={16} />}
+                    />
+                    {emailError && <ErrorBanner message={emailError} />}
+                    <button
+                      type="submit"
+                      disabled={submitting !== null || !email.trim()}
+                      className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-brand-navy)] text-sm font-semibold text-[var(--color-brand-navy)] transition-colors hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {submitting === "email" ? <><Spinner />Sending code…</> : <>Email me a code</>}
+                    </button>
+                  </form>
+                  <a
+                    href={googleHref}
+                    // Google's round trip drops ?next=; park it for /auth/callback.
+                    onClick={() => rememberPostLoginRedirect(redirectTo)}
+                    className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
+                  >
+                    <IconGoogle size={16} />
+                    Continue with Google
+                  </a>
+                  <p className="text-center text-xs text-[var(--color-brand-muted)]">
+                    New here with email? We&apos;ll ask for your WhatsApp number next.
+                  </p>
+                </div>
+              )}
             </div>
+          </>
+        )}
 
-            <a
-              href={googleHref}
-              // Google's round trip drops ?next=; park it for /auth/callback.
-              onClick={() => rememberPostLoginRedirect(redirectTo)}
-              className="brand-focus flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white text-sm font-semibold text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--color-brand-hover)]"
-            >
-              <IconGoogle size={16} />
-              Continue with Google
-            </a>
-
-            <p className="pt-5 text-center text-xs text-[var(--color-brand-muted)]">
-              Trouble signing in? Reach out to your account manager.
+        {step === "phone-code" && (
+          <>
+            <div className="mb-5 space-y-2">
+              <h2 className="text-[26px] font-bold leading-tight text-[var(--color-brand-ink)]">Enter the code</h2>
+              <p className="text-sm text-[var(--color-brand-muted)]">We sent it on WhatsApp. You&apos;ll stay signed in on this device.</p>
+            </div>
+            <OtpCodeStep
+              destination={displayNumber(phone)}
+              onBack={() => backToStart()}
+              onVerify={async (code) => signedIn(await verifyStudioWhatsappOtp(phone, code), "whatsapp_otp")}
+              onResend={() => requestStudioWhatsappOtp(phone)}
+            />
+            <p className="pt-4 text-center text-xs text-[var(--color-brand-muted)]">
+              Didn&apos;t get it?{" "}
+              <button
+                type="button"
+                onClick={() => backToStart(true)}
+                className="brand-focus rounded font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+              >
+                Sign in with email instead
+              </button>
             </p>
           </>
         )}
 
-        {step === "code" && (
+        {step === "email-code" && (
           <>
             <div className="mb-5 space-y-2">
-              <h2 className="text-[26px] font-bold leading-tight text-[var(--color-brand-ink)]">
-                Enter your code
-              </h2>
-              <p className="text-sm text-[var(--color-brand-muted)]">
-                You&apos;ll stay signed in on this device.
-              </p>
+              <h2 className="text-[26px] font-bold leading-tight text-[var(--color-brand-ink)]">Enter your code</h2>
+              <p className="text-sm text-[var(--color-brand-muted)]">You&apos;ll stay signed in on this device.</p>
             </div>
-
             <OtpCodeStep
               destination={email}
-              onBack={backToEmail}
-              onVerify={handleVerify}
+              onBack={() => backToStart(true)}
+              onVerify={async (code) => signedIn(await verifyStudioOtp(email, code), "email_otp")}
               onResend={() => requestStudioOtp(email)}
             />
-
             <p className="pt-4 text-center text-xs text-[var(--color-brand-muted)]">
-              Can&apos;t find it? Check your spam folder, or reach out to your account manager.
+              Can&apos;t find it? Check your spam folder, or sign in with WhatsApp instead.
             </p>
           </>
         )}

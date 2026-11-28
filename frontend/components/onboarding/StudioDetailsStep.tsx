@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ApiError, attachReferral, requestWhatsappOtp, resolveReferral } from "@/lib/api";
+import { ApiError, apiErrorCode, attachReferral, requestWhatsappOtp, resolveReferral, saveStudioDetails } from "@/lib/api";
+import type { StudioDetailsInput } from "@/lib/api";
+import type { Company } from "@/lib/types";
+import { stateForCity } from "@/lib/city-state";
+import { GST_STATE_CODES } from "@/lib/gst-state-codes";
 import { normalizeReferralCode } from "@/lib/referral";
 import { clearStoredReferral, getStoredReferral } from "@/lib/referral-storage";
 import { IconWarningCircle, IconWhatsApp } from "@/components/ui/icons";
@@ -34,22 +38,38 @@ type ReferralField = {
   error: string | null;
 };
 
+/**
+ * The one onboarding step. Studio name and city are required (the city fills
+ * the place of supply, so checkout never asks); the state is asked only when
+ * the city is one we cannot place. How they heard about us is optional, and
+ * the Referral code shows only when it is relevant (a referral link, the
+ * "Referred by a studio" answer, or a tap on "Have a referral code?").
+ *
+ * `needsNumber`: the Studio signed up by email or Google, so its WhatsApp
+ * number is required here too: the step sends the code (onSent) and the next
+ * step verifies it with these answers. Signed up by WhatsApp, the number is
+ * already proven and the step saves straight away (onSaved).
+ */
 export function StudioDetailsStep({
+  needsNumber,
+  initial,
   onSent,
+  onSaved,
 }: {
-  onSent: (
-    studioName: string,
-    whatsappNumber: string,
-    about: { city: string; acquisitionSource: string; acquisitionSourceOther: string },
-  ) => void;
+  needsNumber: boolean;
+  /** Answers to start from (coming back from the code step). */
+  initial?: { details: StudioDetailsInput; phone: string } | null;
+  onSent: (details: StudioDetailsInput, whatsappNumber: string) => void;
+  onSaved: (company: Company) => void;
 }) {
-  const [studioName, setStudioName] = useState("");
-  const [phone, setPhone] = useState("");
-  // City and how they heard about us: both optional (only the studio name and
-  // the WhatsApp number, marked with a red asterisk, are required).
-  const [city, setCity] = useState("");
-  const [source, setSource] = useState<AcquisitionSource | "">("");
-  const [sourceOther, setSourceOther] = useState("");
+  const [studioName, setStudioName] = useState(initial?.details.studioName ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [city, setCity] = useState(initial?.details.city ?? "");
+  const [stateCode, setStateCode] = useState(initial?.details.stateCode ?? "");
+  const [stateAsked, setStateAsked] = useState(Boolean(initial?.details.stateCode));
+  const [referralOpen, setReferralOpen] = useState(false);
+  const [source, setSource] = useState<AcquisitionSource | "">((initial?.details.acquisitionSource as AcquisitionSource | "") ?? "");
+  const [sourceOther, setSourceOther] = useState(initial?.details.acquisitionSourceOther ?? "");
   const [aboutErrors, setAboutErrors] = useState<{ city?: string; source?: string; other?: string }>({});
   const cityListId = useId();
   const referralInputRef = useRef<HTMLInputElement>(null);
@@ -81,8 +101,12 @@ export function StudioDetailsStep({
     };
   }, []);
 
-  const validPhone = phone.length === 10;
-  const canSubmit = studioName.trim().length > 0 && validPhone && !submitting;
+  const validPhone = !needsNumber || phone.length === 10;
+  // A typed city we cannot place asks for its state, on this same step.
+  const cityState = stateForCity(city);
+  const needsState = stateAsked || (city.trim().length > 2 && !cityState);
+  const canSubmit = studioName.trim().length > 0 && city.trim().length > 0 && validPhone && (!needsState || !!stateCode || !!cityState) && !submitting;
+  const showReferral = referralOpen || referral.source === "link" || sourceBringsReferralCode(source) || !!referral.code;
 
   /** The "Referred by a studio" answer brings the optional Referral code into focus, after it has had a moment to appear. */
   function chooseSource(next: AcquisitionSource | "") {
@@ -121,12 +145,23 @@ export function StudioDetailsStep({
     if (problems.city || problems.source || problems.other) return;
     setSubmitting(true);
     setError(null);
+    const details: StudioDetailsInput = {
+      studioName: studioName.trim(),
+      ...aboutPayload({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther }),
+      stateCode: needsState ? stateCode : undefined,
+    };
     try {
       if (!(await attachReferralCode())) return;
-      await requestWhatsappOtp({ whatsappNumber: phone });
-      onSent(studioName.trim(), phone, aboutPayload({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther }));
+      if (needsNumber) {
+        await requestWhatsappOtp({ whatsappNumber: phone });
+        onSent(details, phone);
+      } else {
+        const res = await saveStudioDetails(details);
+        onSaved(res.company);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't send the code. Please try again.");
+      if (apiErrorCode(err) === "STATE_REQUIRED") setStateAsked(true);
+      setError(err instanceof Error ? err.message : "Couldn't save your studio. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -140,8 +175,9 @@ export function StudioDetailsStep({
         </p>
         <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">Tell us about your studio</h2>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          Confirm your studio name and verify a WhatsApp number. Delivery notifications and client
-          replies go here.
+          {needsNumber
+            ? "Your studio name, city and WhatsApp number. Delivery notifications and client replies go to this number."
+            : "Just your studio name and city. That's all we need to get you started."}
         </p>
       </div>
 
@@ -161,6 +197,7 @@ export function StudioDetailsStep({
           />
         </label>
 
+        {needsNumber && (
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             WhatsApp number
@@ -182,10 +219,12 @@ export function StudioDetailsStep({
             />
           </div>
         </label>
+        )}
 
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             City
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
           </span>
           <input
             type="text"
@@ -214,9 +253,32 @@ export function StudioDetailsStep({
           )}
         </label>
 
+        {needsState && (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              State
+              <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
+            </span>
+            <select
+              value={stateCode}
+              onChange={(e) => setStateCode(e.target.value)}
+              required
+              className="brand-focus h-11 w-full cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+            >
+              <option value="">Choose your state</option>
+              {GST_STATE_CODES.map((st) => (
+                <option key={st.code} value={st.code}>
+                  {st.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">So your invoices carry the right GST.</p>
+          </label>
+        )}
+
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-            How did you hear about us
+            How did you hear about us <span className="normal-case tracking-normal">(optional)</span>
           </span>
           <select
             value={source}
@@ -264,7 +326,20 @@ export function StudioDetailsStep({
           </label>
         )}
 
-        {!referral.done && (
+        {!referral.done && !showReferral && (
+          <button
+            type="button"
+            onClick={() => {
+              setReferralOpen(true);
+              setTimeout(() => referralInputRef.current?.focus(), 0);
+            }}
+            className="brand-focus rounded-sm text-xs font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+          >
+            Have a referral code?
+          </button>
+        )}
+
+        {!referral.done && showReferral && (
           <div>
             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
               Referral code <span className="normal-case tracking-normal">(optional)</span>
@@ -320,10 +395,18 @@ export function StudioDetailsStep({
         <button
           type="submit"
           disabled={!canSubmit}
-          className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="brand-focus flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <IconWhatsApp size={16} />
-          {submitting ? "Sending code on WhatsApp…" : "Send code on WhatsApp"}
+          {needsNumber ? (
+            <>
+              <IconWhatsApp size={16} />
+              {submitting ? "Sending code on WhatsApp…" : "Send code on WhatsApp"}
+            </>
+          ) : submitting ? (
+            "Saving…"
+          ) : (
+            "Continue"
+          )}
         </button>
       </form>
     </>

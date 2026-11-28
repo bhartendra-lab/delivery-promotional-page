@@ -63,6 +63,7 @@ import type {
   StyleVariant,
   TrackingType,
   UserProfile,
+  SignInDetails,
   WatermarkPreset,
   WatermarkPosition,
   CompanyMutationResponse,
@@ -210,6 +211,40 @@ export function requestStudioOtp(email: string) {
   });
 }
 
+/* ── Studio sign-in: WhatsApp code (the main way in) ─────────────── */
+
+/** The `code` an API error carried, if any ("WHATSAPP_UNDELIVERABLE", "STATE_REQUIRED", ...). */
+export function apiErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError) || !err.body || typeof err.body !== "object") return null;
+  const code = (err.body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+/**
+ * POST /auth/studio/whatsapp/request-otp — a 6-digit sign-in code on WhatsApp.
+ * The same for a returning Studio and a new number; nothing is created until
+ * the code checks out. Errors carry a `code`: WHATSAPP_UNDELIVERABLE (not on
+ * WhatsApp), WHATSAPP_SEND_FAILED, WHATSAPP_NUMBER_AMBIGUOUS, OTP_COOLDOWN.
+ */
+export function requestStudioWhatsappOtp(phone: string) {
+  return request<{ message: string }>("/auth/studio/whatsapp/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+    auth: false,
+  });
+}
+
+/** POST /auth/studio/whatsapp/verify-otp — signs in (creating the studio for a new number). */
+export function verifyStudioWhatsappOtp(phone: string, code: string) {
+  return request<LoginResponse>("/auth/studio/whatsapp/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code }),
+    auth: false,
+  });
+}
+
 /* ── studio account deletion (BE-02) ─────────────────────────────── */
 
 export type StudioDeletionAccepted = { message: string; scope: "studio" | "user"; purge_at: number };
@@ -294,26 +329,53 @@ export function resendWhatsappOtp() {
   return request<{ message: string }>("/onboarding/whatsapp/resend-otp", { method: "POST" });
 }
 
-/** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name, city and how they heard about us, and returns the updated Company. */
-export function verifyWhatsappOtp(input: {
-  code: string;
+/** The first onboarding step's answers. City is required; the state only when the city can't be placed. */
+export type StudioDetailsInput = {
   studioName: string;
-  /** Asked at the first onboarding step; the server requires both. */
   city: string;
+  stateCode?: string;
   acquisitionSource: string;
   acquisitionSourceOther?: string;
-}) {
+};
+
+const studioDetailsBody = (input: StudioDetailsInput) => ({
+  studio_name: input.studioName,
+  city: input.city,
+  state_code: input.stateCode || undefined,
+  acquisition_source: input.acquisitionSource,
+  acquisition_source_other: input.acquisitionSourceOther,
+});
+
+/**
+ * POST /onboarding/whatsapp/verify-otp — signed up by email or Google: the
+ * WhatsApp code with the studio's details. Saves the number as the user's,
+ * the place of supply from the city, and finishes onboarding.
+ * 400 STATE_REQUIRED when the city can't be placed; 409 WHATSAPP_NUMBER_IN_USE.
+ */
+export function verifyWhatsappOtp(input: StudioDetailsInput & { code: string }) {
   return request<CompanyMutationResponse>("/onboarding/whatsapp/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      code: input.code,
-      studio_name: input.studioName,
-      city: input.city,
-      acquisition_source: input.acquisitionSource,
-      acquisition_source_other: input.acquisitionSourceOther,
-    }),
+    body: JSON.stringify({ code: input.code, ...studioDetailsBody(input) }),
   });
+}
+
+/** POST /onboarding/studio-details — signed up by WhatsApp: the one onboarding step. */
+export function saveStudioDetails(input: StudioDetailsInput) {
+  return request<CompanyMutationResponse>("/onboarding/studio-details", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(studioDetailsBody(input)),
+  });
+}
+
+/**
+ * POST /onboarding/abandon-signup — signed up by email, but the WhatsApp
+ * number already has a studio: removes the empty account just made, before
+ * the Studio signs in with WhatsApp instead.
+ */
+export function abandonSignup() {
+  return request<{ message: string }>("/onboarding/abandon-signup", { method: "POST" });
 }
 
 /* ── Post-onboarding: change WhatsApp number ───────────────────── */
@@ -511,7 +573,7 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
 /* ── personal profile (account holder) ─────────────────────────── */
 
 export function getUserProfile() {
-  return request<{ user: UserProfile }>("/onboarding/get-user-details");
+  return request<{ user: UserProfile; sign_in?: SignInDetails }>("/onboarding/get-user-details");
 }
 
 export type UserProfileUpdateInput = {

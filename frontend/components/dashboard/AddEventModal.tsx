@@ -47,6 +47,13 @@ import { FIRST_UPLOAD_VALIDITY } from "@/lib/event-validity";
 type Props = {
   open: boolean;
   onClose: () => void;
+  /**
+   * Opened from "Claim my free event": the same form under a celebration
+   * header, with nothing else asked of the Studio (no referral cards). The
+   * free event is applied when the event is created, so closing the sheet
+   * leaves nothing half done.
+   */
+  celebrate?: boolean;
 };
 
 const FORM_ID = "add-event-form";
@@ -96,12 +103,12 @@ type CreateBody = Parameters<typeof createBooking>[0];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function AddEventModal({ open, onClose }: Props) {
+export function AddEventModal({ open, onClose, celebrate = false }: Props) {
   if (!open) return null;
-  return <AddEventForm onClose={onClose} />;
+  return <AddEventForm onClose={onClose} celebrate={celebrate} />;
 }
 
-function AddEventForm({ onClose }: { onClose: () => void }) {
+function AddEventForm({ onClose, celebrate }: { onClose: () => void; celebrate: boolean }) {
   const router = useRouter();
   // The company's plan decides two things here: whether the expiry is asked
   // (storage plans only) and whether the name is about to become permanent
@@ -466,6 +473,9 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
       <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
       Creating…
     </>
+  ) : payMode && celebrate && (purchase.total == null || isFreeEvent(purchase.total)) ? (
+    // The free event sheet never says "pay" while the price is still being worked out.
+    "Create my free event"
   ) : payMode ? (
     continueToPayLabel(purchase.total)
   ) : (
@@ -503,7 +513,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-2">
       {notifyCheckbox}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {eventOffer ? <ReferralPayNudge offer={eventOffer} onNavigate={onClose} /> : <span aria-hidden className="hidden sm:block" />}
+        {eventOffer && !celebrate ? <ReferralPayNudge offer={eventOffer} onNavigate={onClose} /> : <span aria-hidden className="hidden sm:block" />}
         {buttons}
       </div>
     </div>
@@ -518,9 +528,11 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onClose={busy ? () => {} : billingStage ? () => { resetFlow(); setStage("form"); } : onClose}
-      title={billingStage ? "Billing details" : "Add new event"}
+      title={billingStage ? "Billing details" : celebrate ? "Your first event is on us 🎉" : "Add new event"}
       subtitle={
-        billingStage
+        celebrate && !billingStage
+          ? "Pick the event type, add the couple's or client's name, and create it. That's all."
+          : billingStage
           ? "Needed once, for your GST invoice. Then you go straight to payment."
           : payMode
             ? isFreeEvent(purchase.total)
@@ -578,6 +590,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         />
       ) : (
       <form id={FORM_ID} onSubmit={submit} noValidate className="flex flex-col gap-5">
+        {celebrate && <FreeEventHero />}
         {/* 1 · Event type. Chosen first; nothing else shows until it is. */}
         <div>
           <span id={typeLabelId} className={LABEL_CLASS}>
@@ -790,7 +803,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         )}
 
         {/* The studio's own invitation to refer, with what it earns on its plan. */}
-        {cardOffer && <ReferralAdCard offer={cardOffer} onNavigate={onClose} />}
+        {cardOffer && !celebrate && <ReferralAdCard offer={cardOffer} onNavigate={onClose} />}
 
         {(serverError || (flow.phase === "error" && flow.code !== "BILLING_PROFILE_INCOMPLETE")) && (
           <p
@@ -803,6 +816,19 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
       </form>
       )}
     </Modal>
+  );
+}
+
+/** The top of the "Claim my free event" sheet: the moment, before the form. */
+function FreeEventHero() {
+  return (
+    <div className="dash-rise relative overflow-hidden rounded-xl bg-[linear-gradient(120deg,#2b140d_0%,#7a3220_55%,#c25a3a_100%)] px-4 py-4 text-white">
+      <span aria-hidden className="pointer-events-none absolute -right-6 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(closest-side,rgba(255,227,163,0.55),transparent)]" />
+      <p className="relative text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#f6c66a]">Free event unlocked</p>
+      <p className="relative mt-1 text-[15px] font-bold leading-snug">
+        Face search, live delivery, the whole gallery. No payment needed.
+      </p>
+    </div>
   );
 }
 

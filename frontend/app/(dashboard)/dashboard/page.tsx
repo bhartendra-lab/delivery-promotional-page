@@ -12,6 +12,7 @@ import { RecentEvents } from "@/components/dashboard/home/RecentEvents";
 import { useUpgradeModal } from "@/components/billing/UpgradeModalProvider";
 import { WelcomeDialog } from "@/components/onboarding/WelcomeDialog";
 import { FirstPurchaseNotice } from "@/components/billing/FirstPurchaseNotice";
+import { ClaimFreeEventCard } from "@/components/billing/ClaimFreeEventCard";
 import { useAwaitingFirstPayment } from "@/components/billing/useFirstPurchase";
 import { IconPlus, IconX, IconWarningCircle, IconGlobe } from "@/components/ui/icons";
 
@@ -32,6 +33,8 @@ export default function DashboardHomePage() {
   // until the studio actually links a Google listing.
   const [gmbNudgeDismissed, setGmbNudgeDismissed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  // Opened from "Claim my free event": Add event as the celebration sheet.
+  const [celebrate, setCelebrate] = useState(false);
 
   // `?buy=events` (or `?buy=storage`): opened from a link that means "buy now",
   // e.g. an old /checkout?onboarding=1 link. Opens the purchase modal once and
@@ -82,6 +85,14 @@ export default function DashboardHomePage() {
         </div>
       )}
 
+      {/* While the first event is free, the one thing on screen to do. */}
+      <ClaimFreeEventCard
+        onClaim={() => {
+          setCelebrate(true);
+          setModalOpen(true);
+        }}
+      />
+
       {/* Before the first payment the studio has not run out of anything: it is
           told about its first purchase instead of a used-up limit. */}
       <FirstPurchaseNotice />
@@ -129,7 +140,14 @@ export default function DashboardHomePage() {
       <NeedsAttention />
       <RecentEvents />
 
-      <AddEventModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <AddEventModal
+        open={modalOpen}
+        celebrate={celebrate}
+        onClose={() => {
+          setModalOpen(false);
+          setCelebrate(false);
+        }}
+      />
       <WelcomeDialog />
     </div>
   );

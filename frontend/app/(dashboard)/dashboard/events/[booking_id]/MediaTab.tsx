@@ -1,5 +1,6 @@
 "use client";
 
+import { DesktopUploadHint } from "@/components/dashboard/DesktopUploadHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createCustomFolder, deleteCustomFolder, reorderCustomFolders, updateCustomFolder } from "@/lib/api";
 import {
@@ -453,6 +454,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
       </div>
 
       <div ref={mediaScrollRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        {/* Phones only: a full event uploads more smoothly from a computer. */}
+        <DesktopUploadHint />
         {activeLocked && (
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <IconWarning size={14} />

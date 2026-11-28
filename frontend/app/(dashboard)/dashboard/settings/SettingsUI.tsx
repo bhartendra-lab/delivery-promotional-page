@@ -776,7 +776,7 @@ export function VerifiedBusinessEmailField({
 
   return (
     <VerifiedFieldRow
-      label="Business email"
+      label="Email"
       hasValue={hasValue}
       verified={verified}
       actionLabel={hasValue ? "Update" : "Add & verify"}
@@ -795,8 +795,8 @@ export function VerifiedBusinessEmailField({
       helper={
         <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
           {hasValue
-            ? "Shown to clients as your studio's contact email — separate from your login email on Personal Information."
-            : "Add a client-facing contact email — separate from your login email on Personal Information."}
+            ? "You can sign in with this email too, and it is where invoices go."
+            : "Add an email to sign in with when WhatsApp isn't handy, and to get your invoices."}
         </p>
       }
     />

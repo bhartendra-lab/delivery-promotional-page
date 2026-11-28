@@ -46,9 +46,9 @@ function readyToUse(snapshot: SubscriptionSnapshot | null): string | null {
  *    dashboard, where FirstPurchaseNotice keeps the coupon in view.
  *
  * While the first event is free (the exclusive offer at 100% off, FIRSTONUS),
- * a studio that cannot create an event yet skips the invitation: checkout
- * opens straight away with one event and that coupon applied, so the studio
- * only has to press Activate. When the offer ends, the invitation is back.
+ * a studio that cannot create an event yet skips the invitation: the
+ * dashboard's "Claim my free event" card takes its place. When the offer
+ * ends, the invitation is back.
  */
 export function WelcomeDialog() {
   const company = useCompany();
@@ -93,17 +93,15 @@ export function WelcomeDialog() {
   }
 
   /** The same purchase modal every later purchase uses, opened over the dashboard. */
-  // First visit, first event free: straight to checkout, once.
+  // First visit, first event free: the dashboard's "Claim my free event"
+  // card is the welcome (ClaimFreeEventCard), so this dialog only marks
+  // itself seen and shows nothing.
   const freeFirstEvent = unpaid && isFreeFirstEventOffer(coupon);
-  const autoOpened = useRef(false);
   useEffect(() => {
-    if (!open || !freeFirstEvent || !coupon || autoOpened.current) return;
-    autoOpened.current = true;
-    handleClose();
-    openUpgradeModal({ preset: "event", coupon: coupon.code });
-    // handleClose only marks the dialog seen; it is stable enough here.
+    if (open && freeFirstEvent) void markSeen();
+    // markSeen is guarded by a ref; it is stable enough here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, freeFirstEvent, coupon, openUpgradeModal]);
+  }, [open, freeFirstEvent]);
 
   function choosePlan() {
     handleClose();

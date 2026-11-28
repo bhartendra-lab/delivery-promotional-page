@@ -363,8 +363,17 @@ export type UserProfile = {
   first_name?: string;
   last_name?: string;
   personal_contact?: string;
-  /** Login identity — read-only here; change it only via the login/auth flow. */
+  /** Sign-in email, when there is one. Changed only through Settings → Sign-in details (with a code). */
   email?: string;
+};
+
+/** The signed-in user's ways in (GET /onboarding/get-user-details `sign_in`). */
+export type SignInDetails = {
+  email: string | null;
+  email_verified: boolean;
+  whatsapp_number: string | null;
+  whatsapp_verified: boolean;
+  has_google: boolean;
 };
 
 /**
