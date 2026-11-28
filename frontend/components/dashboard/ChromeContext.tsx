@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getDlpUsage, recalculateStudioStorage } from "@/lib/api";
+import { getDlpUsage, getMyReferrals, recalculateStudioStorage } from "@/lib/api";
 import type { DlpUsage } from "@/lib/types";
 import type { Breadcrumb } from "./Topbar";
 
@@ -18,6 +18,13 @@ type ChromeState = {
    */
   dlpUsage: DlpUsage | null;
   dlpLoading: boolean;
+  /**
+   * Whether this studio may see its Referral code (GET /referrals/me says
+   * `eligible`). The Sidebar shows "Refer a Studio" only when true; the
+   * Settings page explains the rule to everyone else. False until the answer
+   * arrives, and on any failure: the entry is an extra, never a blocker.
+   */
+  referralEligible: boolean;
   /**
    * Re-fetch usage and update the shared value. Returns the fresh value (or
    * null on error) so callers can act on it immediately.
@@ -68,6 +75,7 @@ const ChromeCtx = createContext<ChromeState>({
   setTopbarExtra: () => {},
   dlpUsage: null,
   dlpLoading: true,
+  referralEligible: false,
   refreshDlpUsage: async () => null,
   storageSyncing: false,
   settleStorage: async () => {},
@@ -79,6 +87,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [topbarExtra, setTopbarExtra] = useState<React.ReactNode>(null);
   const [dlpUsage, setDlpUsage] = useState<DlpUsage | null>(null);
   const [dlpLoading, setDlpLoading] = useState(true);
+  const [referralEligible, setReferralEligible] = useState(false);
   const [storageSyncing, setStorageSyncing] = useState(false);
   const settleDepth = useRef(0);
   const mainRef = useRef<HTMLElement | null>(null);
@@ -90,6 +99,20 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       .then(setDlpUsage)
       .catch(() => setDlpUsage(null))
       .finally(() => setDlpLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMyReferrals()
+      .then((res) => {
+        if (!cancelled) setReferralEligible(res.eligible === true);
+      })
+      .catch(() => {
+        if (!cancelled) setReferralEligible(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const refreshDlpUsage = useCallback(async () => {
@@ -131,12 +154,13 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       setTopbarExtra,
       dlpUsage,
       dlpLoading,
+      referralEligible,
       refreshDlpUsage,
       storageSyncing,
       settleStorage,
       mainRef,
     }),
-    [customBreadcrumb, topbarExtra, dlpUsage, dlpLoading, refreshDlpUsage, storageSyncing, settleStorage],
+    [customBreadcrumb, topbarExtra, dlpUsage, dlpLoading, referralEligible, refreshDlpUsage, storageSyncing, settleStorage],
   );
 
   return <ChromeCtx.Provider value={value}>{children}</ChromeCtx.Provider>;

@@ -4,11 +4,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBooking, ApiError } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
+import { planKindOf } from "@/lib/analytics-params";
 import { EVENT_TYPES, isCountBasedPlan, isStorageBasedPlan, type EventExpiryChoice, type EventType } from "@/lib/types";
 import {
   EVENT_CLIENTS_MAX,
   EVENT_CLIENT_NAME_MAX,
   coupleEventNamePreview,
+  coupleEventNameField,
   createdEventNotice,
   createdEventNoticeKey,
   eventExpiryPreview,
@@ -45,6 +47,13 @@ import { FIRST_UPLOAD_VALIDITY } from "@/lib/event-validity";
 type Props = {
   open: boolean;
   onClose: () => void;
+  /**
+   * Opened from "Claim my free event": the same form under a celebration
+   * header, with nothing else asked of the Studio (no referral cards). The
+   * free event is applied when the event is created, so closing the sheet
+   * leaves nothing half done.
+   */
+  celebrate?: boolean;
 };
 
 const FORM_ID = "add-event-form";
@@ -53,7 +62,7 @@ const TYPE_OPTIONS = EVENT_TYPES.map((type) => ({ value: type, label: type }));
 /** Text inputs here share the +91 control's height and surface, so a name and
  *  the number beside it read as one row. */
 const INPUT_CLASS =
-  "brand-focus block h-10 w-full rounded-field border bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 disabled:cursor-not-allowed disabled:opacity-60";
+  "brand-focus block h-11 w-full rounded-field border sm:h-10 bg-[var(--color-brand-surface-raised)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/60 disabled:cursor-not-allowed disabled:opacity-60";
 const LABEL_CLASS = "mb-1.5 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]";
 const HINT_CLASS = "text-[12px] leading-relaxed text-[var(--color-brand-muted)]";
 const ERROR_CLASS = "mt-1 text-[12px] text-[var(--color-brand-danger)]";
@@ -94,12 +103,12 @@ type CreateBody = Parameters<typeof createBooking>[0];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function AddEventModal({ open, onClose }: Props) {
+export function AddEventModal({ open, onClose, celebrate = false }: Props) {
   if (!open) return null;
-  return <AddEventForm onClose={onClose} />;
+  return <AddEventForm onClose={onClose} celebrate={celebrate} />;
 }
 
-function AddEventForm({ onClose }: { onClose: () => void }) {
+function AddEventForm({ onClose, celebrate }: { onClose: () => void; celebrate: boolean }) {
   const router = useRouter();
   // The company's plan decides two things here: whether the expiry is asked
   // (storage plans only) and whether the name is about to become permanent
@@ -117,6 +126,12 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const [groom, setGroom] = useState(() => newPerson("groom"));
   const [extras, setExtras] = useState<PersonDraft[]>([]);
   const [eventName, setEventName] = useState("");
+  // A couple event's own Event name. It follows "Bride & Groom" live until the
+  // Studio types in the field, and from then on it is theirs, even when they
+  // later change a name above. Held apart from `eventName` (the other types'
+  // field), so switching type never leaks one into the other.
+  const [coupleEventNameText, setCoupleEventNameText] = useState("");
+  const [coupleEventNameEdited, setCoupleEventNameEdited] = useState(false);
   const [clients, setClients] = useState<PersonDraft[]>(() => [newPerson("client")]);
   // Event date and expiry survive any switch of type.
   const [eventDate, setEventDate] = useState("");
@@ -142,6 +157,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   const payPerEvent = isCountBasedPlan(dlpUsage?.service_type);
   const canNotify = hasCompleteNumber(people);
   const namePreview = coupleEventNamePreview(bride.name, groom.name);
+  const coupleEventNameState = coupleEventNameField({ preview: namePreview, edited: coupleEventNameEdited, typed: coupleEventNameText });
 
   // Pay mode: no events left on a pay per event (or Free) plan, as the usage
   // meter says, or as the server said when a create was refused with 402.
@@ -226,9 +242,14 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
 
   /** The new event's page says once what happened to the WhatsApp invites, then opens. */
   function openCreated(res: Awaited<ReturnType<typeof createBooking>>) {
-    // Funnel step after sign_up / free_event_claimed. Event type only, never
-    // the couple or event name.
-    trackEvent("event_created", { event_type: eventType ?? undefined, method: pendingBody.current ? "bought" : "plan" });
+    // Funnel step after sign_up / free_event_claimed. The event type is one of a
+    // fixed list, the plan a fixed word, the method says whether this event was
+    // bought on the spot: never the event or couple name.
+    trackEvent("event_created", {
+      event_type: eventType ?? undefined,
+      plan_kind: planKindOf(dlpUsage?.service_type),
+      method: pendingBody.current ? "bought" : "plan",
+    });
     // The event just used one of the plan's events (or the paid one): the
     // shared usage meter (sidebar, dashboard, "N events left") is only read on
     // load, so it is re-read here or it keeps showing the old count until a
@@ -274,8 +295,14 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     const epoch = eventDate ? new Date(`${eventDate}T00:00:00`).getTime() : NaN;
     const body: CreateBody = {
       event_type: eventType,
-      // A couple event is named by the backend from the Bride and Groom.
-      ...(couple ? {} : { event_name: eventName.trim() }),
+      // A couple event sends the Event name shown in its field ("Aanya & Rohan"
+      // until the Studio changes it); left empty, the backend names it from the
+      // Bride and Groom. The couple's own names always travel as `clients`.
+      ...(couple
+        ? coupleEventNameState.send
+          ? { event_name: coupleEventNameState.send }
+          : {}
+        : { event_name: eventName.trim() }),
       ...(Number.isFinite(epoch) ? { event_date: epoch } : {}),
       clients: draft.clients,
       ...(showExpiry && expiryChoice
@@ -446,6 +473,9 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
       <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
       Creating…
     </>
+  ) : payMode && celebrate && (purchase.total == null || isFreeEvent(purchase.total)) ? (
+    // The free event sheet never says "pay" while the price is still being worked out.
+    "Create my free event"
   ) : payMode ? (
     continueToPayLabel(purchase.total)
   ) : (
@@ -453,12 +483,13 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
   );
 
   const buttons = (
-    <div className="flex shrink-0 items-center justify-end gap-2.5">
+    // Phones: two full-width thumb-sized buttons, the primary one wider.
+    <div className="flex shrink-0 items-center gap-2.5 sm:justify-end">
       <button
         type="button"
         onClick={onClose}
         disabled={busy}
-        className="brand-focus inline-flex h-10 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
+        className="brand-focus inline-flex h-11 flex-1 items-center justify-center rounded-lg border sm:h-10 sm:flex-none border-[var(--color-brand-border)] bg-white px-4 text-[13.5px] font-medium text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
       >
         Cancel
       </button>
@@ -469,7 +500,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         type="submit"
         form={FORM_ID}
         disabled={!eventType || dlpLoading || busy || (payMode && !purchase.settled)}
-        className="brand-focus inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="brand-focus inline-flex h-11 flex-[2] items-center justify-center gap-2 rounded-lg sm:h-10 sm:flex-none bg-[var(--color-brand-navy)] px-4 text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {actionLabel}
       </button>
@@ -482,7 +513,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-2">
       {notifyCheckbox}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {eventOffer ? <ReferralPayNudge offer={eventOffer} onNavigate={onClose} /> : <span aria-hidden className="hidden sm:block" />}
+        {eventOffer && !celebrate ? <ReferralPayNudge offer={eventOffer} onNavigate={onClose} /> : <span aria-hidden className="hidden sm:block" />}
         {buttons}
       </div>
     </div>
@@ -497,12 +528,16 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onClose={busy ? () => {} : billingStage ? () => { resetFlow(); setStage("form"); } : onClose}
-      title={billingStage ? "Billing details" : "Add new event"}
+      title={billingStage ? "Billing details" : celebrate ? "Your first event is on us 🎉" : "Add new event"}
       subtitle={
-        billingStage
+        celebrate && !billingStage
+          ? "Pick the event type, add the couple's or client's name, and create it. That's all."
+          : billingStage
           ? "Needed once, for your GST invoice. Then you go straight to payment."
           : payMode
-            ? "You've used all your events. Fill this in and pay for this one event: it's created the moment your payment goes through."
+            ? isFreeEvent(purchase.total)
+              ? "This one is on us. Fill this in and your event is created right away."
+              : "You've used all your events. Fill this in and pay for this one event: it's created the moment your payment goes through."
             : "Create a page for this booking. You can upload photos and share the link in the next step."
       }
       // "lg", not "md": seven type chips in four columns need about 120px a
@@ -555,6 +590,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         />
       ) : (
       <form id={FORM_ID} onSubmit={submit} noValidate className="flex flex-col gap-5">
+        {celebrate && <FreeEventHero />}
         {/* 1 · Event type. Chosen first; nothing else shows until it is. */}
         <div>
           <span id={typeLabelId} className={LABEL_CLASS}>
@@ -580,15 +616,27 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
                 {personRow(bride, { label: "Bride", required: true, what: "Bride" })}
                 {personRow(groom, { label: "Groom", required: true, what: "Groom" })}
                 <div>
-                  <p aria-live="polite" className="text-[13px] text-[var(--color-brand-ink)]">
-                    {namePreview && (
-                      <>
-                        <span className="text-[var(--color-brand-muted)]">Event name: </span>
-                        <span className="font-semibold">{namePreview}</span>
-                      </>
-                    )}
+                  <label htmlFor={eventField.eventName} className={LABEL_CLASS}>
+                    Event name <span className="font-normal normal-case tracking-normal">(optional)</span>
+                  </label>
+                  <input
+                    id={eventField.eventName}
+                    type="text"
+                    value={coupleEventNameState.value}
+                    onChange={(e) => {
+                      setCoupleEventNameText(e.target.value);
+                      setCoupleEventNameEdited(true);
+                    }}
+                    placeholder="Bride & Groom"
+                    disabled={busy}
+                    autoComplete="off"
+                    aria-describedby={`${eventField.eventName}-hint`}
+                    className={`${INPUT_CLASS} ${borderFor(false)}`}
+                  />
+                  <p id={`${eventField.eventName}-hint`} className={`mt-1.5 ${HINT_CLASS}`}>
+                    Shown on your gallery and in your dashboard. It follows the couple&apos;s names until you change it.
+                    {payPerEvent && " It can't be changed after you create it."}
                   </p>
-                  {payPerEvent && <p className={HINT_CLASS}>The event name can&apos;t be changed after you create it.</p>}
                 </div>
                 {extras.length > 0 && (
                   <div className="flex flex-col gap-2.5">
@@ -755,7 +803,7 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
         )}
 
         {/* The studio's own invitation to refer, with what it earns on its plan. */}
-        {cardOffer && <ReferralAdCard offer={cardOffer} onNavigate={onClose} />}
+        {cardOffer && !celebrate && <ReferralAdCard offer={cardOffer} onNavigate={onClose} />}
 
         {(serverError || (flow.phase === "error" && flow.code !== "BILLING_PROFILE_INCOMPLETE")) && (
           <p
@@ -768,6 +816,19 @@ function AddEventForm({ onClose }: { onClose: () => void }) {
       </form>
       )}
     </Modal>
+  );
+}
+
+/** The top of the "Claim my free event" sheet: the moment, before the form. */
+function FreeEventHero() {
+  return (
+    <div className="dash-rise relative overflow-hidden rounded-xl bg-[linear-gradient(120deg,#2b140d_0%,#7a3220_55%,#c25a3a_100%)] px-4 py-4 text-white">
+      <span aria-hidden className="pointer-events-none absolute -right-6 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(closest-side,rgba(255,227,163,0.55),transparent)]" />
+      <p className="relative text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#f6c66a]">Free event unlocked</p>
+      <p className="relative mt-1 text-[15px] font-bold leading-snug">
+        Face search, live delivery, the whole gallery. No payment needed.
+      </p>
+    </div>
   );
 }
 

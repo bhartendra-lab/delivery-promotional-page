@@ -2,13 +2,20 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { ApiError, exportGuestsCsv, getAllGuests, setGuestAccessLevel, setStudioCollectionEditor } from "@/lib/api";
-import { downloadImage } from "@/lib/media-actions";
 import type { CustomFolder, Guest } from "@/lib/types";
-import { addressOf, CLIENT_ROLE_LABEL, confirmCopyFor, sentenceStart } from "@/lib/guest-access-copy";
+import {
+  addressOf,
+  CLIENT_ROLE_LABEL,
+  confirmCopyFor,
+  describeGuestAccess,
+  type GuestAccessCase,
+  sentenceStart,
+} from "@/lib/guest-access-copy";
+import { formatPhoneForDisplay, tidyName } from "@/lib/guest-display";
 import {
   accessActionsFor,
+  allMediaIsPublic,
   afterEditorChange,
   editorActionFor,
   editorLine,
@@ -21,53 +28,34 @@ import {
   type GuestAccessAction,
   type GuestAccessLevel,
 } from "@/lib/guest-access";
-import { Tip } from "@/components/ui/Tip";
 import { useCompany } from "@/lib/useCompany";
 import { galleryUrlFor } from "@/lib/gallery-url";
 import { VYAVASTH_BASE_URL } from "@/lib/site-url";
-import { galleryInviteMessage } from "@/lib/share-message";
+import { trackEvent } from "@/lib/analytics";
 import { guestPhotoUrl } from "@/lib/profile-face";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
   normalizeDeliveryPreferences,
-  type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
 import { SOCIAL_PLATFORM_BY_KEY, isSocialPlatformKey } from "@/lib/social-platforms";
-import { coupleSlotsMissingNumber } from "@/lib/event-clients";
+import { coupleSlotsMissingNumber, type CoupleSlot } from "@/lib/event-clients";
+import { Tip } from "@/components/ui/Tip";
+import { IconCaretDown } from "@/components/ui/icons";
 import { BrandingReminderDialog } from "./BrandingReminderDialog";
 import { CoupleContactsCard } from "./CoupleContactsCard";
-import { GuestTeamsCard } from "./GuestTeamsCard";
-import { DeliveryPreferencesModal } from "./DeliveryPreferencesModal";
+import { GalleryPreferencesCard } from "./GalleryPreferencesCard";
 import { useEvent } from "./EventContext";
+import { ShareTab } from "./ShareTab";
 import {
-  IconCheck,
-  IconCopy,
-  IconDotsVertical,
   IconDownload,
-  IconGear,
-  IconInfo,
-  IconLink,
-  IconLock,
-  IconMail,
-  IconQrCode,
-  IconRefresh,
-  IconScanFace,
   IconSearch,
-  IconShieldCheck,
-  IconUsers,
-  IconWhatsApp,
   IconX,
 } from "./icons";
 
 /**
- * Tab 3 · Access & Sharing — one real shared link + one real family passcode,
- * plus the full guest list (who's a host vs. a guest, and a way to revoke a
- * host's full-gallery access).
- *
- * The single `/event/<unique_identifier>` URL covers all photo access: every
- * guest signs in and face-matches their own photos; the family passcode (shared
- * separately) unlocks the complete gallery in-lounge. Backed by real data from
- * the booking — no placeholders.
+ * Tab 3 · Access & Sharing — three views: Share (one shared link and one family
+ * passcode, see ShareTab), Guests (the list and each person's access) and
+ * Settings (gallery preferences and guest teams).
  */
 export function AccessSharingTab({
   bookingId,
@@ -115,13 +103,11 @@ export function AccessSharingTab({
   /** The Gallery preferences modal — every per-event Guest setting in one
    *  place. It used to be a gear on the Media tab, which is where a studio
    *  managed FILES, not what Guests could do with them. */
-  const [prefsOpen, setPrefsOpen] = useState(false);
 
   /** The Bride / Groom still without a number (couple events only). */
   const coupleSlots = coupleSlotsMissingNumber(meta.type, meta.clients);
   /** Bumped after numbers are added, so the Guest list shows the new Clients. */
   const [guestsVersion, setGuestsVersion] = useState(0);
-  const savedTeams = meta.guestTypes ?? [];
 
   /**
    * The Studio's required visit link, if this event actually has a live one.
@@ -143,135 +129,145 @@ export function AccessSharingTab({
   const studioProfileOn = meta.includeBranding === true;
   const requiredVisitLabel = studioProfileOn ? visitLabelWhenShown : undefined;
 
-  // Shared with the Client's Guest Control, so both send the same words.
-  const message = galleryInviteMessage({ eventName, url: shareUrl, faceSearchOn });
+  // One description of who sees what, used by the link card, the passcode card
+  // and the Guests panel, so the page cannot say two things at once.
+  const access = describeGuestAccess({
+    faceSearchOn,
+    hasPublicPhotos,
+    everyPhotoPublic: allMediaIsPublic(folders, folderCounts),
+    fullAccessRedundant,
+  });
+
+  const [view, setView] = useState<View>("share");
+  const tabsId = useId();
+
+  /* All three panels stay mounted and the inactive ones are hidden, so an
+   * edited message or half-typed team name survives switching views. */
+  const panelProps = (v: View) => ({
+    role: "tabpanel",
+    id: `${tabsId}-${v}-panel`,
+    "aria-labelledby": `${tabsId}-${v}-tab`,
+    hidden: view !== v,
+  });
 
   return (
     // Breakpoints on this tab follow the width the TAB actually gets (a
     // container query on this box), not the viewport: the dashboard sidebar
-    // takes a different share of the screen expanded vs collapsed, and a
-    // viewport `lg` switched to two columns at widths where neither was usable.
+    // takes a different share of the screen expanded vs collapsed.
     //
-    // Narrow: the panels stack and this box scrolls as one region. Wide (@4xl,
-    // ≥ 896px of tab): the left column and the guest panel each own a scroll
-    // region bound to the tab's height, so this box has nothing left to scroll.
-    <div className="@container h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
+    // This box is the ONE vertical scroll surface. It is a size container
+    // (`cqh` below is this box's height), which is safe because its height is
+    // set by the layout above it, never by content.
+    <div className="[container-type:size] h-full min-h-0 overflow-y-auto bg-[var(--color-brand-bg)]">
       <BrandingReminderDialog />
-      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-5 px-4 py-5 @2xl:gap-6 @2xl:px-6 @2xl:py-6 @4xl:h-full @4xl:min-h-0 @4xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)] @4xl:items-stretch @4xl:px-8">
-        {/* Left — the link, then the passcode, then the preferences behind
-            them both. Every card here is
-            shrink-0: in the wide layout this column has a fixed height and
-            scrolls, and a shrinkable card is squashed to fit instead, clipping
-            its own contents behind overflow-hidden. */}
-        <div className="flex flex-col @4xl:h-full @4xl:min-h-0 @4xl:overflow-y-auto @4xl:pr-1">
-          <section className="@container flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
-            <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
-              <span
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-                style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
-              >
-                <IconScanFace size={19} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-                  Guest gallery link
-                  <Tip
-                    text={
-                      faceSearchOn
-                        ? "One link for everyone. Guests sign in and can take a selfie to find their own photos. The family passcode unlocks the full gallery."
-                        : "One link for everyone. Guests sign in and see your public folders. The family passcode unlocks the full gallery."
-                    }
-                  />
-                </h3>
-                <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-                  Share this with the whole guest list — one link covers all photo access.
-                </p>
-              </div>
-            </div>
+      <div className="px-4 py-4 @2xl:px-6 @2xl:py-5">
+        <ViewSwitch view={view} onChange={setView} idBase={tabsId} />
 
-            <div className="flex flex-col p-4">
-              {shareUrl ? (
-                <>
-                  <Label>Shared gallery URL</Label>
-                  <UrlField url={shareUrl} />
-                  <div className="mt-2.5 flex items-center gap-2 text-[12.5px] text-[var(--color-brand-muted)]">
-                    <IconShieldCheck size={15} className="shrink-0 text-[var(--color-brand-success)]" />
-                    {/* Three states, because what a Guest can see without the
-                        passcode genuinely differs: their own face matches, the
-                        public folders, or (neither available) nothing at all. */}
-                    <span>
-                      {faceSearchOn
-                        ? "Each Guest sees the photos they appear in and your public folders, until the passcode unlocks the rest."
-                        : hasPublicPhotos
-                          ? "Guests see your public folders until the passcode unlocks the rest."
-                          : "Guests need the passcode to see any photos."}
-                    </span>
-                  </div>
-
-                  {/* Compact message actions (3/4) beside a QR visibility panel
-                      (1/4), once THIS CARD is wide enough (@xl, ≥ 576px) for the
-                      QR panel to hold its button. Stacked below that — message
-                      first, then the QR. */}
-                  <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ECE5D8] pt-4 @xl:grid-cols-[3fr_1fr]">
-                    <Dispatch key={shareUrl} eventName={eventName} message={message} />
-                    <QrPanel qrUniqueId={qrUniqueId} qrImageUrl={qrImageUrl} eventName={eventName} />
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3.5 py-3 text-[12.5px] text-[var(--color-brand-muted)]">
-                  <IconInfo size={15} className="mt-px shrink-0" />
-                  <span>The shared link appears here once the event is fully set up. Try reopening this event.</span>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <PasscodeCard passcode={familyPasscode ?? ""} onRegenerate={onRegenerate} />
-          <PreferencesCard
-            onOpen={() => setPrefsOpen(true)}
-            prefs={prefs}
-            studioProfileOn={studioProfileOn}
-            requiredVisitLabel={requiredVisitLabel}
-            reviewsEnabledGlobally={company?.google_review_enabled !== false}
+        <div {...panelProps("share")}>
+          <ShareTab
+            eventName={eventName}
+            shareUrl={shareUrl}
+            passcode={familyPasscode ?? ""}
+            onRegenerate={onRegenerate}
+            access={access}
+            faceSearchOn={faceSearchOn}
+            hasPublicPhotos={hasPublicPhotos}
+            fullAccessRedundant={fullAccessRedundant}
+            qr={{ qrUniqueId, qrImageUrl, eventDate: meta.eventDate, coverUrl: meta.backgroundImage }}
           />
-          <GuestTeamsCard key={JSON.stringify(savedTeams)} saved={savedTeams} eventType={meta.type} />
         </div>
 
-        {/* Right — the couple's missing numbers (when there are any), then the
-            guest list, level filter, export, and each Guest's access. In the
-            wide layout this column is bound to the tab's height: the couple
-            card keeps its size and the Guest list takes what is left. */}
-        <div className="flex min-w-0 flex-col gap-4 @4xl:h-full @4xl:min-h-0">
-          {coupleSlots.length > 0 && (
-            <CoupleContactsCard slots={coupleSlots} onAdded={() => setGuestsVersion((v) => v + 1)} />
-          )}
-          <GuestsPanel bookingId={bookingId} fullAccessRedundant={fullAccessRedundant} reloadKey={guestsVersion} />
+        {/* The couple's missing numbers (when there are any), then the guest
+            list. In a wide layout the pair is no taller than the tab and the
+            guest list scrolls inside itself. */}
+        <div {...panelProps("guests")}>
+          <div className="@container mx-auto flex max-w-[760px] flex-col gap-3">
+            {coupleSlots.length > 0 && (
+              <CoupleReminder slots={coupleSlots} onAdded={() => setGuestsVersion((v) => v + 1)} />
+            )}
+            <GuestsPanel
+              bookingId={bookingId}
+              fullAccessRedundant={fullAccessRedundant}
+              reloadKey={guestsVersion}
+              note={access.guestsNote}
+              guestsSee={guestsSeeShort(access.case, hasPublicPhotos)}
+            />
+          </div>
+        </div>
+
+        <div {...panelProps("settings")}>
+          <div className="mx-auto flex max-w-[760px] flex-col gap-3">
+            <GalleryPreferencesCard
+              key={JSON.stringify([meta.deliveryPreferences ?? null, studioProfileOn])}
+              saved={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
+              onSave={saveDeliveryPreferences}
+              toast={toast}
+              context={{
+                archiveTiers,
+                requiredVisitLabel,
+                googleReviewEnabledGlobally: company?.google_review_enabled !== false,
+                hasPublicFolderWithMedia: hasPublicPhotos,
+              }}
+              // "Show your studio profile" decides what a Guest sees (the
+              // Studio's name, logo, links, review button, and so whether the
+              // required visit can be asked at all), which is what this is for.
+              studioProfile={{ saved: studioProfileOn, visitLabelWhenShown }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Every per-event Guest setting, in the tab that is about Guests.
-          Event-scoped, so saving here changes what every Guest sees at once —
-          already-delivered galleries included. */}
-      <DeliveryPreferencesModal
-        open={prefsOpen}
-        onClose={() => setPrefsOpen(false)}
-        eventName={eventName}
-        saved={meta.deliveryPreferences ?? DELIVERY_PREFERENCE_DEFAULTS}
-        onSave={saveDeliveryPreferences}
-        toast={toast}
-        surface="access"
-        context={{
-          archiveTiers,
-          requiredVisitLabel,
-          googleReviewEnabledGlobally: company?.google_review_enabled !== false,
-          hasPublicFolderWithMedia: hasPublicPhotos,
-        }}
-        // "Show your studio profile" lives here now, moved from Gallery
-        // design: it decides what a Guest sees (the Studio's name, logo,
-        // links, review button — and so whether the required visit can be
-        // asked at all), which is what this modal is for.
-        studioProfile={{ saved: studioProfileOn, visitLabelWhenShown }}
-      />
+    </div>
+  );
+}
+
+/* ── view switch ────────────────────────────────────────────────── */
+
+type View = "share" | "guests" | "settings";
+
+const VIEWS: ReadonlyArray<{ value: View; label: string }> = [
+  { value: "share", label: "Share" },
+  { value: "guests", label: "Guests" },
+  { value: "settings", label: "Settings" },
+];
+
+/** Share / Guests / Settings. Arrow keys move between them, as tabs should. */
+function ViewSwitch({ view, onChange, idBase }: { view: View; onChange: (view: View) => void; idBase: string }) {
+  return (
+    <div className="mb-4 flex justify-center">
+      <div
+        role="tablist"
+        aria-label="Access and sharing"
+        className="inline-flex w-full max-w-[420px] gap-1 rounded-xl border border-[var(--color-brand-border)] bg-white p-1"
+      >
+        {VIEWS.map((v, i) => (
+          <button
+            key={v.value}
+            type="button"
+            role="tab"
+            id={`${idBase}-${v.value}-tab`}
+            aria-controls={`${idBase}-${v.value}-panel`}
+            aria-selected={view === v.value}
+            tabIndex={view === v.value ? 0 : -1}
+            onClick={() => onChange(v.value)}
+            onKeyDown={(e) => {
+              const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+              if (!step) return;
+              e.preventDefault();
+              const next = VIEWS[(i + step + VIEWS.length) % VIEWS.length].value;
+              onChange(next);
+              document.getElementById(`${idBase}-${next}-tab`)?.focus();
+            }}
+            className={`brand-focus h-9 flex-1 rounded-lg text-[13px] font-semibold transition-colors ${
+              view === v.value
+                ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
+                : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -280,28 +276,45 @@ export function AccessSharingTab({
 
 type GuestFilter = "all" | GuestAccessLevel;
 
-const FILTERS: ReadonlyArray<{ value: GuestFilter; label: string }> = [
-  { value: "all", label: "All" },
+/** Most access first, so the order itself explains the levels. */
+const LEVELS: ReadonlyArray<{ value: GuestAccessLevel; label: string }> = [
   { value: "client", label: "Clients" },
-  { value: "host", label: "Hosts" },
+  { value: "host", label: "Full access" },
   { value: "guest", label: "Guests" },
 ];
 
+/** Three different empty states: nobody yet (EMPTY_LABEL, per filter), nobody
+ *  matches a search (the search line below), and the filter has no one. */
 const EMPTY_LABEL: Record<GuestFilter, string> = {
-  all: "No guests yet.",
-  client: "No Clients yet.",
-  host: "No Hosts yet.",
-  guest: "No Guests yet.",
+  all: "No one yet. Guests appear here once they open your gallery link.",
+  client: "No Clients yet. Use Change on anyone below to make them a Client.",
+  host: "No one with full access yet. Anyone who enters the family passcode, or whom you give full access, appears here.",
+  guest: "Everyone here has full access.",
 };
+
+const FILTER_NOUN: Record<GuestFilter, string> = { all: "people", client: "Clients", host: "people with full access", guest: "guests" };
+
+/** What each level sees, in a few words. Guests depend on the event's settings. */
+function levelMeaning(level: GuestAccessLevel, guestsSee: string): string {
+  if (level === "client") return "Every photo, always";
+  if (level === "host") return "Every photo";
+  return guestsSee;
+}
 
 function GuestsPanel({
   bookingId,
   fullAccessRedundant,
   reloadKey,
+  note,
+  guestsSee,
 }: {
   bookingId: string;
   /** Changing it reloads the list (after the couple's numbers are added). */
   reloadKey: number;
+  /** The longer line about what Guests can see, from describeGuestAccess. */
+  note: string;
+  /** What a Guest without full access sees, in a few words. */
+  guestsSee: string;
   /** Every photo is already public, so the full-access items are left out of
    *  each row's menu. See fullAccessIsRedundant. */
   fullAccessRedundant: boolean;
@@ -316,13 +329,14 @@ function GuestsPanel({
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // The whole list, once: it is one unpaginated response either way, and
+  // holding all of it is what lets each level show its count. The level and
+  // the search both narrow it in the browser.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await getAllGuests(bookingId, { guestType: filter === "all" ? undefined : filter });
-      // Already in this order from the server; sorted again here so the list
-      // and every later local re-sort go through one comparator.
+      const res = await getAllGuests(bookingId, {});
       setGuests(sortGuestsForList(res.guests ?? []));
       setEditorCap(res.collections ?? null);
     } catch (e) {
@@ -332,28 +346,17 @@ function GuestsPanel({
     }
     // reloadKey is a trigger only: a new value means "the list changed".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingId, filter, reloadKey]);
+  }, [bookingId, reloadKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-then-setState is the documented React pattern for effects
     void load();
   }, [load]);
 
-  /**
-   * A row's level changed. The level filters are SERVER-side and mutually
-   * exclusive, so a row that just crossed a line no longer belongs in a scoped
-   * list — drop it rather than leave a "Host" sitting under the Guests filter.
-   * Under "All" it stays and is re-sorted at once, which is what makes a Guest
-   * marked as Client jump to the top (and a removed Client drop back into
-   * place) without a reload.
-   */
+  /** A row's level changed: update it in place and re-sort, so a new Client
+   *  jumps to the top. Under a level filter it leaves the view by itself. */
   const handleAccessChanged = (guestId: string, updated: Guest) => {
-    setGuests((prev) => {
-      if (!prev) return prev;
-      const stillBelongs = filter === "all" || levelOf(updated) === filter;
-      if (!stillBelongs) return prev.filter((g) => g._id !== guestId);
-      return sortGuestsForList(prev.map((g) => (g._id === guestId ? { ...g, ...updated } : g)));
-    });
+    setGuests((prev) => (prev ? sortGuestsForList(prev.map((g) => (g._id === guestId ? { ...g, ...updated } : g))) : prev));
   };
 
   const handleExport = async () => {
@@ -361,6 +364,7 @@ function GuestsPanel({
     setExportError(null);
     try {
       await exportGuestsCsv(bookingId, { guestType: filter === "all" ? undefined : filter });
+      trackEvent("leads_exported", { scope: "event" });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -368,55 +372,80 @@ function GuestsPanel({
     }
   };
 
-  // Search narrows what the level filter already loaded, in the browser: the
-  // whole list is one unpaginated response, so there is nothing to ask the
-  // server for. The order is untouched.
+  const counts = useMemo(() => {
+    const c: Record<GuestAccessLevel, number> = { client: 0, host: 0, guest: 0 };
+    for (const g of guests ?? []) c[levelOf(g)] += 1;
+    return c;
+  }, [guests]);
+
   const query = search.trim();
+  const inFilter = useMemo(
+    () => (guests ? guests.filter((g) => filter === "all" || levelOf(g) === filter) : null),
+    [guests, filter],
+  );
   const visibleGuests = useMemo(
-    () => (guests ? guests.filter((g) => guestMatchesQuery(g, query)) : guests),
-    [guests, query],
+    () => (inFilter ? inFilter.filter((g) => guestMatchesQuery(g, query)) : null),
+    [inFilter, query],
   );
 
   // Clients always lead the list (see compareGuestsForList), so under "All"
-  // the first non-Client row is where everyone else begins. The divider is
-  // shown only when BOTH groups have rows; a list of one kind needs no label.
-  // Read off the rows on screen, so a search that leaves only Guests (or only
-  // Clients) drops it too.
+  // the first non-Client row is where everyone else begins.
   const firstOtherIndex =
     filter === "all" && visibleGuests ? visibleGuests.findIndex((g) => levelOf(g) !== "client") : -1;
   const showDivider = firstOtherIndex > 0;
+  const total = guests?.length ?? 0;
 
   return (
-    // Fills the grid cell's full height in the wide layout (stretched by the
-    // parent grid) instead of growing with content — the row list below is the
-    // only part that scrolls, so this box's on-screen height stays fixed.
-    <section className="flex flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white @4xl:min-h-0 @4xl:flex-1">
-      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
-        <span
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
-        >
-          <IconUsers size={17} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">Guests</h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Everyone who has opened the gallery link, plus the Clients you added.
-          </p>
-        </div>
+    <section className="flex flex-col rounded-xl border border-[var(--color-brand-border)] bg-white">
+      <div className="flex items-center gap-3 px-4 pt-4">
+        <h3 className="flex flex-1 items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
+          Guests
+          {!loading && !error && guests && (
+            <span className="font-semibold tabular-nums text-[var(--color-brand-muted)]">· {total.toLocaleString("en-IN")}</span>
+          )}
+          <Tip text={`Everyone who opened the gallery link, plus Clients you added. ${note}`} />
+        </h3>
         <button
           type="button"
           onClick={handleExport}
-          disabled={exporting || loading || (guests?.length ?? 0) === 0}
-          title="Export guest list as CSV"
-          className="brand-focus inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={exporting || loading || total === 0}
+          className="brand-focus inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <IconDownload size={13} />
-          {exporting ? "Exporting…" : "Export"}
+          {exporting ? "Exporting…" : filter === "all" ? "Export" : "Export these"}
         </button>
       </div>
 
-      <div className="border-b border-[#ECE5D8] px-4 py-2.5">
+      {/* The three levels, most access first, each with its count and what it
+          sees. They are also the filter: press one to see only them. */}
+      <div role="group" aria-label="Filter by access" className="grid grid-cols-1 gap-2 px-4 pt-3 @lg:grid-cols-3">
+        {LEVELS.map((l) => {
+          const active = filter === l.value;
+          return (
+            <button
+              key={l.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setFilter(active ? "all" : l.value)}
+              className={`brand-focus flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors @lg:block ${
+                active
+                  ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]"
+                  : "border-[var(--color-brand-border)] bg-white hover:border-[var(--color-brand-outline)]"
+              }`}
+            >
+              <span className="flex items-baseline gap-1.5">
+                <span className="text-[13px] font-bold text-[var(--color-brand-ink)]">{l.label}</span>
+                <span className="text-[13px] font-semibold tabular-nums text-[var(--color-brand-muted)]">
+                  {loading ? "–" : counts[l.value].toLocaleString("en-IN")}
+                </span>
+              </span>
+              <span className="block text-[12px] text-[var(--color-brand-body)]">{levelMeaning(l.value, guestsSee)}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="px-4 py-3">
         <div className="relative">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[var(--color-brand-muted)]">
             <IconSearch size={14} />
@@ -428,14 +457,14 @@ function GuestsPanel({
             placeholder="Search by name, email or phone"
             aria-label="Search guests"
             autoComplete="off"
-            className="brand-focus h-9 w-full rounded-lg border border-[var(--color-brand-border)] bg-white pl-9 pr-8 text-[13px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+            className="brand-focus h-10 w-full rounded-lg border border-[var(--color-brand-border)] bg-white pl-9 pr-8 text-[13px] text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch("")}
               aria-label="Clear search"
-              className="brand-focus absolute inset-y-0 right-1.5 my-auto flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-border)]"
+              className="brand-focus absolute inset-y-0 right-1.5 my-auto flex h-7 w-7 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-border)]"
             >
               <IconX size={12} />
             </button>
@@ -443,34 +472,15 @@ function GuestsPanel({
         </div>
       </div>
 
-      {/* Four pills. On the narrowest phones they scroll sideways inside this
-          strip rather than wrapping or pushing the page wider. */}
-      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-[#ECE5D8] px-4 py-2.5">
-        {FILTERS.map((f) => (
-          <FilterPill key={f.value} active={filter === f.value} onClick={() => setFilter(f.value)}>
-            {f.label}
-          </FilterPill>
-        ))}
-      </div>
-
-      {/* Why the menus are shorter than usual, said once for the whole list. */}
-      {fullAccessRedundant && (
-        <p className="border-b border-[#ECE5D8] bg-[var(--color-brand-bg)] px-4 py-2 text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
-          Every photo is in a public folder, so every Guest already sees the full gallery. Full access options are
-          hidden.
-        </p>
-      )}
-
       {exportError && (
-        <div className="border-b border-[#ECE5D8] bg-[var(--color-brand-warning-soft)] px-4 py-2 text-[12px] text-[var(--color-brand-warning)]">
+        <div className="border-t border-[#ECE5D8] bg-[var(--color-brand-warning-soft)] px-4 py-2 text-[12px] text-[var(--color-brand-warning)]">
           {exportError}
         </div>
       )}
 
-      {/* Capped when stacked (a "consistent height" rather than growing to fit
-          every guest); in the wide layout it fills whatever room is left in the
-          panel instead, since the panel itself is bound to the tab's height. */}
-      <div className="min-h-0 max-h-[50vh] flex-1 overflow-y-auto @4xl:max-h-none">
+      {/* The list grows with the page: this view is the whole tab, so the
+          page scrolls rather than a box inside it. */}
+      <div className="border-t border-[#ECE5D8]">
         {loading && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-[12.5px] text-[var(--color-brand-muted)]">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
@@ -489,14 +499,12 @@ function GuestsPanel({
             </button>
           </div>
         )}
-        {!loading && !error && (guests?.length ?? 0) === 0 && (
-          <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
-            {EMPTY_LABEL[filter]}
-          </div>
+        {!loading && !error && (inFilter?.length ?? 0) === 0 && (
+          <div className="px-4 py-8 text-center text-[13px] text-[var(--color-brand-body)]">{EMPTY_LABEL[filter]}</div>
         )}
-        {!loading && !error && (guests?.length ?? 0) > 0 && (visibleGuests?.length ?? 0) === 0 && (
-          <div className="px-4 py-8 text-center text-[12.5px] text-[var(--color-brand-muted)]">
-            No one matches &ldquo;{query}&rdquo;.
+        {!loading && !error && (inFilter?.length ?? 0) > 0 && (visibleGuests?.length ?? 0) === 0 && (
+          <div className="px-4 py-8 text-center text-[13px] text-[var(--color-brand-body)]">
+            No {FILTER_NOUN[filter]} match &ldquo;{query}&rdquo;.
             <button
               type="button"
               onClick={() => setSearch("")}
@@ -512,7 +520,7 @@ function GuestsPanel({
             <div key={g._id}>
               {showDivider && index === firstOtherIndex && (
                 <div className="border-b border-[#F1ECE2] bg-[var(--color-brand-bg)] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">
-                  Guests
+                  Everyone else
                 </div>
               )}
               <GuestRow
@@ -534,27 +542,42 @@ function GuestsPanel({
   );
 }
 
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+/**
+ * The couple's missing WhatsApp numbers, as one line above the Guest list.
+ * The form it opens is the same CoupleContactsCard; folded by default so it
+ * no longer sits on top of the list taking a third of the view.
+ */
+function CoupleReminder({ slots, onAdded }: { slots: CoupleSlot[]; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const who = slots.length === 2 ? "The bride's and groom's WhatsApp numbers are" : `The ${slots[0].role}'s WhatsApp number is`;
+  if (open) {
+    return (
+      <div className="flex flex-col gap-2">
+        <CoupleContactsCard slots={slots} onAdded={onAdded} />
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="brand-focus self-end rounded text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+        >
+          Not now
+        </button>
+      </div>
+    );
+  }
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`brand-focus shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${active
-          ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white"
-          : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-        }`}
-    >
-      {children}
-    </button>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-4 py-3">
+      <p className="min-w-0 flex-1 text-[13px] text-[var(--color-brand-ink)]">
+        {who} missing.
+        <span className="text-[var(--color-brand-body)]"> Add {slots.length === 2 ? "them" : "it"} to send the gallery and give full access.</span>
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="brand-focus inline-flex h-9 shrink-0 items-center rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+      >
+        Add {slots.length === 2 ? "numbers" : "number"}
+      </button>
+    </div>
   );
 }
 
@@ -576,19 +599,19 @@ function GuestRow({
   onAccessChanged: (updated: Guest) => void;
   onStale: () => void;
 }) {
-  /** The change picked from the menu, awaiting its confirm. */
-  const [pending, setPending] = useState<GuestAccessAction | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useEvent();
   // One value per row, used everywhere below: a Client is stored as a Host
   // with a flag, so the raw fields alone would read every Client as a Host.
   const level = levelOf(guest);
-  const contact = guest.email || guest.phone || "No contact info";
+  // Display only: the stored phone and name are never rewritten.
+  const contact = guest.email || formatPhoneForDisplay(guest.phone) || "No contact info";
+  const shownName = tidyName(guest.name) || "Guest";
   // A Host promoted before the source was recorded can only have come in with
   // the passcode — it was the sole way in — so an absent value reads that way.
   const givenByStudio = guest.full_access_source === "studio";
-  const who = addressOf(guest.name);
+  const who = addressOf(tidyName(guest.name));
   const actions = accessActionsFor(level, { fullAccessRedundant });
   // Collection editing sits with the giving items, before anything that
   // takes access away.
@@ -632,7 +655,6 @@ function GuestRow({
     try {
       const res = await setGuestAccessLevel(guest._id, action.to);
       onAccessChanged(res.guest);
-      setPending(null);
       toast(
         action.to === "client"
           ? `${sentenceStart(who.label)} is now a Client`
@@ -647,47 +669,41 @@ function GuestRow({
       // Show what the server said, then let the panel reload so the row stops
       // offering an action that no longer applies.
       setError(e instanceof Error ? e.message : "Couldn't update access");
-      if (e instanceof ApiError && e.status === 404) {
-        setPending(null);
-        onStale();
-      }
+      if (e instanceof ApiError && e.status === 404) onStale();
     } finally {
       setBusy(false);
     }
   };
 
-  const confirm = pending ? confirmCopyFor(pending, level, who, givenByStudio) : null;
   const clientRole = CLIENT_ROLE_LABEL[guest.client_role ?? ""];
 
   return (
     <div className="flex flex-col gap-2 border-b border-[#F1ECE2] px-4 py-3 last:border-b-0">
       <div className="flex items-center gap-3">
-        <Avatar name={guest.name} photoUrl={guestPhotoUrl(guest)} />
+        <Avatar name={shownName} photoUrl={guestPhotoUrl(guest)} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{guest.name}</span>
+            <span className="truncate text-[13.5px] font-semibold text-[var(--color-brand-ink)]">{shownName}</span>
             <RoleBadge level={level} />
           </div>
-          <p className="truncate text-[12px] text-[var(--color-brand-muted)]">{contact}</p>
-          {/* Where this level came from. Quiet on purpose: it only matters when
-              you are about to change it, and the badge above already says what
-              they are. */}
-          {level === "client" && (
-            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
-              Client{clientRole ? ` · ${clientRole}` : ""} ·{" "}
-              {guest.client_source === "event_setup" ? "added by you" : "marked by you"}
-            </p>
-          )}
-          {level === "host" && (
-            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">
-              Full access · {fullAccessSourceLabel(guest.full_access_source)}
-            </p>
-          )}
-          {editorLine(guest) && <p className="truncate text-[11px] text-[var(--color-brand-muted)]">{editorLine(guest)}</p>}
-          {/* Someone the Studio added at event setup who has not signed in. */}
-          {guest.invite_pending === true && (
-            <p className="truncate text-[11px] text-[var(--color-brand-muted)]">Has not opened the gallery yet</p>
-          )}
+          {/* One quiet line: how to reach them, then where their level came
+              from. Only matters when you are about to change it. */}
+          <p className="truncate text-[12px] text-[var(--color-brand-muted)]">
+            {[
+              contact,
+              level === "client"
+                ? `${clientRole ? `${clientRole} · ` : ""}${guest.client_source === "event_setup" ? "added by you" : "marked by you"}`
+                : level === "host"
+                  ? fullAccessSourceLabel(guest.full_access_source) === "passcode"
+                    ? "used the passcode"
+                    : fullAccessSourceLabel(guest.full_access_source)
+                  : null,
+              editorLine(guest),
+              guest.invite_pending === true ? "hasn't opened the gallery yet" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
         </div>
         {/* Always visible, never a hover-only reveal: this list is used on
             phones. */}
@@ -695,30 +711,28 @@ function GuestRow({
           name={who.label}
           actions={menuItems}
           disabled={busy}
-          onSelect={(item) => {
-            if (item.key === "allow_editing" || item.key === "stop_editing") void applyEditor(item.key === "allow_editing");
-            else setPending(actions.find((a) => a.key === item.key) ?? null);
+          // Every level change asks first, inside the same popover the change
+          // was picked from: editing applies at once (it is reversible and
+          // gives nothing the menu does not say).
+          confirmFor={(item) => {
+            const action = actions.find((a) => a.key === item.key);
+            return action ? confirmCopyFor(action, level, who, givenByStudio) : null;
+          }}
+          onSelect={async (item) => {
+            if (item.key === "allow_editing" || item.key === "stop_editing") return applyEditor(item.key === "allow_editing");
+            const action = actions.find((a) => a.key === item.key);
+            if (action) await apply(action);
           }}
         />
       </div>
-
-      {pending && confirm && (
-        <ConfirmBar
-          tone={confirm.tone}
-          busy={busy}
-          confirmLabel={confirm.confirmLabel}
-          onConfirm={() => void apply(pending)}
-          onCancel={() => setPending(null)}
-        >
-          {confirm.sentence}
-        </ConfirmBar>
-      )}
       {error && <p className="text-[11.5px] text-[var(--color-brand-danger)]">{error}</p>}
     </div>
   );
 }
 
 const MENU_WIDTH = 240;
+/** The confirm step needs room for a sentence. */
+const CONFIRM_WIDTH = 300;
 /** Gap kept between the menu and the viewport edge, and the button. */
 const MENU_MARGIN = 8;
 const MENU_OFFSET = 4;
@@ -746,15 +760,24 @@ function GuestAccessMenu({
   name,
   actions,
   disabled,
+  confirmFor,
   onSelect,
 }: {
   /** Who the menu is about, for the button's accessible name. */
   name: string;
   actions: MenuItem[];
   disabled?: boolean;
-  onSelect: (action: MenuItem) => void;
+  /** The confirm an item needs, or null to apply it straight away. */
+  confirmFor?: (action: MenuItem) => { tone: "warning" | "neutral"; sentence: string; confirmLabel: string } | null;
+  /** Applies the item. Resolves when done; the popover stays open until then. */
+  onSelect: (action: MenuItem) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  /** The item picked, while the popover shows its confirm instead of the list. */
+  const [confirming, setConfirming] = useState<MenuItem | null>(null);
+  const [working, setWorking] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -762,6 +785,7 @@ function GuestAccessMenu({
 
   const close = useCallback(() => {
     setOpen(false);
+    setConfirming(null);
     // preventScroll: a close caused by scrolling must not yank the list back.
     buttonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -774,7 +798,7 @@ function GuestAccessMenu({
     const button = buttonRef.current?.getBoundingClientRect();
     const menu = menuRef.current;
     if (!button || !menu) return;
-    const width = Math.min(MENU_WIDTH, window.innerWidth - MENU_MARGIN * 2);
+    const width = Math.min(confirming ? CONFIRM_WIDTH : MENU_WIDTH, window.innerWidth - MENU_MARGIN * 2);
     menu.style.width = `${width}px`;
     const left = Math.min(Math.max(MENU_MARGIN, button.right - width), window.innerWidth - width - MENU_MARGIN);
     const height = menu.offsetHeight;
@@ -784,8 +808,13 @@ function GuestAccessMenu({
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
     menu.style.visibility = "visible";
-    itemRefs.current[0]?.focus({ preventScroll: true });
-  }, [open]);
+    // A confirm that takes access away lands on Cancel, so Enter is not a
+    // one-keystroke removal; anything else lands on its button.
+    if (confirming) {
+      const tone = confirmFor?.(confirming)?.tone;
+      (tone === "warning" ? cancelRef : confirmRef).current?.focus({ preventScroll: true });
+    } else itemRefs.current[0]?.focus({ preventScroll: true });
+  }, [open, confirming, confirmFor]);
 
   useEffect(() => {
     if (!open) return;
@@ -797,8 +826,10 @@ function GuestAccessMenu({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         // Its own Escape only: the tab's dialogs must not also react to it.
+        // From a confirm, Escape steps back to the list rather than closing.
         e.stopPropagation();
-        close();
+        if (confirming && !working) setConfirming(null);
+        else if (!working) close();
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -811,7 +842,7 @@ function GuestAccessMenu({
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
     };
-  }, [open, close]);
+  }, [open, close, confirming, working]);
 
   const onItemKeyDown = (e: React.KeyboardEvent, index: number) => {
     const focusItem = (next: number) => {
@@ -841,23 +872,41 @@ function GuestAccessMenu({
         aria-controls={open ? menuId : undefined}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className="brand-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
+        className="brand-focus inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-[var(--color-brand-border)] bg-white px-2.5 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
       >
-        <IconDotsVertical size={16} />
+        Change
+        <IconCaretDown size={11} />
       </button>
       {open &&
         createPortal(
           <div
             ref={menuRef}
             id={menuId}
-            role="menu"
-            aria-label={`Access options for ${name}`}
+            role={confirming ? "dialog" : "menu"}
+            aria-label={confirming ? `Confirm change for ${name}` : `Access options for ${name}`}
             // Hidden until the layout effect above has measured and placed it,
             // so it never flashes at the top-left corner first.
             style={{ visibility: "hidden", top: 0, left: 0 }}
             className="fixed z-[60] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white p-1 shadow-[0_14px_44px_rgba(42,34,24,0.18)]"
           >
-            {actions.map((action, index) => (
+            {confirming ? (
+              <ConfirmStep
+                copy={confirmFor?.(confirming) ?? null}
+                working={working}
+                confirmRef={confirmRef}
+                cancelRef={cancelRef}
+                onCancel={() => setConfirming(null)}
+                onConfirm={async () => {
+                  setWorking(true);
+                  try {
+                    await onSelect(confirming);
+                  } finally {
+                    setWorking(false);
+                    close();
+                  }
+                }}
+              />
+            ) : actions.map((action, index) => (
               <button
                 key={action.key}
                 ref={(el) => {
@@ -869,8 +918,13 @@ function GuestAccessMenu({
                 onKeyDown={(e) => onItemKeyDown(e, index)}
                 onClick={() => {
                   if (action.disabled) return;
+                  // Ask in place when the change needs it; otherwise apply.
+                  if (confirmFor?.(action)) {
+                    setConfirming(action);
+                    return;
+                  }
                   close();
-                  onSelect(action);
+                  void onSelect(action);
                 }}
                 className={`brand-focus flex min-h-11 w-full flex-col justify-center rounded-md px-2.5 py-1.5 text-left ${
                   action.disabled ? "cursor-not-allowed opacity-50 " : ""
@@ -897,48 +951,55 @@ function GuestAccessMenu({
   );
 }
 
-/** The inline confirm every access change shares — same shape, two palettes. */
-function ConfirmBar({
-  tone,
-  busy,
-  confirmLabel,
-  onConfirm,
+/**
+ * The confirm step inside a Guest row's Change popover: what the change means
+ * for this person, then the button that makes it. Same popover, same place
+ * the change was picked, so nothing in the list moves while it is asked.
+ */
+function ConfirmStep({
+  copy,
+  working,
+  confirmRef,
+  cancelRef,
   onCancel,
-  children,
+  onConfirm,
 }: {
-  tone: "warning" | "neutral";
-  busy: boolean;
-  confirmLabel: string;
-  onConfirm: () => void;
+  copy: { tone: "warning" | "neutral"; sentence: string; confirmLabel: string } | null;
+  working: boolean;
+  confirmRef: React.RefObject<HTMLButtonElement | null>;
+  cancelRef: React.RefObject<HTMLButtonElement | null>;
   onCancel: () => void;
-  children: React.ReactNode;
+  onConfirm: () => void;
 }) {
-  const warning = tone === "warning";
+  if (!copy) return null;
+  const warning = copy.tone === "warning";
   return (
-    <div
-      className={`flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11.5px] ${
-        warning
-          ? "border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] text-[var(--color-brand-warning)]"
-          : "border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]"
-      }`}
-    >
-      {children}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onConfirm}
-        className="brand-focus rounded-md bg-[var(--color-brand-navy)] px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
-      >
-        {busy ? "Working…" : confirmLabel}
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onCancel}
-        className="brand-focus text-[11px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-60"
-      >
-        Cancel
-      </button>
+    <div className="flex flex-col gap-3 p-2.5">
+      <p className="text-[12.5px] leading-relaxed text-[var(--color-brand-ink)]">{copy.sentence}</p>
+      <div className="flex justify-end gap-2">
+        <button
+          ref={cancelRef}
+          type="button"
+          disabled={working}
+          onClick={onCancel}
+          className="brand-focus inline-flex h-9 items-center rounded-lg px-3 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-50"
+        >
+          Back
+        </button>
+        <button
+          ref={confirmRef}
+          type="button"
+          disabled={working}
+          onClick={onConfirm}
+          className={`brand-focus inline-flex h-9 items-center rounded-lg px-3.5 text-[12.5px] font-semibold text-white disabled:opacity-60 ${
+            warning
+              ? "bg-[var(--color-brand-danger)] hover:opacity-90"
+              : "bg-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-deep)]"
+          }`}
+        >
+          {working ? "Saving…" : copy.confirmLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -946,17 +1007,17 @@ function ConfirmBar({
 /** Three levels, three treatments, and never colour alone: the word is always
  *  there. A Client gets the strongest one, since they are who the event is for. */
 function RoleBadge({ level }: { level: GuestAccessLevel }) {
+  // Sentence case in a soft tinted pill: a role is context, not an alarm, and
+  // the old heavy uppercase badge shouted louder than the guest's name.
   const tone =
     level === "client"
-      ? "bg-[var(--color-brand-navy)] text-white"
+      ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
       : level === "host"
-        ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-        : "bg-[#F2F0EB] text-[var(--color-brand-muted)]";
+        ? "bg-[#EFEAE0] text-[var(--color-brand-body)]"
+        : "bg-[#F4F2EE] text-[var(--color-brand-muted)]";
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-[1px] text-[10px] font-bold uppercase tracking-wide ${tone}`}
-    >
-      {level === "client" ? "Client" : level === "host" ? "Host" : "Guest"}
+    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-[1px] text-[11px] font-medium ${tone}`}>
+      {level === "client" ? "Client" : level === "host" ? "Full access" : "Guest"}
     </span>
   );
 }
@@ -1002,6 +1063,14 @@ function Avatar({ name, photoUrl }: { name: string; photoUrl: string | null }) {
  * public" to a Guest. It errs toward not nagging a Studio that has done the
  * work, which is the right way round for a warning.
  */
+/** What a Guest without full access sees, in a few words, for the level tiles. */
+function guestsSeeShort(accessCase: GuestAccessCase, hasPublicPhotos: boolean): string {
+  if (accessCase === "all_public") return "Every photo";
+  if (accessCase === "public_only") return "Public folders";
+  if (accessCase === "passcode_only") return "Nothing until the passcode";
+  return hasPublicPhotos ? "Own photos and public folders" : "Own photos only";
+}
+
 function hasPublicFolderWithPhotos(
   folders: CustomFolder[],
   folderCounts: Record<string, number>,
@@ -1009,390 +1078,3 @@ function hasPublicFolderWithPhotos(
   return folders.some((f) => f.visibility === "public" && (folderCounts[f._id] ?? 0) > 0);
 }
 
-/**
- * The Gallery preferences card: a summary of what Guests can do, and the way
- * into the modal that changes it.
- *
- * The modal itself used to be a bare gear icon on the Media tab, next to the
- * uploader — a tab about FILES, holding the controls for what Guests may do
- * with them. Face search and the required visit each had a card of their own
- * here besides, so one question ("what does a Guest get?") had three answers in
- * two places. All of it is one modal now, opened from here.
- *
- * The summary earns the card its space: the common case is a studio checking
- * the settings rather than changing them, and that no longer costs a click.
- */
-function PreferencesCard({
-  onOpen,
-  prefs,
-  studioProfileOn,
-  requiredVisitLabel,
-  reviewsEnabledGlobally,
-}: {
-  onOpen: () => void;
-  prefs: DeliveryPreferences;
-  /** The saved `include_company_branding`, read `=== true` like the gallery. */
-  studioProfileOn: boolean;
-  /** Present only when this event has a live required-visit gate. */
-  requiredVisitLabel?: string;
-  /** The company-wide review switch — off overrides this event's own value, so
-   *  the chip must show the EFFECTIVE state, not the stored one. */
-  reviewsEnabledGlobally: boolean;
-}) {
-  const chips: { label: string; on: boolean }[] = [
-    { label: "Studio profile", on: studioProfileOn },
-    { label: "Face search", on: prefs.face_search_enabled },
-    // The EFFECTIVE state, like Reviews: the filter needs face search.
-    { label: "Face filter", on: prefs.face_search_enabled && prefs.face_filter_enabled },
-    { label: "Downloads", on: prefs.allow_download },
-    { label: "Reviews", on: prefs.show_google_review && reviewsEnabledGlobally },
-    ...(requiredVisitLabel
-      ? [{ label: requiredVisitLabel, on: prefs.require_social_visit }]
-      : []),
-  ];
-
-  return (
-    <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
-      {/* Wraps to two lines on a narrow phone rather than squeezing the button
-          to an unreadable sliver — the button keeps its full label. */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-4">
-        <span
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
-        >
-          <IconGear size={18} />
-        </span>
-        <div className="min-w-[160px] flex-1">
-          <h3 className="text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Gallery preferences
-          </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            What Guests can do in this gallery.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="brand-focus inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
-        >
-          <IconGear size={14} />
-          Manage
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1.5 border-t border-[#ECE5D8] px-4 py-3">
-        {chips.map((c) => (
-          <StateChip key={c.label} label={c.label} on={c.on} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/** One setting's state, at a glance. Never colour alone: the word "On"/"Off"
- *  carries the meaning for anyone who can't tell the two greens apart. */
-function StateChip({ label, on }: { label: string; on: boolean }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${
-        on
-          ? "bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy)]"
-          : "bg-[#F2F0EB] text-[var(--color-brand-muted)]"
-      }`}
-    >
-      {label}
-      <span className="opacity-70">{on ? "On" : "Off"}</span>
-    </span>
-  );
-}
-
-function PasscodeCard({
-  passcode,
-  onRegenerate,
-}: {
-  passcode: string;
-  onRegenerate: () => Promise<string>;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  async function regenerate() {
-    setBusy(true);
-    try {
-      // The parent owns the passcode and re-renders this card with the new prop.
-      await onRegenerate();
-      setConfirming(false);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
-      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
-        <span
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
-        >
-          <IconLock size={18} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Master passcode
-            <Tip text="Share this privately with the couple / immediate family only. Entered inside the lounge, it unlocks the complete gallery (all folders, every photo)." />
-          </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Share separately — it unlocks the full gallery in-lounge.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 p-4">
-        <div className="inline-flex items-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3.5 py-2">
-          <IconLock size={14} className="text-[var(--color-brand-navy)]" />
-          <span className="font-mono text-[17px] font-bold tabular-nums tracking-[0.2em] text-[var(--color-brand-ink)]">
-            {passcode || "——————"}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          disabled={!passcode}
-          onClick={() => {
-            void navigator.clipboard?.writeText(passcode);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1600);
-          }}
-          className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] disabled:opacity-50"
-        >
-          {copied ? <IconCheck size={14} className="text-[var(--color-brand-success)]" /> : <IconCopy size={14} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-
-        {!confirming ? (
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="brand-focus inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 py-2 text-[12.5px] font-semibold text-[var(--color-brand-muted)] hover:border-[var(--color-brand-outline)] hover:text-[var(--color-brand-ink)]"
-          >
-            <IconRefresh size={13} /> Regenerate
-          </button>
-        ) : (
-          <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-[#F0D9B5] bg-[var(--color-brand-warning-soft)] px-3 py-1.5 text-[12.5px] text-[var(--color-brand-warning)]">
-            Regenerate? The old code stops working and everyone who unlocked with it loses full access. Guests
-            you gave access to keep it.
-            <button
-              type="button"
-              disabled={busy}
-              onClick={regenerate}
-              className="brand-focus inline-flex items-center gap-1.5 rounded-md bg-[var(--color-brand-navy)] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] disabled:opacity-60"
-            >
-              {busy ? "Working…" : "Confirm"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
-              className="brand-focus text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] disabled:opacity-60"
-            >
-              Cancel
-            </button>
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function UrlField({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-stretch overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5">
-        <IconLink size={14} className="shrink-0 text-[var(--color-brand-navy)]" />
-        <span className="truncate font-mono text-[12.5px] text-[var(--color-brand-ink)]">{url}</span>
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          void navigator.clipboard?.writeText(url);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1600);
-        }}
-        className="inline-flex shrink-0 items-center gap-1.5 border-l border-[var(--color-brand-border)] px-3.5 text-[12.5px] font-semibold"
-        style={{
-          background: copied ? "var(--color-brand-success-soft)" : "var(--color-brand-bg)",
-          color: copied ? "var(--color-brand-success)" : "var(--color-brand-ink)",
-        }}
-      >
-        {copied ? <IconCheck size={15} /> : <IconCopy size={14} />}
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
-
-function Dispatch({ eventName, message }: { eventName: string; message: string }) {
-  // Seeded once from `message`; the parent remounts this via `key` if the
-  // canonical message changes (e.g. the share URL resolves late).
-  const [text, setText] = useState(message);
-  const [copied, setCopied] = useState(false);
-
-  const openWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-  const openEmail = () => {
-    const subject = `Your photos from ${eventName} are ready`;
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-  };
-  const copy = () => {
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
-  };
-
-  return (
-    <div className="min-w-0">
-      <div className="mb-1.5 flex items-center justify-between">
-        <Label tip="This text is pre-loaded into WhatsApp / email when you dispatch it.">Message to guests</Label>
-        <button
-          type="button"
-          onClick={() => setText(message)}
-          className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
-        >
-          Reset
-        </button>
-      </div>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={5}
-        className="brand-focus block w-full resize-none rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 py-2.5 font-[inherit] text-[12.5px] leading-relaxed text-[var(--color-brand-ink)] outline-none"
-      />
-      {/* Icon-only dispatch buttons — the label reveals on hover as a desktop
-          nicety; title + aria-label are always set and tapping fires the action
-          immediately, so touch / screen-reader users never depend on hover. */}
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={openWhatsApp}
-          title="Share on WhatsApp"
-          aria-label="Share on WhatsApp"
-          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg px-3 text-[12.5px] font-semibold text-white transition-colors"
-          style={{ background: "#1FA855" }}
-        >
-          <IconWhatsApp size={16} />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[90px] group-hover:opacity-100">
-            WhatsApp
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={openEmail}
-          title="Share by email"
-          aria-label="Share by email"
-          className="brand-focus group inline-flex h-10 items-center justify-center rounded-lg border px-3 text-[12.5px] font-semibold transition-colors"
-          style={{ borderColor: "var(--color-brand-navy)", color: "var(--color-brand-navy)" }}
-        >
-          <IconMail size={15} />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover:ml-1.5 group-hover:max-w-[70px] group-hover:opacity-100">
-            Email
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={copy}
-          title="Copy message"
-          aria-label="Copy message"
-          className="brand-focus inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)]"
-        >
-          {copied ? <IconCheck size={15} className="text-[var(--color-brand-success)]" /> : <IconCopy size={15} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * QR visibility panel (1/4 of the message row). Linked → thumbnail + a single
- * Download (public `qr_image_url`, no proxy). Unlinked → one "Link QR" CTA
- * that navigates to the Reusable QR tab. Deliberately NO relink/change control
- * here — relinking lives exclusively on that tab (single-CTA rule).
- */
-function QrPanel({
-  qrUniqueId,
-  qrImageUrl,
-  eventName,
-}: {
-  qrUniqueId?: string;
-  qrImageUrl?: string;
-  eventName: string;
-}) {
-  const router = useRouter();
-  const [downloading, setDownloading] = useState(false);
-  // A QR's identity (unique_id) is the "is one linked?" signal; the image URL
-  // is how we render it. The backend always sets both together on linking.
-  const assigned = Boolean(qrUniqueId) && Boolean(qrImageUrl);
-
-  async function download() {
-    if (!qrImageUrl) return;
-    setDownloading(true);
-    try {
-      const slug = eventName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "event";
-      await downloadImage(qrImageUrl, `qr-${slug}.png`);
-    } catch {
-      /* best-effort download; the public URL is also visible on the QR tab */
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  return (
-    <div className="flex min-w-0 flex-col">
-      <Label tip="A reusable QR pointed at this event. Manage or re-point it from the Reusable QR tab.">
-        Event QR
-      </Label>
-      {assigned ? (
-        <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] p-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrImageUrl} alt="Event QR code" className="h-24 w-24 rounded-md bg-white object-contain p-1" />
-          <button
-            type="button"
-            onClick={() => void download()}
-            disabled={downloading}
-            className="brand-focus inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-brand-border)] bg-white px-3 text-[12.5px] font-semibold text-[var(--color-brand-ink)] transition-colors hover:border-[var(--color-brand-outline)] disabled:opacity-60"
-          >
-            {downloading ? (
-              <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
-            ) : (
-              <IconDownload size={14} />
-            )}
-            Download
-          </button>
-        </div>
-      ) : (
-        <div className="mt-1.5 flex flex-1 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-[var(--color-brand-outline)] bg-[var(--color-brand-bg)] p-3 text-center">
-          <IconQrCode size={22} className="text-[var(--color-brand-outline)]" />
-          <p className="text-[11.5px] leading-relaxed text-[var(--color-brand-muted)]">
-            No reusable QR points here yet.
-          </p>
-          <button
-            type="button"
-            onClick={() => router.push("/dashboard/reusable-qr")}
-            className="brand-focus inline-flex h-9 w-full items-center justify-center rounded-lg bg-[var(--color-brand-navy)] px-3 text-[12.5px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
-          >
-            Link QR
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Label({ children, tip }: { children: React.ReactNode; tip?: string }) {
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-muted)]">{children}</span>
-      {tip && <Tip text={tip} />}
-    </div>
-  );
-}

@@ -20,8 +20,7 @@ import {
   updateGalleryActivationStatus,
   type MediaViewOptions,
   type UpdateBookingInput,
-  type UploadOrigins,
-} from "@/lib/api";
+  type UploadOrigins, getChangeRequests, type ChangeRequest, type ChangeRequestType } from "@/lib/api";
 import type {
   CustomFolder,
   EventExpiryInput,
@@ -67,7 +66,10 @@ import {
 } from "@/lib/event-meta";
 import { TypeConfirmModal } from "./TypeConfirmModal";
 import { IconArchive, IconLock } from "./icons";
-import { PostUploadBanner } from "./PostUploadBanner";
+import { UploadSuccessModal } from "./UploadSuccessModal";
+import { trackEvent } from "@/lib/analytics";
+import { photoCountBucket } from "@/lib/analytics-params";
+import { RequestChangeDialog } from "./RequestChangeDialog";
 import { MediaTab } from "./MediaTab";
 import { SmartSelectsTab } from "./SmartSelectsTab";
 import { GalleryDesignTab } from "./GalleryDesignTab";
@@ -129,8 +131,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
   // Nothing uploaded yet: the validity has not started (null once it has).
   const [pendingValidity, setPendingValidity] = useState<PendingValidityInfo | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
+  /** Set when an upload run completes: opens the "Your gallery is live" dialog. */
   const [banner, setBanner] = useState<{ count: number } | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
+  // Requests to change a locked event name or cover, and the dialog to make one.
+  const [changeRequests, setChangeRequests] = useState<ChangeRequest[]>([]);
+  const [requestDialog, setRequestDialog] = useState<ChangeRequestType | null>(null);
   const [toastMsg, setToastMsg] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // The backend now keeps the storage meter current incrementally — create-media
@@ -554,13 +560,37 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     void refreshArchiveTiers();
   }, [refreshArchiveTiers]);
 
+  // The event's change requests, read once the event says something is locked
+  // (nothing to ask for otherwise). Best effort: without them the lock simply
+  // shows its "Request change" button.
+  const somethingLocked = meta?.nameLocked === true || meta?.coverLocked === true;
+  useEffect(() => {
+    if (!somethingLocked) return;
+    let cancelled = false;
+    getChangeRequests(bookingId)
+      .then((res) => {
+        if (!cancelled) setChangeRequests(res.requests ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId, somethingLocked]);
+
   // On run completion: reconcile media + booking, then surface the post-upload
   // banner. Purely informational — the pipeline is already embedding + syncing
   // the new photos (the pill shows "Syncing" until the backend reports done).
   const wasActiveRef = useRef(false);
+  // How many photos this run finished, kept while it is active: the engine
+  // resets its counters when it stops, and the dialog should say "N photos
+  // uploaded" about THIS run, not the whole gallery.
+  const runDoneRef = useRef(0);
   useEffect(() => {
     const isActive = engine.progress.isUploading || engine.progress.isSavingMetadata;
+    if (isActive) runDoneRef.current = Math.max(runDoneRef.current, engine.progress.photosDone);
     if (wasActiveRef.current && !isActive) {
+      const ranDone = runDoneRef.current;
+      runDoneRef.current = 0;
       void (async () => {
         // All three run together: the media/booking refresh drives the visible
         // hand-off, while the usage re-read settles alongside it. This used to
@@ -575,12 +605,15 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
         ]);
         // Prefer the backend's unsynced counter (photos still processing);
         // fall back to the booking-wide total from the refresh.
-        const added = (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
-        if (added > 0) setBanner({ count: added });
+        const added = ranDone || (fresh?.unsyncedCount || 0) || totalCountRef.current || list.length;
+        if (added > 0) {
+          trackEvent("upload_completed", { photo_count_bucket: photoCountBucket(added) });
+          setBanner({ count: added });
+        }
       })();
     }
     wasActiveRef.current = isActive;
-  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, reload, reloadBooking, refreshDlpUsage, refreshArchiveTiers]);
+  }, [engine.progress.isUploading, engine.progress.isSavingMetadata, engine.progress.photosDone, reload, reloadBooking, refreshDlpUsage, refreshArchiveTiers]);
 
   /* ── derived ────────────────────────────────────────────────── */
 
@@ -1030,6 +1063,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [mediaReady, totalCount],
   );
 
+  const setLinkedQr = useCallback((qr: { uniqueId: string; imageUrl: string } | null) => {
+    setMeta((prev) => (prev ? { ...prev, qrUniqueId: qr?.uniqueId, qrImageUrl: qr?.imageUrl } : prev));
+  }, []);
+
   const ctx = useMemo(
     () => ({
       bookingId,
@@ -1076,9 +1113,12 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       coverBusy,
       deleteMediaIds,
       selectAllIds,
+      changeRequests,
+      openChangeRequest: setRequestDialog,
+      setLinkedQr,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, changeRequests, setLinkedQr, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -1113,10 +1153,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           {/* Tab strip + (mobile) publish row + upload banner form the workspace's
               locked chrome — they never scroll. Only the active tab's body below
               them owns its own scroll region(s). */}
-          {/* Seam band: a deliberate visual gap between the topbar/banner chrome
-              above and the tab strip, so the two read as separate fixed layers
-              rather than one merged bar. */}
-          <div className="h-2.5 shrink-0 bg-[var(--color-brand-bg)]" aria-hidden />
           <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
           {/* Mobile-only publish action row. The same pill is injected into the
@@ -1128,9 +1164,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
             </div>
           )}
 
-          {banner && (
-            <PostUploadBanner photoCount={banner.count} onDismiss={() => setBanner(null)} />
-          )}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {effectiveTab === "media" && <MediaTab loading={loading} />}
@@ -1186,6 +1219,36 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           />
         )}
       </div>
+
+      {requestDialog && (
+        <RequestChangeDialog
+          open
+          onClose={() => setRequestDialog(null)}
+          bookingId={bookingId}
+          initialType={requestDialog}
+          currentName={meta?.name ?? ""}
+          photos={media}
+          uploadCover={(file) => engine.uploadCover(file)}
+          disabledTypes={changeRequests.filter((r) => r.status === "pending").map((r) => r.type)}
+          onSubmitted={(created) => {
+            trackEvent("change_request_submitted", { type: created.type });
+            setChangeRequests((prev) => [created, ...prev]);
+            toast("Request sent. We will let you know.");
+          }}
+        />
+      )}
+
+      {banner && (
+        <UploadSuccessModal
+          open
+          onClose={() => setBanner(null)}
+          bookingId={bookingId}
+          count={banner.count}
+          eventName={meta?.name || "your event"}
+          uniqueIdentifier={meta?.uniqueIdentifier}
+          faceSearchOn={faceSearchEnabled}
+        />
+      )}
 
       {validity && (
         <ExtendValidityModal

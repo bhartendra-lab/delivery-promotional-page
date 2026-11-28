@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { UploadPreviewStrip } from "./UploadPreviewStrip";
+import { trackEvent } from "@/lib/analytics";
+import { photoCountBucket, uploadTierWord } from "@/lib/analytics-params";
 import { useChrome } from "@/components/dashboard/ChromeContext";
 import { InlineFolderInput } from "@/components/dashboard/FoldersSidebar";
 import { isStorageBasedPlan } from "@/lib/types";
@@ -8,6 +11,7 @@ import { estimateCompressedGB, formatSizeFromGB } from "@/lib/r2-upload/estimate
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import {
   changedPreferenceKeys,
+  withArchiveDefault,
   type ArchiveTier,
   type DeliveryPreferences,
 } from "@/lib/delivery-preferences";
@@ -218,6 +222,8 @@ export function UploadModal({
   const [resolvedGroups, setResolvedGroups] = useState<Array<{ name: string; files: File[] }> | null>(null);
   /** Step 2's working copy of the event's preferences (persisted at Upload). */
   const [draftPrefs, setDraftPrefs] = useState<DeliveryPreferences>(preferences);
+  /** True once the studio has changed the archive download row themselves in this dialog. */
+  const [archiveAccessTouched, setArchiveAccessTouched] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefError, setPrefError] = useState<string | null>(null);
   /**
@@ -353,6 +359,23 @@ export function UploadModal({
     return [...tiers];
   }, [bookingArchiveTiers, variant]);
 
+  /**
+   * The draft as it will be saved and shown: with the tier aware download
+   * default filled in for a first archive run (see withArchiveDefault). Derived,
+   * never stored, so it follows the quality selector until the studio touches
+   * the row, and never overwrites a saved choice.
+   */
+  const effectivePrefs = useMemo(
+    () =>
+      withArchiveDefault(draftPrefs, {
+        saved: preferences,
+        heldTiers: bookingArchiveTiers ?? [],
+        runTiers: panelArchiveTiers,
+        touched: archiveAccessTouched,
+      }),
+    [draftPrefs, preferences, bookingArchiveTiers, panelArchiveTiers, archiveAccessTouched],
+  );
+
   // Reset + lock scroll whenever the modal opens.
   useEffect(() => {
     if (!open) return;
@@ -376,6 +399,7 @@ export function UploadModal({
     // Seeded on OPEN, not on entering step 2: the studio can toggle, press
     // Back, and come forward again — their in-progress choice must survive that.
     setDraftPrefs(preferences);
+    setArchiveAccessTouched(false);
     setSavingPrefs(false);
     setPrefError(null);
     setWatermarkOverride(null);
@@ -747,11 +771,11 @@ export function UploadModal({
     // "over", but the cap has grown and the selection now fits.
     if (capPending || (overCap && !opts.capCleared)) return;
 
-    if (changedPreferenceKeys(draftPrefs, preferences).length > 0) {
+    if (changedPreferenceKeys(effectivePrefs, preferences).length > 0) {
       setSavingPrefs(true);
       setPrefError(null);
       try {
-        await onSavePreferences(draftPrefs);
+        await onSavePreferences(effectivePrefs);
       } catch (err) {
         setPrefError(err instanceof Error ? err.message : "Couldn’t save preferences");
         setSavingPrefs(false);
@@ -759,6 +783,9 @@ export function UploadModal({
       }
       setSavingPrefs(false);
     }
+
+    // Tier and a count bucket only: never a file or folder name.
+    trackEvent("upload_started", { tier: uploadTierWord(variant), photo_count_bucket: photoCountBucket(uploadCount) });
 
     // Previously deleted files the studio chose to skip leave the run here, so
     // they are neither uploaded nor counted. Groups left empty are dropped.
@@ -932,7 +959,7 @@ export function UploadModal({
               )}
               <StepSection
                 title="Upload quality"
-                description=""
+                description="How large the saved photos are."
               >
                 <QualityTierSelector
                   value={variant}
@@ -953,7 +980,7 @@ export function UploadModal({
                   they have landed (the mark is baked in as they upload). */}
               <StepSection
                 title="Watermark"
-                description=""
+                description="Stamp your logo on the photos your guests see."
               >
                 <div className="overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
                   <ToggleRow
@@ -970,13 +997,24 @@ export function UploadModal({
                 </div>
               </StepSection>
 
+              <StepSection title="Check before uploading: orientation and watermark" description="The first photos of your selection, made the same way the upload makes them.">
+                <UploadPreviewStrip
+                  files={files.filter((file) => !skippedFiles.includes(file))}
+                  variant={variant}
+                  watermark={allowWatermark}
+                />
+              </StepSection>
+
               <StepSection
                 title="Guest gallery"
-                description=""
+                description="Choose what guests can do with these photos."
               >
                 <DeliveryPreferencesPanel
-                  value={draftPrefs}
-                  onChange={setDraftPrefs}
+                  value={effectivePrefs}
+                  onChange={(next) => {
+                    if (next.archive_download_access !== effectivePrefs.archive_download_access) setArchiveAccessTouched(true);
+                    setDraftPrefs(next);
+                  }}
                   disabled={savingPrefs}
                   context={{
                     archiveTiers: panelArchiveTiers,
@@ -1630,7 +1668,7 @@ function ContentPanel({
         <h3 className="mt-3 truncate text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
           {headingName}
         </h3>
-        <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+        <p className="type-body mt-0.5">
           {totalImages.toLocaleString("en-IN")} photo{totalImages === 1 ? "" : "s"} ready ·{" "}
           {groups.length} {groups.length === 1 ? "folder" : "folders"}
         </p>
@@ -1719,7 +1757,7 @@ function StorageEstimateNotice({
   }
 
   return (
-    <div className="flex items-center gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-2.5 text-[12.5px] text-[var(--color-brand-muted)]">
+    <div className="flex items-center gap-2 border-t border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-6 py-2.5 text-[12px] text-[var(--color-brand-muted)]">
       {estimating ? (
         <>
           <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-[2px] border-[var(--color-brand-border)] border-t-[var(--color-brand-navy)]" />
@@ -1759,7 +1797,7 @@ function StepSection({
       <h3 className="text-[13.5px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">
         {title}
       </h3>
-      <p className="mt-1 mb-3 text-[12.5px] leading-relaxed text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1 mb-3">
         {description}
       </p>
       {children}
@@ -1993,7 +2031,7 @@ function NameFolderPopup({
       <h3 id="name-folder-title" className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
         Name this folder
       </h3>
-      <p className="mt-1 text-[12.5px] text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1">
         These photos will be grouped under one folder.
       </p>
       <input
@@ -2052,7 +2090,7 @@ function MixedFolderPopup({
       <h3 id="mixed-folder-title" className="text-[16px] font-bold tracking-tight text-[var(--color-brand-ink)]">
         Where should uncategorised photos go?
       </h3>
-      <p className="mt-1 text-[12.5px] text-[var(--color-brand-muted)]">
+      <p className="type-body mt-1">
         {looseCount.toLocaleString("en-IN")} photo{looseCount === 1 ? "" : "s"} sit loose at the top level of your
         folder. Choose a home for them.
       </p>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import type { AssignedEventSummary, GalleryPublishStatus, QrCode } from "@/lib/types";
 import { downloadImage } from "@/lib/media-actions";
+import { eventDisplayStatus, EVENT_STATUS_DOT, EVENT_STATUS_LABEL } from "@/lib/event-status";
 import { formatCreatedAt } from "@/components/dashboard/shared";
 import { TypeConfirmModal } from "@/app/(dashboard)/dashboard/events/[booking_id]/TypeConfirmModal";
 import { IconDownload, IconTrash } from "@/app/(dashboard)/dashboard/events/[booking_id]/icons";
@@ -20,12 +21,15 @@ import { LinkEventModal } from "./LinkEventModal";
  */
 export function QrCard({
   qr,
+  allQrs,
   onLinked,
   onUnlink,
   onDelete,
   notify,
 }: {
   qr: QrCode;
+  /** Every QR of the studio, for the link dialog (which events hold another). */
+  allQrs: QrCode[];
   onLinked: (qrUniqueId: string, assigned: AssignedEventSummary) => void;
   /** Clears the link server-side + patches the card; throws on failure (confirm stays open). */
   onUnlink: (qr: QrCode) => Promise<void>;
@@ -224,6 +228,7 @@ export function QrCard({
         createPortal(
           <LinkEventModal
             qr={qr}
+            allQrs={allQrs}
             onClose={() => setLinkOpen(false)}
             onLinked={(uid, a) => {
               onLinked(uid, a);
@@ -257,20 +262,12 @@ export function QrCard({
 /** Live / Deactivated / Archived / Expired badge — mirrors EventCard's StatusPill
  *  colour logic, but as a small inline chip under the linked event name. */
 function StatusBadge({ status, isActive }: { status?: GalleryPublishStatus; isActive?: boolean }) {
-  // A published-but-paused gallery reads as "Deactivated" (still counts as live
-  // for linking, but the studio should know it's paused).
-  const state: { label: string; color: string } =
-    status === "expired"
-      ? { label: "Expired", color: "var(--color-brand-muted)" }
-      : status === "archived"
-        ? { label: "Archived", color: "var(--color-brand-warning)" }
-        : isActive === false
-          ? { label: "Deactivated", color: "var(--color-brand-warning)" }
-          : { label: "Live", color: "var(--color-brand-success)" };
+  // The same reading every other screen uses (lib/event-status.ts).
+  const state = eventDisplayStatus({ gallery_publish_status: status, is_active: isActive });
   return (
     <span className="mt-0.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--color-brand-muted)]">
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: state.color }} aria-hidden />
-      {state.label}
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: EVENT_STATUS_DOT[state] }} aria-hidden />
+      {EVENT_STATUS_LABEL[state]}
     </span>
   );
 }

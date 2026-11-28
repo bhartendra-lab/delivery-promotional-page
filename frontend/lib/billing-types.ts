@@ -239,6 +239,8 @@ export type CheckoutPreview =
        *  has galleries: paying deletes them. Checkout refuses until the request
        *  carries `confirm_storage_clear: true`. */
       storage_data_warning?: StorageDataWarning | null;
+      /** Priced before the studio chose its state: the tax is one "GST" line at the full rate. Checkout still needs the state. */
+      place_of_supply_pending?: boolean;
       /** photo_cap_topup only: uploads this purchase adds to the event's cap. */
       photos_added?: number;
       /* ── event_validity_extension only ── */

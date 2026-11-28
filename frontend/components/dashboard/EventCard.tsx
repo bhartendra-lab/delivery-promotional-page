@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Booking, EventType, GalleryPublishStatus, ServiceType } from "@/lib/types";
+import type { Booking, EventType, ServiceType } from "@/lib/types";
+import { eventDisplayStatus, EVENT_STATUS_DOT, EVENT_STATUS_LABEL, type EventDisplayStatus } from "@/lib/event-status";
 import { isStorageBasedPlan } from "@/lib/types";
 import { formatEventDate, getExpiryWarning } from "./shared";
 import { galleryUrlFor } from "@/lib/gallery-url";
@@ -134,7 +135,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
       >
         {/* Cover */}
         <div
-          className="relative aspect-[16/9] w-full overflow-hidden rounded-t-xl"
+          className="relative aspect-[5/2] w-full overflow-hidden rounded-t-xl"
           style={
             filled
               ? {
@@ -155,7 +156,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
                 "linear-gradient(to bottom, rgba(42,34,24,0) 45%, rgba(42,34,24,0.4) 100%)",
             }}
           />
-          <StatusPill status={row.gallery_publish_status} />
+          <StatusPill status={eventDisplayStatus(row)} />
         </div>
 
         {/* Body */}
@@ -306,21 +307,12 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
   );
 }
 
-/** Gallery publish state shown as a small pill on the cover. */
-const PUBLISH_STATUS: Record<GalleryPublishStatus, { label: string; dot: string }> = {
-  published: { label: "Live", dot: "var(--color-brand-success)" },
-  unpublished: { label: "Draft", dot: "var(--color-brand-warning)" },
-  archived: { label: "Archived", dot: "var(--color-brand-warning)" },
-  expired: { label: "Expired", dot: "var(--color-brand-muted)" },
-};
-
-function StatusPill({ status }: { status?: GalleryPublishStatus }) {
-  if (!status || !(status in PUBLISH_STATUS)) return null;
-  const { label, dot } = PUBLISH_STATUS[status];
+/** The event's state as a small pill on the cover (Live, Deactivated, Archived, Expired, Draft). */
+function StatusPill({ status }: { status: EventDisplayStatus }) {
   return (
     <span className="absolute left-3 top-2.5 inline-flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} aria-hidden />
-      {label}
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: EVENT_STATUS_DOT[status] }} aria-hidden />
+      {EVENT_STATUS_LABEL[status]}
     </span>
   );
 }

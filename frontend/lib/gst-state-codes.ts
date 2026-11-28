@@ -65,3 +65,13 @@ export function findGstStateInAddress(address: string | undefined | null): { cod
   const normalized = address.toLowerCase();
   return GST_STATE_CODES.find((s) => normalized.includes(s.name.toLowerCase())) ?? null;
 }
+
+/** Same pattern the API checks (backend gst-state-codes.utils.js GSTIN_REGEX). */
+export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+/** The state a GSTIN was issued in: its first two digits are the GST state code. Null for an invalid GSTIN. */
+export function stateOfGstin(gstin: string | null | undefined): { code: string; name: string } | null {
+  const value = (gstin ?? "").trim().toUpperCase();
+  if (!GSTIN_REGEX.test(value)) return null;
+  return GST_STATE_CODES.find((s) => s.code === value.slice(0, 2)) ?? null;
+}

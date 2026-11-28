@@ -1,10 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ApiError, attachReferral, requestWhatsappOtp, resolveReferral } from "@/lib/api";
+import { useEffect, useId, useRef, useState } from "react";
+import { ApiError, apiErrorCode, attachReferral, requestWhatsappOtp, resolveReferral, saveStudioDetails } from "@/lib/api";
+import type { StudioDetailsInput } from "@/lib/api";
+import type { Company } from "@/lib/types";
+import { stateForCity } from "@/lib/city-state";
+import { GST_STATE_CODES } from "@/lib/gst-state-codes";
 import { normalizeReferralCode } from "@/lib/referral";
 import { clearStoredReferral, getStoredReferral } from "@/lib/referral-storage";
-import { IconWarningCircle } from "@/components/ui/icons";
+import { IconWarningCircle, IconWhatsApp } from "@/components/ui/icons";
+import { INDIAN_CITIES } from "@/lib/indian-cities";
+import {
+  aboutPayload,
+  ACQUISITION_OPTIONS,
+  CITY_MAX,
+  OTHER_MAX,
+  sourceBringsReferralCode,
+  validateStudioAbout,
+  type AcquisitionSource,
+} from "@/lib/studio-about";
 
 /**
  * The optional Referral code, attached when the step is submitted (lib/referral.ts
@@ -24,13 +38,41 @@ type ReferralField = {
   error: string | null;
 };
 
+/**
+ * The one onboarding step. Studio name and city are required (the city fills
+ * the place of supply, so checkout never asks); the state is asked only when
+ * the city is one we cannot place. How they heard about us is optional, and
+ * the Referral code shows only when it is relevant (a referral link, the
+ * "Referred by a studio" answer, or a tap on "Have a referral code?").
+ *
+ * `needsNumber`: the Studio signed up by email or Google, so its WhatsApp
+ * number is required here too: the step sends the code (onSent) and the next
+ * step verifies it with these answers. Signed up by WhatsApp, the number is
+ * already proven and the step saves straight away (onSaved).
+ */
 export function StudioDetailsStep({
+  needsNumber,
+  initial,
   onSent,
+  onSaved,
 }: {
-  onSent: (studioName: string, whatsappNumber: string) => void;
+  needsNumber: boolean;
+  /** Answers to start from (coming back from the code step). */
+  initial?: { details: StudioDetailsInput; phone: string } | null;
+  onSent: (details: StudioDetailsInput, whatsappNumber: string) => void;
+  onSaved: (company: Company) => void;
 }) {
-  const [studioName, setStudioName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [studioName, setStudioName] = useState(initial?.details.studioName ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [city, setCity] = useState(initial?.details.city ?? "");
+  const [stateCode, setStateCode] = useState(initial?.details.stateCode ?? "");
+  const [stateAsked, setStateAsked] = useState(Boolean(initial?.details.stateCode));
+  const [referralOpen, setReferralOpen] = useState(false);
+  const [source, setSource] = useState<AcquisitionSource | "">((initial?.details.acquisitionSource as AcquisitionSource | "") ?? "");
+  const [sourceOther, setSourceOther] = useState(initial?.details.acquisitionSourceOther ?? "");
+  const [aboutErrors, setAboutErrors] = useState<{ city?: string; source?: string; other?: string }>({});
+  const cityListId = useId();
+  const referralInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [referral, setReferral] = useState<ReferralField>({
@@ -59,8 +101,19 @@ export function StudioDetailsStep({
     };
   }, []);
 
-  const validPhone = phone.length === 10;
-  const canSubmit = studioName.trim().length > 0 && validPhone && !submitting;
+  const validPhone = !needsNumber || phone.length === 10;
+  // A typed city we cannot place asks for its state, on this same step.
+  const cityState = stateForCity(city);
+  const needsState = stateAsked || (city.trim().length > 2 && !cityState);
+  const canSubmit = studioName.trim().length > 0 && city.trim().length > 0 && validPhone && (!needsState || !!stateCode || !!cityState) && !submitting;
+  const showReferral = referralOpen || referral.source === "link" || sourceBringsReferralCode(source) || !!referral.code;
+
+  /** The "Referred by a studio" answer brings the optional Referral code into focus, after it has had a moment to appear. */
+  function chooseSource(next: AcquisitionSource | "") {
+    setSource(next);
+    setAboutErrors((e) => ({ ...e, source: undefined, other: undefined }));
+    if (sourceBringsReferralCode(next)) setTimeout(() => referralInputRef.current?.focus(), 0);
+  }
 
   /** Attaches the Referral code if there is one to attach. False only when it was refused just now. */
   async function attachReferralCode(): Promise<boolean> {
@@ -87,14 +140,28 @@ export function StudioDetailsStep({
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
+    const problems = validateStudioAbout({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther });
+    setAboutErrors(problems);
+    if (problems.city || problems.source || problems.other) return;
     setSubmitting(true);
     setError(null);
+    const details: StudioDetailsInput = {
+      studioName: studioName.trim(),
+      ...aboutPayload({ city, acquisitionSource: source, acquisitionSourceOther: sourceOther }),
+      stateCode: needsState ? stateCode : undefined,
+    };
     try {
       if (!(await attachReferralCode())) return;
-      await requestWhatsappOtp({ whatsappNumber: phone });
-      onSent(studioName.trim(), phone);
+      if (needsNumber) {
+        await requestWhatsappOtp({ whatsappNumber: phone });
+        onSent(details, phone);
+      } else {
+        const res = await saveStudioDetails(details);
+        onSaved(res.company);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't send the code. Please try again.");
+      if (apiErrorCode(err) === "STATE_REQUIRED") setStateAsked(true);
+      setError(err instanceof Error ? err.message : "Couldn't save your studio. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -108,8 +175,9 @@ export function StudioDetailsStep({
         </p>
         <h2 className="text-2xl font-bold text-[var(--color-brand-ink)]">Tell us about your studio</h2>
         <p className="text-sm text-[var(--color-brand-muted)]">
-          Confirm your studio name and verify a WhatsApp number — delivery notifications and client
-          replies go here.
+          {needsNumber
+            ? "Your studio name, city and WhatsApp number. Delivery notifications and client replies go to this number."
+            : "Just your studio name and city. That's all we need to get you started."}
         </p>
       </div>
 
@@ -117,6 +185,7 @@ export function StudioDetailsStep({
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             Studio name
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
           </span>
           <input
             type="text"
@@ -128,9 +197,11 @@ export function StudioDetailsStep({
           />
         </label>
 
+        {needsNumber && (
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
             WhatsApp number
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
           </span>
           <div className="flex h-11 items-center rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)]">
             <span className="flex h-full items-center border-r border-[var(--color-brand-border)] px-3 text-sm font-medium text-[var(--color-brand-muted)]">
@@ -148,8 +219,127 @@ export function StudioDetailsStep({
             />
           </div>
         </label>
+        )}
 
-        {!referral.done && (
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+            City
+            <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
+          </span>
+          <input
+            type="text"
+            value={city}
+            onChange={(e) => {
+              setCity(e.target.value.slice(0, CITY_MAX));
+              setAboutErrors((x) => ({ ...x, city: undefined }));
+            }}
+            list={cityListId}
+            autoComplete="address-level2"
+            placeholder="e.g. Bhopal"
+            aria-invalid={aboutErrors.city ? true : undefined}
+            aria-describedby={aboutErrors.city ? "studio-city-error" : undefined}
+            className="brand-focus h-11 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none placeholder:text-[var(--color-brand-muted)]/70"
+          />
+          {/* Suggestions only: any text is accepted, for a town not on the list. */}
+          <datalist id={cityListId}>
+            {INDIAN_CITIES.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          {aboutErrors.city && (
+            <p id="studio-city-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+              {aboutErrors.city}
+            </p>
+          )}
+        </label>
+
+        {needsState && (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              State
+              <span aria-hidden="true" className="ml-0.5 text-[var(--color-brand-danger)]">*</span>
+            </span>
+            <select
+              value={stateCode}
+              onChange={(e) => setStateCode(e.target.value)}
+              required
+              className="brand-focus h-11 w-full cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+            >
+              <option value="">Choose your state</option>
+              {GST_STATE_CODES.map((st) => (
+                <option key={st.code} value={st.code}>
+                  {st.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">So your invoices carry the right GST.</p>
+          </label>
+        )}
+
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+            How did you hear about us <span className="normal-case tracking-normal">(optional)</span>
+          </span>
+          <select
+            value={source}
+            onChange={(e) => chooseSource(e.target.value as AcquisitionSource | "")}
+            aria-invalid={aboutErrors.source ? true : undefined}
+            aria-describedby={aboutErrors.source ? "studio-source-error" : undefined}
+            className="brand-focus h-11 w-full cursor-pointer rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+          >
+            <option value="">Choose one</option>
+            {ACQUISITION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {aboutErrors.source && (
+            <p id="studio-source-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+              {aboutErrors.source}
+            </p>
+          )}
+        </label>
+
+        {source === "other" && (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
+              Tell us in a few words
+            </span>
+            <input
+              type="text"
+              value={sourceOther}
+              onChange={(e) => {
+                setSourceOther(e.target.value.slice(0, OTHER_MAX));
+                setAboutErrors((x) => ({ ...x, other: undefined }));
+              }}
+              autoComplete="off"
+              aria-invalid={aboutErrors.other ? true : undefined}
+              aria-describedby={aboutErrors.other ? "studio-other-error" : undefined}
+              className="brand-focus h-11 w-full rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm text-[var(--color-brand-ink)] outline-none"
+            />
+            {aboutErrors.other && (
+              <p id="studio-other-error" className="mt-1.5 text-xs text-[var(--color-brand-danger)]">
+                {aboutErrors.other}
+              </p>
+            )}
+          </label>
+        )}
+
+        {!referral.done && !showReferral && (
+          <button
+            type="button"
+            onClick={() => {
+              setReferralOpen(true);
+              setTimeout(() => referralInputRef.current?.focus(), 0);
+            }}
+            className="brand-focus rounded-sm text-xs font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
+          >
+            Have a referral code?
+          </button>
+        )}
+
+        {!referral.done && showReferral && (
           <div>
             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
               Referral code <span className="normal-case tracking-normal">(optional)</span>
@@ -169,6 +359,7 @@ export function StudioDetailsStep({
               </div>
             ) : (
               <input
+                ref={referralInputRef}
                 type="text"
                 value={referral.code}
                 onChange={(e) =>
@@ -204,9 +395,18 @@ export function StudioDetailsStep({
         <button
           type="submit"
           disabled={!canSubmit}
-          className="brand-focus flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="brand-focus flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {submitting ? "Sending code…" : "Send code"}
+          {needsNumber ? (
+            <>
+              <IconWhatsApp size={16} />
+              {submitting ? "Sending code on WhatsApp…" : "Send code on WhatsApp"}
+            </>
+          ) : submitting ? (
+            "Saving…"
+          ) : (
+            "Continue"
+          )}
         </button>
       </form>
     </>

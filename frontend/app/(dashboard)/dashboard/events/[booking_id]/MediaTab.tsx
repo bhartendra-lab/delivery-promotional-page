@@ -1,5 +1,6 @@
 "use client";
 
+import { DesktopUploadHint } from "@/components/dashboard/DesktopUploadHint";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createCustomFolder, deleteCustomFolder, reorderCustomFolders, updateCustomFolder } from "@/lib/api";
 import {
@@ -24,6 +25,7 @@ import { UploadModal, type UploadFolderOption, type UploadModalStep } from "./Up
 import { UploadProgress } from "./UploadProgress";
 import { MediaGrid } from "./MediaGrid";
 import { CoverBanner } from "./CoverBanner";
+import { decisionLine, requestChip } from "@/lib/change-request";
 import { CoverPositionModal } from "./CoverPositionModal";
 import { useEvent, ALL_MEDIA_ID } from "./EventContext";
 import { SortDropdown } from "./SortDropdown";
@@ -36,7 +38,7 @@ import { IconCheck, IconX, IconUpload, IconEdit, IconWarning } from "./icons";
 import { Modal } from "@/components/ui/Modal";
 import { PhotoCapPanel } from "@/components/billing/PhotoCapPanel";
 import type { PhotoCap } from "@/lib/billing-types";
-import { photoCapNearlyFull } from "@/lib/photo-cap";
+import { UsageChip } from "./UsageChip";
 
 /** An upload dialog opening awaiting confirmation, stashed while the watermark reminder is up. */
 type UploadIntent = { step: UploadModalStep; target: UploadFolderOption | null; folderOnly: boolean };
@@ -87,6 +89,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     setCoverPosition,
     deleteMediaIds,
     selectAllIds,
+    changeRequests,
+    openChangeRequest,
     toast,
   } = useEvent();
 
@@ -108,6 +112,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
     () => typeof document === "undefined" || "webkitdirectory" in document.createElement("input"),
   );
   const [editOpen, setEditOpen] = useState(false);
+  /** The full cover banner, opened from the cover thumbnail in the header. */
+  const [coverOpen, setCoverOpen] = useState(false);
   /* The gear-icon Preferences dialog now lives on the Access & Sharing tab:
      this tab is about FILES, and what a Guest may do with them belongs beside
      the link that lets them in. The upload dialog still carries its own copy of
@@ -450,6 +456,8 @@ export function MediaTab({ loading }: { loading: boolean }) {
       </div>
 
       <div ref={mediaScrollRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        {/* Phones only: a full event uploads more smoothly from a computer. */}
+        <DesktopUploadHint />
         {activeLocked && (
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-brand-warning)]/30 bg-[var(--color-brand-warning-soft)] px-6 py-2 text-[12.5px] font-medium text-[var(--color-brand-warning)] sm:px-10">
             <IconWarning size={14} />
@@ -460,15 +468,19 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
         {/* The cover is independent of the photos: it can be set before the
             first upload (and stays visible, read-only, while one runs), so a
-            gallery can look finished before anything is delivered. A cover
-            alone starts no processing and messages no guest. */}
-        {state !== "loading" && (
+            gallery can look finished before anything is delivered. It opens
+            from the thumbnail in the header below, so the photos are what this
+            tab shows first. */}
+        {state !== "loading" && coverOpen && (
           <CoverBanner
             coverUrl={meta.backgroundImage}
             coverPosition={meta.backgroundPosition}
             busy={coverBusy}
             disabled={activeLocked}
             coverLocked={coverLocked}
+            requestChip={requestChip(changeRequests, "cover_photo")}
+            decisionLine={decisionLine(changeRequests, "cover_photo")}
+            onRequestChange={() => openChangeRequest("cover_photo")}
             onSetFromFile={pickCoverFile}
             onSavePosition={setCoverPosition}
           />
@@ -487,6 +499,17 @@ export function MediaTab({ loading }: { loading: boolean }) {
           onEdit={() => setEditOpen(true)}
           photoCap={photoCap}
           onAddCapacity={() => setCapDialog("room")}
+          cover={{
+            url: meta.backgroundImage,
+            position: meta.backgroundPosition,
+            open: coverOpen,
+            onToggle: () => {
+              // Opening from deep in a long gallery: the banner sits above the
+              // header, out of sight, so bring it into view.
+              if (!coverOpen) mediaScrollRef.current?.scrollTo({ top: 0 });
+              setCoverOpen((v) => !v);
+            },
+          }}
         />
 
         {/* A run that ENDED with photos the limit refused: their bytes are
@@ -712,6 +735,12 @@ export function MediaTab({ loading }: { loading: boolean }) {
           initialType={meta.type}
           initialDate={meta.eventDate}
           nameLocked={meta.nameLocked === true}
+          requestChip={requestChip(changeRequests, "event_name")}
+          decisionLine={decisionLine(changeRequests, "event_name")}
+          onRequestChange={() => {
+            setEditOpen(false);
+            openChangeRequest("event_name");
+          }}
           // The expiry belongs to storage plan events only, by the event's
           // OWN plan. Absent on every other event, where the sheet shows no
           // expiry control at all.
@@ -751,7 +780,14 @@ export function MediaTab({ loading }: { loading: boolean }) {
 
 /* ── header ─────────────────────────────────────────────────────── */
 
-function EventHeader({
+/**
+ * One compact row above the photos: cover thumbnail, name, what is in the
+ * event, the upload limit (pay per event only) and Upload. It sticks to the
+ * top of the scrolling area, so Upload stays in reach in a long gallery. It
+ * replaced a tall cover banner plus a large title block, which together pushed
+ * the first photo below the middle of a laptop screen.
+ */
+export function EventHeader({
   meta,
   totalPhotos,
   folderCount,
@@ -764,8 +800,9 @@ function EventHeader({
   onEdit,
   photoCap,
   onAddCapacity,
+  cover,
 }: {
-  /** Photo cap of a pay-per-event event; null on a storage-plan event, which shows nothing new. */
+  /** Photo cap of a pay-per-event event; null on a storage-plan event, which shows no chip. */
   photoCap: PhotoCap | null;
   onAddCapacity: () => void;
   meta: { name: string; type: string; eventDate: number | null };
@@ -777,44 +814,66 @@ function EventHeader({
   paused: boolean;
   activeIsSystem: boolean;
   onUploadMore: () => void;
-  /** Opens the standalone gallery-preferences dialog. */
+  /** Opens the edit-event-details sheet. */
   onEdit: () => void;
+  /** The cover thumbnail, which opens and closes the full cover banner. */
+  cover: { url?: string; position?: string; open: boolean; onToggle: () => void };
 }) {
   const dateLabel = meta.eventDate != null ? formatDate(meta.eventDate) : null;
 
-  let subtitle = "No photos uploaded yet";
-  if (state === "loading") subtitle = "Loading…";
+  let status = "No photos yet";
+  if (state === "loading") status = "Loading…";
   else if (state === "uploading")
-    subtitle = paused
-      ? `Paused — ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"} detected`
-      : `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folders detected`;
-  else if (state === "populated") {
-    const photosLine = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"}`;
-    const foldersLine = `${folderCount} folder${folderCount === 1 ? "" : "s"}`;
-    // A pay per event event shows the photos in it AND the uploads it has
-    // used, which deleted photos still count toward. The photo count is the
-    // page's own live figure. An API that predates the cumulative limit sends
-    // no `in_event`, and its `used` is still a photo count: the old line.
-    subtitle = !photoCap
-      ? `${photosLine} across ${foldersLine}`
-      : photoCap.in_event == null
-        ? `${totalPhotos.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} photos across ${foldersLine}`
-        : `${photosLine} in ${foldersLine} · ${photoCap.used.toLocaleString("en-IN")} of ${photoCap.cap.toLocaleString("en-IN")} uploads used`;
-  }
-  // From 90% of the uploads used, offer more room before an upload has to ask for it.
-  const offerCapacity = state === "populated" && photoCapNearlyFull(photoCap);
+    status = paused
+      ? `Paused · ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"}`
+      : `Importing ${uploadingTotal.toLocaleString("en-IN")} photos · ${uploadingFoldersCount} folder${uploadingFoldersCount === 1 ? "" : "s"}`;
+  else if (state === "populated")
+    status = `${totalPhotos.toLocaleString("en-IN")} photo${totalPhotos === 1 ? "" : "s"} in ${folderCount} folder${folderCount === 1 ? "" : "s"}`;
+  const details = [meta.type, dateLabel, status].filter(Boolean).join(" · ");
 
   return (
-    <section className="flex shrink-0 flex-col items-start justify-between gap-4 border-b border-[var(--color-brand-border)] bg-white px-6 py-6 sm:flex-row sm:px-10">
-      <div>
-        <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
-          <span className="rounded-sm bg-[var(--color-brand-navy-soft)] px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--color-brand-navy)]">
-            {meta.type}
-          </span>
-          {dateLabel && <span className="text-[12.5px] text-[var(--color-brand-muted)]">{dateLabel}</span>}
+    <section className="sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-[var(--color-brand-border)] bg-white px-4 py-3 sm:px-6">
+      {state !== "loading" && (
+        <button
+          type="button"
+          onClick={cover.onToggle}
+          aria-expanded={cover.open}
+          aria-label={cover.open ? "Hide cover photo" : "Show cover photo"}
+          title={cover.open ? "Hide cover photo" : "Cover photo"}
+          className="brand-focus relative h-11 w-16 shrink-0 overflow-hidden rounded-md border border-[var(--color-brand-border)]"
+          style={
+            cover.url
+              ? { backgroundImage: `url(${cover.url})`, backgroundSize: "cover", backgroundPosition: cover.position || "center" }
+              : { backgroundImage: "repeating-linear-gradient(45deg, #C9AFA0 0 8px, #9E8475 8px 16px)" }
+          }
+        >
+          {!cover.url && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-[10.5px] font-semibold text-white">
+              Cover
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* A floor for the name, so a narrow screen wraps the chip and Upload
+          onto their own line instead of squeezing the name to a letter. */}
+      <div className="min-w-[180px] flex-1">
+        <div className="flex min-w-0 items-center gap-1">
+          <h1 className="truncate text-[19px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">{meta.name}</h1>
+          {state !== "loading" && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Edit event details"
+              title="Edit event details"
+              className="brand-focus inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
+            >
+              <IconEdit size={14} />
+            </button>
+          )}
           {state === "uploading" && (
             <span
-              className="inline-flex items-center gap-1.5 rounded-sm px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.05em]"
+              className="ml-1 inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-[2px] text-[11px] font-semibold"
               style={{
                 background: paused ? "#F2F0EB" : "var(--color-brand-navy-soft)",
                 color: paused ? "var(--color-brand-muted)" : "var(--color-brand-navy)",
@@ -828,61 +887,28 @@ function EventHeader({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-[var(--color-brand-ink)]">{meta.name}</h1>
-          {state !== "loading" && (
-            <button
-              type="button"
-              onClick={onEdit}
-              aria-label="Edit event details"
-              title="Edit event details"
-              className="brand-focus inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--color-brand-muted)] hover:bg-[var(--color-brand-hover)] hover:text-[var(--color-brand-ink)]"
-            >
-              <IconEdit size={16} />
-            </button>
-          )}
-        </div>
-        <p className="mt-1.5 text-[13px] text-[var(--color-brand-muted)]">
-          {subtitle}
-          {offerCapacity && (
-            <>
-              {" · "}
-              <button
-                type="button"
-                onClick={onAddCapacity}
-                className="brand-focus rounded-sm font-semibold text-[var(--color-brand-navy)] underline underline-offset-2 hover:text-[var(--color-brand-navy-deep)]"
-              >
-                Add capacity
-              </button>
-            </>
-          )}
-        </p>
+        <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-brand-muted)]">{details}</p>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        {/* Gallery preferences used to sit here as a gear icon. It is on the
-            Access & Sharing tab now — still reachable before the first upload
-            and during one, just beside the link it actually governs. */}
+
+      <div className="flex shrink-0 items-center gap-2">
+        {photoCap && state !== "loading" && <UsageChip cap={photoCap} onAddCapacity={onAddCapacity} />}
         {state === "populated" && (
           <button
             type="button"
             onClick={onUploadMore}
-            className={`brand-focus items-center gap-2 rounded-md border border-[var(--color-brand-border)] bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
+            title={activeIsSystem ? "You'll choose a folder to upload into" : undefined}
+            className={`brand-focus h-9 items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[var(--color-brand-navy-deep)] ${MOBILE_UPLOAD_ENABLED ? "inline-flex" : "hidden md:inline-flex"}`}
           >
             <IconUpload size={14} />
-            Upload more
+            Upload
           </button>
         )}
-        {state === "populated" && (
-          <>
-            {activeIsSystem && (
-              <span className={`text-[11px] text-[var(--color-brand-muted)] ${MOBILE_UPLOAD_ENABLED ? "inline" : "hidden md:inline"}`}>Tap to choose a folder to upload into</span>
-            )}
-            {!MOBILE_UPLOAD_ENABLED && (
-              <span className="text-[14px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">Upload works best on desktop. Open this page on your laptop to add photos.</span>
-            )}
-          </>
-        )}
       </div>
+      {state === "populated" && !MOBILE_UPLOAD_ENABLED && (
+        <p className="basis-full text-[12.5px] leading-relaxed text-[var(--color-brand-muted)] md:hidden">
+          Upload works best on desktop. Open this page on your laptop to add photos.
+        </p>
+      )}
     </section>
   );
 }
@@ -1168,6 +1194,9 @@ function EditMetaSheet({
   initialType,
   initialDate,
   nameLocked = false,
+  requestChip: chip,
+  decisionLine: decided,
+  onRequestChange,
   expiry,
   onSave,
   onClose,
@@ -1179,6 +1208,11 @@ function EditMetaSheet({
    *  backend from the plan the event was created under, not by whether its
    *  photos have synced: a rename no longer touches the gallery link. */
   nameLocked?: boolean;
+  /** Next to the lock: ask for a change, or say one is waiting. */
+  requestChip?: ReturnType<typeof requestChip>;
+  /** The last decision on a name request, when there is one. */
+  decisionLine?: string | null;
+  onRequestChange?: () => void;
   /** The stored expiry, on a storage plan event. Undefined on every other
    *  event, which hides the control. `choice` null reads as Never. */
   expiry?: { choice: EventExpiryChoice | null; at: number | null };
@@ -1317,6 +1351,23 @@ function EditMetaSheet({
               Locked
             </span>
           )}
+          {nameLocked && chip?.kind === "ask" && onRequestChange && (
+            <button
+              type="button"
+              onClick={onRequestChange}
+              className="brand-focus rounded-sm px-1 text-[12px] font-semibold text-[var(--color-brand-navy-deep)] hover:underline"
+            >
+              Request change
+            </button>
+          )}
+          {nameLocked && chip?.kind === "waiting" && (
+            <span
+              title={chip.title}
+              className="inline-flex items-center rounded-sm bg-[var(--color-brand-navy-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--color-brand-navy-deep)]"
+            >
+              {chip.label}
+            </span>
+          )}
         </label>
         <input
           id="edit-event-name"
@@ -1330,8 +1381,10 @@ function EditMetaSheet({
         {nameLocked && (
           <p className="mt-1.5 text-[11.5px] text-[var(--color-brand-muted)]">
             The event name can&apos;t be changed on pay per event plans.
+            {chip?.kind === "ask" && " You can ask the Vyavasth team to change it."}
           </p>
         )}
+        {nameLocked && decided && <p className="type-body mt-1.5">{decided}</p>}
         <div className="mb-4" />
 
         <span className="mb-2 block text-[12.5px] font-semibold text-[var(--color-brand-ink)]">Event type</span>

@@ -58,6 +58,7 @@ export function PlanChooser({
   initialMode,
   onContinue,
   continueLabel = "Continue →",
+  onSelectionChange,
   variant = "tabs",
 }: {
   plans: Plan[];
@@ -66,15 +67,20 @@ export function PlanChooser({
   initialQuantity?: number;
   /** Forces which tab/card opens first (e.g. a 402 from event creation should open on "event"). */
   initialMode?: Mode;
-  onContinue: (selection: PlanChooserSelection) => void;
+  onContinue?: (selection: PlanChooserSelection) => void;
   continueLabel?: string;
+  /** "live" only: every change of plan, quantity or tier, or null when nothing can be bought (the current plan). */
+  onSelectionChange?: (selection: PlanChooserSelection | null) => void;
   /**
    * "cards" renders the two-screen pricing-model picker (upgrade modal).
    * "tabs" keeps the legacy pill strip (the standalone /checkout deep-link
    * page, which usually arrives with a plan already chosen). Defaults to
-   * "tabs" so /checkout stays exactly as it behaves today.
+   * "tabs" so /checkout stays exactly as it behaves today. "live" is the
+   * one-screen checkout's left column: both pricing models as cards on top,
+   * the details under them, no Continue button, and every change reported
+   * through onSelectionChange.
    */
-  variant?: "tabs" | "cards";
+  variant?: "tabs" | "cards" | "live";
 }) {
   const eventPlan = useMemo(() => eventPlanOf(plans), [plans]);
   const tiers = useMemo(() => buildStorageTiers(plans), [plans]);
@@ -183,6 +189,41 @@ export function PlanChooser({
     setTierIndex(next);
   }
 
+  const tier = tiers[tierIndex];
+  const activeStoragePlan = tier ? planForTier(tier, interval) : null;
+  const maxSavings = tiers.length ? Math.max(0, ...tiers.map((t) => yearlySavingsPercent(t) ?? 0)) : 0;
+  const isCurrentStoragePlan =
+    activeStoragePlan != null && activeStoragePlan._id === currentSnapshot?.service?._id;
+  // A plan that has ended (or a suspended studio) buys again from scratch — so
+  // the tier it is "already on" is not off-limits, it is the renewal, and a
+  // cheaper tier is an ordinary purchase rather than a change scheduled onto a
+  // renewal that isn't coming. Disabling the current tier here is what left a
+  // lapsed studio with nothing to click.
+  const lapsed = planHasLapsed(currentSnapshot);
+  const lockedAsCurrent = isCurrentStoragePlan && !lapsed;
+  const downgrade =
+    !lapsed && activeStoragePlan && currentSnapshot?.service
+      ? looksLikeDowngrade(
+          { _id: currentSnapshot.service._id, service_type: currentSnapshot.service.service_type } as Plan,
+          activeStoragePlan,
+        )
+      : false;
+
+  const isLive = variant === "live";
+  // The one-screen checkout reads the choice as it is made, not on a Continue.
+  const liveSelection = useMemo<PlanChooserSelection | null>(() => {
+    if (mode === "event") return eventPlan && eventOptionAvailable ? { mode: "event", plan: eventPlan, quantity: qty } : null;
+    if (!activeStoragePlan || lockedAsCurrent) return null;
+    return { mode: "storage", plan: activeStoragePlan, isDowngrade: downgrade };
+  }, [mode, eventPlan, eventOptionAvailable, qty, activeStoragePlan, lockedAsCurrent, downgrade]);
+  const emit = useRef(onSelectionChange);
+  useEffect(() => {
+    emit.current = onSelectionChange;
+  });
+  useEffect(() => {
+    if (isLive) emit.current?.(liveSelection);
+  }, [isLive, liveSelection]);
+
   if (!eventOptionAvailable && !hasStorage) {
     console.warn(
       "PlanChooser: nothing purchasable — no Event-based plan and no storage tiers in this catalog.",
@@ -208,28 +249,12 @@ export function PlanChooser({
     );
   }
 
-  const tier = tiers[tierIndex];
-  const activeStoragePlan = tier ? planForTier(tier, interval) : null;
-  const maxSavings = tiers.length ? Math.max(0, ...tiers.map((t) => yearlySavingsPercent(t) ?? 0)) : 0;
-  const isCurrentStoragePlan =
-    activeStoragePlan != null && activeStoragePlan._id === currentSnapshot?.service?._id;
-  // A plan that has ended (or a suspended studio) buys again from scratch — so
-  // the tier it is "already on" is not off-limits, it is the renewal, and a
-  // cheaper tier is an ordinary purchase rather than a change scheduled onto a
-  // renewal that isn't coming. Disabling the current tier here is what left a
-  // lapsed studio with nothing to click.
-  const lapsed = planHasLapsed(currentSnapshot);
-  const lockedAsCurrent = isCurrentStoragePlan && !lapsed;
-  const downgrade =
-    !lapsed && activeStoragePlan && currentSnapshot?.service
-      ? looksLikeDowngrade(
-          { _id: currentSnapshot.service._id, service_type: currentSnapshot.service.service_type } as Plan,
-          activeStoragePlan,
-        )
-      : false;
-
   return (
     <div className="flex flex-col gap-6">
+      {isLive && bothAvailable && eventPlan && (
+        <PricingModelCards compact eventPlan={eventPlan} tiers={tiers} selectedMode={mode} onSelect={setMode} />
+      )}
+
       {variant === "tabs" && eventOptionAvailable && hasStorage && (
         <div
           role="tablist"
@@ -268,6 +293,8 @@ export function PlanChooser({
 
       {mode === "event" && eventPlan && (
         <div className="flex flex-col gap-4">
+          {/* The live checkout's card above already says all of this. */}
+          {!(isLive && bothAvailable) && (
           <div className="flex flex-col gap-1.5">
             <p className="text-sm text-[var(--color-brand-muted)]">
               {formatInr(eventPlan.event_unit_price ?? 0)} per event · {gstNote(gstInclusiveOf(eventPlan))}
@@ -277,10 +304,13 @@ export function PlanChooser({
               <PhotoLimitTermsLink eventPlan={eventPlan} />
             </p>
           </div>
+          )}
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--color-brand-ink)]">How many events?</p>
             <EventQuantity quantity={qty} onChange={setQty} />
           </div>
+          {!isLive && (
+          <>
           <div className="flex items-baseline justify-between rounded-lg bg-[var(--color-brand-bg)] px-4 py-3">
             <span className="text-sm text-[var(--color-brand-muted)]">
               {qty} event{qty === 1 ? "" : "s"} × {formatInr(eventPlan.event_unit_price ?? 0)}
@@ -299,11 +329,13 @@ export function PlanChooser({
           </p>
           <button
             type="button"
-            onClick={() => onContinue({ mode: "event", plan: eventPlan, quantity: qty })}
+            onClick={() => onContinue?.({ mode: "event", plan: eventPlan, quantity: qty })}
             className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
           >
             {continueLabel}
           </button>
+          </>
+          )}
         </div>
       )}
 
@@ -355,7 +387,10 @@ export function PlanChooser({
             <div className="flex flex-col gap-1 rounded-lg bg-[var(--color-brand-bg)] px-4 py-3">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-[var(--color-brand-muted)]">
-                  {planLabel(activeStoragePlan)} · {formatStorage(tier.storage_limit)}
+                  {/* A plan's name often already carries its size ("200 GB · Yearly"). */}
+                  {planLabel(activeStoragePlan).includes(formatStorage(tier.storage_limit))
+                    ? planLabel(activeStoragePlan)
+                    : `${planLabel(activeStoragePlan)} · ${formatStorage(tier.storage_limit)}`}
                 </span>
                 <span className="text-lg font-bold tabular-nums text-[var(--color-brand-ink)]">
                   {formatInr(activeStoragePlan.price ?? 0)}
@@ -381,12 +416,13 @@ export function PlanChooser({
             </div>
           )}
 
+          {!isLive && (
           <button
             type="button"
             disabled={!activeStoragePlan || lockedAsCurrent}
             onClick={() =>
               activeStoragePlan &&
-              onContinue({ mode: "storage", plan: activeStoragePlan, isDowngrade: downgrade })
+              onContinue?.({ mode: "storage", plan: activeStoragePlan, isDowngrade: downgrade })
             }
             className="brand-focus inline-flex h-11 items-center justify-center rounded-lg bg-[var(--color-brand-navy)] text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -398,6 +434,7 @@ export function PlanChooser({
                   ? "Schedule change"
                   : continueLabel}
           </button>
+          )}
         </div>
       )}
     </div>
@@ -411,11 +448,14 @@ function PricingModelCards({
   tiers,
   selectedMode,
   onSelect,
+  compact = false,
 }: {
   eventPlan: Plan;
   tiers: StorageTier[];
   selectedMode: Mode;
   onSelect: (mode: Mode) => void;
+  /** The one-screen checkout: tighter cards, the price as the headline. */
+  compact?: boolean;
 }) {
   const largestTier = tiers[tiers.length - 1];
   // The cheapest plan's listed price, with whether GST is in it.
@@ -432,8 +472,7 @@ function PricingModelCards({
     onSelect(selectedMode === "event" ? "storage" : "event");
   }
 
-  const cardBase =
-    "brand-focus relative flex flex-col rounded-xl border p-5 text-left transition-colors";
+  const cardBase = `brand-focus relative flex flex-col rounded-xl border text-left transition-[border-color,background-color,box-shadow] duration-200 ${compact ? "p-4" : "p-5"}`;
   const cardIdle = "border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] hover:border-[var(--color-brand-outline)]";
   const cardSelected = "border-[var(--color-brand-navy)] ring-1 ring-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)]";
 

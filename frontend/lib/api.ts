@@ -1,3 +1,6 @@
+import type { EventsFilter } from "./event-status.ts";
+import type { ChangeRequest, ChangeRequestType } from "./change-request.ts";
+import type { AttentionResponse, MonthStatsResponse } from "./dashboard-home.ts";
 import { getToken, setToken, clearToken, getCompany, tokenIssuedAt, SESSION_REFRESH_AFTER_MS } from "./auth";
 import type { DeliveryPreferences } from "./delivery-preferences";
 import type { ValidityCheckoutResponse, ValidityConfirmResponse, ValidityLinkView } from "./event-validity";
@@ -60,6 +63,7 @@ import type {
   StyleVariant,
   TrackingType,
   UserProfile,
+  SignInDetails,
   WatermarkPreset,
   WatermarkPosition,
   CompanyMutationResponse,
@@ -207,6 +211,40 @@ export function requestStudioOtp(email: string) {
   });
 }
 
+/* ── Studio sign-in: WhatsApp code (the main way in) ─────────────── */
+
+/** The `code` an API error carried, if any ("WHATSAPP_UNDELIVERABLE", "STATE_REQUIRED", ...). */
+export function apiErrorCode(err: unknown): string | null {
+  if (!(err instanceof ApiError) || !err.body || typeof err.body !== "object") return null;
+  const code = (err.body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+/**
+ * POST /auth/studio/whatsapp/request-otp — a 6-digit sign-in code on WhatsApp.
+ * The same for a returning Studio and a new number; nothing is created until
+ * the code checks out. Errors carry a `code`: WHATSAPP_UNDELIVERABLE (not on
+ * WhatsApp), WHATSAPP_SEND_FAILED, WHATSAPP_NUMBER_AMBIGUOUS, OTP_COOLDOWN.
+ */
+export function requestStudioWhatsappOtp(phone: string) {
+  return request<{ message: string }>("/auth/studio/whatsapp/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+    auth: false,
+  });
+}
+
+/** POST /auth/studio/whatsapp/verify-otp — signs in (creating the studio for a new number). */
+export function verifyStudioWhatsappOtp(phone: string, code: string) {
+  return request<LoginResponse>("/auth/studio/whatsapp/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code }),
+    auth: false,
+  });
+}
+
 /* ── studio account deletion (BE-02) ─────────────────────────────── */
 
 export type StudioDeletionAccepted = { message: string; scope: "studio" | "user"; purge_at: number };
@@ -291,13 +329,53 @@ export function resendWhatsappOtp() {
   return request<{ message: string }>("/onboarding/whatsapp/resend-otp", { method: "POST" });
 }
 
-/** POST /onboarding/whatsapp/verify-otp — on success also persists the studio name and returns the updated Company. */
-export function verifyWhatsappOtp(input: { code: string; studioName: string }) {
+/** The first onboarding step's answers. City is required; the state only when the city can't be placed. */
+export type StudioDetailsInput = {
+  studioName: string;
+  city: string;
+  stateCode?: string;
+  acquisitionSource: string;
+  acquisitionSourceOther?: string;
+};
+
+const studioDetailsBody = (input: StudioDetailsInput) => ({
+  studio_name: input.studioName,
+  city: input.city,
+  state_code: input.stateCode || undefined,
+  acquisition_source: input.acquisitionSource,
+  acquisition_source_other: input.acquisitionSourceOther,
+});
+
+/**
+ * POST /onboarding/whatsapp/verify-otp — signed up by email or Google: the
+ * WhatsApp code with the studio's details. Saves the number as the user's,
+ * the place of supply from the city, and finishes onboarding.
+ * 400 STATE_REQUIRED when the city can't be placed; 409 WHATSAPP_NUMBER_IN_USE.
+ */
+export function verifyWhatsappOtp(input: StudioDetailsInput & { code: string }) {
   return request<CompanyMutationResponse>("/onboarding/whatsapp/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: input.code, studio_name: input.studioName }),
+    body: JSON.stringify({ code: input.code, ...studioDetailsBody(input) }),
   });
+}
+
+/** POST /onboarding/studio-details — signed up by WhatsApp: the one onboarding step. */
+export function saveStudioDetails(input: StudioDetailsInput) {
+  return request<CompanyMutationResponse>("/onboarding/studio-details", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(studioDetailsBody(input)),
+  });
+}
+
+/**
+ * POST /onboarding/abandon-signup — signed up by email, but the WhatsApp
+ * number already has a studio: removes the empty account just made, before
+ * the Studio signs in with WhatsApp instead.
+ */
+export function abandonSignup() {
+  return request<{ message: string }>("/onboarding/abandon-signup", { method: "POST" });
 }
 
 /* ── Post-onboarding: change WhatsApp number ───────────────────── */
@@ -338,7 +416,7 @@ export function verifyWhatsappChangeOtp(input: { code: string }) {
 /* ── Onboarding: Google Business step ──────────────────────────── */
 
 /** POST /onboarding/google-business — third onboarding step; requires whatsapp_verified. */
-export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean }) {
+export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: string; skipped?: boolean; gmbLink?: string }) {
   return request<CompanyMutationResponse>("/onboarding/google-business", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -346,6 +424,7 @@ export function saveGoogleBusiness(input: { googlePlaceId?: string; address?: st
       google_place_id: input.googlePlaceId,
       address: input.address,
       skipped: input.skipped,
+      gmb_link: input.gmbLink,
     }),
   });
 }
@@ -494,7 +573,7 @@ export function updateCompanyDetails(input: CompanyUpdateInput) {
 /* ── personal profile (account holder) ─────────────────────────── */
 
 export function getUserProfile() {
-  return request<{ user: UserProfile }>("/onboarding/get-user-details");
+  return request<{ user: UserProfile; sign_in?: SignInDetails }>("/onboarding/get-user-details");
 }
 
 export type UserProfileUpdateInput = {
@@ -592,11 +671,12 @@ export function getAllQrCodes() {
  * page. Both the QR and the event must belong to the caller's studio (else 404).
  * Also 409s if the event is already linked to a different QR.
  */
-export function linkQr(qrUniqueId: string, bookingId: string) {
+export function linkQr(qrUniqueId: string, bookingId: string, opts: { replace?: boolean } = {}) {
   return request<{ qr: QrCode }>("/deliverables/assign-qr", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId }),
+    // `replace` frees the QR this event holds now instead of 409ing.
+    body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId, ...(opts.replace ? { replace: true } : {}) }),
   });
 }
 
@@ -750,9 +830,11 @@ export function getBillingProfile() {
 }
 
 export type BillingProfileInput = {
-  legal_name: string;
+  /** Left out (checkout), the saved one stays; invoices fall back to the studio's name. */
+  legal_name?: string;
   gstin?: string;
-  billing_address: string;
+  /** Left out (checkout), the saved one stays. */
+  billing_address?: string;
   place_of_supply_state: string;
 };
 
@@ -849,22 +931,52 @@ export function validityReceiptUrl(token: string, orderRef: string): string {
  */
 export const BOOKING_SERVICE = "DH";
 
-/** GET /bookings/get-all-bookings?page=&limit=&search=&service= */
+/**
+ * GET /bookings/get-all-bookings?page=&limit=&search=&service=&view=&sort=
+ *
+ * `view` is the Events page's filter (all, active, deactivated, archived) and
+ * `sort` its order (created_desc, created_asc, date_desc, date_asc); the response
+ * carries `counts` for the four filters. `status` is the older parameter, kept
+ * working for anything that still sends it (it is ignored when `view` is set).
+ */
 export function getAllBookings(params: {
   page?: number;
   limit?: number;
   search?: string;
   status?: GalleryPublishStatus | "all";
+  view?: EventsFilter;
+  sort?: string;
 }) {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
   if (params.limit) sp.set("limit", String(params.limit));
   if (params.search) sp.set("search", params.search);
   if (params.status) sp.set("status", params.status);
+  if (params.view) sp.set("view", params.view);
+  if (params.sort) sp.set("sort", params.sort);
   sp.set("service", BOOKING_SERVICE);
   return request<BookingsListResponse>(
     `/bookings/get-all-bookings?${sp.toString()}`,
   );
+}
+
+/** GET /bookings/dashboard-attention: the Dashboard's "Needs attention" rows (expiring, deactivated, missing numbers, empty events, open change requests). */
+export function getDashboardAttention() {
+  return request<AttentionResponse>("/bookings/dashboard-attention");
+}
+
+/** POST /bookings/dashboard-attention/:booking_id/dismiss: close one Needs attention row for this event, for good. */
+export function dismissDashboardAttention(bookingId: string, key: string) {
+  return request<{ booking_id: string; key: string }>(`/bookings/dashboard-attention/${encodeURIComponent(bookingId)}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+}
+
+/** GET /bookings/dashboard-stats: this month against last (gallery views, new guest contacts, free WhatsApp messages, review taps). */
+export function getDashboardStats() {
+  return request<MonthStatsResponse>("/bookings/dashboard-stats");
 }
 
 /**
@@ -1475,22 +1587,33 @@ export function getAllGuests(bookingId: string, opts?: { guestType?: GuestAccess
  * helper) so the CSV blob and its filename survive, then triggers a browser
  * download via a throwaway anchor.
  */
-export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
-  const params = new URLSearchParams({ exportCsv: "true" });
-  if (opts?.guestType) params.set("guest_type", opts.guestType);
+/**
+ * Fetches a CSV from the authenticated API and saves it with the file name the
+ * server chose (its Content-Disposition), so the server is the one place that
+ * names an export. Raw `fetch`, not the JSON `request` helper, so the blob and
+ * its name survive.
+ */
+async function downloadAuthedCsv(path: string, fallbackName: string) {
   const token = getToken();
-  const res = await fetch(
-    `${API_BASE}/deliverables/get-all-guests/${encodeURIComponent(bookingId)}?${params.toString()}`,
-    {
-      cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    },
-  );
+  const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!res.ok) {
-    throw new ApiError(res.status, `Export failed: ${res.status}`, null);
+    // A rate limit answers with a sentence of its own; show that rather than a status code.
+    let message = `Export failed: ${res.status}`;
+    if (res.status === 429) {
+      try {
+        const body = (await res.json()) as { message?: string };
+        if (body?.message) message = body.message;
+      } catch {
+        /* keep the generic line */
+      }
+    }
+    throw new ApiError(res.status, message, null);
   }
   const disposition = res.headers.get("Content-Disposition") ?? "";
-  const filename = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() || `${bookingId}_guests.csv`;
+  const filename = /filename=([^;]+)/.exec(disposition)?.[1]?.trim() || fallbackName;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1500,6 +1623,24 @@ export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: Gu
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export async function exportGuestsCsv(bookingId: string, opts?: { guestType?: GuestAccessLevel }) {
+  const params = new URLSearchParams({ exportCsv: "true" });
+  if (opts?.guestType) params.set("guest_type", opts.guestType);
+  await downloadAuthedCsv(
+    `/deliverables/get-all-guests/${encodeURIComponent(bookingId)}?${params.toString()}`,
+    `${bookingId}_guests.csv`,
+  );
+}
+
+/**
+ * GET /bookings/export-all-leads: one CSV of every guest of every event of this
+ * studio (streamed by the server; the file is saved as it is named there).
+ * 429 carries a plain sentence when the hourly limit is used up.
+ */
+export async function exportAllLeadsCsv() {
+  await downloadAuthedCsv("/bookings/export-all-leads", "all-events-leads.csv");
 }
 
 /**
@@ -2082,4 +2223,32 @@ export function listNotifications(limit = 20) {
 
 export function markNotificationsRead(target: { ids: string[] } | { all: true }) {
   return request<{ unread_count: number }>("/notifications/read", jsonPost(target));
+}
+
+
+/* ── Change requests (a locked event name or cover) ────────────────── */
+
+// The types live in change-request.ts (pure, so the Studio app syncs it); re-exported here for existing importers.
+export type { ChangeRequest, ChangeRequestStatus, ChangeRequestType } from "./change-request.ts";
+
+/** GET /bookings/change-requests/:booking_id: this event's requests, newest first. */
+export function getChangeRequests(bookingId: string) {
+  return request<{ requests: ChangeRequest[] }>(`/bookings/change-requests/${encodeURIComponent(bookingId)}`);
+}
+
+/**
+ * POST /bookings/change-requests/:booking_id: ask the team to change a locked
+ * name or cover. `value` is the new name, or the URL of a cover the studio just
+ * uploaded; `mediaId` is the Media `_id` of one of the event's own photos.
+ * 409 `already_pending` when one of that type is already waiting.
+ */
+export function createChangeRequest(
+  bookingId: string,
+  body: { type: ChangeRequestType; value?: string; mediaId?: string; reason?: string },
+) {
+  return request<{ request: ChangeRequest }>(`/bookings/change-requests/${encodeURIComponent(bookingId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: body.type, value: body.value, media_id: body.mediaId, reason: body.reason }),
+  });
 }

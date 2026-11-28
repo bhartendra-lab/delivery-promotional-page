@@ -4,7 +4,10 @@ import { useId, type ReactNode } from "react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
+  DOWNLOAD_CHOICE_KEYS,
   resolveDeliveryPreferenceFields,
+  resolveDownloadChoice,
+  type DownloadChoice,
   type DeliveryPreferenceContext,
   type DeliveryPreferenceField,
   type DeliveryPreferences,
@@ -52,11 +55,18 @@ export function DeliveryPreferencesPanel({
   surface?: DeliveryPreferenceSurface;
   leading?: ReactNode;
 }) {
-  const fields = resolveDeliveryPreferenceFields(value, context, surface);
+  const allFields = resolveDeliveryPreferenceFields(value, context, surface);
+  // Downloads are ONE question, "Who can download?", over the two stored fields
+  // (allow_download, archive_download_access), which keep their meaning. It
+  // takes the place of those two rows, so every host reads the same thing.
+  const hasDownloads = allFields.some((f) => DOWNLOAD_CHOICE_KEYS.includes(f.key));
+  const fields = allFields.filter((f) => !DOWNLOAD_CHOICE_KEYS.includes(f.key));
+  const downloads = hasDownloads ? resolveDownloadChoice(value, context) : null;
   return (
     <div className="flex flex-col gap-3">
       <div className="divide-y divide-[var(--color-brand-border)] overflow-hidden rounded-lg border border-[var(--color-brand-border)] bg-white">
         {leading}
+        {downloads && <DownloadChoiceRow choice={downloads} value={value} onChange={onChange} disabled={disabled} />}
         {fields.map((field) => (
           <PreferenceRow
             key={field.key}
@@ -67,6 +77,58 @@ export function DeliveryPreferencesPanel({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** "Who can download?": the radio group and the one sentence that says what it means now. */
+function DownloadChoiceRow({
+  choice,
+  value,
+  onChange,
+  disabled,
+}: {
+  choice: DownloadChoice;
+  value: DeliveryPreferences;
+  onChange: (next: DeliveryPreferences) => void;
+  disabled: boolean;
+}) {
+  const groupId = useId();
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3.5">
+      <div className="text-[13.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">{choice.label}</div>
+      <div role="radiogroup" aria-label={choice.label} className="flex flex-col gap-1.5">
+        {choice.options.map((option) => {
+          const selected = choice.selected === option.value;
+          return (
+            <label
+              key={option.value}
+              className={`flex cursor-pointer gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
+                selected
+                  ? "border-[var(--color-brand-navy-deep)] bg-[var(--color-brand-navy-soft)]"
+                  : "border-[var(--color-brand-border)] bg-white"
+              } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            >
+              <input
+                type="radio"
+                name={`${groupId}-downloads`}
+                value={option.value}
+                checked={selected}
+                disabled={disabled}
+                onChange={() => onChange({ ...value, ...option.patch })}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-brand-navy-deep)]"
+              />
+              <span className="min-w-0 text-[12.5px] font-semibold leading-snug text-[var(--color-brand-ink)]">
+                {option.label}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="type-body" aria-live="polite">
+        {choice.outcome}
+      </p>
+      {choice.note && <p className="text-[12px] font-medium leading-relaxed text-[var(--color-brand-warning)]">{choice.note}</p>}
     </div>
   );
 }

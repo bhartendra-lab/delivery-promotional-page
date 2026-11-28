@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import {
   DELIVERY_PREFERENCE_DEFAULTS,
   changedPreferenceKeys,
+  defaultArchiveDownloadAccess,
   normalizeDeliveryPreferences,
+  resolveDownloadChoice,
+  DOWNLOAD_CHOICE_QUESTION,
+  withArchiveDefault,
   resolveDeliveryPreferenceFields,
   type ArchiveTier,
   type DeliveryPreferenceContext,
@@ -372,7 +376,7 @@ test("the face filter row is a toggle under face search, on the access surface o
   const row = faceFilterRow();
   assert.equal(row.type, "toggle");
   assert.equal(row.label, "Face filter");
-  assert.equal(row.description, "Guests can filter their photos by the people in them. Hosts can filter the whole gallery.");
+  assert.equal(row.description, "Guests can filter their photos by the people in them. Full access can filter every photo.");
 });
 
 test("the face filter row is live while face search is on, whatever its own value", () => {
@@ -431,6 +435,108 @@ test("every row is a label plus at most one short hint, and no copy uses an em o
     const all = [row.label, row.description, row.consequence ?? "", row.warning ?? "", ...(row.options ?? []).flatMap((o) => [o.label, o.note ?? ""])];
     for (const line of all) {
       assert.ok(!line.includes("\u2014") && !line.includes("\u2013"), `${row.key}: ${line}`);
+    }
+  }
+});
+
+/* ── The tier aware default for archive downloads ──────────────────────── */
+
+test("defaultArchiveDownloadAccess: 4K only opens to every guest; any Original, or no archive, stays with the family", () => {
+  assert.equal(defaultArchiveDownloadAccess(["4096"]), "all_guests");
+  assert.equal(defaultArchiveDownloadAccess(["original"]), "host_only");
+  assert.equal(defaultArchiveDownloadAccess(["4096", "original"]), "host_only");
+  assert.equal(defaultArchiveDownloadAccess([]), "host_only");
+});
+
+test("the plain schema default is unchanged, so every existing event reads as before", () => {
+  assert.equal(DELIVERY_PREFERENCE_DEFAULTS.archive_download_access, "host_only");
+  assert.equal(normalizeDeliveryPreferences({}).archive_download_access, "host_only");
+  assert.equal(normalizeDeliveryPreferences(undefined).archive_download_access, "host_only");
+});
+
+test("withArchiveDefault: a first 4K run on an event with no archive copy defaults to every guest", () => {
+  const saved = prefs();
+  const out = withArchiveDefault(saved, { saved, heldTiers: [], runTiers: ["4096"], touched: false });
+  assert.equal(out.archive_download_access, "all_guests");
+  // Switching the run to Original (or back to HD) follows, until the studio touches the row.
+  assert.equal(withArchiveDefault(saved, { saved, heldTiers: [], runTiers: ["original"], touched: false }).archive_download_access, "host_only");
+  assert.equal(withArchiveDefault(saved, { saved, heldTiers: [], runTiers: [], touched: false }).archive_download_access, "host_only");
+});
+
+test("withArchiveDefault never overwrites a decision or an existing event's saved value", () => {
+  const saved = prefs();
+  // The studio picked a value in this dialog.
+  const chosen = prefs({ archive_download_access: "host_only" });
+  assert.equal(withArchiveDefault(chosen, { saved, heldTiers: [], runTiers: ["4096"], touched: true }), chosen);
+  // The event already holds archive copies: what it saved is what it keeps.
+  assert.equal(withArchiveDefault(saved, { saved, heldTiers: ["4096"], runTiers: ["4096"], touched: false }), saved);
+  assert.equal(withArchiveDefault(saved, { saved, heldTiers: ["original"], runTiers: ["original", "4096"], touched: false }), saved);
+  // A saved value that is not the plain default was a choice.
+  for (const value of ["none", "all_guests"] as const) {
+    const custom = prefs({ archive_download_access: value });
+    assert.equal(withArchiveDefault(custom, { saved: custom, heldTiers: [], runTiers: ["4096"], touched: false }), custom);
+  }
+});
+
+/* ── "Who can download?" ────────────────────────────────────────────────── */
+
+const choice = (value: DeliveryPreferences, ...archiveTiers: ArchiveTier[]) => resolveDownloadChoice(value, { archiveTiers });
+
+test("one question, however the two stored fields are set", () => {
+  assert.equal(DOWNLOAD_CHOICE_QUESTION, "Who can download?");
+  for (const tiers of [[], ["4096"], ["original"], ["4096", "original"]] as ArchiveTier[][]) {
+    assert.equal(choice(prefs(), ...tiers).label, "Who can download?");
+  }
+});
+
+test("an HD only event is just on or off, with a plain outcome", () => {
+  const on = choice(prefs());
+  assert.deepEqual(on.options.map((o) => o.value), ["everyone", "nobody"]);
+  assert.equal(on.selected, "everyone");
+  assert.equal(on.outcome, "Every guest can download HD photos.");
+  const off = choice(prefs({ allow_download: false }));
+  assert.equal(off.selected, "nobody");
+  assert.match(off.outcome, /Downloads are off/);
+  // Choosing "Every guest" on an HD only event must not touch the archive field.
+  assert.deepEqual(on.options[0].patch, { allow_download: true });
+});
+
+test("an archive event reads the two fields as one of four outcomes, in the studio's words", () => {
+  const family = choice(prefs({ archive_download_access: "host_only" }), "4096");
+  assert.equal(family.selected, "family_full");
+  assert.equal(family.outcome, "Every guest can download HD photos. Family (passcode) can also download 4K.");
+  assert.equal(choice(prefs({ archive_download_access: "all_guests" }), "4096").outcome, "Every guest can download HD photos and 4K.");
+  assert.equal(choice(prefs({ archive_download_access: "none" }), "4096").selected, "hd_only");
+  assert.equal(choice(prefs({ archive_download_access: "none" }), "4096").outcome, "Every guest can download HD photos. Nobody can download 4K.");
+  // Downloads off wins over whatever the archive field says.
+  assert.equal(choice(prefs({ allow_download: false, archive_download_access: "all_guests" }), "4096").selected, "nobody");
+});
+
+test("each option writes the stored fields it stands for, and reading them back selects it", () => {
+  for (const tiers of [["4096"], ["original"], ["4096", "original"]] as ArchiveTier[][]) {
+    const base = choice(prefs(), ...tiers);
+    for (const option of base.options) {
+      const next = { ...prefs(), ...option.patch };
+      assert.equal(choice(next, ...tiers).selected, option.value, `${tiers.join("+")} ${option.value}`);
+    }
+  }
+});
+
+test("the tier is named correctly in the sentence, and only originals carry the no watermark note", () => {
+  assert.match(choice(prefs({ archive_download_access: "host_only" }), "original").outcome, /can also download original files\./);
+  assert.match(choice(prefs({ archive_download_access: "host_only" }), "4096", "original").outcome, /4K and original files/);
+  assert.equal(choice(prefs({ archive_download_access: "all_guests" }), "original").note, "Original files have no watermark.");
+  assert.equal(choice(prefs({ archive_download_access: "all_guests" }), "4096").note, undefined);
+  assert.equal(choice(prefs({ archive_download_access: "host_only" }), "original").note, undefined);
+});
+
+test("none of the download copy uses a dash", () => {
+  for (const tiers of [[], ["4096"], ["original"], ["4096", "original"]] as ArchiveTier[][]) {
+    for (const archive of ["none", "host_only", "all_guests"] as const) {
+      for (const allow of [true, false]) {
+        const c = choice(prefs({ archive_download_access: archive, allow_download: allow }), ...tiers);
+        for (const text of [c.label, c.outcome, c.note ?? "", ...c.options.map((o) => o.label)]) assert.doesNotMatch(text, /[\u2013\u2014]/);
+      }
     }
   }
 });

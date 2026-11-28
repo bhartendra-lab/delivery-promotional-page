@@ -1,5 +1,6 @@
 "use client";
 
+import { trackEvent } from "@/lib/analytics";
 import { useEffect, useState } from "react";
 import { getMyReferrals } from "@/lib/api";
 import {
@@ -22,8 +23,8 @@ const formatDate = (when: string) =>
  * Every code, link, figure and message comes from GET /referrals/me; the page
  * words them and nothing more.
  *
- * Only a studio that has paid has a code (the API says `eligible: false`
- * before that), and the reward depends on the plan it is on when a referred
+ * Only a studio that has paid, or whose plan our team set up by hand, has a
+ * code (the API says `eligible: false` before that), and the reward depends on the plan it is on when a referred
  * studio pays, so the sentence follows its current plan.
  */
 export default function ReferralsSettingsPage() {
@@ -59,7 +60,7 @@ export default function ReferralsSettingsPage() {
   if (!data) return <SectionSkeleton />;
 
   const referredBy = data.referred_by?.studio_name ? (
-    <p className="text-sm text-[var(--color-brand-muted)]">
+    <p className="type-body">
       You were referred by <strong className="font-semibold text-[var(--color-brand-ink)]">{data.referred_by.studio_name}</strong>.
     </p>
   ) : null;
@@ -69,7 +70,9 @@ export default function ReferralsSettingsPage() {
       <div className="space-y-6">
         {heading}
         <Card title="Your Referral code" icon={<IconGift size={15} />}>
-          <p className="text-sm text-[var(--color-brand-muted)]">Refer other studios after your first purchase.</p>
+          <p className="type-body">
+            Your Referral code shows up here once you have bought a plan or events, or once our team has set up your plan for you.
+          </p>
         </Card>
         {referredBy}
       </div>
@@ -85,9 +88,10 @@ export default function ReferralsSettingsPage() {
       <Card title="Your Referral code" description={reward ?? undefined} icon={<IconGift size={15} />}>
         <div className="space-y-4">
           <CopyableIdField label="Code" value={data.code} />
-          <CopyableIdField label="Link" value={data.link} />
+          <CopyableIdField label="Link" value={data.link} onCopied={() => trackEvent("referral_link_shared", { channel: "copy" })} />
           <a
             href={whatsappShareUrl(data.share_message, data.link)}
+            onClick={() => trackEvent("referral_link_shared", { channel: "whatsapp" })}
             target="_blank"
             rel="noopener noreferrer"
             className="brand-focus inline-flex h-10 items-center gap-2 rounded-field bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)]"
@@ -107,7 +111,7 @@ export default function ReferralsSettingsPage() {
           </dl>
         )}
         {data.referrals.length === 0 ? (
-          <p className="text-sm text-[var(--color-brand-muted)]">No studio has joined with your code yet.</p>
+          <p className="type-body">No studio has joined with your code yet.</p>
         ) : (
           <ul className="divide-y divide-[var(--color-brand-border)]">
             {data.referrals.map((referral, i) => (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   IconBuilding,
@@ -51,10 +51,13 @@ export function CopyableIdField({
   className = "",
   layout = "stacked",
   helper,
+  onCopied,
 }: {
   label: string;
   value: string;
   className?: string;
+  /** Called once after the value is copied (the referral page uses it for analytics). */
+  onCopied?: () => void;
   /** See `Field`'s `layout` prop — same contract. */
   layout?: "stacked" | "row";
   /** Extra content below the field — in row layout, sits in the right
@@ -74,6 +77,7 @@ export function CopyableIdField({
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(value);
+      onCopied?.();
       setCopied(true);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), 2000);
@@ -89,7 +93,7 @@ export function CopyableIdField({
       className={`${isRow ? "lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6" : ""} ${className}`}
     >
       <span
-        className={`mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-2.5" : ""
+        className={`type-label mb-1.5 block ${isRow ? "lg:col-start-1 lg:row-start-1 lg:mb-0 lg:pt-3" : ""
           }`}
       >
         {label}
@@ -139,7 +143,7 @@ export function SectionHeading({
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-[-0.01em] text-[var(--color-brand-ink)] sm:text-[28px]">{title}</h1>
-      <p className="mt-1.5 text-sm text-[var(--color-brand-muted)]">{description}</p>
+      <p className="type-body mt-1.5">{description}</p>
     </div>
   );
 }
@@ -184,7 +188,7 @@ export function Card({
           <div>
             <h2 className="text-[15px] font-semibold text-[var(--color-brand-ink)]">{title}</h2>
             {description && (
-              <p className="mt-0.5 text-[13px] text-[var(--color-brand-muted)]">{description}</p>
+              <p className="type-body mt-0.5">{description}</p>
             )}
           </div>
         </div>
@@ -772,7 +776,7 @@ export function VerifiedBusinessEmailField({
 
   return (
     <VerifiedFieldRow
-      label="Business email"
+      label="Email"
       hasValue={hasValue}
       verified={verified}
       actionLabel={hasValue ? "Update" : "Add & verify"}
@@ -791,8 +795,8 @@ export function VerifiedBusinessEmailField({
       helper={
         <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
           {hasValue
-            ? "Shown to clients as your studio's contact email — separate from your login email on Personal Information."
-            : "Add a client-facing contact email — separate from your login email on Personal Information."}
+            ? "You can sign in with this email too, and it is where invoices go."
+            : "Add an email to sign in with when WhatsApp isn't handy, and to get your invoices."}
         </p>
       }
     />
@@ -920,15 +924,47 @@ export function SaveBar({
   // after commit and re-renders when it changed, so the anchor is found on
   // every mount, without a setState inside an effect.
   const root = useSyncExternalStore(noSubscribe, findSaveBarRoot, serverSaveBarRoot);
+  const barRef = useRef<HTMLDivElement>(null);
 
   const visible = dirty || saveState !== "idle";
+
+  // The bar is pinned over the page, so whatever scrolls under it is hidden.
+  // While it is up: (1) the scrolling area gets a bottom scroll padding the
+  // bar's height, so the browser keeps a focused field, or anything scrolled
+  // into view, ABOVE the bar instead of behind it; (2) a field that gets focus
+  // while hidden behind it is nudged up into view. Nothing is laid out
+  // differently, so the form never jumps when the bar appears.
+  useLayoutEffect(() => {
+    if (!visible || !root) return;
+    const scroller = scrollParentOf(root);
+    const bar = barRef.current;
+    if (!scroller || !bar) return;
+    const clearance = () => bar.getBoundingClientRect().height + 12;
+    const previous = scroller.style.scrollPaddingBottom;
+    scroller.style.scrollPaddingBottom = `${clearance()}px`;
+
+    const revealIfCovered = (el: Element | null) => {
+      if (!(el instanceof HTMLElement) || bar.contains(el) || !scroller.contains(el)) return;
+      const overlap = el.getBoundingClientRect().bottom - bar.getBoundingClientRect().top + 12;
+      if (overlap > 0) scroller.scrollBy({ top: overlap });
+    };
+    // The field just edited (the one that made the bar appear) included.
+    revealIfCovered(document.activeElement);
+    const onFocusIn = (e: FocusEvent) => revealIfCovered(e.target as Element);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      scroller.style.scrollPaddingBottom = previous;
+      document.removeEventListener("focusin", onFocusIn);
+    };
+  }, [visible, root]);
+
   if (!visible || !root) return null;
 
   const showCancel = dirty && !!onDiscard;
 
   return createPortal(
     // Breathing room above it, and above the phone's home indicator below.
-    <div className="save-bar-rise pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div ref={barRef} className="save-bar-rise pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="flex flex-col gap-3 rounded-card border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3 shadow-[0_-4px_28px_rgba(42,34,24,0.16)] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
         {/* One live region for every state this bar can be in — success,
             error and the blocked-reason explanation all need announcing, and
@@ -1080,4 +1116,13 @@ export function Spinner() {
       <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   );
+}
+
+/** The nearest ancestor that scrolls vertically: the dashboard's <main>. */
+function scrollParentOf(el: HTMLElement): HTMLElement | null {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+  }
+  return null;
 }

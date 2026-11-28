@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Tip } from "@/components/ui/Tip";
 import { isCoupleEventType } from "@/lib/event-clients";
 import { useEvent } from "./EventContext";
-import { IconPlus, IconUsers, IconX } from "./icons";
+import { IconPlus, IconX } from "./icons";
 
 /** What update-booking keeps (see the backend's sanitizeGuestTypes). The form
  *  says so up front rather than letting a save quietly trim. */
@@ -17,15 +16,16 @@ const clean = (list: string[]) => list.map((t) => t.trim()).filter(Boolean);
 const sameTeam = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
- * The Guest teams (sub-types) a Guest picks from after signing in ("Which team
- * are you in?"), e.g. Bride Team / Groom Team. Moved here from Gallery design:
- * it decides what Guests are asked and how Smart Selects can be filtered, which is what this tab is about, not how the gallery looks.
+ * The editor for the Guest teams (sub-types) a Guest picks from after signing
+ * in ("Which team are you in?"), e.g. Bride Team / Groom Team. Shown on the
+ * Share view, inside the sign-up question row: it decides what Guests are asked
+ * when they first open the link, so it sits beside the link itself.
  *
  * Its own Save, shown only while there is something to save. The parent keys
- * this card on the saved list, so a save (or a change from another tab)
+ * this editor on the saved list, so a save (or a change from another tab)
  * starts it fresh from what the server holds.
  */
-export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventType: string }) {
+export function GuestTeamsEditor({ saved, eventType }: { saved: string[]; eventType: string }) {
   const { saveGuestTypes, toast } = useEvent();
   const [teams, setTeams] = useState<string[]>(saved);
   const [busy, setBusy] = useState(false);
@@ -51,26 +51,8 @@ export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventTyp
   }
 
   return (
-    <section className="mt-4 flex shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-white">
-      <div className="flex items-center gap-3 border-b border-[#ECE5D8] px-4 py-4">
-        <span
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "var(--color-brand-navy-soft)", color: "var(--color-brand-navy)" }}
-        >
-          <IconUsers size={17} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="flex items-center gap-1.5 text-[15.5px] font-bold tracking-tight text-[var(--color-brand-ink)]">
-            Guest teams
-            <Tip text="Guests pick one of these after signing in, and Smart Selects can be filtered by it. Leave empty to skip the question." />
-          </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
-            Asked after sign-in: &ldquo;Which team are you in?&rdquo;
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 p-4">
+    <div className="flex flex-col">
+      <div className="flex flex-col gap-2">
         {teams.map((team, i) => (
           <div key={i} className="flex items-center gap-2">
             <input
@@ -94,14 +76,9 @@ export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventTyp
           </div>
         ))}
 
-        {teams.length === 0 && (
-          <p className="text-[12px] text-[var(--color-brand-muted)]">
-            No teams. Guests skip the team question and go straight to their photos.
-          </p>
-        )}
 
         {!full && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2">
             {suggestions.map((s) => (
               <button
                 key={s}
@@ -132,7 +109,7 @@ export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventTyp
       </div>
 
       {dirty && (
-        <div className="flex items-center justify-end gap-2 border-t border-[#ECE5D8] bg-[var(--color-brand-bg)] px-4 py-3">
+        <div className="mt-3 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => {
@@ -155,6 +132,6 @@ export function GuestTeamsCard({ saved, eventType }: { saved: string[]; eventTyp
           </button>
         </div>
       )}
-    </section>
+    </div>
   );
 }

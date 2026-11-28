@@ -100,7 +100,7 @@ export function NotificationBell() {
   const openNotice = (n: StudioNotice) => {
     if (!n.read) markRead([n._id]);
     setOpen(false);
-    if (n.type === "referral_reward") {
+    if (n.type === "referral_reward" || n.type === "change_request_decided") {
       router.push(noticeHref(n));
       return;
     }

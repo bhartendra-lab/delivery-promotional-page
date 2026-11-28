@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { verifyWhatsappOtp, resendWhatsappOtp, ApiError } from "@/lib/api";
+import { verifyWhatsappOtp, resendWhatsappOtp, abandonSignup, apiErrorCode, ApiError } from "@/lib/api";
+import type { StudioDetailsInput } from "@/lib/api";
+import { clearToken, clearCompany } from "@/lib/auth";
 import type { Company } from "@/lib/types";
 import { IconWarningCircle, IconArrowLeft } from "@/components/ui/icons";
 import { OtpCodeInput } from "@/components/onboarding/OtpCodeInput";
@@ -9,17 +11,26 @@ import { OtpCodeInput } from "@/components/onboarding/OtpCodeInput";
 const CODE_LEN = 6;
 const RESEND_SECONDS = 30;
 
+/**
+ * The WhatsApp code for a Studio that signed up by email or Google, sent with
+ * the first step's answers (the server saves them only once the code checks
+ * out). A number that already has a studio offers "Sign in with WhatsApp
+ * instead": the empty account this email just made is removed first, so the
+ * email does not keep opening a second, empty studio.
+ */
 export function WhatsappOtpStep({
   whatsappNumber,
-  studioName,
+  details,
   onBack,
   onVerified,
 }: {
   whatsappNumber: string;
-  studioName: string;
+  details: StudioDetailsInput;
   onBack: () => void;
   onVerified: (company: Company) => void;
 }) {
+  const [numberTaken, setNumberTaken] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
@@ -38,9 +49,16 @@ export function WhatsappOtpStep({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await verifyWhatsappOtp({ code: value, studioName });
+      const res = await verifyWhatsappOtp({ code: value, ...details });
       onVerified(res.company);
     } catch (err) {
+      const errCode = apiErrorCode(err);
+      if (errCode === "WHATSAPP_NUMBER_IN_USE") setNumberTaken(true);
+      // The city could not be placed after all: back to the first step, which now asks the state.
+      if (errCode === "STATE_REQUIRED") {
+        onBack();
+        return;
+      }
       setShake(true);
       setTimeout(() => setShake(false), 500);
       setCode("");
@@ -75,6 +93,18 @@ export function WhatsappOtpStep({
     } finally {
       setResending(false);
     }
+  }
+
+  async function signInWithWhatsapp() {
+    setLeaving(true);
+    try {
+      await abandonSignup();
+    } catch {
+      /* Not removable (it has something in it): signing out is still right. */
+    }
+    clearToken();
+    clearCompany();
+    window.location.assign(`/login?phone=${encodeURIComponent(whatsappNumber)}`);
   }
 
   const masked =
@@ -112,6 +142,17 @@ export function WhatsappOtpStep({
           <IconWarningCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </p>
+      )}
+
+      {numberTaken && (
+        <button
+          type="button"
+          onClick={signInWithWhatsapp}
+          disabled={leaving}
+          className="brand-focus mt-3 flex h-11 w-full items-center justify-center rounded-lg border border-[var(--color-brand-navy)] text-sm font-semibold text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-navy-soft)] disabled:opacity-60"
+        >
+          {leaving ? "Signing out…" : "Sign in with this WhatsApp number instead"}
+        </button>
       )}
 
       <button

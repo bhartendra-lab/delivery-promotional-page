@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveGoogleReviewUrl, parseGoogleReviewLink } from "./google-review.ts";
+import { resolveGoogleReviewUrl, parseGoogleReviewLink, googleReviewLinkMessage } from "./google-review.ts";
 
 const PLACE = "https://search.google.com/local/writereview?placeid=ChIJ123";
 
@@ -79,4 +79,16 @@ test("look-alike and non-Google addresses are rejected", () => {
   ]) {
     assert.equal(parseGoogleReviewLink(u).status, "invalid", u);
   }
+});
+
+test("googleReviewLinkMessage: one plain sentence per mistake, nothing for a good or empty link, no dashes", () => {
+  assert.equal(googleReviewLinkMessage(parseGoogleReviewLink("https://g.page/r/abc/review")), null);
+  assert.equal(googleReviewLinkMessage(parseGoogleReviewLink("")), null);
+  const listing = googleReviewLinkMessage(parseGoogleReviewLink("https://maps.app.goo.gl/abc"));
+  const notGoogle = googleReviewLinkMessage(parseGoogleReviewLink("https://example.com/x"));
+  const notLink = googleReviewLinkMessage(parseGoogleReviewLink("two words"));
+  assert.match(listing ?? "", /not the review box/);
+  assert.match(notGoogle ?? "", /isn't a Google link/);
+  assert.match(notLink ?? "", /doesn't look like a link/);
+  for (const m of [listing, notGoogle, notLink]) assert.doesNotMatch(m ?? "", /[\u2014\u2013]/);
 });

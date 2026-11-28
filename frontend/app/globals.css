@@ -19,6 +19,17 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* iOS Safari zooms the page into any text field under 16px when it takes
+   focus, and leaves it zoomed. On touch phones every field gets 16px. It sits
+   outside @layer, so it outranks Tailwind's text-sm/text-xs utilities. */
+@media (max-width: 639.98px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 :root {
   --background: #FAFAF8;
   --foreground: #2A2218;
@@ -41,6 +52,8 @@ button:disabled {
   /* Text */
   --color-brand-ink: #2A2218;
   --color-brand-muted: #7A6F63;
+  /* Body copy tier: darker than muted, for sentences (muted is for meta and helper text). */
+  --color-brand-body: #5C5248;
 
   /* ── Surfaces ────────────────────────────────────────────────────
      Exactly two neutral fills exist. The old cream `--color-brand-surface`
@@ -846,4 +859,32 @@ body {
   .tour-card-in, .tour-ring, .tour-nudge, .tour-tap, .tour-ripple, .tour-glow, .tour-bob-up, .tour-bob-down { animation: none; }
   .tour-ripple { opacity: 0; }
   .tour-spot { transition: none; }
+}
+
+
+/* ---------------------------------------------------------------- */
+/* Dashboard text tiers (never on the guest gallery)                */
+/*                                                                  */
+/* Title: ink, bold, as before. The three below are for everything  */
+/* under a title. Body is darker than muted because muted is too    */
+/* faint to read a sentence in at 13px; muted stays for meta text.  */
+/* Contrast on white and on --color-brand-bg is checked in          */
+/* lib/type-tiers.test.ts (WCAG AA, 4.5:1).                         */
+/* ---------------------------------------------------------------- */
+.type-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-brand-body);
+}
+.type-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-brand-muted);
+}
+.type-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-brand-muted);
 }

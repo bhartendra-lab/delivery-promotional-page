@@ -28,6 +28,7 @@
 
 import {
   abortArchiveMultipart,
+  ApiError,
   completeArchiveMultipart,
   createArchiveMultipart,
   createCustomFolder as apiCreateCustomFolder,
@@ -58,6 +59,7 @@ import { UPLOAD_SPEC } from "./spec.ts";
 import { applyCreatedFolders, planFolderReuse } from "./selection.ts";
 import { buildMediaMetadataRow } from "./metadata-row.ts";
 import { buildPresignFile } from "./presign-file.ts";
+import { missingMediaIdsFrom, requeuedForUpload } from "./missing-objects.ts";
 import { photoCapWeight4k, uploadUnitsForSelection } from "@/lib/photo-cap";
 import { captureFieldsForRecord } from "./capture-time.ts";
 import { cameraFieldsForRecord } from "./camera-identity.ts";
@@ -455,6 +457,14 @@ export class UploadEngineCore {
     await this.prepareWatermark();
 
     try {
+      // Records left "uploaded" by an earlier run are saved BEFORE anything is
+      // compressed: if their objects are gone (the studio deleted those photos
+      // since), the refusal sends them back to "pending" here, and the
+      // compression loop below then uploads them again from the files just
+      // selected, in this same run.
+      await this.saveLeftoversBeforeUpload();
+
+
       // Start the parallel loops (metadata flusher runs alongside upload).
       const compressLoop = this.runCompressionLoop();
       const presignLoop = this.runPresignBatcher();
@@ -2031,6 +2041,21 @@ export class UploadEngineCore {
     }
   }
 
+  /**
+   * Save the records an earlier run left "uploaded", before this run uploads
+   * anything (see `run`). Stops at the first refusal it cannot act on: the
+   * photo cap or storage limit (the run pauses as usual) or an ordinary save
+   * failure (the leftovers stay queued for the run's own flushes and the final
+   * drain, exactly as before). Costs nothing when there are no leftovers.
+   */
+  private async saveLeftoversBeforeUpload(): Promise<void> {
+    while (this.metadataPendingIds.length > 0) {
+      if (this.capMetadataBlocked || this.abort.signal.aborted || this.stopping) return;
+      await this.enqueueMetadataFlush();
+      if (this.state.metadataSaveError || this.pendingEmitPatch.metadataSaveError) return;
+    }
+  }
+
   /** Pull any `uploaded` records (e.g. resumed from IDB) into the flush queue. */
   private seedMetadataQueue(): void {
     const queued = new Set(this.metadataPendingIds);
@@ -2241,6 +2266,41 @@ export class UploadEngineCore {
         this.capMetadataBlocked = true;
         this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null });
         this.pauseForStorageLimit();
+        return;
+      }
+      // Some rows' files are no longer in storage (missing-objects.ts): the
+      // studio deleted those photos after this browser kept their records.
+      // Those go back to "pending" for a fresh upload from the source file;
+      // the rest of the chunk goes back on the queue and is saved without them.
+      // Every pass takes at least one record out of "uploaded", so this can
+      // never loop; a refusal naming none of this chunk's rows falls through to
+      // the ordinary failure below.
+      const missingIds = err instanceof ApiError ? missingMediaIdsFrom(err.body) : null;
+      const missing = new Set(missingIds ?? []);
+      const gone = recs.filter((r) => missing.has(r.id));
+      if (gone.length > 0) {
+        const now = Date.now();
+        const requeued = gone.map((r) => requeuedForUpload(r, now));
+        for (const r of requeued) {
+          this.records.set(r.id, r);
+          this.compressedSizes.delete(r.id);
+          this.thumbSizes.delete(r.id);
+          this.archiveSizes.delete(r.id);
+          this.archiveChecksums.delete(r.id);
+        }
+        try {
+          await putRecords(requeued);
+        } catch (idbErr) {
+          console.warn("[upload:metadata] could not persist re-queued records", idbErr);
+        }
+        for (const id of [...ids].reverse()) {
+          if (this.records.get(id)?.status === "uploaded") this.metadataPendingIds.unshift(id);
+        }
+        console.warn("[upload:metadata] files no longer in storage, uploading them again", {
+          files: gone.map((r) => r.filename),
+          count: gone.length,
+        });
+        this.scheduleEmit({ isSavingMetadata: false, metadataSaveError: null }, true);
         return;
       }
       const msg = err instanceof Error ? err.message : "metadata save failed";

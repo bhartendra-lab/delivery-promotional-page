@@ -98,7 +98,7 @@ export function ChangeBusinessEmailModal({
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-muted)]">
-              Business email
+              Email
             </span>
             <input
               type="email"

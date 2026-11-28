@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconMinus, IconPlus } from "@/components/ui/icons";
 
-const PRESETS = [1, 5, 10, 25];
+const PRESETS = [1, 5, 10, 15, 20, 25];
 const MAX_QTY = 100;
 
 export function EventQuantity({
@@ -29,7 +29,7 @@ export function EventQuantity({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Quick quantities">
+      <div className="grid grid-cols-6 gap-2 sm:flex sm:flex-wrap" role="group" aria-label="Quick quantities">
         {PRESETS.map((p) => {
           const selected = p === quantity;
           return (
@@ -40,7 +40,7 @@ export function EventQuantity({
                 onChange(p);
                 setDraft(String(p));
               }}
-              className={`brand-focus min-h-11 rounded-full px-4 text-sm font-semibold transition-colors ${
+              className={`brand-focus min-h-11 rounded-full px-0 text-sm font-semibold sm:px-4 transition-colors ${
                 selected
                   ? "bg-[var(--color-brand-navy)] text-white"
                   : "border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] text-[var(--color-brand-ink)]"

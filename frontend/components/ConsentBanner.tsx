@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  GTM_ID,
+  analyticsConfigured,
   OPEN_CONSENT_EVENT,
   getStoredConsent,
   setConsent,
@@ -18,7 +18,7 @@ export function ConsentBanner() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!GTM_ID) return;
+    if (!analyticsConfigured()) return;
     // Defer so the first client render matches the server HTML.
     const t = window.setTimeout(() => setOpen(getStoredConsent() === null), 0);
     const reopen = () => setOpen(true);
@@ -29,7 +29,7 @@ export function ConsentBanner() {
     };
   }, []);
 
-  if (!GTM_ID || !open) return null;
+  if (!analyticsConfigured() || !open) return null;
 
   const choose = (choice: ConsentChoice) => {
     setConsent(choice);

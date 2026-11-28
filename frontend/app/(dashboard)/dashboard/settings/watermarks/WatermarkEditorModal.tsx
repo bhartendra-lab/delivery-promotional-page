@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import {
   createWatermarkPreset,
@@ -9,6 +9,8 @@ import {
 } from "@/lib/api";
 import type { WatermarkPosition, WatermarkPreset } from "@/lib/types";
 import { EDGE_MARGIN_RATIO } from "@/lib/r2-upload/watermark";
+import { watermarkPixelBox } from "@/lib/watermark-samples";
+import { SAMPLE_TONES, samplePairOf, type SampleTone } from "./sample-photos";
 import { trimmedPreviewUrl } from "@/lib/watermark-trim";
 import { Spinner } from "../SettingsUI";
 import { IconX } from "@/components/ui/icons";
@@ -99,36 +101,139 @@ export function watermarkBoxStyle(
   return style;
 }
 
-/** Sample photo with the watermark composited at the chosen placement. */
+/**
+ * A photo with the watermark composited at the chosen placement.
+ *
+ * With a `photo` the frame is the reference 3:2 frame of `orientation` (the
+ * photo is cropped to it) and the mark is positioned by the upload engine's own
+ * math (watermarkPixelBox: size and the edge inset as a share of the shorter
+ * edge, opacity as the canvas alpha), applied to the size the frame has on
+ * screen, so the box matches what upload bakes in. Without one it falls back to
+ * the grey gradient and the CSS box it always used.
+ */
 export function WatermarkPreview({
   src,
   position,
   size,
   opacity,
+  photo,
   orientation = "landscape",
+  className = "",
+}: {
+  /** The watermark image. */
+  src: string | null;
+  position: WatermarkPosition;
+  size: number;
+  opacity: number;
+  /** A photo to judge it on. */
+  photo?: string | null;
+  orientation?: PreviewOrientation;
+  className?: string;
+}) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ W: number; H: number } | null>(null);
+  const [mark, setMark] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = frame.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setBox({ W: el.clientWidth, H: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [photo]);
+
+  if (!photo) {
+    return (
+      <div
+        className={`relative overflow-hidden rounded-xl ${className}`}
+        style={{ background: SAMPLE_BG, aspectRatio: orientation === "landscape" ? "3 / 2" : "2 / 3" }}
+      >
+        {src && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" className="object-contain" style={watermarkBoxStyle(position, size, opacity, orientation)} />
+        )}
+      </div>
+    );
+  }
+
+  const placed = box && mark && box.W > 0 && box.H > 0
+    ? watermarkPixelBox({ position, size, opacity, W: box.W, H: box.H, markW: mark.w, markH: mark.h })
+    : null;
+  return (
+    <div
+      ref={frame}
+      className={`relative overflow-hidden rounded-xl bg-[var(--color-brand-track)] ${className}`}
+      style={{ aspectRatio: orientation === "landscape" ? "3 / 2" : "2 / 3" }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={photo} alt={`Sample ${orientation} photo`} className="absolute inset-0 h-full w-full object-cover" />
+      {src && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          className="absolute max-w-none"
+          style={
+            placed
+              ? { left: placed.left, top: placed.top, width: placed.width, height: placed.height, opacity: placed.opacity }
+              : { visibility: "hidden" }
+          }
+          onLoad={(e) => setMark({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The watermark on a landscape and a portrait sample of one tone, side by side.
+ * 9fr:4fr gives a 3:2 and a 2:3 frame the same height (width ratio 1.5 : 0.667). The mark is sized off the
+ * shorter edge, so it comes out the same on each, as it does on upload.
+ */
+export function WatermarkSamplePair({
+  src,
+  position,
+  size,
+  opacity,
+  tone,
   className = "",
 }: {
   src: string | null;
   position: WatermarkPosition;
   size: number;
   opacity: number;
-  orientation?: PreviewOrientation;
+  tone: SampleTone;
   className?: string;
 }) {
+  const pair = samplePairOf(tone);
   return (
-    <div
-      className={`relative overflow-hidden rounded-xl ${className}`}
-      style={{ background: SAMPLE_BG, aspectRatio: orientation === "landscape" ? "3 / 2" : "2 / 3" }}
-    >
-      {src && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          className="object-contain"
-          style={watermarkBoxStyle(position, size, opacity, orientation)}
-        />
-      )}
+    <div className={`grid grid-cols-[9fr_4fr] items-start gap-2 ${className}`}>
+      <WatermarkPreview src={src} position={position} size={size} opacity={opacity} photo={pair.landscape} orientation="landscape" />
+      <WatermarkPreview src={src} position={position} size={size} opacity={opacity} photo={pair.portrait} orientation="portrait" />
+    </div>
+  );
+}
+
+/** Light or Dark sample photos, for judging a pale mark and a dark mark. */
+export function SampleToneSwitcher({ tone, onChange }: { tone: SampleTone; onChange: (t: SampleTone) => void }) {
+  return (
+    <div role="group" aria-label="Preview on" className="flex flex-wrap items-center gap-1.5">
+      <span className="type-label mr-1">Preview on</span>
+      {SAMPLE_TONES.map((t) => (
+        <button
+          key={t.tone}
+          type="button"
+          aria-pressed={t.tone === tone}
+          onClick={() => onChange(t.tone)}
+          className={`brand-focus rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors ${
+            t.tone === tone
+              ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy-soft)] text-[var(--color-brand-navy-deep)]"
+              : "border-[var(--color-brand-border)] bg-white text-[var(--color-brand-ink)] hover:border-[var(--color-brand-outline)]"
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -249,6 +354,7 @@ export function WatermarkEditorModal({
       ? trimmed.url
       : null
     : (initial?.image_url ?? null);
+  const [tone, setTone] = useState<SampleTone>("light");
 
   const canSave = useMemo(
     () => (mode === "create" ? !!imageFile : true),
@@ -329,20 +435,8 @@ export function WatermarkEditorModal({
             <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
               Preview
             </span>
-            {/* Both orientations: the mark is sized off the shorter edge, so
-                it comes out the same on each — what the studio sees here is
-                what lands on every photo. 3fr:2fr gives the two frames the
-                same height. */}
-            <div className="grid grid-cols-[3fr_2fr] items-start gap-2">
-              <WatermarkPreview src={previewSrc} position={position} size={size} opacity={opacity} />
-              <WatermarkPreview
-                src={previewSrc}
-                position={position}
-                size={size}
-                opacity={opacity}
-                orientation="portrait"
-              />
-            </div>
+            <WatermarkSamplePair src={previewSrc} position={position} size={size} opacity={opacity} tone={tone} />
+            <SampleToneSwitcher tone={tone} onChange={setTone} />
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">

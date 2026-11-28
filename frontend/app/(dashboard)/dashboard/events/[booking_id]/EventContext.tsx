@@ -5,7 +5,7 @@ import type { AddCoupleContactsResponse, CustomFolder, EventExpiryInput, MediaIt
 import type { ArchiveTier, DeliveryPreferences } from "@/lib/delivery-preferences";
 import type { UploadVariant } from "@/lib/r2-upload/compressor";
 import type { PhotoCap } from "@/lib/billing-types";
-import type { UploadOrigins, addCoupleContacts as addCoupleContactsApi } from "@/lib/api";
+import type { UploadOrigins, ChangeRequest, ChangeRequestType, addCoupleContacts as addCoupleContactsApi } from "@/lib/api";
 import type { UploadEngineHook } from "./useUploadEngine";
 
 /** Synthetic folder id for the "All Media" view (no server folder filter). */
@@ -212,6 +212,13 @@ export type EventContextValue = {
    * since the grid only holds the pages scrolled so far.
    */
   selectAllIds: () => Promise<string[]>;
+  /** This event's change requests (a locked name or cover), newest first. */
+  changeRequests: ChangeRequest[];
+  /** Opens the "Request a change" dialog, on the type the studio came from. */
+  openChangeRequest: (type: ChangeRequestType) => void;
+  /** After a QR is linked to, moved to, or unlinked from this event on the
+   *  Share view: updates `meta.qrUniqueId` / `meta.qrImageUrl` in place. */
+  setLinkedQr: (qr: { uniqueId: string; imageUrl: string } | null) => void;
   toast: (msg: string, type?: "success" | "error") => void;
 };
 

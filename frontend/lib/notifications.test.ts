@@ -45,3 +45,10 @@ test("noticeHref: a referral notice opens the referral page", () => {
     "/dashboard/settings/referrals",
   );
 });
+
+test("a decided change request opens the event, not Smart Selects", () => {
+  assert.equal(
+    noticeHref({ type: "change_request_decided", booking_id: "b123", data: { collection_ids: [], collection_names: [], client_name: null, photo_count: 0 } }),
+    "/dashboard/events/b123",
+  );
+});

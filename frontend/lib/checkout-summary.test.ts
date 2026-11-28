@@ -6,6 +6,7 @@ import {
   nextTierNudge,
   couponChipLabel,
   appliedBonusLabel,
+  isFreeFirstEventOffer,
   type PricedPreview,
 } from "./checkout-summary.ts";
 
@@ -82,4 +83,14 @@ test("couponChipLabel / appliedBonusLabel: figures from the coupon, no dashes", 
   for (const text of [couponBonusRowLabel("+1", 1), nextTierNudge({ min_quantity: 5, bonus_events: 2, events_to_add: 1 }) ?? "", couponChipLabel(bonus)]) {
     assert.doesNotMatch(text, /[\u2013\u2014]/);
   }
+});
+
+test("the first-event-free offer is the exclusive event coupon at 100% off, and nothing else", () => {
+  const firstOnUs = { exclusive: true, audience: "event" as const, reward_type: "percent_off" as const, percent_off: 100 };
+  assert.equal(isFreeFirstEventOffer(firstOnUs), true);
+  assert.equal(isFreeFirstEventOffer({ ...firstOnUs, exclusive: false }), false, "FIRSTFREE after FIRSTONUS ends: usual flow");
+  assert.equal(isFreeFirstEventOffer({ ...firstOnUs, percent_off: 50 }), false);
+  assert.equal(isFreeFirstEventOffer({ ...firstOnUs, audience: "storage" }), false);
+  assert.equal(isFreeFirstEventOffer({ ...firstOnUs, reward_type: "bonus_events", percent_off: null }), false);
+  assert.equal(isFreeFirstEventOffer(null), false);
 });

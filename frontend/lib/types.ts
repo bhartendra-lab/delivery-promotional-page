@@ -185,6 +185,10 @@ export type Company = {
   business_email_verified?: boolean;
   /** Holds a new address while its OTP is in flight (see `whatsapp_pending_number`). */
   business_email_pending?: string;
+  /** Asked at onboarding. Absent on studios created before they were asked. */
+  city?: string;
+  acquisition_source?: string;
+  acquisition_source_other?: string;
   /** Default (dark) logo, shown on light surfaces. */
   logo?: string;
   /** Optional light logo, shown on dark surfaces; falls back to `logo`. */
@@ -359,8 +363,17 @@ export type UserProfile = {
   first_name?: string;
   last_name?: string;
   personal_contact?: string;
-  /** Login identity — read-only here; change it only via the login/auth flow. */
+  /** Sign-in email, when there is one. Changed only through Settings → Sign-in details (with a code). */
   email?: string;
+};
+
+/** The signed-in user's ways in (GET /onboarding/get-user-details `sign_in`). */
+export type SignInDetails = {
+  email: string | null;
+  email_verified: boolean;
+  whatsapp_number: string | null;
+  whatsapp_verified: boolean;
+  has_google: boolean;
 };
 
 /**
@@ -644,7 +657,11 @@ export type BookingsListResponse = {
   reviewTrackings?: number;
   /** Company-wide status counts (all statuses, ignoring the current page's
    *  status/pagination filter). Optional so older backends still type-check. */
-  summary?: { live: number; archived: number };
+  summary?: { live: number; deactivated?: number; archived: number };
+  /** The Events page's four filter counts: company-wide, ignoring the current filter, search and page. */
+  counts?: { all: number; active: number; deactivated: number; archived: number };
+  /** The size of the filtered set, when no search narrows it; null otherwise. Gives exact page numbers. */
+  total?: number | null;
 };
 
 /**

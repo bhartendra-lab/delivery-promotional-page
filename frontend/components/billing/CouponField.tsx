@@ -9,7 +9,7 @@ import { useCompany } from "@/lib/useCompany";
 import { formatInr } from "@/lib/plans";
 import { appliedBonusLabel, couponChipLabel } from "@/lib/checkout-summary";
 import { normalizeReferralCode } from "@/lib/referral";
-import { IconX } from "@/components/ui/icons";
+import { IconCheck, IconX } from "@/components/ui/icons";
 
 export type AppliedCoupon = {
   code: string;
@@ -25,7 +25,7 @@ export type AppliedCoupon = {
  * so the parent's CheckoutSummary/useCheckoutFlow can compute totals and pass
  * the code at checkout time.
  *
- * Above the input, "Offers for you": the coupons this studio can use on this
+ * The code box is always open, and "Offers for you" sits right under it: the coupons this studio can use on this
  * plan right now (GET /billing/coupons/available), one tap each, so a studio
  * never has to remember a code it saw on the login page. A referred studio
  * that has not paid gets the referral program's coupon applied for it, the
@@ -51,7 +51,6 @@ export function CouponField({
   /** Pre-fills and auto-validates once on mount — the landing page's `?coupon=` deep link. */
   initialCode?: string | null;
 }) {
-  const [expanded, setExpanded] = useState(Boolean(initialCode));
   const [input, setInput] = useState(initialCode ?? "");
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +66,6 @@ export function CouponField({
   useEffect(() => {
     if (checkoutRejection && checkoutRejection !== lastRejection.current) {
       setApplied(null);
-      setExpanded(true);
       setError(checkoutRejection);
       onChange(null);
     }
@@ -101,10 +99,7 @@ export function CouponField({
         onChange(next);
       } else {
         setApplied(null);
-        if (!silent) {
-          setExpanded(true);
-          setError(result.message);
-        }
+        if (!silent) setError(result.message);
         onChange(null);
       }
     } catch (err) {
@@ -167,59 +162,24 @@ export function CouponField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId, quantity]);
 
-  const offersList =
-    offers.length > 0 ? (
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-semibold text-[var(--color-brand-muted)]">Offers for you</p>
-        <div className="flex flex-wrap gap-2">
-          {offers.map((offer) => (
-            <button
-              key={offer.code}
-              type="button"
-              disabled={validating}
-              onClick={() => runValidate(offer.code)}
-              className="brand-focus inline-flex items-center rounded-full border border-dashed border-[var(--color-brand-navy)]/40 bg-[var(--color-brand-navy-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--color-brand-navy-deep)] transition-colors hover:border-[var(--color-brand-navy)] disabled:opacity-60"
-            >
-              {couponChipLabel(offer)}
-            </button>
-          ))}
-        </div>
-      </div>
-    ) : null;
-
-  if (!expanded && !applied) {
-    return (
-      <div className="flex flex-col gap-3">
-        {offersList}
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="brand-focus w-fit text-sm font-medium text-[var(--color-brand-muted)] underline-offset-2 hover:underline"
-        >
-          Have a coupon?
-        </button>
-      </div>
-    );
-  }
-
   if (applied) {
     const bonusLabel = appliedBonusLabel(applied.bonusEvents);
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-navy-soft)] px-3 py-2 text-sm">
-        <span className="font-bold text-[var(--color-brand-navy-deep)]">{applied.code}</span>
+      <div className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--color-brand-navy)]/50 bg-[var(--color-brand-navy-soft)] px-3 py-2.5 text-sm">
+        <IconCheck size={14} className="shrink-0 text-[var(--color-brand-navy)]" />
+        <span className="font-bold tracking-wide text-[var(--color-brand-navy-deep)]">{applied.code}</span>
         <span className="text-[var(--color-brand-ink)]">
-          · {bonusLabel ?? `−${formatInr(applied.discountAmount, { paise: true })}`}
+          applied · {bonusLabel ?? `−${formatInr(applied.discountAmount, { paise: true })}`}
         </span>
         <button
           type="button"
           onClick={() => {
             setApplied(null);
             setInput("");
-            setExpanded(false);
             onChange(null);
           }}
           aria-label="Remove coupon"
-          className="brand-focus ml-auto flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-white/50"
+          className="brand-focus ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-brand-muted)] hover:bg-white/60"
         >
           <IconX size={12} />
         </button>
@@ -228,29 +188,55 @@ export function CouponField({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {offersList && <div className="mb-1.5">{offersList}</div>}
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (input.trim() && !validating) void runValidate(input.trim());
+        }}
+      >
         <input
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value.toUpperCase())}
-          placeholder="COUPON CODE"
-          className="brand-focus h-10 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm uppercase tracking-wide text-[var(--color-brand-ink)] placeholder:text-[var(--color-brand-muted)]/60"
+          onChange={(e) => {
+            setInput(e.target.value.toUpperCase());
+            setError(null);
+          }}
+          placeholder="Coupon code"
+          aria-label="Coupon code"
+          autoComplete="off"
+          spellCheck={false}
+          className="brand-focus h-10 min-w-0 flex-1 rounded-lg border border-[var(--color-brand-border)] bg-[var(--color-brand-bg)] px-3 text-sm uppercase tracking-wide text-[var(--color-brand-ink)] placeholder:normal-case placeholder:tracking-normal placeholder:text-[var(--color-brand-muted)]/70"
         />
         <button
-          type="button"
+          type="submit"
           disabled={!input.trim() || validating}
-          onClick={() => runValidate(input.trim())}
-          className="brand-focus h-10 shrink-0 rounded-lg bg-[var(--color-brand-navy)] px-4 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-brand-navy-deep)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="brand-focus h-10 shrink-0 rounded-lg border border-[var(--color-brand-navy)] px-4 text-sm font-semibold text-[var(--color-brand-navy)] transition-colors hover:bg-[var(--color-brand-navy-soft)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {validating ? "Checking…" : "Apply"}
         </button>
-      </div>
+      </form>
       {error && (
         <p className="text-xs text-[var(--color-brand-danger)]" role="alert">
           {error}
         </p>
+      )}
+      {offers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-[var(--color-brand-muted)]">Offers for you:</span>
+          {offers.map((offer) => (
+            <button
+              key={offer.code}
+              type="button"
+              disabled={validating}
+              onClick={() => runValidate(offer.code)}
+              className="brand-focus inline-flex items-center rounded-full border border-dashed border-[var(--color-brand-navy)]/40 bg-[var(--color-brand-navy-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-navy-deep)] transition-colors hover:border-[var(--color-brand-navy)] disabled:opacity-60"
+            >
+              {couponChipLabel(offer)}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -101,7 +101,7 @@ export function CoupleContactsCard({ slots, onAdded }: { slots: CoupleSlot[]; on
             {both ? "Add the couple's WhatsApp" : `Add the ${slots[0].role}'s WhatsApp`}
             <Tip text="A number added here makes that person a Client: they sign in with it and see the full gallery. If they already signed in with this number, their existing Guest entry becomes the Bride or Groom." />
           </h3>
-          <p className="mt-0.5 text-[12.5px] text-[var(--color-brand-muted)]">
+          <p className="mt-0.5 text-[13px] text-[var(--color-brand-body)]">
             {both ? "Not added at setup. They become Clients with full access." : "Not added at setup. They become a Client with full access."}
           </p>
         </div>

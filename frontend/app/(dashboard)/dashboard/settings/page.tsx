@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CompanyUpdateInput } from "@/lib/api";
 import type { Company } from "@/lib/types";
 import { ImageUpload } from "@/components/ui/ImageUpload";
@@ -8,23 +8,15 @@ import { useSettings, useSectionSave, useReportDirty } from "./SettingsContext";
 import { useReminders } from "@/components/dashboard/RemindersProvider";
 import { ChangeWhatsappModal } from "./ChangeWhatsappModal";
 import { ChangeBusinessEmailModal } from "./ChangeBusinessEmailModal";
-import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { parseGoogleReviewLink } from "@/lib/google-review";
 import {
   SectionHeading,
   Card,
   Field,
-  AddressField,
-  CopyableIdField,
   VerifiedWhatsappField,
   VerifiedBusinessEmailField,
   SaveBar,
   BuildingIcon,
-  GlobeIcon,
   ImageIcon,
-  OpenIcon,
-  CheckIcon,
   changed,
 } from "./SettingsUI";
 
@@ -34,11 +26,10 @@ import {
 const WEBSITE_RE = /^https?:\/\/[^\s]+\.[^\s]+$/i;
 
 /**
- * Studio Identity — the merged Business Information, Google Business
- * Integration and Studio Logo tab. Previously three separate routes/nav
- * items (`/settings`, `/settings/online-presence`, `/settings/logo`);
- * merged into one so studios only have one place to set up how they show up
- * on delivery pages and Google. One shared save bar for the whole page.
+ * Studio Identity — the logo first (it is on every delivery page and is what
+ * studios notice), then the business details, most of which sign-up already
+ * filled in. Google reviews has its own section now (settings/google).
+ * One shared save bar for the whole page.
  */
 export default function StudioIdentityPage() {
   const { company, userProfile, setCompanyState } = useSettings();
@@ -50,57 +41,6 @@ export default function StudioIdentityPage() {
 
   const loginEmail = userProfile?.email?.trim() ?? "";
 
-  const [address, setAddress] = useState(company.address ?? "");
-  const [googlePlaceId, setGooglePlaceId] = useState(company.google_place_id ?? "");
-  // Absent on a company that predates the switch, and absent is ON.
-  const savedReviewEnabled = company.google_review_enabled !== false;
-  const [reviewEnabled, setReviewEnabled] = useState(savedReviewEnabled);
-  const [confirmReviewsOff, setConfirmReviewsOff] = useState(false);
-  const reviewDescriptionId = useId();
-  // A Studio's own call whether to ask for reviews, so the switch works whenever
-  // a review button could exist at all — a picked listing, or the legacy GMB
-  // link some older Studios still carry. With neither there is no button to
-  // switch off.
-  const [reviewLink, setReviewLink] = useState(company.gmb_link ?? "");
-  const reviewCheck = parseGoogleReviewLink(reviewLink);
-  const hasReviewListing = !!googlePlaceId.trim() || reviewCheck.status !== "invalid";
-
-  // The formatted address Google last committed via onPlaceSelect. Initialised
-  // from the loaded company address (not "") so an already-saved listing
-  // doesn't get its place ID wiped by the first unrelated keystroke on page
-  // load. Any further typing that diverges from this means the picked place
-  // no longer matches what's in the field, so the stale placeId must be
-  // cleared — see handleAddressChange below.
-  const committedAddressRef = useRef<string>(company.address ?? "");
-
-  function handleAddressChange(value: string) {
-    setAddress(value);
-    if (value !== committedAddressRef.current) setGooglePlaceId("");
-  }
-
-  // The pasted review link and the searched listing are two ways to say the
-  // same thing, and the gallery prefers a place ID when both exist. So the last
-  // one a Studio sets wins here, instead of a stale place ID silently
-  // overriding a link that was just pasted (or the reverse).
-  function handleReviewLinkChange(value: string) {
-    setReviewLink(value);
-    const check = parseGoogleReviewLink(value);
-    if (check.status === "ok") setGooglePlaceId(check.placeId ?? "");
-  }
-
-  function handleRemoveListing() {
-    if (
-      !window.confirm(
-        "Remove this listing? Guests will no longer see a Leave a review button on any of your galleries.",
-      )
-    ) {
-      return;
-    }
-    setGooglePlaceId("");
-    setReviewLink("");
-    setAddress("");
-    committedAddressRef.current = "";
-  }
 
   const [darkFile, setDarkFile] = useState<File | null>(null);
   const [lightFile, setLightFile] = useState<File | null>(null);
@@ -147,10 +87,6 @@ export default function StudioIdentityPage() {
   const dirty =
     changed(name, company.name) ||
     changed(website, company.website) ||
-    changed(address, company.address) ||
-    changed(googlePlaceId, company.google_place_id) ||
-    changed(reviewLink, company.gmb_link) ||
-    reviewEnabled !== savedReviewEnabled ||
     !!darkFile ||
     !!lightFile;
   useReportDirty(dirty);
@@ -162,19 +98,8 @@ export default function StudioIdentityPage() {
   const nameError = name.length > 0 && !name.trim() ? "Studio name can't be blank." : null;
   const trimmedWebsite = website.trim();
   const websiteError = trimmedWebsite && !WEBSITE_RE.test(trimmedWebsite) ? "Enter a valid website address." : null;
-  // Only a link the Studio has just typed is held to the review-link rule. An
-  // older saved listing link stays as it is until the Studio touches it.
-  const reviewLinkTouched = changed(reviewLink, company.gmb_link);
-  const reviewLinkError =
-    !reviewLinkTouched || reviewCheck.status === "ok" || reviewCheck.status === "invalid" && reviewCheck.reason === "empty"
-      ? null
-      : reviewCheck.status === "listing"
-        ? "This opens your Google listing, not the review box. Use the link from Business Profile > Ask for reviews."
-        : reviewCheck.status === "invalid" && reviewCheck.reason === "not-a-link"
-          ? "That doesn't look like a link. Paste the whole review link."
-          : "That isn't a Google link. Paste the review link from your Google Business Profile.";
-  const canSave = !!name.trim() && !websiteError && !reviewLinkError && dirty;
-  const blockedReason = nameError ?? websiteError ?? reviewLinkError ?? null;
+  const canSave = !!name.trim() && !websiteError && dirty;
+  const blockedReason = nameError ?? websiteError ?? null;
 
   // Auto-prefixes a bare domain ("royalorchidbanquet.com") with https:// on
   // blur rather than relying on native `type="url"` validation — that
@@ -195,10 +120,6 @@ export default function StudioIdentityPage() {
     const payload: CompanyUpdateInput = {};
     if (changed(name, company.name)) payload.name = name.trim();
     if (changed(website, company.website)) payload.website = trimmedWebsite;
-    if (changed(address, company.address)) payload.address = address.trim();
-    if (changed(googlePlaceId, company.google_place_id)) payload.google_place_id = googlePlaceId.trim();
-    if (reviewLinkTouched) payload.gmb_link = reviewCheck.status === "ok" ? reviewCheck.url : "";
-    if (reviewEnabled !== savedReviewEnabled) payload.google_review_enabled = reviewEnabled;
     if (darkFile) payload.logo = darkFile;
     if (lightFile) payload.logo_light = lightFile;
     const ok = await submit(payload);
@@ -211,11 +132,6 @@ export default function StudioIdentityPage() {
   function handleDiscard() {
     setName(company.name ?? "");
     setWebsite(company.website ?? "");
-    setAddress(company.address ?? "");
-    setGooglePlaceId(company.google_place_id ?? "");
-    setReviewLink(company.gmb_link ?? "");
-    setReviewEnabled(savedReviewEnabled);
-    committedAddressRef.current = company.address ?? "";
     setDarkFile(null);
     setLightFile(null);
   }
@@ -224,8 +140,33 @@ export default function StudioIdentityPage() {
     <form id="studio-identity-form" onSubmit={handleSubmit} className="space-y-6">
       <SectionHeading
         title="Studio Identity"
-        description="How your studio shows up on every delivery page you send to clients, and on Google."
+        description="Your logo and the details clients see on every delivery page."
       />
+
+      <Card title="Studio logo" icon={<ImageIcon />}>
+        <div id="studio-logo" className="scroll-mt-24">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <ImageUpload
+              label="Business logo (dark) · default"
+              existingUrl={company.logo ?? null}
+              file={darkFile}
+              onChange={setDarkFile}
+            />
+            <ImageUpload
+              label="Business logo (light)"
+              existingUrl={company.logo_light ?? null}
+              file={lightFile}
+              onChange={setLightFile}
+            />
+          </div>
+          <p className="mt-3 text-xs text-[var(--color-brand-muted)]">
+            Shown on every delivery page. PNG, JPG or WEBP, up to 5 MB. Add a light logo
+            too if any of your pages use a dark background; it falls back to the dark one
+            where it isn&apos;t set.
+          </p>
+        </div>
+      </Card>
+
 
       <Card
         title="Business information"
@@ -251,7 +192,7 @@ export default function StudioIdentityPage() {
         </div>
         {emailVerifiedFlash && (
           <p className="mt-1.5 text-xs font-semibold text-[var(--color-brand-success)]" aria-live="polite">
-            Business email verified.
+            Email verified. You can sign in with it now.
           </p>
         )}
         <div className="mt-5">
@@ -280,150 +221,6 @@ export default function StudioIdentityPage() {
         />
       </Card>
 
-      <Card
-        title="Google Business integration"
-        icon={<GlobeIcon />}
-        description="This powers the Google Reviews link on your delivery pages. Getting the right listing here means clients land on the correct page when they tap Leave a review."
-      >
-        <div className="space-y-5">
-          <div>
-            <AddressField
-              label="Your studio on Google"
-              value={address}
-              onChange={handleAddressChange}
-              onPlaceSelect={({ placeId, address: pickedAddress }) => {
-                setGooglePlaceId(placeId);
-                setReviewLink("");
-                committedAddressRef.current = pickedAddress;
-              }}
-              placeholder="Search for your studio"
-              layout="row"
-            />
-            <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-              Pick the matching listing from the list. This links your Google reviews automatically.
-            </p>
-          </div>
-
-          <div>
-            <Field
-              label="Or paste your review link"
-              value={reviewLink}
-              onChange={handleReviewLinkChange}
-              placeholder="https://g.page/r/.../review"
-              error={reviewLinkError ?? undefined}
-              hint={
-                reviewCheck.status === "ok"
-                  ? "Guests will land straight on your Google review box."
-                  : "Can't find your studio in the search, or the name is in Hindi? Paste the link instead."
-              }
-              layout="row"
-            />
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 lg:ml-[224px]">
-              <a
-                href="/guides/google-review-link"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
-              >
-                <OpenIcon className="h-3.5 w-3.5" />
-                Show me how to get this link
-              </a>
-              {reviewCheck.status === "ok" && (
-                <a
-                  href={reviewCheck.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
-                >
-                  <OpenIcon className="h-3.5 w-3.5" />
-                  Test this link
-                </a>
-              )}
-            </div>
-          </div>
-
-          {googlePlaceId && (
-            <CopyableIdField
-              label="Google Reviews ID"
-              value={googlePlaceId}
-              layout="row"
-              helper={
-                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                  <p className="flex items-center gap-1 text-xs text-[var(--color-brand-muted)]">
-                    <CheckIcon className="h-3 w-3 shrink-0 text-[var(--color-brand-success)]" />
-                    This is the page clients land on when they tap Leave a review.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <a
-                      href={`https://search.google.com/local/writereview?placeid=${encodeURIComponent(googlePlaceId)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="brand-focus inline-flex items-center gap-1.5 rounded-md text-xs font-semibold text-[var(--color-brand-navy)] hover:underline"
-                    >
-                      <OpenIcon className="h-3.5 w-3.5" />
-                      See your Google Reviews page
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleRemoveListing}
-                      className="brand-focus rounded-md text-xs font-semibold text-[var(--color-brand-danger)] hover:underline"
-                    >
-                      Remove listing
-                    </button>
-                  </div>
-                </div>
-              }
-            />
-          )}
-
-          <div className="lg:grid lg:grid-cols-[200px_minmax(0,440px)] lg:items-start lg:gap-x-6">
-            <span className="mb-1.5 block text-[13px] font-medium text-[var(--color-brand-ink)] lg:mb-0 lg:pt-0.5">
-              Ask Guests for reviews
-            </span>
-            <div className="flex items-start justify-between gap-4">
-              <p id={reviewDescriptionId} className="text-xs leading-relaxed text-[var(--color-brand-muted)]">
-                Galleries show a Google review button and an occasional prompt. Turn this off to remove both everywhere.
-                {!hasReviewListing && (
-                  <span className="mt-1 block font-medium text-[var(--color-brand-ink)]">
-                    Guests see no review button until you pick your listing or paste your review link above.
-                  </span>
-                )}
-              </p>
-              <ToggleSwitch
-                checked={reviewEnabled}
-                onChange={(next) => (next ? setReviewEnabled(true) : setConfirmReviewsOff(true))}
-                disabled={!hasReviewListing}
-                label="Ask Guests for reviews"
-                describedById={reviewDescriptionId}
-              />
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card title="Studio logo" icon={<ImageIcon />}>
-        <div id="studio-logo" className="scroll-mt-24">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <ImageUpload
-              label="Business logo (dark) · default"
-              existingUrl={company.logo ?? null}
-              file={darkFile}
-              onChange={setDarkFile}
-            />
-            <ImageUpload
-              label="Business logo (light)"
-              existingUrl={company.logo_light ?? null}
-              file={lightFile}
-              onChange={setLightFile}
-            />
-          </div>
-          <p className="mt-3 text-xs text-[var(--color-brand-muted)]">
-            Shown on every delivery page. PNG, JPG or WEBP, up to 5 MB. Add a light logo
-            too if any of your pages use a dark background; it falls back to the dark one
-            where it isn&apos;t set.
-          </p>
-        </div>
-      </Card>
 
       <SaveBar
         saveState={saveState}
@@ -436,17 +233,6 @@ export default function StudioIdentityPage() {
         onDiscard={handleDiscard}
       />
 
-      <ConfirmDialog
-        open={confirmReviewsOff}
-        title="Stop asking Guests for reviews?"
-        description="No gallery will show a review button or prompt, including events where it is switched on. Your Google listing is not affected."
-        confirmLabel="Turn it off"
-        onCancel={() => setConfirmReviewsOff(false)}
-        onConfirm={() => {
-          setReviewEnabled(false);
-          setConfirmReviewsOff(false);
-        }}
-      />
 
       <ChangeWhatsappModal
         open={changeWhatsappOpen}

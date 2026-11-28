@@ -101,11 +101,12 @@ function PersonalInformationForm({ profile }: { profile: UserProfile }) {
         <Card title="Your details" icon={<UserIcon />}>
           <div className="space-y-5">
             <Field
-              label="Login email"
+              label="Sign-in email"
               value={profile.email ?? ""}
               onChange={() => {}}
               readOnly
-              hint="Used only to sign in. For the address clients see, set a verified Business email on Studio Identity."
+              placeholder="Not set"
+              hint="Add or change it on Studio Identity, with a code. Your WhatsApp number signs you in too."
               layout="row"
             />
             <Field

@@ -48,6 +48,23 @@ export function coupleEventNamePreview(brideName: string, groomName: string): st
   return firstNameOf(brideName) && firstNameOf(groomName) ? coupleEventName(brideName, groomName) : null;
 }
 
+/**
+ * The Event name field of a couple event: what it shows, and what is sent.
+ *
+ * It shows the live "Aanya & Rohan" preview until the Studio types in it; from
+ * then on it shows what they typed, even when they later change a name above.
+ * What is sent is that text trimmed, or nothing when it is empty (the backend
+ * then names the event from the couple), so a couple event is always named.
+ */
+export function coupleEventNameField(args: { preview: string | null; edited: boolean; typed: string }): {
+  value: string;
+  send: string | null;
+} {
+  const value = args.edited ? args.typed : (args.preview ?? "");
+  const trimmed = collapseWhitespace(value);
+  return { value, send: trimmed ? trimmed : null };
+}
+
 /* ── the people ─────────────────────────────────────────────────────────── */
 
 /** Most people one event may be created with, Bride and Groom included. */

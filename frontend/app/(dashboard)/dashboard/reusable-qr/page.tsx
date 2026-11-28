@@ -65,7 +65,16 @@ export default function ReusableQrPage() {
   const handleLinked = useCallback(
     (qrUniqueId: string, assigned: AssignedEventSummary) => {
       setQrs((prev) =>
-        prev ? prev.map((q) => (q.unique_id === qrUniqueId ? { ...q, assigned_event: assigned } : q)) : prev,
+        prev
+          ? prev.map((q) =>
+              q.unique_id === qrUniqueId
+                ? { ...q, assigned_event: assigned }
+                : // The QR this event held before (a replace link) is free now.
+                  q.assigned_event?.booking_id === assigned.booking_id
+                  ? { ...q, assigned_event: null }
+                  : q,
+            )
+          : prev,
       );
       notify(`QR now points at ${assigned.name}.`);
     },
@@ -179,6 +188,7 @@ export default function ReusableQrPage() {
                 <QrCard
                   key={qr.unique_id}
                   qr={qr}
+                  allQrs={qrs}
                   onLinked={handleLinked}
                   onUnlink={handleUnlink}
                   onDelete={handleDelete}
