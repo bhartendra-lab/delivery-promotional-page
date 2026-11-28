@@ -380,6 +380,26 @@ async function openZipTarget(name: string): Promise<FsWritable | null> {
   return handle.createWritable();
 }
 
+/**
+ * Collect a byte stream into a Blob.
+ *
+ * Used in place of `new Response(stream).blob()`, which in Chromium turns ANY
+ * error thrown inside the stream into a bare `TypeError: Failed to fetch`: the
+ * real cause is lost, and an abort no longer matches `AbortError`, so a Guest
+ * cancelling (or leaving) mid-ZIP was reported as a failed download. Reading the
+ * stream directly rejects with the error that was actually thrown.
+ */
+export async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    chunks.push(value as Uint8Array<ArrayBuffer>);
+  }
+  return new Blob(chunks, { type: "application/zip" });
+}
+
 /** Fallback save: trigger a normal download of an already-built Blob (used where
  *  the File System Access API isn't available). */
 export function triggerBlobDownload(blob: Blob, filename: string): void {
@@ -510,7 +530,7 @@ export async function streamZipToDisk(
     if (target) {
       await zipStream.pipeTo(target); // true streaming to disk (bounded memory)
     } else {
-      const blob = await new Response(zipStream).blob(); // buffer, then download
+      const blob = await streamToBlob(zipStream); // buffer, then download
       triggerBlobDownload(blob, name);
     }
   } catch (err) {

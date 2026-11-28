@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DirectoryRefusedError, runDirectoryDownload, type FsDirHandle } from "./engines.ts";
+import { DirectoryRefusedError, runDirectoryDownload, runZipDownload, type FsDirHandle } from "./engines.ts";
 import type { PlanItem } from "./plan.ts";
 
 const refusal = () =>
@@ -134,6 +134,29 @@ test("a missing photo (404) is not retried", async () => {
     });
     assert.equal(result.failed, 1);
     assert.equal(calls, 1); // item URL has no cold-host rewrite, so a single request
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("cancelling an in-memory ZIP is a cancel, not a failure", async () => {
+  const real = globalThis.fetch;
+  const ctrl = new AbortController();
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 2) ctrl.abort(); // the Guest presses Cancel mid-run
+    return new Response(new Uint8Array([1, 2, 3]));
+  }) as typeof fetch;
+  try {
+    const result = await runZipDownload({
+      target: null,
+      zipName: "x.zip",
+      items: [item("a", "1.jpg"), item("b", "2.jpg"), item("c", "3.jpg"), item("d", "4.jpg")],
+      concurrency: 1,
+      signal: ctrl.signal,
+    });
+    assert.equal(result.aborted, true);
   } finally {
     globalThis.fetch = real;
   }

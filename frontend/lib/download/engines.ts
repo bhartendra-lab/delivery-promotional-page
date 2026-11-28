@@ -18,6 +18,7 @@ import {
   coldFallback,
   fetchImageBlob,
   keyedForThisPage,
+  streamToBlob,
   triggerBlobDownload,
   whenVisible,
 } from "../media-actions.ts";
@@ -661,12 +662,12 @@ export async function runZipDownload({
     if (target) {
       await zipStream.pipeTo(target); // true streaming to disk
     } else {
-      const blob = await new Response(zipStream).blob(); // buffer, then download
+      const blob = await streamToBlob(zipStream); // buffer, then download
       triggerBlobDownload(blob, zipName);
     }
   } catch (err) {
     if (target) await target.abort(err).catch(() => {});
-    if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
+    if (signal.aborted || err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
       return { saved, skipped: 0, failed, aborted: true, failureReasons, failedUrl };
     }
     // Say where it broke: the ZIP stream's own errors are otherwise
