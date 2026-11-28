@@ -329,6 +329,17 @@ function isAlreadySaved(item: PlanItem, existing: Map<string, number>): boolean 
 
 const DIRECTORY_CONCURRENCY = 4;
 
+/** Attempts per photo before it is counted as failed (matches the ZIP path). */
+const DIRECTORY_ATTEMPTS = 4;
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** `writeFrom` threw because storage answered 4xx other than 429. */
+const isClientError = (err: unknown): boolean => {
+  const status = /^HTTP (\d{3})$/.exec(err instanceof Error ? err.message : "")?.[1];
+  return status !== undefined && status.startsWith("4") && status !== "429";
+};
+
 /**
  * Write every item straight into the chosen folder, streamed.
  *
@@ -447,19 +458,33 @@ export async function runDirectoryDownload({
     const isCancel = (err: unknown) =>
       signal.aborted || (err instanceof DOMException && err.name === "AbortError");
     try {
-      try {
-        await writeFrom(item.url);
-      } catch (err) {
-        // Once more under the cache-keyed URL — see `cacheKeyed` for why that
-        // is the attempt that tends to get through on Android.
-        const alternate = keyedForThisPage(item.url);
-        // A browser refusal is not a network problem: another URL can't help.
-        if (isCancel(err) || isRefusedByBrowser(err) || alternate === item.url) throw err;
-        await whenVisible();
-        await writeFrom(alternate).catch(() => {
-          throw err; // the first error is the one worth reporting
-        });
+      // The ZIP path has always given each photo several attempts with a
+      // backoff; this one used to give it two, back to back, so on a long run a
+      // brief network blip (or Chrome pausing a hidden tab's requests) lost the
+      // photo — 2 of 2254, 4 of 613 in the failure reports. Same policy now:
+      // the shown URL first, then the cache-keyed one (see `cacheKeyed` for why
+      // that is the attempt that tends to get through), pausing between tries.
+      const alternate = keyedForThisPage(item.url);
+      let firstError: unknown;
+      let wrote = false;
+      for (let attempt = 0; attempt < DIRECTORY_ATTEMPTS && !wrote; attempt++) {
+        try {
+          await writeFrom(attempt === 0 ? item.url : alternate);
+          wrote = true;
+        } catch (err) {
+          // A browser refusal is not a network problem: another try can't help.
+          if (isCancel(err) || isRefusedByBrowser(err)) throw err;
+          firstError ??= err; // the first error is the one worth reporting
+          // A genuine 4xx (missing/forbidden) won't improve on retry.
+          if (isClientError(err)) break;
+          if (attempt < DIRECTORY_ATTEMPTS - 1) {
+            await delay(500 * 2 ** attempt);
+            if (signal.aborted) throw ABORTED;
+            await whenVisible();
+          }
+        }
       }
+      if (!wrote) throw firstError;
       saved += 1;
       progress.advance(item.bytes);
     } catch (err) {
@@ -579,7 +604,7 @@ export async function runZipDownload({
   let failed = 0;
   const failureReasons: string[] = [];
   let failedUrl: string | undefined;
-  async function* members(): AsyncGenerator<{ name: string; input: Blob }> {
+  async function* members(): AsyncGenerator<{ name: string; input: Uint8Array }> {
     // Sliding window of in-flight downloads — each resolves to a fully-buffered
     // Blob (or null), so what `client-zip` is handed is always complete.
     const pending: { name: string; bytes: number; blob: Promise<Blob | null> }[] = [];
@@ -607,10 +632,24 @@ export async function runZipDownload({
       fill();
       const blob = await entry.blob;
       if (signal.aborted) throw ABORTED;
-      progress.advance(blob?.size ?? 0);
+      // Read the photo into memory HERE, where a failure is that one photo's.
+      // Handed over as a Blob, `client-zip` reads it later inside the ZIP stream,
+      // where an unreadable Blob (browsers page large ones to disk, and can lose
+      // them) surfaces as a bare "TypeError: Failed to fetch" that ends the whole
+      // run — the "Failed at: run" reports on memoryZip.
+      let bytes: Uint8Array | null = null;
       if (blob) {
+        try {
+          bytes = new Uint8Array(await blob.arrayBuffer());
+        } catch (err) {
+          failedUrl ??= resolved[paths.indexOf(entry.name)]?.url;
+          noteFailureReason(failureReasons, `unreadable after download: ${describeError(err)}`);
+        }
+      }
+      progress.advance(bytes?.byteLength ?? 0);
+      if (bytes) {
         saved += 1;
-        yield { name: entry.name, input: blob };
+        yield { name: entry.name, input: bytes };
       } else {
         failed += 1;
       }
@@ -629,6 +668,11 @@ export async function runZipDownload({
     if (target) await target.abort(err).catch(() => {});
     if (err === ABORTED || (err instanceof DOMException && err.name === "AbortError")) {
       return { saved, skipped: 0, failed, aborted: true, failureReasons, failedUrl };
+    }
+    // Say where it broke: the ZIP stream's own errors are otherwise
+    // indistinguishable from a fetch error in the failure report.
+    if (err instanceof Error) {
+      err.message += ` (while building the ZIP: ${saved} of ${resolved.length} photos fetched)`;
     }
     throw err;
   }

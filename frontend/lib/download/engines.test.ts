@@ -92,3 +92,49 @@ test("a browser that refuses to write files at all stops the run for a ZIP inste
       (err: unknown) => err instanceof DirectoryRefusedError && /not allowed/.test(String((err as Error).message)),
     );
   }));
+
+test("a photo that fails twice on the network is retried, not counted as failed", async () => {
+  const real = globalThis.fetch;
+  const calls = new Map<string, number>();
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const n = (calls.get(url.split("?")[0]) ?? 0) + 1;
+    calls.set(url.split("?")[0], n);
+    if (n <= 2) throw new TypeError("Failed to fetch");
+    return new Response(new Uint8Array([1, 2, 3]));
+  }) as typeof fetch;
+  try {
+    const { dir, written } = fakeDir();
+    const result = await runDirectoryDownload({
+      dir,
+      items: [item("a", "DSC_1.jpg")],
+      signal: new AbortController().signal,
+    });
+    assert.equal(result.saved, 1);
+    assert.equal(result.failed, 0);
+    assert.deepEqual(written, ["DSC_1.jpg"]);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("a missing photo (404) is not retried", async () => {
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+  try {
+    const { dir } = fakeDir();
+    const result = await runDirectoryDownload({
+      dir,
+      items: [item("a", "DSC_1.jpg")],
+      signal: new AbortController().signal,
+    });
+    assert.equal(result.failed, 1);
+    assert.equal(calls, 1); // item URL has no cold-host rewrite, so a single request
+  } finally {
+    globalThis.fetch = real;
+  }
+});
