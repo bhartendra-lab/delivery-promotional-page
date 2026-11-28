@@ -608,11 +608,12 @@ export function getAllQrCodes() {
  * page. Both the QR and the event must belong to the caller's studio (else 404).
  * Also 409s if the event is already linked to a different QR.
  */
-export function linkQr(qrUniqueId: string, bookingId: string) {
+export function linkQr(qrUniqueId: string, bookingId: string, opts: { replace?: boolean } = {}) {
   return request<{ qr: QrCode }>("/deliverables/assign-qr", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId }),
+    // `replace` frees the QR this event holds now instead of 409ing.
+    body: JSON.stringify({ qr_unique_id: qrUniqueId, booking_id: bookingId, ...(opts.replace ? { replace: true } : {}) }),
   });
 }
 

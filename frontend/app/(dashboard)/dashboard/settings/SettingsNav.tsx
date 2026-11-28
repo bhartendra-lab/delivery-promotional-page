@@ -13,15 +13,36 @@ import {
   IconCaretDown,
   IconGlobe,
   IconGift,
+  IconStar,
+  IconCheck,
   type IconProps,
 } from "@/components/ui/icons";
-import type { Company } from "@/lib/types";
+import type { Company, ReminderStatus } from "@/lib/types";
+import { useReminders } from "@/components/dashboard/RemindersProvider";
 
 export type SettingsItem = {
   label: string;
   href: string;
   Icon: React.FC<IconProps>;
+  /** A setup step: the nav ticks it once the studio has done it. */
+  setup?: SetupStep;
 };
+
+/** The setup steps the nav tracks, each read from the server's reminder status. */
+export type SetupStep = "watermark" | "google" | "social" | "identity";
+
+/** Done or not, per step, from `GET /onboarding/reminder-status`. Null while
+ *  it loads or if it failed: the nav then shows no ticks rather than wrong ones. */
+export function setupDone(status: ReminderStatus | null): Record<SetupStep, boolean> | null {
+  if (!status) return null;
+  const cp = status.branding.checkpoints;
+  return {
+    watermark: status.watermark.preset_count > 0,
+    google: cp.google_business,
+    social: cp.social_links,
+    identity: cp.studio_logo && cp.business_email,
+  };
+}
 
 export type SettingsGroup = {
   heading: string;
@@ -39,11 +60,14 @@ export type SettingsGroup = {
  */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
-    heading: "Brand & Delivery",
+    // Most important first. Studio Identity keeps the /dashboard/settings URL
+    // (existing links land on it), even though it is no longer first here.
+    heading: "Studio setup",
     items: [
-      { label: "Studio Identity", href: "/dashboard/settings", Icon: IconBuilding },
-      { label: "Social Links", href: "/dashboard/settings/social-links", Icon: IconShareNetwork },
-      { label: "Watermark Presets", href: "/dashboard/settings/watermarks", Icon: IconImages },
+      { label: "Watermark Presets", href: "/dashboard/settings/watermarks", Icon: IconImages, setup: "watermark" },
+      { label: "Google Reviews", href: "/dashboard/settings/google", Icon: IconStar, setup: "google" },
+      { label: "Social Links", href: "/dashboard/settings/social-links", Icon: IconShareNetwork, setup: "social" },
+      { label: "Studio Identity", href: "/dashboard/settings", Icon: IconBuilding, setup: "identity" },
     ],
   },
   {
@@ -78,7 +102,7 @@ const CUSTOM_DOMAIN_ITEM: SettingsItem = {
 export function settingsGroupsFor(company: Company | null | undefined): SettingsGroup[] {
   if (!company?.custom_domains_enabled) return SETTINGS_GROUPS;
   return SETTINGS_GROUPS.map((group) =>
-    group.heading === "Brand & Delivery"
+    group.heading === "Studio setup"
       ? { ...group, items: [...group.items, CUSTOM_DOMAIN_ITEM] }
       : group,
   );
@@ -120,6 +144,8 @@ function useSettingsNavGuard() {
   // as "flag off", so the Custom Domain entry appears once the fetch lands
   // rather than flashing in and out.
   const groups = settingsGroupsFor(settings?.company);
+  const { status } = useReminders();
+  const done = setupDone(status);
 
   function handleNavClick(e: React.MouseEvent, href: string) {
     if (href === pathname || !isDirty) return;
@@ -129,18 +155,19 @@ function useSettingsNavGuard() {
     }
   }
 
-  return { pathname, handleNavClick, groups };
+  return { pathname, handleNavClick, groups, done };
 }
 
 export function SettingsNav() {
-  const { pathname, handleNavClick, groups } = useSettingsNavGuard();
+  const { pathname, handleNavClick, groups, done } = useSettingsNavGuard();
 
   return (
     <nav className="space-y-9" aria-label="Settings sections">
       {groups.map((group) => (
         <div key={group.heading}>
-          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
+          <p className="mb-2 flex items-baseline justify-between gap-2 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
             {group.heading}
+            <SetupCount items={group.items} done={done} />
           </p>
           <ul className="space-y-0.5">
             {group.items.map((item) => {
@@ -159,7 +186,8 @@ export function SettingsNav() {
                     }`}
                   >
                     <Icon size={19} className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"} />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    <SetupMark step={item.setup} done={done} />
                   </Link>
                 </li>
               );
@@ -189,7 +217,7 @@ export function SettingsNav() {
  * away via the trigger, not something needed mid-scroll.
  */
 export function SettingsMobileNav() {
-  const { pathname, handleNavClick, groups } = useSettingsNavGuard();
+  const { pathname, handleNavClick, groups, done } = useSettingsNavGuard();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -238,8 +266,9 @@ export function SettingsMobileNav() {
         >
           {groups.map((group) => (
             <div key={group.heading} className="mb-1 last:mb-0">
-              <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
+              <p className="flex items-baseline justify-between gap-2 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-muted)]">
                 {group.heading}
+                <SetupCount items={group.items} done={done} />
               </p>
               <ul>
                 {group.items.map((item) => {
@@ -264,7 +293,8 @@ export function SettingsMobileNav() {
                           size={19}
                           className={active ? "text-[var(--color-brand-navy)]" : "text-[var(--color-brand-muted)]"}
                         />
-                        {item.label}
+                        <span className="flex-1">{item.label}</span>
+                        <SetupMark step={item.setup} done={done} />
                       </Link>
                     </li>
                   );
@@ -275,5 +305,32 @@ export function SettingsMobileNav() {
         </nav>
       )}
     </div>
+  );
+}
+
+/** "3 of 4 done" beside a heading whose items are setup steps. */
+function SetupCount({ items, done }: { items: SettingsItem[]; done: Record<SetupStep, boolean> | null }) {
+  const steps = items.flatMap((i) => (i.setup ? [i.setup] : []));
+  if (!done || steps.length === 0) return null;
+  const n = steps.filter((st) => done[st]).length;
+  return (
+    <span className="normal-case tracking-normal tabular-nums">
+      {n === steps.length ? "All done" : `${n} of ${steps.length} done`}
+    </span>
+  );
+}
+
+/** A setup step's state: a green tick when done, a small dot when not. */
+function SetupMark({ step, done }: { step?: SetupStep; done: Record<SetupStep, boolean> | null }) {
+  if (!step || !done) return null;
+  return done[step] ? (
+    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-success)]/15 text-[var(--color-brand-success)]">
+      <IconCheck size={10} />
+      <span className="sr-only">Done</span>
+    </span>
+  ) : (
+    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-brand-navy)]" title="Not set up yet">
+      <span className="sr-only">Not set up yet</span>
+    </span>
   );
 }

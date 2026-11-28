@@ -72,6 +72,9 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
+  // Nothing to act on: the block takes no room at all rather than saying so.
+  if (merged && merged.rows.length === 0) return null;
+
   return (
     <BlockShell
       title="Needs attention"
@@ -92,8 +95,6 @@ export function NeedsAttention({ onChanged }: { onChanged?: () => void }) {
         <AttentionSkeleton />
       ) : state.status === "error" ? (
         <BlockError message="Could not load what needs your attention." onRetry={reload} />
-      ) : merged && merged.rows.length === 0 ? (
-        <p className="type-body rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3">Nothing needs your attention today.</p>
       ) : (
         <ul className="divide-y divide-[var(--color-brand-border)] overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]">
           {merged?.rows.map((row) => (

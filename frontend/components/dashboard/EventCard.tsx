@@ -135,7 +135,7 @@ export function EventCard({ row, onOpen, locked = false, onArchive, onRestore, o
       >
         {/* Cover */}
         <div
-          className="relative aspect-[16/9] w-full overflow-hidden rounded-t-xl"
+          className="relative aspect-[5/2] w-full overflow-hidden rounded-t-xl"
           style={
             filled
               ? {

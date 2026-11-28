@@ -21,12 +21,15 @@ import { LinkEventModal } from "./LinkEventModal";
  */
 export function QrCard({
   qr,
+  allQrs,
   onLinked,
   onUnlink,
   onDelete,
   notify,
 }: {
   qr: QrCode;
+  /** Every QR of the studio, for the link dialog (which events hold another). */
+  allQrs: QrCode[];
   onLinked: (qrUniqueId: string, assigned: AssignedEventSummary) => void;
   /** Clears the link server-side + patches the card; throws on failure (confirm stays open). */
   onUnlink: (qr: QrCode) => Promise<void>;
@@ -225,6 +228,7 @@ export function QrCard({
         createPortal(
           <LinkEventModal
             qr={qr}
+            allQrs={allQrs}
             onClose={() => setLinkOpen(false)}
             onLinked={(uid, a) => {
               onLinked(uid, a);

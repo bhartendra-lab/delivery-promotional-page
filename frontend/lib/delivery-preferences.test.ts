@@ -376,7 +376,7 @@ test("the face filter row is a toggle under face search, on the access surface o
   const row = faceFilterRow();
   assert.equal(row.type, "toggle");
   assert.equal(row.label, "Face filter");
-  assert.equal(row.description, "Guests can filter their photos by the people in them. Hosts can filter the whole gallery.");
+  assert.equal(row.description, "Guests can filter their photos by the people in them. Full access can filter every photo.");
 });
 
 test("the face filter row is live while face search is on, whatever its own value", () => {

@@ -183,11 +183,11 @@ function EventsList() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 sm:py-10">
+    <div className="mx-auto max-w-6xl space-y-4 px-4 py-6 sm:px-6 sm:py-7">
       <FirstPurchaseNotice />
 
       {/* Header: the title and the page's actions. Scrolls away normally; only the filter bar below stays sticky. */}
-      <section className="dash-rise flex flex-col gap-4 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold leading-tight text-[var(--color-brand-ink)]">Events</h1>
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
           <div className="flex flex-wrap items-center gap-2">
@@ -416,7 +416,7 @@ function CardGridSkeleton() {
           className="overflow-hidden rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)]"
           style={{ animationDelay: `${i * 0.06}s` }}
         >
-          <div className="skeleton aspect-[16/9] w-full rounded-none" />
+          <div className="skeleton aspect-[5/2] w-full rounded-none" />
           <div className="space-y-3 p-4">
             <div className="skeleton h-4 w-2/3 rounded" />
             <div className="skeleton h-3 w-1/2 rounded" />

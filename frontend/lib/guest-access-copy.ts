@@ -64,15 +64,15 @@ export function confirmCopyFor(
     return {
       tone: "warning",
       sentence: `Remove ${who.possessive} full access? They will also stop being a Client and go back to their own photos and public folders.`,
-      confirmLabel: "Confirm",
+      confirmLabel: "Remove access",
     };
   }
   return {
     tone: "warning",
     sentence: givenByStudio
       ? `Remove ${who.possessive} full access? They will go back to their own photos and public folders.`
-      : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Regenerate the passcode if you need to keep them out.`,
-    confirmLabel: "Confirm",
+      : `Remove ${who.possessive} full access? They can unlock it again with the passcode. Change the passcode on the Share tab to keep them out.`,
+    confirmLabel: "Remove access",
   };
 }
 
@@ -136,7 +136,7 @@ export function describeGuestAccess({
   everyPhotoPublic: boolean;
   fullAccessRedundant: boolean;
 }): GuestAccessDescription {
-  const hasFullAccessNote = "Hosts and Clients see every photo.";
+  const hasFullAccessNote = "Clients and anyone with full access see every photo.";
 
   if (everyPhotoPublic) {
     const selfie = faceSearchOn ? " They can also take a selfie to find their own." : "";
@@ -153,7 +153,7 @@ export function describeGuestAccess({
         : "Every photo is already public, so the passcode now only lets family download the full-resolution files.",
       guestsNote: fullAccessRedundant
         ? "Every photo is in a public folder, so every guest already sees the full gallery. Full access options are hidden."
-        : "Every photo is in a public folder, so every guest already sees the full gallery. Hosts and Clients can also download the full-resolution files.",
+        : "Every photo is in a public folder, so every guest already sees the full gallery. Clients and anyone with full access can also download the full-resolution files.",
     };
   }
 

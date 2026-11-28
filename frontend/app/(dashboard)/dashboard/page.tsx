@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DlpUsage } from "@/lib/types";
-import { isCountBasedPlan, isStorageBasedPlan, getUsageSeverity } from "@/lib/types";
+import { isCountBasedPlan } from "@/lib/types";
 import { useCompany } from "@/lib/useCompany";
 import { useChrome } from "@/components/dashboard/ChromeContext";
 import { AddEventModal } from "@/components/dashboard/AddEventModal";
@@ -55,7 +54,7 @@ export default function DashboardHomePage() {
     isCountBasedPlan(dlpUsage?.service_type) && dlpUsage?.remaining != null && dlpUsage.remaining > 0 && dlpUsage.remaining <= 2;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 sm:py-10">
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-7">
       {company?.gmb_skipped === true && !company?.google_place_id && !gmbNudgeDismissed && (
         <div className="flex items-start gap-3 rounded-xl border border-[var(--color-brand-border)] bg-[var(--color-brand-surface-raised)] px-4 py-3">
           <IconGlobe className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-brand-muted)]" />
@@ -66,7 +65,7 @@ export default function DashboardHomePage() {
             </p>
           </div>
           <a
-            href="/dashboard/settings"
+            href="/dashboard/settings/google"
             className="brand-focus shrink-0 text-sm font-semibold text-[var(--color-brand-navy)] underline-offset-2 hover:underline"
           >
             Add it now
@@ -106,12 +105,12 @@ export default function DashboardHomePage() {
         </div>
       )}
 
-      <section className="dash-rise flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold leading-tight text-[var(--color-brand-ink)]">Dashboard</h1>
-          <p className="type-body mt-1.5 max-w-lg">What needs you today, and how your studio is doing.</p>
-        </div>
-        <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+      {/* One short row: the page name and its one action. The plan's event or
+          storage allowance is on the sidebar card (and in the banner above
+          when it has run out), so it is not repeated here. */}
+      <section className="dash-rise flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold leading-tight text-[var(--color-brand-ink)]">Dashboard</h1>
+        <div className="flex shrink-0 items-center gap-3">
           <button
             type="button"
             onClick={openCreate}
@@ -120,8 +119,7 @@ export default function DashboardHomePage() {
             <IconPlus />
             Add event
           </button>
-          {lowRemaining && <p className="type-meta">{dlpUsage?.remaining} events left</p>}
-          <UsagePill usage={dlpUsage} loading={dlpLoading} />
+          {lowRemaining && <p className="type-meta order-first">{dlpUsage?.remaining} events left</p>}
         </div>
       </section>
 
@@ -133,69 +131,4 @@ export default function DashboardHomePage() {
       <WelcomeDialog />
     </div>
   );
-}
-
-function UsagePill({ usage, loading }: { usage: DlpUsage | null; loading: boolean }) {
-  if (loading) {
-    return <div className="skeleton h-5 w-24 rounded-full" />;
-  }
-  if (!usage) return null;
-
-  // Count-based plans (Free / Event-based): "{remaining} remaining" (events).
-  if (isCountBasedPlan(usage.service_type)) {
-    const remaining = usage.remaining ?? 0;
-    const isExhausted = remaining === 0;
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-        style={
-          isExhausted
-            ? { color: "var(--color-brand-danger)", background: "var(--color-brand-danger-soft)" }
-            : { color: "var(--color-brand-navy)", background: "var(--color-brand-navy-soft)" }
-        }
-      >
-        {isExhausted ? <IconWarningCircle size={12} /> : <CountDot />}
-        {remaining} remaining
-      </span>
-    );
-  }
-
-  // Storage-based plans (Monthly / Yearly): "{used}/{limit} GB" with the shared
-  // green → orange → red severity. Never framed as "exhausted" — event creation
-  // isn't gated here.
-  if (isStorageBasedPlan(usage.service_type) && typeof usage.limit === "number") {
-    const limit = usage.limit;
-    const pct = limit > 0 ? Math.min((usage.used / limit) * 100, 100) : 0;
-    const severity = getUsageSeverity(pct);
-    const palette =
-      severity === "danger"
-        ? { color: "var(--color-brand-danger)", background: "var(--color-brand-danger-soft)" }
-        : severity === "warning"
-          ? { color: "var(--color-brand-warning)", background: "var(--color-brand-warning-soft)" }
-          : { color: "var(--color-brand-success)", background: "var(--color-brand-success-soft)" };
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums"
-        style={palette}
-      >
-        <CountDot />
-        {usage.used.toFixed(1)} / {limit.toFixed(1)} GB
-      </span>
-    );
-  }
-
-  // Malformed/absent subscription (no plan type or missing limit): bare count.
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-      style={{ color: "var(--color-brand-muted)", background: "var(--color-brand-track)" }}
-    >
-      <CountDot />
-      {usage.used} this month
-    </span>
-  );
-}
-
-function CountDot() {
-  return <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />;
 }

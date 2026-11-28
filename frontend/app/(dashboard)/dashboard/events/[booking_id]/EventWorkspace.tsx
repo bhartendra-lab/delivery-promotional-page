@@ -1063,6 +1063,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
     [mediaReady, totalCount],
   );
 
+  const setLinkedQr = useCallback((qr: { uniqueId: string; imageUrl: string } | null) => {
+    setMeta((prev) => (prev ? { ...prev, qrUniqueId: qr?.uniqueId, qrImageUrl: qr?.imageUrl } : prev));
+  }, []);
+
   const ctx = useMemo(
     () => ({
       bookingId,
@@ -1111,9 +1115,10 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
       selectAllIds,
       changeRequests,
       openChangeRequest: setRequestDialog,
+      setLinkedQr,
       toast,
     }),
-    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, changeRequests, toast],
+    [bookingId, meta, media, folders, reload, activeFolderId, setActiveFolder, mediaSort, originFilter, uploadOrigins, renameCamera, folderCounts, likedCount, archiveTiers, uploadQualityTier, photoCap, refreshArchiveTiers, likedFilters, setLikedFilters, totalCount, totalForView, hasMore, loadingMore, loadMore, engine, activeLocked, pauseUpload, pub.hasBeenPublished, pub.serviceType, pendingValidity, saveMeta, saveDeliveryPreferences, saveGuestTypes, doRegeneratePasscode, doAddCoupleContacts, setCoverFromUrl, setCoverFromFile, setCoverPosition, coverBusy, deleteMediaIds, selectAllIds, changeRequests, setLinkedQr, toast],
   );
 
   const eventDateLabel = meta?.eventDate != null ? formatDate(meta.eventDate) : null;
@@ -1148,10 +1153,6 @@ export function EventWorkspace({ bookingId }: { bookingId: string }) {
           {/* Tab strip + (mobile) publish row + upload banner form the workspace's
               locked chrome — they never scroll. Only the active tab's body below
               them owns its own scroll region(s). */}
-          {/* Seam band: a deliberate visual gap between the topbar/banner chrome
-              above and the tab strip, so the two read as separate fixed layers
-              rather than one merged bar. */}
-          <div className="h-2.5 shrink-0 bg-[var(--color-brand-bg)]" aria-hidden />
           <EventTabStrip tabs={tabs} active={effectiveTab} onChange={onTabChange} />
 
           {/* Mobile-only publish action row. The same pill is injected into the

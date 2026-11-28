@@ -457,7 +457,7 @@ const DELIVERY_PREFERENCE_SPECS: DeliveryPreferenceSpec[] = [
     label: () => "Face filter",
     // The Studio's approved wording, kept whole although it runs past the
     // ten words the other hints keep to (see the test that allows it).
-    description: () => "Guests can filter their photos by the people in them. Hosts can filter the whole gallery.",
+    description: () => "Guests can filter their photos by the people in them. Full access can filter every photo.",
     // It filters face-matched photos, so without face search there is nothing
     // for it to do: shown OFF and disabled, never hidden, and the event's own
     // value is kept for when face search comes back.
