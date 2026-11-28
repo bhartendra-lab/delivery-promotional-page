@@ -65,7 +65,7 @@ function SettingsChrome({
           column carries its own small top inset instead, since padding
           lives inside an element's border box and doesn't push the border
           itself down. */}
-      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[220px_1fr]">
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <aside className="mb-6 pt-4 lg:mb-0 lg:border-r lg:border-[var(--color-brand-border)] lg:pr-8">
           <div className="lg:hidden">
             <SettingsMobileNav />

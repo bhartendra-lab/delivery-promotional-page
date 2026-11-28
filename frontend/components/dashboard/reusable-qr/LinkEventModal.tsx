@@ -13,19 +13,33 @@ const PAGE_SIZE = 12;
  * search + pagination. Relinking an already-linked QR requires a named
  * confirm ("removed from X"); a first link goes straight through.
  * Deactivated (published-but-paused) events stay selectable but are badged.
+ *
+ * An event holds one QR. Picking an event that already has a DIFFERENT QR
+ * also asks first, naming what happens to that QR, and links with
+ * `replace: true` so the backend frees it in the same request (the event
+ * page's Share view does the same from the other side).
  */
 export function LinkEventModal({
   qr,
+  allQrs,
   onClose,
   onLinked,
 }: {
   qr: QrCode;
+  /** Every QR of the studio, to know which events already hold a different one. */
+  allQrs: QrCode[];
   onClose: () => void;
   /** Patches the QR card in place with the newly-linked event — no full reload. */
   onLinked: (qrUniqueId: string, assigned: AssignedEventSummary) => void;
 }) {
   const currentBookingId = qr.assigned_event?.booking_id ?? null;
   const currentName = qr.assigned_event?.name ?? "";
+  /** Events that hold a QR other than this one, by booking id. */
+  const takenBy = new Map(
+    allQrs
+      .filter((q) => q.unique_id !== qr.unique_id && q.assigned_event)
+      .map((q) => [q.assigned_event!.booking_id, q] as const),
+  );
 
   const [events, setEvents] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,9 +137,9 @@ export function LinkEventModal({
       onClose();
       return;
     }
-    // Replacing an existing link needs the named confirm; a first
-    // link (nothing to remove) goes straight through.
-    if (currentBookingId) setPending(row);
+    // Moving this QR off an event, or taking an event from another QR, needs
+    // the named confirm; a first link onto a free event goes straight through.
+    if (currentBookingId || takenBy.has(row._id)) setPending(row);
     else void link(row);
   }
 
@@ -133,7 +147,7 @@ export function LinkEventModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await linkQr(qr.unique_id, row._id);
+      await linkQr(qr.unique_id, row._id, { replace: takenBy.has(row._id) });
       // Optimistic summary built from the picked booking (getAllBookings already
       // carries name/cover/type/status). delivery_landing_page_id isn't returned
       // there and the card doesn't render it — the canonical value arrives on the
@@ -256,6 +270,7 @@ export function LinkEventModal({
                     // "Selected" badge/border instead.
                     isCurrent={row._id === currentBookingId}
                     isSelected={row._id === pending?._id}
+                    hasOtherQr={takenBy.has(row._id)}
                     disabled={submitting}
                     onClick={() => onPick(row)}
                   />
@@ -288,9 +303,20 @@ export function LinkEventModal({
         {pending && (
           <div className="border-t border-[var(--color-brand-border)] bg-[var(--color-brand-warning-soft)] px-5 py-4">
             <p className="text-[13px] leading-relaxed text-[var(--color-brand-ink)]">
-              Relink this QR to{" "}
-              <span className="font-semibold">{pending.name}</span>? It will be removed from{" "}
-              <span className="font-semibold">{currentName}</span>.
+              {currentBookingId ? (
+                <>
+                  Relink this QR to <span className="font-semibold">{pending.name}</span>? It will be removed from{" "}
+                  <span className="font-semibold">{currentName}</span>, and printed copies will open{" "}
+                  {pending.name} from now on.
+                </>
+              ) : (
+                <>
+                  Link this QR to <span className="font-semibold">{pending.name}</span>?
+                </>
+              )}
+              {takenBy.has(pending._id) && (
+                <>{` ${pending.name} already has a different QR. That QR will be unlinked, and printed copies of it will show \u201cnot linked\u201d.`}</>
+              )}
             </p>
             <div className="mt-3 flex justify-end gap-2.5">
               <button
@@ -310,10 +336,12 @@ export function LinkEventModal({
                 {submitting ? (
                   <>
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/60 border-t-white" />
-                    Relinking…
+                    {currentBookingId ? "Relinking…" : "Linking…"}
                   </>
-                ) : (
+                ) : currentBookingId ? (
                   "Relink"
+                ) : (
+                  "Link"
                 )}
               </button>
             </div>
@@ -328,11 +356,14 @@ function EventOption({
   row,
   isCurrent,
   isSelected,
+  hasOtherQr,
   disabled,
   onClick,
 }: {
   row: Booking;
   isCurrent: boolean;
+  /** The event holds a different QR, which picking it would unlink. */
+  hasOtherQr: boolean;
   /** The tapped-but-unconfirmed reassign target — distinct from `isCurrent`. */
   isSelected: boolean;
   disabled: boolean;
@@ -371,6 +402,11 @@ function EventOption({
               Selected
             </span>
           )
+        )}
+        {hasOtherQr && !isCurrent && (
+          <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+            Has another QR
+          </span>
         )}
         {deactivated && (
           <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">

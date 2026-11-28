@@ -71,13 +71,12 @@ export function BrandingReminderDialog() {
   function handleGoToSettings() {
     const cp = status?.branding.checkpoints;
     if (!cp) return;
-    // Business Email lives on Studio Identity even though the brief doesn't
-    // say where it routes — folded into this branch since that's the tab
-    // it's actually verified on (confirmed by the requester).
-    const identityIncomplete = !cp.google_business || !cp.studio_logo || !cp.business_email;
-    if (identityIncomplete) {
-      const logoOnlyOutstanding = !cp.studio_logo && cp.google_business && cp.business_email;
-      router.push(logoOnlyOutstanding ? "/dashboard/settings#studio-logo" : "/dashboard/settings");
+    // The first missing step, in the Settings menu's own order: Google reviews
+    // has its own page; logo and business email are on Studio Identity.
+    if (!cp.google_business) {
+      router.push("/dashboard/settings/google");
+    } else if (!cp.studio_logo || !cp.business_email) {
+      router.push(!cp.business_email ? "/dashboard/settings" : "/dashboard/settings#studio-logo");
     } else {
       // Only reachable when social_links is the sole outstanding checkpoint.
       router.push("/dashboard/settings/social-links");
