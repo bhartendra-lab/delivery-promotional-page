@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decisionLine, lastDecidedOf, pendingRequestOf, requestChip, requestFormError } from "./change-request.ts";
-import type { ChangeRequest } from "./api";
+import type { ChangeRequest } from "./change-request.ts";
 
 const req = (over: Partial<ChangeRequest>): ChangeRequest => ({
   _id: "r",

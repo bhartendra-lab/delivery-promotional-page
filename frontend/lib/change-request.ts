@@ -3,7 +3,24 @@
  * which request is still open for a type, and the words the event shows for it.
  * The wording never says a change happened before the team decided.
  */
-import type { ChangeRequest, ChangeRequestType } from "./api";
+export type ChangeRequestType = "event_name" | "cover_photo";
+export type ChangeRequestStatus = "pending" | "approved" | "rejected";
+
+/** One request, as the studio sees it. `note` is the team's message once decided. */
+export type ChangeRequest = {
+  _id: string;
+  booking_id: string;
+  type: ChangeRequestType;
+  /** The name, or the cover's URL, when it was asked. */
+  current_value: string;
+  /** The new name, or the new cover's URL. */
+  requested_value: string;
+  reason: string;
+  status: ChangeRequestStatus;
+  note: string | null;
+  decided_at: string | null;
+  createdAt: string;
+};
 
 /** The open (pending) request of this type for the event, or null. At most one exists. */
 export function pendingRequestOf(requests: readonly ChangeRequest[], type: ChangeRequestType): ChangeRequest | null {
